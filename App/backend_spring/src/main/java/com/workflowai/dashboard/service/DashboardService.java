@@ -8,6 +8,7 @@ import com.workflowai.project.Project;
 import com.workflowai.project.ProjectMember;
 import com.workflowai.project.ProjectMemberRepository;
 import com.workflowai.project.ProjectRepository;
+import com.workflowai.project.ProjectRole;
 import com.workflowai.task.Task;
 import com.workflowai.task.TaskRepository;
 import com.workflowai.user.User;
@@ -222,7 +223,10 @@ public class DashboardService {
         }
 
         List<WorkloadEntryDto> result = new ArrayList<>();
-        List<ProjectMember> members = projectMemberRepository.findAllByProjectId(projectId);
+        // 팀원 업무 편중도 화면이므로 심사자는 제외한다(심사자는 업무를 배정받지 않는 평가자).
+        List<ProjectMember> members = projectMemberRepository.findAllByProjectId(projectId).stream()
+            .filter(member -> member.getRole() != ProjectRole.REVIEWER)
+            .toList();
         for (ProjectMember member : members) {
             Long userId = member.getUserId();
             result.add(toWorkloadEntry(userId, byAssignee.remove(userId)));

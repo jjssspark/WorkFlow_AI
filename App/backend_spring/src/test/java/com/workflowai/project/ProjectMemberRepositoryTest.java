@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.workflowai.WorkFlowAiBackendApplication;
 import com.workflowai.user.User;
 import com.workflowai.user.UserRepository;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
@@ -76,5 +77,42 @@ class ProjectMemberRepositoryTest {
 
         // Assert
         assertThat(reviewerOpt).isEmpty();
+    }
+
+    @Test
+    void countByProjectIdAndRoleNotExcludesTheReviewer() {
+        // Arrange
+        User leader = userRepository.save(new User("leader3@example.com", "Leader", "email", "leader3"));
+        User member = userRepository.save(new User("member3@example.com", "Member", "email", "member3"));
+        User reviewer = userRepository.save(new User("reviewer3@example.com", "Reviewer", "email", "reviewer3"));
+        Project project = projectRepository.save(new Project("Test Project", "Type", "Description"));
+
+        projectMemberRepository.save(new ProjectMember(project.getId(), leader.getId(), ProjectRole.LEADER));
+        projectMemberRepository.save(new ProjectMember(project.getId(), member.getId(), ProjectRole.MEMBER));
+        projectMemberRepository.save(new ProjectMember(project.getId(), reviewer.getId(), ProjectRole.REVIEWER));
+
+        // Act
+        long teamSize = projectMemberRepository.countByProjectIdAndRoleNot(project.getId(), ProjectRole.REVIEWER);
+
+        // Assert
+        assertThat(teamSize).isEqualTo(2);
+    }
+
+    @Test
+    void countMembersByProjectIdsExcludesTheReviewer() {
+        // Arrange
+        User leader = userRepository.save(new User("leader2@example.com", "Leader", "email", "leader2"));
+        User reviewer = userRepository.save(new User("reviewer2@example.com", "Reviewer", "email", "reviewer2"));
+        Project project = projectRepository.save(new Project("Test Project 2", "Type", "Description"));
+
+        projectMemberRepository.save(new ProjectMember(project.getId(), leader.getId(), ProjectRole.LEADER));
+        projectMemberRepository.save(new ProjectMember(project.getId(), reviewer.getId(), ProjectRole.REVIEWER));
+
+        // Act
+        var counts = projectMemberRepository.countMembersByProjectIds(List.of(project.getId()));
+
+        // Assert
+        assertThat(counts).hasSize(1);
+        assertThat(counts.get(0).getMemberCount()).isEqualTo(1L);
     }
 }
