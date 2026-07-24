@@ -374,8 +374,10 @@ export function ContributorsView() {
     try {
       // finalPublic/contributionPublic/commentPublic은 보내지 않는다(undefined) — 저장 버튼은
       // 총합/심사자점수/학점만 확정하고, 공개 여부는 별도의 "공개" 토글로만 바뀌어야 한다.
+      // total은 학점 계산기가 계산한 최종 총합이므로 totalScore로 저장한다 — score(AI 기여
+      // 점수)를 여기서 덮어쓰면 안 된다(과거 버그: score 필드를 공유해 기여 점수가 사라졌었다).
       await upsertEvaluationScore(currentProjectId, Number(memberId), {
-        score: total,
+        totalScore: total,
         reviewerScore: reviewerScoreNum,
         grade: draft?.grade || undefined,
       });
