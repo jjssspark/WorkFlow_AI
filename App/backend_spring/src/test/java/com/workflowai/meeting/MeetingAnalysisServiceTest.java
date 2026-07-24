@@ -839,7 +839,9 @@ class MeetingAnalysisServiceTest {
     }
 
     @Test
-    void confirmSaveMarksSavedAtAndNotifiesActorAndLeader() {
+    void confirmSaveMarksSavedAtWithoutSendingASeparateNotification() {
+        // 저장 확정 알림은 보내지 않는다 - 분석 완료 시(MeetingAnalysisPersistence)
+        // 이미 MEETING_ANALYSIS_COMPLETED_NOTIFY_LEADER로 알림이 간 상태라 중복 알림을 막는다.
         UserPrincipal uploader = new UserPrincipal(10L, "uploader@example.com", "박지수");
         SecurityContextHolder.getContext().setAuthentication(
             new UsernamePasswordAuthenticationToken(uploader, null, List.of())
@@ -849,18 +851,14 @@ class MeetingAnalysisServiceTest {
         Meeting meeting = new Meeting(1L, "정기회의", "document", null, "completed", LocalDate.now(), "정기회의", "a.txt", 10L, 10L);
         when(meetingRepository.findByIdAndProjectId(5L, 1L)).thenReturn(Optional.of(meeting));
         when(meetingRepository.save(any(Meeting.class))).thenAnswer(inv -> inv.getArgument(0));
-        when(projectMemberRepository.findByProjectIdAndRole(1L, ProjectRole.LEADER))
-            .thenReturn(Optional.of(new ProjectMember(1L, 99L, ProjectRole.LEADER)));
         MeetingAnalysisService service = newService();
 
         MeetingSaveResponse response = service.confirmSave("demo-project", "5");
 
         assertThat(response.status()).isEqualTo("SAVED");
         assertThat(meeting.getSavedAt()).isNotNull();
-        verify(notificationService).notifyActorAndCounterpart(
-            eq(10L), eq("MEETING_SAVED"), any(), any(),
-            eq(99L), eq("MEETING_SAVED_NOTIFY_LEADER"), any(), any(),
-            eq("meeting"), eq(5L)
+        verify(notificationService, never()).notifyActorAndCounterpart(
+            any(), any(), any(), any(), any(), any(), any(), any(), any(), any()
         );
     }
 
