@@ -7,6 +7,7 @@ import { useAuth } from "../../hooks/useAuth";
 import type { ProjectRoleKo } from "../../api/authTypes";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 import { usePendingApprovalCount } from "../../../leader/libs/hooks/usePendingApprovalCount";
+import { InviteCodeSection } from "./InviteCodeSection";
 
 const ROLE_COLORS: Record<ProjectRoleKo, string> = {
   "팀장": "#3B5BDB",
@@ -124,6 +125,9 @@ export function Sidebar({ active, onSelect, onAI, collapsed, onToggleCollapsed, 
                   })
                 )}
               </div>
+              {role === "팀장" && currentProjectId !== null && (
+                <InviteCodeSection projectId={currentProjectId} />
+              )}
               <div className="border-t" style={{ borderColor: "var(--sidebar-border)" }}>
                 <button
                   onClick={() => { setProjectMenuOpen(false); navigate("/onboarding"); }}

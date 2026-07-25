@@ -32,6 +32,12 @@ vi.mock("../../../leader/libs/hooks/usePendingApprovalCount", () => ({
   usePendingApprovalCount: () => mockPendingApprovalCount.value,
 }));
 
+vi.mock("./InviteCodeSection", () => ({
+  InviteCodeSection: ({ projectId }: { projectId: number }) => (
+    <div data-testid="invite-code-section">invite:{projectId}</div>
+  ),
+}));
+
 const leaderProject: ProjectRoleSummary = { projectId: 1, projectTitle: "팀장 프로젝트", role: "팀장" };
 const memberProject: ProjectRoleSummary = { projectId: 2, projectTitle: "팀원 프로젝트", role: "팀원" };
 const reviewerProject: ProjectRoleSummary = { projectId: 3, projectTitle: "심사 프로젝트", role: "심사자" };
@@ -161,6 +167,24 @@ describe("Sidebar", () => {
     renderSidebar();
     const leaderButton = screen.getByRole("button", { name: "팀장페이지" });
     expect(leaderButton).not.toHaveTextContent("0");
+  });
+
+  it("팀장이 프로젝트 드롭다운을 열면 초대 코드 영역을 보여준다", async () => {
+    setCurrentProject(leaderProject);
+
+    renderSidebar();
+    await userEvent.click(screen.getByText("팀장 프로젝트"));
+
+    expect(screen.getByTestId("invite-code-section")).toHaveTextContent("invite:1");
+  });
+
+  it("팀원에게는 초대 코드 영역을 보여주지 않는다", async () => {
+    setCurrentProject(memberProject);
+
+    renderSidebar();
+    await userEvent.click(screen.getByText("팀원 프로젝트"));
+
+    expect(screen.queryByTestId("invite-code-section")).not.toBeInTheDocument();
   });
 });
 
