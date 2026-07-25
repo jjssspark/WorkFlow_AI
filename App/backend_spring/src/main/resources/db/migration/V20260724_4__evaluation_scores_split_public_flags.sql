@@ -6,7 +6,17 @@
 -- contribution_public=true를 그대로 유지하고, final_public/comment_public은
 -- 새 컬럼이라 기본값(false)으로 시작한다(과다 공개 방지 — 안전한 기본값).
 
-ALTER TABLE evaluation_scores RENAME COLUMN is_public TO contribution_public;
+-- 이미 이 컬럼이 contribution_public으로 개명된 환경(예: 재넘버링 이전 마이그레이션이 먼저
+-- 적용된 공유 DB)에서 재실행해도 안전하도록 존재 여부를 확인한다.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'evaluation_scores' AND column_name = 'is_public'
+    ) THEN
+        ALTER TABLE evaluation_scores RENAME COLUMN is_public TO contribution_public;
+    END IF;
+END $$;
 
 ALTER TABLE evaluation_scores ADD COLUMN IF NOT EXISTS final_public BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE evaluation_scores ADD COLUMN IF NOT EXISTS comment_public BOOLEAN NOT NULL DEFAULT FALSE;

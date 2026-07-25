@@ -94,6 +94,10 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:-root}
       SPRING_FLYWAY_ENABLED: ${SPRING_FLYWAY_ENABLED:-true}
       SPRING_FLYWAY_BASELINE_VERSION: ${SPRING_FLYWAY_BASELINE_VERSION:-20260721.1}
+      # 기본은 false(안전) — 2026-07-24 dev 병합(contribution_score) 때 재넘버링된 마이그레이션이
+      # 이미 옛 번호로 적용된 환경(예: 공유 Supabase)에서만 로컬 .env로 true를 켜서 우회한다.
+      # 정식 해결은 flyway_schema_history 정합화(팀 논의 필요) — 이건 임시 우회다.
+      SPRING_FLYWAY_OUT_OF_ORDER: ${SPRING_FLYWAY_OUT_OF_ORDER:-false}
       WORKFLOW_AI_FASTAPI_URL: http://backend-fastapi:8000
       RAG_INTERNAL_API_KEY: ${RAG_INTERNAL_API_KEY}
       JWT_SECRET: ${JWT_SECRET}
