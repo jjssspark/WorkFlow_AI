@@ -1,0 +1,50 @@
+import { renderHook, waitFor } from "@testing-library/react";
+import { describe, expect, it, vi, beforeEach } from "vitest";
+import { usePendingApprovalCount } from "./usePendingApprovalCount";
+import { fetchPendingApprovalTasks } from "../../../board/libs/utils/taskApi";
+import type { Task } from "../../../board/libs/types/task";
+
+vi.mock("../../../board/libs/utils/taskApi", async () => {
+  const actual = await vi.importActual<typeof import("../../../board/libs/utils/taskApi")>(
+    "../../../board/libs/utils/taskApi"
+  );
+  return { ...actual, fetchPendingApprovalTasks: vi.fn() };
+});
+
+function makeTask(id: string): Task {
+  return {
+    id, title: "제목", status: "inprogress", priority: "medium", assignee: "1",
+    dueDate: "2026-08-01", labels: [], category: "backend", position: 0,
+    pendingApproval: true, startDate: "2026-07-20", extraFields: {},
+  };
+}
+
+describe("usePendingApprovalCount", () => {
+  beforeEach(() => {
+    vi.mocked(fetchPendingApprovalTasks).mockReset();
+  });
+
+  it("returns the number of pending-approval tasks", async () => {
+    vi.mocked(fetchPendingApprovalTasks).mockResolvedValue([makeTask("T1"), makeTask("T2")]);
+
+    const { result } = renderHook(() => usePendingApprovalCount(1));
+
+    await waitFor(() => expect(result.current).toBe(2));
+  });
+
+  it("does not call the API when disabled", async () => {
+    const { result } = renderHook(() => usePendingApprovalCount(1, false));
+
+    expect(result.current).toBe(0);
+    expect(fetchPendingApprovalTasks).not.toHaveBeenCalled();
+  });
+
+  it("silently falls back to 0 when the fetch fails", async () => {
+    vi.mocked(fetchPendingApprovalTasks).mockRejectedValue(new Error("네트워크 오류"));
+
+    const { result } = renderHook(() => usePendingApprovalCount(1));
+
+    await waitFor(() => expect(fetchPendingApprovalTasks).toHaveBeenCalled());
+    expect(result.current).toBe(0);
+  });
+});

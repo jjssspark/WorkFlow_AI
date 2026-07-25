@@ -26,6 +26,12 @@ vi.mock("../../hooks/useAuth", () => ({
   useAuth: () => mockAuth.state,
 }));
 
+const mockPendingApprovalCount = vi.hoisted(() => ({ value: 0 }));
+
+vi.mock("../../../leader/libs/hooks/usePendingApprovalCount", () => ({
+  usePendingApprovalCount: () => mockPendingApprovalCount.value,
+}));
+
 const leaderProject: ProjectRoleSummary = { projectId: 1, projectTitle: "팀장 프로젝트", role: "팀장" };
 const memberProject: ProjectRoleSummary = { projectId: 2, projectTitle: "팀원 프로젝트", role: "팀원" };
 const reviewerProject: ProjectRoleSummary = { projectId: 3, projectTitle: "심사 프로젝트", role: "심사자" };
@@ -60,6 +66,7 @@ describe("Sidebar", () => {
     mockAuth.state.loginWithGoogle.mockClear();
     mockAuth.state.logout.mockClear();
     mockAuth.state.refreshMe.mockClear();
+    mockPendingApprovalCount.value = 0;
   });
 
   it("shows menu labels and logo text when expanded", () => {
@@ -129,6 +136,31 @@ describe("Sidebar", () => {
     renderSidebar();
     expect(screen.getByRole("button", { name: "기여도 분석" })).toBeInTheDocument();
     expect(screen.getByText("평가 (심사자 전용)")).toBeInTheDocument();
+  });
+
+  it("hides the 팀장페이지 menu when the current project role is not leader", () => {
+    setCurrentProject(memberProject, [leaderProject, memberProject]);
+    renderSidebar();
+    expect(screen.queryByRole("button", { name: "팀장페이지" })).not.toBeInTheDocument();
+  });
+
+  it("shows the 팀장페이지 menu for a leader current project", () => {
+    renderSidebar();
+    expect(screen.getByRole("button", { name: "팀장페이지" })).toBeInTheDocument();
+  });
+
+  it("shows a pending-approval count badge on 팀장페이지 when there are pending approvals", () => {
+    mockPendingApprovalCount.value = 3;
+    renderSidebar();
+    const leaderButton = screen.getByRole("button", { name: "팀장페이지" });
+    expect(leaderButton).toHaveTextContent("3");
+  });
+
+  it("hides the pending-approval badge when the count is 0", () => {
+    mockPendingApprovalCount.value = 0;
+    renderSidebar();
+    const leaderButton = screen.getByRole("button", { name: "팀장페이지" });
+    expect(leaderButton).not.toHaveTextContent("0");
   });
 });
 
