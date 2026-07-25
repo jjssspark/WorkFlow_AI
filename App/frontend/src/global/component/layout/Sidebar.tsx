@@ -6,6 +6,7 @@ import type { Tab } from "../../../board/libs/types/task";
 import { useAuth } from "../../hooks/useAuth";
 import type { ProjectRoleKo } from "../../api/authTypes";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
+import { usePendingApprovalCount } from "../../../leader/libs/hooks/usePendingApprovalCount";
 
 const ROLE_COLORS: Record<ProjectRoleKo, string> = {
   "팀장": "#3B5BDB",
@@ -30,10 +31,11 @@ export function Sidebar({ active, onSelect, onAI, collapsed, onToggleCollapsed, 
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const currentProjectName = currentProject?.projectTitle ?? null;
   const role: ProjectRoleKo = currentProject?.role ?? "팀장";
+  const pendingApprovalCount = usePendingApprovalCount(currentProjectId, role === "팀장");
   const navItems = NAV_ITEMS.filter((item) => {
     if (item.activate === false) return false;
     if (item.id === "contributors") return role === "심사자";
-    if (item.id === "completion-approvals") return role === "팀장";
+    if (item.id === "leader") return role === "팀장";
     return true;
   });
 
@@ -143,6 +145,8 @@ export function Sidebar({ active, onSelect, onAI, collapsed, onToggleCollapsed, 
           const showGroup = !collapsed && !rendered.includes(item.group);
           if (showGroup) rendered.push(item.group);
           const isActive = active === item.id;
+          const badgeText =
+            item.id === "leader" && pendingApprovalCount > 0 ? String(pendingApprovalCount) : item.badge;
 
           const button = (
             <button
@@ -157,9 +161,9 @@ export function Sidebar({ active, onSelect, onAI, collapsed, onToggleCollapsed, 
             >
               <item.icon className="w-4 h-4 shrink-0" />
               {!collapsed && <span className="flex-1 font-medium">{item.label}</span>}
-              {!collapsed && item.badge && (
+              {!collapsed && badgeText && (
                 <span className="text-[9px] font-bold px-1.5 py-0.5 rounded" style={{ background: "rgba(112,72,232,0.3)", color: "#A78BFA" }}>
-                  {item.badge}
+                  {badgeText}
                 </span>
               )}
               {!collapsed && item.lock && <Shield className="w-3 h-3 opacity-60" />}
