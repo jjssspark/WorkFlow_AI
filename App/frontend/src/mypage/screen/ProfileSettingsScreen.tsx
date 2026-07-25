@@ -8,6 +8,8 @@ import { ApiRequestError } from "../../global/api/apiClient";
 const AVATAR_MAX_BYTES = 10 * 1024 * 1024;
 const AVATAR_MAX_DIMENSION = 2000;
 const ALLOWED_AVATAR_TYPES = ["image/png", "image/jpeg"];
+const MAX_FIELD_TAGS = 10;
+const MAX_FIELD_TAG_LENGTH = 30;
 
 function readImageDimensions(file: File): Promise<{ width: number; height: number }> {
   return new Promise((resolve, reject) => {
@@ -34,6 +36,7 @@ export function ProfileSettingsScreen() {
   const [githubUsername, setGithubUsername] = useState(user?.githubUsername ?? "");
   const [field, setField] = useState<string[]>(user?.field ?? []);
   const [fieldInput, setFieldInput] = useState("");
+  const [fieldError, setFieldError] = useState<string | null>(null);
 
   const [avatarUrl, setAvatarUrl] = useState(user?.avatarUrl ?? null);
   const [avatarUploading, setAvatarUploading] = useState(false);
@@ -48,8 +51,17 @@ export function ProfileSettingsScreen() {
 
   const addField = () => {
     const trimmed = fieldInput.trim();
+    setFieldError(null);
     if (!trimmed || field.includes(trimmed)) {
       setFieldInput("");
+      return;
+    }
+    if (field.length >= MAX_FIELD_TAGS) {
+      setFieldError(`분야는 최대 ${MAX_FIELD_TAGS}개까지 추가할 수 있습니다.`);
+      return;
+    }
+    if (trimmed.length > MAX_FIELD_TAG_LENGTH) {
+      setFieldError(`분야 하나는 ${MAX_FIELD_TAG_LENGTH}자를 초과할 수 없습니다.`);
       return;
     }
     setField((prev) => [...prev, trimmed]);
@@ -186,24 +198,28 @@ export function ProfileSettingsScreen() {
 
           {/* 분야 */}
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold text-foreground">분야</label>
+            <label className="text-xs font-semibold text-foreground">분야 <span className="font-normal text-muted-foreground">({field.length}/{MAX_FIELD_TAGS})</span></label>
             <div className="flex gap-2">
               <input
                 value={fieldInput}
-                onChange={(e) => setFieldInput(e.target.value)}
+                onChange={(e) => { setFieldInput(e.target.value); setFieldError(null); }}
                 onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addField(); } }}
                 placeholder="예: 백엔드"
-                className="flex-1 rounded-xl border border-border bg-input-background px-3 py-2.5 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                maxLength={MAX_FIELD_TAG_LENGTH}
+                disabled={field.length >= MAX_FIELD_TAGS}
+                className="flex-1 rounded-xl border border-border bg-input-background px-3 py-2.5 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 disabled:opacity-60"
               />
               <button
                 type="button"
                 onClick={addField}
-                className="flex items-center gap-1 px-3 py-2.5 rounded-xl text-xs font-semibold text-white shrink-0 hover:opacity-90 transition-opacity"
+                disabled={field.length >= MAX_FIELD_TAGS}
+                className="flex items-center gap-1 px-3 py-2.5 rounded-xl text-xs font-semibold text-white shrink-0 hover:opacity-90 transition-opacity disabled:opacity-60"
                 style={{ background: "var(--primary)" }}
               >
                 <Plus className="w-3.5 h-3.5" /> 추가
               </button>
             </div>
+            {fieldError && <span className="text-xs text-red-500">{fieldError}</span>}
             {field.length > 0 && (
               <div className="flex flex-wrap gap-1.5 mt-1">
                 {field.map((f) => (

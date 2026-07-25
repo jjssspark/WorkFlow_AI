@@ -25,6 +25,9 @@ public record SignupRequest(
 
     @Pattern(regexp = "(?i)^(MEMBER|REVIEWER)$", message = "가입 유형은 MEMBER 또는 REVIEWER만 선택할 수 있습니다.")
     @Schema(description = "가입 유형: MEMBER(일반 회원) 또는 REVIEWER(심사자, 승인 대기)", example = "MEMBER")
-    String roleType
+    String roleType,
+
+    @Schema(description = "이용약관 동의 여부 (true가 아니면 가입 거부)", example = "true")
+    Boolean termsAgreed
 ) {
 }

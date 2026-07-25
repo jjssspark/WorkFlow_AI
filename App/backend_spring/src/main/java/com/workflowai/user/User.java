@@ -50,6 +50,9 @@ public class User {
     @Column(name = "profile_image_path", length = 255)
     private String profileImagePath;
 
+    @Column(name = "terms_agreed_at")
+    private LocalDateTime termsAgreedAt;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -150,6 +153,14 @@ public class User {
 
     public void setProfileImagePath(String profileImagePath) {
         this.profileImagePath = profileImagePath;
+    }
+
+    public LocalDateTime getTermsAgreedAt() {
+        return termsAgreedAt;
+    }
+
+    public void setTermsAgreedAt(LocalDateTime termsAgreedAt) {
+        this.termsAgreedAt = termsAgreedAt;
     }
 
     public LocalDateTime getCreatedAt() {

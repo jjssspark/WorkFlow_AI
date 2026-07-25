@@ -42,6 +42,8 @@ public class MeController {
     private static final int MAX_NAME_LENGTH = 100;
     private static final int MAX_AFFILIATION_LENGTH = 100;
     private static final int MAX_GITHUB_USERNAME_LENGTH = 100;
+    private static final int MAX_FIELD_TAGS = 10;
+    private static final int MAX_FIELD_TAG_LENGTH = 30;
 
     private final UserRepository userRepository;
     private final ProjectMemberRepository projectMemberRepository;
@@ -121,6 +123,15 @@ public class MeController {
         if (request.githubUsername() != null && request.githubUsername().length() > MAX_GITHUB_USERNAME_LENGTH) {
             return ResponseEntity.badRequest().body(ApiResponse.fail("GITHUB_USERNAME_TOO_LONG", "GitHub 아이디는 " + MAX_GITHUB_USERNAME_LENGTH + "자를 초과할 수 없습니다."));
         }
+        if (request.field() != null) {
+            if (request.field().size() > MAX_FIELD_TAGS) {
+                return ResponseEntity.badRequest().body(ApiResponse.fail("TOO_MANY_FIELD_TAGS", "분야는 최대 " + MAX_FIELD_TAGS + "개까지 등록할 수 있습니다."));
+            }
+            boolean hasOversizedTag = request.field().stream().anyMatch(tag -> tag != null && tag.length() > MAX_FIELD_TAG_LENGTH);
+            if (hasOversizedTag) {
+                return ResponseEntity.badRequest().body(ApiResponse.fail("FIELD_TAG_TOO_LONG", "분야 하나는 " + MAX_FIELD_TAG_LENGTH + "자를 초과할 수 없습니다."));
+            }
+        }
 
         User user = currentUserOrThrow();
         user.setName(request.name().trim());
@@ -181,7 +192,19 @@ public class MeController {
         }
 
         user.setProfileImagePath(storagePath);
-        userRepository.save(user);
+        try {
+            userRepository.save(user);
+        } catch (RuntimeException e) {
+            // DB 저장이 실패하면 방금 올린 오브젝트가 어떤 User에도 연결되지 못한 채 고아로 남는다 —
+            // 실패를 그냥 삼키지 않고 스토리지에서 정리해, 실패한 업로드가 용량만 차지하지 않게 한다.
+            log.error("프로필 사진 경로 저장 실패, 방금 업로드한 Storage 객체를 정리합니다: userId={}, path={}", user.getId(), storagePath, e);
+            try {
+                storageClient.delete(storagePath);
+            } catch (RuntimeException cleanupError) {
+                log.error("업로드 실패 후 Storage 객체 정리도 실패(고아 객체로 남을 수 있음): path={}", storagePath, cleanupError);
+            }
+            return ResponseEntity.status(500).body(ApiResponse.fail("PROFILE_SAVE_FAILED", "프로필 사진 정보를 저장하지 못했습니다."));
+        }
 
         if (previousPath != null) {
             try {

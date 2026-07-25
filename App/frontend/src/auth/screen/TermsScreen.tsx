@@ -1,7 +1,10 @@
-import { useState } from "react";
+import { useEffect, useRef, useState, type UIEvent } from "react";
 import { useNavigate } from "react-router";
 import { ArrowLeft, Check, FileText } from "lucide-react";
 import { SIGNUP_DRAFT_KEY } from "./SignupScreen";
+
+// 끝까지 스크롤했다고 판정하는 여유값(px) — 정확히 바닥에 딱 붙지 않아도(서브픽셀 반올림 등) 통과시킨다.
+const SCROLL_END_THRESHOLD_PX = 8;
 
 const TERMS_SECTIONS = [
   {
@@ -45,8 +48,25 @@ const TERMS_SECTIONS = [
 export function TermsScreen() {
   const navigate = useNavigate();
   const [checked, setChecked] = useState(false);
+  const [scrolledToEnd, setScrolledToEnd] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  const checkScrolledToEnd = (el: HTMLDivElement) => {
+    const reachedEnd = el.scrollHeight - el.scrollTop - el.clientHeight <= SCROLL_END_THRESHOLD_PX;
+    if (reachedEnd) setScrolledToEnd(true);
+  };
+
+  // 내용이 스크롤 없이도 다 보이는 화면(큰 모니터 등)에서는 애초에 스크롤할 게 없으므로 처음부터 통과시킨다.
+  useEffect(() => {
+    if (scrollRef.current) checkScrolledToEnd(scrollRef.current);
+  }, []);
+
+  const handleScroll = (event: UIEvent<HTMLDivElement>) => {
+    checkScrolledToEnd(event.currentTarget);
+  };
 
   const handleAgree = () => {
+    if (!scrolledToEnd) return;
     try {
       const raw = sessionStorage.getItem(SIGNUP_DRAFT_KEY);
       const draft = raw ? JSON.parse(raw) : {};
@@ -80,7 +100,7 @@ export function TermsScreen() {
             </div>
           </div>
 
-          <div className="px-6 sm:px-8 py-6 max-h-[55vh] overflow-y-auto space-y-5">
+          <div ref={scrollRef} onScroll={handleScroll} className="px-6 sm:px-8 py-6 max-h-[55vh] overflow-y-auto space-y-5">
             {TERMS_SECTIONS.map((section) => (
               <div key={section.title}>
                 <h2 className="text-sm font-bold text-foreground mb-1.5">{section.title}</h2>
@@ -90,11 +110,15 @@ export function TermsScreen() {
           </div>
 
           <div className="px-6 sm:px-8 py-5 border-t border-border bg-muted/30">
+            {!scrolledToEnd && (
+              <p className="text-center text-[11px] text-muted-foreground mb-2">약관을 끝까지 스크롤해야 동의할 수 있습니다.</p>
+            )}
             <button
               type="button"
               onClick={handleAgree}
-              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-white text-sm font-semibold transition-opacity hover:opacity-90"
-              style={{ background: "linear-gradient(135deg, #3B5BDB 0%, #4F6EF7 100%)" }}
+              disabled={!scrolledToEnd}
+              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-white text-sm font-semibold transition-opacity hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:opacity-50"
+              style={{ background: scrolledToEnd ? "linear-gradient(135deg, #3B5BDB 0%, #4F6EF7 100%)" : "#C1C9D9" }}
             >
               <div className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${checked ? "border-white bg-white/20" : "border-white/70"}`}>
                 {checked && <Check className="w-3 h-3 text-white" />}

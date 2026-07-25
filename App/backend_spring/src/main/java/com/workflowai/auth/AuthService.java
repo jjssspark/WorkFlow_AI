@@ -4,6 +4,7 @@ import com.workflowai.security.JwtService;
 import com.workflowai.user.User;
 import com.workflowai.user.UserRepository;
 import io.jsonwebtoken.Claims;
+import java.time.LocalDateTime;
 import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -64,9 +65,13 @@ public class AuthService {
         return issueTokens(user);
     }
 
-    /** 이메일/비밀번호 회원가입. REVIEWER는 토큰을 발급하지 않고 승인 대기 상태로만 계정을 만든다. */
+    /**
+     * 이메일/비밀번호 회원가입. REVIEWER는 토큰을 발급하지 않고 승인 대기 상태로만 계정을 만든다.
+     * 이용약관 동의는 클라이언트 UI(스크롤 끝까지 확인)만으로는 우회될 수 있으므로, 여기서 다시 한번
+     * 서버 단에서 필수값으로 검증하고 동의 시각을 DB에 남긴다.
+     */
     @Transactional
-    public SignupResponse signup(String email, String password, String name, String roleType) {
+    public SignupResponse signup(String email, String password, String name, String roleType, boolean termsAgreed) {
         String normalizedEmail = normalizeEmail(email);
         String normalizedName = normalizeName(name);
         String normalizedRoleType = normalizeRoleType(roleType);
@@ -79,6 +84,9 @@ public class AuthService {
         if (password == null || password.length() < MIN_PASSWORD_LENGTH) {
             throw new InvalidSignupInputException("비밀번호는 " + MIN_PASSWORD_LENGTH + "자 이상이어야 합니다.");
         }
+        if (!termsAgreed) {
+            throw new InvalidSignupInputException("이용약관에 동의해야 가입할 수 있습니다.");
+        }
         if (userRepository.existsByEmail(normalizedEmail)) {
             throw new EmailAlreadyExistsException();
         }
@@ -86,6 +94,7 @@ public class AuthService {
         String passwordHash = passwordEncoder.encode(password);
         boolean isReviewerApplication = ROLE_TYPE_REVIEWER.equals(normalizedRoleType);
         User newUser = new User(normalizedEmail, normalizedName, PROVIDER_LOCAL, normalizedEmail, passwordHash);
+        newUser.setTermsAgreedAt(LocalDateTime.now());
         if (isReviewerApplication) {
             newUser.setReviewerStatus(REVIEWER_STATUS_PENDING);
         }
