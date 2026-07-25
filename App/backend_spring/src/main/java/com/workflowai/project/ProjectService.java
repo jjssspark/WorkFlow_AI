@@ -250,8 +250,11 @@ public class ProjectService {
         return toResponse(project);
     }
 
+    /** 팀원 목록(담당자 배정, 기여도 평가 등)이므로 심사자는 제외한다 — 심사자 본인은 평가 대상이 아니다. */
     public List<MemberResponse> members(Long projectId) {
-        List<ProjectMember> members = projectMemberRepository.findAllByProjectId(projectId);
+        List<ProjectMember> members = projectMemberRepository.findAllByProjectId(projectId).stream()
+            .filter(member -> member.getRole() != ProjectRole.REVIEWER)
+            .toList();
         Map<Long, User> usersById = userRepository
             .findAllById(members.stream().map(ProjectMember::getUserId).toList())
             .stream()
@@ -286,7 +289,9 @@ public class ProjectService {
     }
 
     private ProjectResponse toResponse(Project project) {
-        int memberCount = Math.toIntExact(projectMemberRepository.countByProjectId(project.getId()));
+        int memberCount = Math.toIntExact(
+            projectMemberRepository.countByProjectIdAndRoleNot(project.getId(), ProjectRole.REVIEWER)
+        );
         int taskProgress = computeTaskProgress(project.getId());
         return toResponse(project, memberCount, taskProgress);
     }
