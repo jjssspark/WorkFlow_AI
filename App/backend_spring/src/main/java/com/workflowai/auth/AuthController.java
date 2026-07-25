@@ -228,8 +228,10 @@ public class AuthController {
     @PostMapping("/signup")
     public ResponseEntity<ApiResponse<SignupResponse>> signup(@Valid @RequestBody SignupRequest request) {
         try {
+            boolean termsAgreed = Boolean.TRUE.equals(request.termsAgreed());
+            boolean privacyAgreed = Boolean.TRUE.equals(request.privacyAgreed());
             return ResponseEntity.ok(ApiResponse.ok(
-                authService.signup(request.email(), request.password(), request.name(), request.roleType())
+                authService.signup(request.email(), request.password(), request.name(), request.roleType(), termsAgreed, privacyAgreed)
             ));
         } catch (EmailAlreadyExistsException e) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(ApiResponse.fail("EMAIL_ALREADY_EXISTS", e.getMessage()));

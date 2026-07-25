@@ -7,6 +7,10 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 @Entity
 @Table(name = "users")
@@ -32,6 +36,25 @@ public class User {
 
     @Column(name = "reviewer_status", length = 20)
     private String reviewerStatus;
+
+    @Column(name = "affiliation", length = 100)
+    private String affiliation;
+
+    @Column(name = "field_tags", nullable = false)
+    @JdbcTypeCode(SqlTypes.JSON)
+    private List<String> fieldTags = new ArrayList<>();
+
+    @Column(name = "github_username", length = 100)
+    private String githubUsername;
+
+    @Column(name = "profile_image_path", length = 255)
+    private String profileImagePath;
+
+    @Column(name = "terms_agreed_at")
+    private LocalDateTime termsAgreedAt;
+
+    @Column(name = "privacy_agreed_at")
+    private LocalDateTime privacyAgreedAt;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -101,6 +124,54 @@ public class User {
 
     public void setReviewerStatus(String reviewerStatus) {
         this.reviewerStatus = reviewerStatus;
+    }
+
+    public String getAffiliation() {
+        return affiliation;
+    }
+
+    public void setAffiliation(String affiliation) {
+        this.affiliation = affiliation;
+    }
+
+    public List<String> getFieldTags() {
+        return fieldTags;
+    }
+
+    public void setFieldTags(List<String> fieldTags) {
+        this.fieldTags = fieldTags;
+    }
+
+    public String getGithubUsername() {
+        return githubUsername;
+    }
+
+    public void setGithubUsername(String githubUsername) {
+        this.githubUsername = githubUsername;
+    }
+
+    public String getProfileImagePath() {
+        return profileImagePath;
+    }
+
+    public void setProfileImagePath(String profileImagePath) {
+        this.profileImagePath = profileImagePath;
+    }
+
+    public LocalDateTime getTermsAgreedAt() {
+        return termsAgreedAt;
+    }
+
+    public void setTermsAgreedAt(LocalDateTime termsAgreedAt) {
+        this.termsAgreedAt = termsAgreedAt;
+    }
+
+    public LocalDateTime getPrivacyAgreedAt() {
+        return privacyAgreedAt;
+    }
+
+    public void setPrivacyAgreedAt(LocalDateTime privacyAgreedAt) {
+        this.privacyAgreedAt = privacyAgreedAt;
     }
 
     public LocalDateTime getCreatedAt() {

@@ -3,6 +3,7 @@ import { RequireAuth, RequireRole } from "../global/hooks/useAuthGuard";
 import { AppShell } from "../global/component/layout/AppShell";
 import { LoginScreen } from "../auth/screen/LoginScreen";
 import { SignupScreen } from "../auth/screen/SignupScreen";
+import { TermsScreen } from "../auth/screen/TermsScreen";
 import { OnboardingScreen } from "../auth/screen/OnboardingScreen";
 import { ProjectEntryScreen } from "../auth/screen/ProjectEntryScreen";
 import { GoogleCallbackScreen } from "../auth/screen/GoogleCallbackScreen";
@@ -21,10 +22,12 @@ import { MeetingsView } from "../meetings/screen/MeetingsView";
 import { DeliverablesView } from "../deliverables/screen/DeliverablesView";
 import { ContributorsView } from "../contributors/screen/ContributorsView";
 import { MyPageRoute } from "../mypage/screen/MyPageRoute";
+import { ProfileSettingsScreen } from "../mypage/screen/ProfileSettingsScreen";
 
 export const router = createBrowserRouter([
   { path: "/login", element: <LoginScreen /> },
   { path: "/signup", element: <SignupScreen /> },
+  { path: "/terms", element: <TermsScreen /> },
   { path: "/auth/callback", element: <GoogleCallbackScreen /> },
   {
     element: <RequireAuth />,
@@ -61,6 +64,7 @@ export const router = createBrowserRouter([
             ],
           },
           { path: "mypage", element: <MyPageRoute /> },
+          { path: "mypage/settings", element: <ProfileSettingsScreen /> },
         ],
       },
     ],

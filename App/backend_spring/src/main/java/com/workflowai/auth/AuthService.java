@@ -1,12 +1,17 @@
 package com.workflowai.auth;
 
 import com.workflowai.security.JwtService;
+import com.workflowai.task.SupabaseStorageClient;
 import com.workflowai.user.User;
 import com.workflowai.user.UserRepository;
 import io.jsonwebtoken.Claims;
+import java.time.LocalDateTime;
 import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Pattern;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -14,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class AuthService {
+    private static final Logger log = LoggerFactory.getLogger(AuthService.class);
     private static final String PROVIDER_GOOGLE = "google";
     private static final String PROVIDER_DEMO = "demo";
     private static final String PROVIDER_LOCAL = "local";
@@ -21,6 +27,7 @@ public class AuthService {
     private static final String ROLE_TYPE_REVIEWER = "REVIEWER";
     private static final String REVIEWER_STATUS_PENDING = "PENDING";
     private static final int MIN_PASSWORD_LENGTH = 8;
+    private static final int AVATAR_SIGNED_URL_EXPIRES_SECONDS = 24 * 60 * 60;
     private static final Pattern EMAIL_PATTERN = Pattern.compile(
         "^[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}$",
         Pattern.CASE_INSENSITIVE
@@ -31,17 +38,35 @@ public class AuthService {
     private final UserRepository userRepository;
     private final JwtService jwtService;
     private final PasswordEncoder passwordEncoder;
+    private final SupabaseStorageClient storageClient;
 
+    @Autowired
+    public AuthService(
+        GoogleOAuthService googleOAuthService,
+        UserRepository userRepository,
+        JwtService jwtService,
+        PasswordEncoder passwordEncoder,
+        SupabaseStorageClient storageClient
+    ) {
+        this.googleOAuthService = googleOAuthService;
+        this.userRepository = userRepository;
+        this.jwtService = jwtService;
+        this.passwordEncoder = passwordEncoder;
+        this.storageClient = storageClient;
+    }
+
+    /**
+     * storageClient가 추가되기 전 시그니처와의 하위 호환용 생성자. Spring은 위의 @Autowired 생성자로만
+     * 빈을 만들고, 이 생성자는 이 시그니처로 직접 AuthService를 생성하던 기존 코드/테스트가 계속
+     * 동작하도록 남겨둔다. storageClient가 없으면 avatarUrlOrNull()이 null을 반환하도록 방어한다.
+     */
     public AuthService(
         GoogleOAuthService googleOAuthService,
         UserRepository userRepository,
         JwtService jwtService,
         PasswordEncoder passwordEncoder
     ) {
-        this.googleOAuthService = googleOAuthService;
-        this.userRepository = userRepository;
-        this.jwtService = jwtService;
-        this.passwordEncoder = passwordEncoder;
+        this(googleOAuthService, userRepository, jwtService, passwordEncoder, null);
     }
 
     @Transactional
@@ -64,9 +89,17 @@ public class AuthService {
         return issueTokens(user);
     }
 
-    /** 이메일/비밀번호 회원가입. REVIEWER는 토큰을 발급하지 않고 승인 대기 상태로만 계정을 만든다. */
+    /**
+     * 이메일/비밀번호 회원가입. REVIEWER는 토큰을 발급하지 않고 승인 대기 상태로만 계정을 만든다.
+     * 이용약관/개인정보처리방침 동의는 클라이언트 UI(스크롤 끝까지 확인 등)만으로는 우회될 수 있으므로,
+     * 여기서 다시 한번 서버 단에서 각각 필수값으로 검증하고 동의 시각을 DB에 별도 컬럼으로 남긴다.
+     * 필드 자체가 없는 요청(구버전 클라이언트 포함)도 예외 없이 거부한다 — 서버 입장에서는 "구버전이라
+     * 안 보낸 것"과 "우회 시도로 안 보낸 것"을 구분할 방법이 없기 때문이다.
+     */
     @Transactional
-    public SignupResponse signup(String email, String password, String name, String roleType) {
+    public SignupResponse signup(
+        String email, String password, String name, String roleType, boolean termsAgreed, boolean privacyAgreed
+    ) {
         String normalizedEmail = normalizeEmail(email);
         String normalizedName = normalizeName(name);
         String normalizedRoleType = normalizeRoleType(roleType);
@@ -79,6 +112,12 @@ public class AuthService {
         if (password == null || password.length() < MIN_PASSWORD_LENGTH) {
             throw new InvalidSignupInputException("비밀번호는 " + MIN_PASSWORD_LENGTH + "자 이상이어야 합니다.");
         }
+        if (!termsAgreed) {
+            throw new InvalidSignupInputException("이용약관에 동의해야 가입할 수 있습니다.");
+        }
+        if (!privacyAgreed) {
+            throw new InvalidSignupInputException("개인정보처리방침에 동의해야 가입할 수 있습니다.");
+        }
         if (userRepository.existsByEmail(normalizedEmail)) {
             throw new EmailAlreadyExistsException();
         }
@@ -86,6 +125,9 @@ public class AuthService {
         String passwordHash = passwordEncoder.encode(password);
         boolean isReviewerApplication = ROLE_TYPE_REVIEWER.equals(normalizedRoleType);
         User newUser = new User(normalizedEmail, normalizedName, PROVIDER_LOCAL, normalizedEmail, passwordHash);
+        LocalDateTime now = LocalDateTime.now();
+        newUser.setTermsAgreedAt(now);
+        newUser.setPrivacyAgreedAt(now);
         if (isReviewerApplication) {
             newUser.setReviewerStatus(REVIEWER_STATUS_PENDING);
         }
@@ -137,8 +179,27 @@ public class AuthService {
     private AuthTokenResponse issueTokens(User user) {
         String accessToken = jwtService.issueAccessToken(user);
         String refreshToken = jwtService.issueRefreshToken(user);
-        UserSummary summary = new UserSummary(user.getId(), user.getEmail(), user.getName());
+        UserSummary summary = new UserSummary(
+            user.getId(), user.getEmail(), user.getName(),
+            user.getAffiliation(), user.getFieldTags(), user.getGithubUsername(), avatarUrlOrNull(user)
+        );
         return new AuthTokenResponse(accessToken, refreshToken, jwtService.accessTokenTtlSeconds(), summary);
+    }
+
+    /**
+     * 로그인/가입 직후 응답에도 실제 아바타 URL을 채워, 뒤이은 /me 재조회 전까지 프로필 사진이
+     * 잠깐이라도 비어 보이는 것을 막는다. 서명 URL 발급이 실패해도 로그인 자체를 막지 않고 null로 넘긴다.
+     */
+    private String avatarUrlOrNull(User user) {
+        if (user.getProfileImagePath() == null || storageClient == null) {
+            return null;
+        }
+        try {
+            return storageClient.createSignedUrl(user.getProfileImagePath(), AVATAR_SIGNED_URL_EXPIRES_SECONDS, null);
+        } catch (RuntimeException e) {
+            log.error("로그인 응답용 프로필 사진 서명 URL 발급 실패: userId={}, path={}", user.getId(), user.getProfileImagePath(), e);
+            return null;
+        }
     }
 
     private String normalizeEmail(String email) {

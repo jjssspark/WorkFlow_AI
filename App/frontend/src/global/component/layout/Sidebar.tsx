@@ -239,16 +239,24 @@ export function Sidebar({ active, onSelect, onAI, collapsed, onToggleCollapsed, 
       {/* User */}
       <div className="p-3 border-t" style={{ borderColor: "var(--sidebar-border)" }}>
         <div className={`flex items-center gap-2.5 px-2 py-1.5 ${collapsed ? "justify-center" : ""}`}>
-          <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-semibold shrink-0" style={{ background: "#3B5BDB" }}>
-            {(user?.name || "사용자").charAt(0)}
-          </div>
+          {user?.avatarUrl ? (
+            <img src={user.avatarUrl} alt="" className="w-8 h-8 rounded-full object-cover shrink-0" />
+          ) : (
+            <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-semibold shrink-0" style={{ background: "#3B5BDB" }}>
+              {(user?.name || "사용자").charAt(0)}
+            </div>
+          )}
           {!collapsed && (
             <div className="flex-1 min-w-0">
               <div className="text-sm font-medium text-white">{user?.name || "사용자"}</div>
               <div className="text-[10px]" style={{ color: "var(--muted-foreground)" }}>{role}</div>
             </div>
           )}
-          {!collapsed && <Settings className="w-4 h-4 cursor-pointer shrink-0" style={{ color: "var(--muted-foreground)" }} />}
+          {!collapsed && (
+            <button type="button" onClick={() => navigate("/mypage/settings")} aria-label="개인정보 수정">
+              <Settings className="w-4 h-4 cursor-pointer shrink-0 hover:text-white transition-colors" style={{ color: "var(--muted-foreground)" }} />
+            </button>
+          )}
         </div>
       </div>
     </div>
