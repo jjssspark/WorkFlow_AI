@@ -53,6 +53,21 @@ def _format_facts(facts: dict | None) -> str:
 # 달라져 캐시된 답변과 재생성된 답변이 어긋난다. 0건인 항목은 아예 적지 않는다 - "블로커 0건"이
 # 컨텍스트에 있으면 모델이 그걸 근거로 엉뚱한 단정을 한다.
 _STATUS_LABELS = (("blocked", "블로커"), ("inprogress", "진행중"), ("todo", "예정"), ("done", "완료"))
+# project_stats_service와 같은 라벨. 한쪽만 바꾸면 같은 화면에서 표기가 갈린다.
+_UNASSIGNED_LABEL = "미배정"
+
+
+def _format_task_list(title: str, items: list[dict] | None, remaining: int | None) -> list[str]:
+    if not items:
+        return []
+    lines = [f"{title}:"]
+    lines += [
+        f" - {item['due_date']} {item['title']} ({item['assignee_name'] or _UNASSIGNED_LABEL})"
+        for item in items
+    ]
+    if remaining:
+        lines.append(f" - 외 {remaining}건")
+    return lines
 
 
 def _format_stats(stats: dict | None) -> str:
@@ -72,6 +87,21 @@ def _format_stats(stats: dict | None) -> str:
         lines.append(f"블로커 담당자별: {distribution}")
     if stats["due_soon"]:
         lines.append(f"7일 내 마감 {stats['due_soon']}건")
+    if stats.get("overdue"):
+        lines.append(f"지난 마감 {stats['overdue']}건")
+
+    # 마감일은 청크에 없어 검색이 못 찾는다. 확정 목록을 넣어야 "마감 임박 뭐야"에 답할 수 있다.
+    # 담당자를 함께 적어야 개인화 질문에서 모델이 본인 것을 골라낼 수 있다.
+    lines += _format_task_list(
+        "마감 임박 업무(7일 내, 가까운 순)",
+        stats.get("due_soon_list"),
+        stats.get("due_soon_remaining"),
+    )
+    lines += _format_task_list(
+        "지난 마감 미완료 업무(최근 순)",
+        stats.get("overdue_list"),
+        stats.get("overdue_remaining"),
+    )
 
     # 프로젝트 전체 집계만으로는 "내 업무 몇 건"에 답할 재료가 없어 모델이 출처 표본을 센다
     # (실측: 실제 30건인데 "총 5건"). 개인화 질문일 때만 질문자 몫을 따로 넣는다.
