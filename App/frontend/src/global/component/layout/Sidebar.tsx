@@ -7,6 +7,7 @@ import { useAuth } from "../../hooks/useAuth";
 import type { ProjectRoleKo } from "../../api/authTypes";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 import { usePendingApprovalCount } from "../../../leader/libs/hooks/usePendingApprovalCount";
+import { InviteCodeSection } from "./InviteCodeSection";
 
 const ROLE_COLORS: Record<ProjectRoleKo, string> = {
   "팀장": "#3B5BDB",
@@ -30,7 +31,10 @@ export function Sidebar({ active, onSelect, onAI, collapsed, onToggleCollapsed, 
   const { user, projectRoles, currentProjectId, currentProject, selectProject } = useAuth();
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const currentProjectName = currentProject?.projectTitle ?? null;
-  const role: ProjectRoleKo = currentProject?.role ?? "팀장";
+  // 기본값을 "팀장"으로 두면 프로젝트가 아직 선택되지 않은 순간에 팀장 전용 메뉴와 초대 코드가
+  // 노출된다(라우트 가드는 막지만 화면은 이미 보인 뒤다). 권한 판정과 같은 순서로 폴백하고,
+  // 그래도 모르면 최소 권한인 "팀원"으로 둔다 - useAuthGuard.RequireRole 참고.
+  const role: ProjectRoleKo = currentProject?.role ?? projectRoles[0]?.role ?? "팀원";
   const pendingApprovalCount = usePendingApprovalCount(currentProjectId, role === "팀장");
   const navItems = NAV_ITEMS.filter((item) => {
     if (item.activate === false) return false;
@@ -124,6 +128,9 @@ export function Sidebar({ active, onSelect, onAI, collapsed, onToggleCollapsed, 
                   })
                 )}
               </div>
+              {role === "팀장" && currentProjectId !== null && (
+                <InviteCodeSection projectId={currentProjectId} />
+              )}
               <div className="border-t" style={{ borderColor: "var(--sidebar-border)" }}>
                 <button
                   onClick={() => { setProjectMenuOpen(false); navigate("/onboarding"); }}
