@@ -109,6 +109,7 @@ export function SignupScreen() {
           name: name.trim(),
           roleType: isProfessor ? "REVIEWER" : "MEMBER",
           termsAgreed: agreed,
+          privacyAgreed: agreed,
         }),
       });
 

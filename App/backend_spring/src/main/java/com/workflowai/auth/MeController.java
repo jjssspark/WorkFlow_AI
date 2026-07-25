@@ -41,9 +41,11 @@ public class MeController {
     private static final int AVATAR_MAX_DIMENSION = 2000;
     private static final int MAX_NAME_LENGTH = 100;
     private static final int MAX_AFFILIATION_LENGTH = 100;
-    private static final int MAX_GITHUB_USERNAME_LENGTH = 100;
     private static final int MAX_FIELD_TAGS = 10;
     private static final int MAX_FIELD_TAG_LENGTH = 30;
+    // GitHub 아이디 규칙: 영숫자로 시작, 하이픈은 연속/끝에 올 수 없음, 최대 39자.
+    private static final java.util.regex.Pattern GITHUB_USERNAME_PATTERN =
+        java.util.regex.Pattern.compile("^[a-zA-Z0-9](?:[a-zA-Z0-9]|-(?=[a-zA-Z0-9])){0,38}$");
 
     private final UserRepository userRepository;
     private final ProjectMemberRepository projectMemberRepository;
@@ -120,27 +122,48 @@ public class MeController {
         if (request.affiliation() != null && request.affiliation().length() > MAX_AFFILIATION_LENGTH) {
             return ResponseEntity.badRequest().body(ApiResponse.fail("AFFILIATION_TOO_LONG", "소속은 " + MAX_AFFILIATION_LENGTH + "자를 초과할 수 없습니다."));
         }
-        if (request.githubUsername() != null && request.githubUsername().length() > MAX_GITHUB_USERNAME_LENGTH) {
-            return ResponseEntity.badRequest().body(ApiResponse.fail("GITHUB_USERNAME_TOO_LONG", "GitHub 아이디는 " + MAX_GITHUB_USERNAME_LENGTH + "자를 초과할 수 없습니다."));
+        String githubUsername = blankToNull(request.githubUsername());
+        if (githubUsername != null && !GITHUB_USERNAME_PATTERN.matcher(githubUsername).matches()) {
+            return ResponseEntity.badRequest().body(ApiResponse.fail(
+                "GITHUB_USERNAME_INVALID", "GitHub 아이디 형식이 올바르지 않습니다(영숫자와 하이픈만, 하이픈으로 시작/연속/끝날 수 없음, 최대 39자)."
+            ));
         }
-        if (request.field() != null) {
-            if (request.field().size() > MAX_FIELD_TAGS) {
-                return ResponseEntity.badRequest().body(ApiResponse.fail("TOO_MANY_FIELD_TAGS", "분야는 최대 " + MAX_FIELD_TAGS + "개까지 등록할 수 있습니다."));
-            }
-            boolean hasOversizedTag = request.field().stream().anyMatch(tag -> tag != null && tag.length() > MAX_FIELD_TAG_LENGTH);
-            if (hasOversizedTag) {
-                return ResponseEntity.badRequest().body(ApiResponse.fail("FIELD_TAG_TOO_LONG", "분야 하나는 " + MAX_FIELD_TAG_LENGTH + "자를 초과할 수 없습니다."));
-            }
+
+        List<String> normalizedFieldTags = normalizeFieldTags(request.field());
+        if (normalizedFieldTags.size() > MAX_FIELD_TAGS) {
+            return ResponseEntity.badRequest().body(ApiResponse.fail("TOO_MANY_FIELD_TAGS", "분야는 최대 " + MAX_FIELD_TAGS + "개까지 등록할 수 있습니다."));
+        }
+        boolean hasOversizedTag = normalizedFieldTags.stream().anyMatch(tag -> tag.length() > MAX_FIELD_TAG_LENGTH);
+        if (hasOversizedTag) {
+            return ResponseEntity.badRequest().body(ApiResponse.fail("FIELD_TAG_TOO_LONG", "분야 하나는 " + MAX_FIELD_TAG_LENGTH + "자를 초과할 수 없습니다."));
         }
 
         User user = currentUserOrThrow();
         user.setName(request.name().trim());
         user.setAffiliation(blankToNull(request.affiliation()));
-        user.setFieldTags(request.field() == null ? List.of() : request.field());
-        user.setGithubUsername(blankToNull(request.githubUsername()));
+        user.setFieldTags(normalizedFieldTags);
+        user.setGithubUsername(githubUsername);
         userRepository.save(user);
 
         return ResponseEntity.ok(ApiResponse.ok(toSummary(user)));
+    }
+
+    /** null/공백 태그를 걸러내고, 앞뒤 공백을 정리한 뒤 중복을 제거한다(먼저 나온 값을 유지). */
+    private List<String> normalizeFieldTags(List<String> rawTags) {
+        if (rawTags == null) {
+            return List.of();
+        }
+        java.util.LinkedHashSet<String> deduped = new java.util.LinkedHashSet<>();
+        for (String tag : rawTags) {
+            if (tag == null) {
+                continue;
+            }
+            String trimmed = tag.trim();
+            if (!trimmed.isEmpty()) {
+                deduped.add(trimmed);
+            }
+        }
+        return new java.util.ArrayList<>(deduped);
     }
 
     @Operation(summary = "프로필 사진 업로드", description = "PNG/JPG, 10MB 이하, 가로세로 2000px 이하만 허용한다.")

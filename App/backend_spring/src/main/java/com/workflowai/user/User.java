@@ -53,6 +53,9 @@ public class User {
     @Column(name = "terms_agreed_at")
     private LocalDateTime termsAgreedAt;
 
+    @Column(name = "privacy_agreed_at")
+    private LocalDateTime privacyAgreedAt;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -161,6 +164,14 @@ public class User {
 
     public void setTermsAgreedAt(LocalDateTime termsAgreedAt) {
         this.termsAgreedAt = termsAgreedAt;
+    }
+
+    public LocalDateTime getPrivacyAgreedAt() {
+        return privacyAgreedAt;
+    }
+
+    public void setPrivacyAgreedAt(LocalDateTime privacyAgreedAt) {
+        this.privacyAgreedAt = privacyAgreedAt;
     }
 
     public LocalDateTime getCreatedAt() {

@@ -28,6 +28,9 @@ public record SignupRequest(
     String roleType,
 
     @Schema(description = "이용약관 동의 여부 (true가 아니면 가입 거부)", example = "true")
-    Boolean termsAgreed
+    Boolean termsAgreed,
+
+    @Schema(description = "개인정보처리방침 동의 여부 (true가 아니면 가입 거부)", example = "true")
+    Boolean privacyAgreed
 ) {
 }

@@ -10,6 +10,8 @@ const AVATAR_MAX_DIMENSION = 2000;
 const ALLOWED_AVATAR_TYPES = ["image/png", "image/jpeg"];
 const MAX_FIELD_TAGS = 10;
 const MAX_FIELD_TAG_LENGTH = 30;
+// GitHub 아이디 규칙: 영숫자로 시작, 하이픈은 연속/끝에 올 수 없음, 최대 39자.
+const GITHUB_USERNAME_PATTERN = /^[a-zA-Z0-9](?:[a-zA-Z0-9]|-(?=[a-zA-Z0-9])){0,38}$/;
 
 function readImageDimensions(file: File): Promise<{ width: number; height: number }> {
   return new Promise((resolve, reject) => {
@@ -34,6 +36,7 @@ export function ProfileSettingsScreen() {
   const [name, setName] = useState(user?.name ?? "");
   const [affiliation, setAffiliation] = useState(user?.affiliation ?? "");
   const [githubUsername, setGithubUsername] = useState(user?.githubUsername ?? "");
+  const [githubError, setGithubError] = useState<string | null>(null);
   const [field, setField] = useState<string[]>(user?.field ?? []);
   const [fieldInput, setFieldInput] = useState("");
   const [fieldError, setFieldError] = useState<string | null>(null);
@@ -113,6 +116,12 @@ export function ProfileSettingsScreen() {
 
   const handleSave = async () => {
     if (!name.trim() || saving) return;
+    const trimmedGithub = githubUsername.trim();
+    setGithubError(null);
+    if (trimmedGithub && !GITHUB_USERNAME_PATTERN.test(trimmedGithub)) {
+      setGithubError("GitHub 아이디 형식이 올바르지 않습니다(영숫자와 하이픈만, 하이픈으로 시작/연속/끝날 수 없음, 최대 39자).");
+      return;
+    }
     setSaving(true);
     setSaveError(null);
     setSaved(false);
@@ -121,7 +130,7 @@ export function ProfileSettingsScreen() {
         name: name.trim(),
         affiliation: affiliation.trim() || null,
         field,
-        githubUsername: githubUsername.trim() || null,
+        githubUsername: trimmedGithub || null,
       });
       await refreshMe();
       setSaved(true);
@@ -239,10 +248,11 @@ export function ProfileSettingsScreen() {
             <label className="text-xs font-semibold text-foreground">GitHub 아이디</label>
             <input
               value={githubUsername}
-              onChange={(e) => setGithubUsername(e.target.value)}
+              onChange={(e) => { setGithubUsername(e.target.value); setGithubError(null); }}
               placeholder="예: octocat"
               className="w-full rounded-xl border border-border bg-input-background px-3 py-2.5 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
             />
+            {githubError && <span className="text-xs text-red-500">{githubError}</span>}
           </div>
 
           {saveError && (
