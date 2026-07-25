@@ -6,7 +6,7 @@ import type { Tab } from "../../../board/libs/types/task";
 export const NAV_ITEMS = [
   { id: "dashboard", label: "대시보드", icon: LayoutDashboard, group: "planning" },
   { id: "board", label: "업무 보드", icon: Columns3, group: "planning" },
-  { id: "completion-approvals", label: "완료 승인", icon: ClipboardCheck, group: "planning" },
+  { id: "leader", label: "팀장페이지", icon: ClipboardCheck, group: "planning" },
   { id: "meetings", label: "회의록 AI", icon: FileAudio, group: "ai", badge: "AI" },
   { id: "deliverables", label: "산출물 생성", icon: Package, group: "ai", badge: "AI", activate: false },
   { id: "github", label: "GitHub 연동", icon: Github, group: "dev", activate: false },
@@ -19,6 +19,7 @@ export const TAB_TITLES: Record<Tab, string> = {
   board: "업무 보드",
   "completion-approvals": "완료 승인",
   roadmap: "로드맵",
+  leader: "팀장페이지",
   meetings: "회의록 AI",
   deliverables: "산출물 생성",
   github: "GitHub 연동",
