@@ -169,6 +169,16 @@ describe("Sidebar", () => {
     expect(leaderButton).not.toHaveTextContent("0");
   });
 
+  it("선택된 프로젝트가 없으면 팀장 전용 메뉴를 보여주지 않는다", () => {
+    mockAuth.state.projectRoles = [memberProject];
+    mockAuth.state.currentProjectId = null;
+    mockAuth.state.currentProject = null;
+
+    renderSidebar();
+
+    expect(screen.queryByRole("button", { name: "팀장페이지" })).not.toBeInTheDocument();
+  });
+
   it("팀장이 프로젝트 드롭다운을 열면 초대 코드 영역을 보여준다", async () => {
     setCurrentProject(leaderProject);
 
