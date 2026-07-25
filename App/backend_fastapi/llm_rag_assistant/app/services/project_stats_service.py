@@ -42,8 +42,12 @@ _UNASSIGNED_LABEL = "미배정"
 _BLOCKED_STATUS = "blocked"
 
 
-async def fetch_project_stats(pool, project_id: int) -> dict | None:
+async def fetch_project_stats(pool, project_id: int, assignee_id: int | None = None) -> dict | None:
     """프로젝트 전체 업무를 집계한다. 조회에 실패하거나 업무가 없으면 None.
+
+    assignee_id를 주면 그 사람 몫을 "mine"으로 함께 접는다. 쿼리는 이미 담당자별로
+    묶여 있어 같은 결과에서 골라내면 되므로 DB 왕복이 늘지 않는다. 이게 없으면
+    "내 업무 알려줘"에 모델이 출처 표본 5건을 세어 "총 5건"이라 답한다(실제 30건).
 
     집계는 부가 정보이므로 실패해도 예외를 올리지 않는다 - 답변 품질만 떨어지고
     응답 자체는 정상적으로 나간다(task_facts_service와 같은 방침).
@@ -68,21 +72,37 @@ async def fetch_project_stats(pool, project_id: int) -> dict | None:
     blocked_by_assignee: dict[int | None, tuple[str, int]] = {}
     total = 0
     due_soon = 0
+    mine_by_status: dict[str, int] = {}
+    mine_total = 0
+    mine_due_soon = 0
 
     for row in rows:
         count = row["cnt"]
+        # 행의 담당자를 파라미터와 같은 이름으로 두면 아래 블로커 집계가 질문자 ID를 덮어써
+        # 이후 행이 엉뚱한 사람과 비교된다(실측: 본인 30건이 25건으로 나옴).
+        row_assignee_id = row["assignee_id"]
         total += count
         due_soon += row["due_soon_cnt"]
         by_status[row["status"]] = by_status.get(row["status"], 0) + count
+        if assignee_id is not None and row_assignee_id == assignee_id:
+            mine_total += count
+            mine_due_soon += row["due_soon_cnt"]
+            mine_by_status[row["status"]] = mine_by_status.get(row["status"], 0) + count
         if row["status"] == _BLOCKED_STATUS:
-            assignee_id = row["assignee_id"]
             name = row["assignee_name"] or _UNASSIGNED_LABEL
-            _, prev = blocked_by_assignee.get(assignee_id, (name, 0))
-            blocked_by_assignee[assignee_id] = (name, prev + count)
+            _, prev = blocked_by_assignee.get(row_assignee_id, (name, 0))
+            blocked_by_assignee[row_assignee_id] = (name, prev + count)
 
     return {
         "total": total,
         "by_status": by_status,
         "blocked_by_assignee": sorted(blocked_by_assignee.values(), key=lambda nc: -nc[1]),
         "due_soon": due_soon,
+        # 담당 업무가 0건이면 개인 블록 자체를 넣지 않는다. "내 업무 0건"이 컨텍스트에 있으면
+        # 모델이 그걸 근거로 단정한다(_format_stats의 0건 항목 생략과 같은 이유).
+        "mine": (
+            {"total": mine_total, "by_status": mine_by_status, "due_soon": mine_due_soon}
+            if mine_total
+            else None
+        ),
     }
