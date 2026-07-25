@@ -636,11 +636,6 @@ async def test_answer_question_snippet_uses_original_content_not_facts() -> None
     assert result.sources[0].content_snippet == "로그인 API 구현"
 
 
-def test_answer_cache_schema_version_bumped_for_facts_in_prompt() -> None:
-    """프롬프트 구성이 바뀌었으므로 버전을 올리지 않으면 배포 후 30분간 이전 답변이 반환된다."""
-    assert _ANSWER_CACHE_SCHEMA_VERSION == "v4"
-
-
 _MULTITURN_HISTORY = [
     {"role": "user", "content": "내 업무가 뭐야?"},
     {"role": "assistant", "content": "로그인 API 구현 업무가 있습니다"},
@@ -734,3 +729,92 @@ async def test_rewrite_is_skipped_without_history() -> None:
 
     mock_rewrite.assert_not_awaited()
     assert embed.await_args.args[0] == "내 업무가 뭐야?"
+
+
+@pytest.mark.asyncio
+async def test_project_stats_are_passed_to_the_generator() -> None:
+    """검색은 상위 5건만 본다. 집계를 따로 넘기지 않으면 '몇 건이야'에 답할 수 없다."""
+    stats = {"total": 20, "by_status": {"blocked": 12}, "blocked_by_assignee": [], "due_soon": 0}
+
+    with (
+        patch(
+            "llm_rag_assistant.app.services.chat_service.embed_text",
+            new=AsyncMock(return_value=[0.1]),
+        ),
+        patch(
+            "llm_rag_assistant.app.services.chat_service.search_similar_chunks",
+            new=AsyncMock(return_value=[]),
+        ),
+        patch(
+            "llm_rag_assistant.app.services.chat_service.fetch_project_stats",
+            new=AsyncMock(return_value=stats),
+        ) as mock_stats,
+        patch(
+            "llm_rag_assistant.app.services.chat_service.generate_answer",
+            new=AsyncMock(return_value="블로커는 12건입니다"),
+        ) as mock_generate,
+    ):
+        await answer_question(object(), project_id=5, question="블로커 몇 건이야?")
+
+    assert mock_stats.await_args.args[1] == 5
+    assert mock_generate.await_args.kwargs["stats"] == stats
+
+
+@pytest.mark.asyncio
+async def test_answer_is_generated_even_when_stats_are_unavailable() -> None:
+    """집계는 부가 정보다. DB 장애로 못 가져와도 기존 RAG 답변은 그대로 나가야 한다."""
+    with (
+        patch(
+            "llm_rag_assistant.app.services.chat_service.embed_text",
+            new=AsyncMock(return_value=[0.1]),
+        ),
+        patch(
+            "llm_rag_assistant.app.services.chat_service.search_similar_chunks",
+            new=AsyncMock(return_value=[]),
+        ),
+        patch(
+            "llm_rag_assistant.app.services.chat_service.fetch_project_stats",
+            new=AsyncMock(return_value=None),
+        ),
+        patch(
+            "llm_rag_assistant.app.services.chat_service.generate_answer",
+            new=AsyncMock(return_value="답변"),
+        ) as mock_generate,
+    ):
+        result = await answer_question(object(), project_id=5, question="질문")
+
+    assert result.answer == "답변"
+    assert mock_generate.await_args.kwargs["stats"] is None
+
+
+@pytest.mark.asyncio
+async def test_stats_are_not_queried_on_cache_hit() -> None:
+    """집계 SQL은 매 질의에 붙는 비용이다. 캐시 히트면 왕복이 늘지 않아야 한다."""
+    cached = RagQueryResponse(answer="캐시된 답변", sources=[]).model_dump_json()
+    epoch_key = "rag_epoch:5"
+    redis = _FakeAsyncRedis({epoch_key: "1"})
+    redis.store[_answer_cache_key(5, None, "질문", "1")] = cached
+
+    with (
+        patch(
+            "llm_rag_assistant.app.services.chat_service.get_async_redis_client",
+            return_value=redis,
+        ),
+        patch(
+            "llm_rag_assistant.app.services.chat_service.fetch_project_stats",
+            new=AsyncMock(return_value=None),
+        ) as mock_stats,
+    ):
+        result = await answer_question(object(), project_id=5, question="질문")
+
+    assert result.answer == "캐시된 답변"
+    mock_stats.assert_not_awaited()
+
+
+def test_cache_schema_version_matches_the_current_prompt_shape() -> None:
+    """프롬프트 구성이 바뀌었는데 버전을 안 올리면 TTL 30분 동안 옛 답변이 계속 나간다.
+
+    이 테스트는 실패하라고 있는 것이다 - 프롬프트를 건드리면 여기서 걸리고, 그때 버전을
+    올렸는지 스스로 확인하게 된다. 값만 고쳐 통과시키지 말 것.
+    """
+    assert _ANSWER_CACHE_SCHEMA_VERSION == "v5"
