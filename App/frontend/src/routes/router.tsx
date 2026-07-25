@@ -7,6 +7,7 @@ import { TermsScreen } from "../auth/screen/TermsScreen";
 import { OnboardingScreen } from "../auth/screen/OnboardingScreen";
 import { ProjectEntryScreen } from "../auth/screen/ProjectEntryScreen";
 import { GoogleCallbackScreen } from "../auth/screen/GoogleCallbackScreen";
+import { InviteAcceptScreen } from "../auth/screen/InviteAcceptScreen";
 import { DashboardView } from "../dashboard/screen/DashboardView";
 import { AllTasksPage } from "../dashboard/screen/detail/AllTasksPage";
 import { ProgressPage } from "../dashboard/screen/detail/ProgressPage";
@@ -34,6 +35,7 @@ export const router = createBrowserRouter([
     children: [
       { path: "/onboarding", element: <OnboardingScreen /> },
       { path: "/projects", element: <ProjectEntryScreen /> },
+      { path: "/invite/:token", element: <InviteAcceptScreen /> },
       {
         element: <AppShell />,
         children: [
