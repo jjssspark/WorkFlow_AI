@@ -24,17 +24,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # setup-node의 cache: pnpm 이 PATH에서 pnpm을 찾으므로 corepack을 먼저 켠다.
-      # 버전은 package.json의 packageManager(pnpm@10.34.5)를 그대로 따른다.
+      # pnpm 버전은 package.json의 packageManager(pnpm@10.34.5)를 그대로 따른다.
       - name: Enable corepack
         run: corepack enable
         working-directory: .
 
+      # 의도적으로 cache: pnpm 을 쓰지 않는다. setup-node가 post 단계에서 pnpm store
+      # 경로를 찾지 못해 스텝이 failure로 남는다(캐시는 저장되지도 않는다).
+      # 전체 실행이 1분 이내라 캐시 이득보다 게이트가 항상 초록인 편이 낫다.
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-          cache: pnpm
-          cache-dependency-path: App/frontend/pnpm-lock.yaml
 
       # --frozen-lockfile: package.json과 락파일이 어긋나면 여기서 실패한다.
       # 이 불일치로도 배포가 깨진 적이 있다(2026-07-24, @testing-library/dom).

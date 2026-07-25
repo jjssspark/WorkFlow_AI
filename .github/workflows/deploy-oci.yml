@@ -48,11 +48,10 @@ jobs:
         run: corepack enable
         working-directory: .
 
+      # cache: pnpm 미사용 이유는 frontend-tests.yml 주석 참고.
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-          cache: pnpm
-          cache-dependency-path: App/frontend/pnpm-lock.yaml
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
