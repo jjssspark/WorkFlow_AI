@@ -45,8 +45,20 @@ class _RaisingPool:
         return _RaisingConn()
 
 
-def _row(status: str, name: str | None, count: int, due_soon: int = 0) -> dict:
-    return {"status": status, "assignee_name": name, "cnt": count, "due_soon_cnt": due_soon}
+def _row(
+    status: str,
+    name: str | None,
+    count: int,
+    due_soon: int = 0,
+    assignee_id: int | None = None,
+) -> dict:
+    return {
+        "status": status,
+        "assignee_id": assignee_id if assignee_id is not None else (hash(name) if name else None),
+        "assignee_name": name,
+        "cnt": count,
+        "due_soon_cnt": due_soon,
+    }
 
 
 @pytest.mark.asyncio
@@ -78,6 +90,30 @@ async def test_groups_blocked_tasks_by_assignee_most_first() -> None:
     stats = await fetch_project_stats(pool, 1)
 
     assert stats["blocked_by_assignee"] == [("허영주", 8), ("김팀원", 4), ("미배정", 1)]
+
+
+@pytest.mark.asyncio
+async def test_keeps_same_named_assignees_apart() -> None:
+    pool = _FakePool(_FakeConn([
+        _row("blocked", "허영주", 8, assignee_id=1),
+        _row("blocked", "허영주", 4, assignee_id=2),
+    ]))
+
+    stats = await fetch_project_stats(pool, 1)
+
+    assert stats["blocked_by_assignee"] == [("허영주", 8), ("허영주", 4)]
+
+
+@pytest.mark.asyncio
+async def test_due_soon_window_is_half_open() -> None:
+    conn = _FakeConn([_row("todo", "허영주", 1)])
+
+    await fetch_project_stats(_FakePool(conn), 1)
+
+    query, args = conn.calls[0]
+    assert "t.due_date >= CURRENT_DATE" in query
+    assert "t.due_date < CURRENT_DATE + $2::int" in query
+    assert args[1] == 7
 
 
 @pytest.mark.asyncio
