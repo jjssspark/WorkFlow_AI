@@ -72,6 +72,19 @@ def _format_stats(stats: dict | None) -> str:
         lines.append(f"블로커 담당자별: {distribution}")
     if stats["due_soon"]:
         lines.append(f"7일 내 마감 {stats['due_soon']}건")
+
+    # 프로젝트 전체 집계만으로는 "내 업무 몇 건"에 답할 재료가 없어 모델이 출처 표본을 센다
+    # (실측: 실제 30건인데 "총 5건"). 개인화 질문일 때만 질문자 몫을 따로 넣는다.
+    mine = stats.get("mine")
+    if mine:
+        mine_parts = [
+            f"{label} {mine['by_status'][key]}건"
+            for key, label in _STATUS_LABELS
+            if mine["by_status"].get(key)
+        ]
+        lines.append(f"내 업무 {mine['total']}건 — " + ", ".join(mine_parts))
+        if mine["due_soon"]:
+            lines.append(f"내 업무 중 7일 내 마감 {mine['due_soon']}건")
     return "\n".join(lines)
 
 

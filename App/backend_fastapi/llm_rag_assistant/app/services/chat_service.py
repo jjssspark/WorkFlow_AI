@@ -24,7 +24,8 @@ _SNIPPET_MAX_LEN = 200
 # v3: 출처 줄에 마감일·상태·우선순위 추가 (task_facts_service.enrich_with_facts)
 # v4: 개인화 안내문 강화 + 생성 temperature 고정 (generation_service)
 # v5: 프로젝트 전수 집계 블록을 컨텍스트에 주입 (project_stats_service / generation_service)
-_ANSWER_CACHE_SCHEMA_VERSION = "v5"
+# v6: 개인화 질문에 질문자 본인 전수 집계("내 업무") 블록 추가
+_ANSWER_CACHE_SCHEMA_VERSION = "v6"
 _ANSWER_CACHE_TTL_SECONDS = 1800
 
 # "내 할 일 알려줘" 류 개인화 질문 판별용. 순수 벡터 유사도만으로는 "내"가 누구인지 구분할
@@ -177,7 +178,7 @@ async def answer_question(
     # 검색은 상위 k개(표본)만 본다. "블로커 몇 건이야" 같은 전수 집계 질문은 이 경로로 답할 수
     # 없어 프로젝트 전체 집계를 따로 붙인다. 캐시 히트 시에는 위에서 이미 반환되므로 실행되지
     # 않는다 - 늘어나는 왕복은 캐시 미스 1회뿐이다.
-    stats = await fetch_project_stats(pool, project_id)
+    stats = await fetch_project_stats(pool, project_id, assignee_id=assignee_id)
     answer = await generate_answer(
         effective_question, enriched_rows, is_personal=assignee_id is not None, stats=stats
     )

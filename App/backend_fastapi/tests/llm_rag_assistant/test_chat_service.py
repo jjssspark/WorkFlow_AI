@@ -817,4 +817,55 @@ def test_cache_schema_version_matches_the_current_prompt_shape() -> None:
     이 테스트는 실패하라고 있는 것이다 - 프롬프트를 건드리면 여기서 걸리고, 그때 버전을
     올렸는지 스스로 확인하게 된다. 값만 고쳐 통과시키지 말 것.
     """
-    assert _ANSWER_CACHE_SCHEMA_VERSION == "v5"
+    assert _ANSWER_CACHE_SCHEMA_VERSION == "v6"
+
+
+@pytest.mark.asyncio
+async def test_personal_questions_scope_the_stats_to_the_asker() -> None:
+    """개인 집계를 안 넘기면 '내 업무 알려줘'에 모델이 출처 표본을 세어 건수를 지어낸다."""
+    with (
+        patch(
+            "llm_rag_assistant.app.services.chat_service.embed_text",
+            new=AsyncMock(return_value=[0.1]),
+        ),
+        patch(
+            "llm_rag_assistant.app.services.chat_service.search_similar_chunks",
+            new=AsyncMock(return_value=[]),
+        ),
+        patch(
+            "llm_rag_assistant.app.services.chat_service.fetch_project_stats",
+            new=AsyncMock(return_value=None),
+        ) as mock_stats,
+        patch(
+            "llm_rag_assistant.app.services.chat_service.generate_answer",
+            new=AsyncMock(return_value="답변"),
+        ),
+    ):
+        await answer_question(object(), project_id=5, question="내 업무 알려줘", user_id=7)
+
+    assert mock_stats.await_args.kwargs["assignee_id"] == 7
+
+
+@pytest.mark.asyncio
+async def test_general_questions_do_not_scope_the_stats() -> None:
+    with (
+        patch(
+            "llm_rag_assistant.app.services.chat_service.embed_text",
+            new=AsyncMock(return_value=[0.1]),
+        ),
+        patch(
+            "llm_rag_assistant.app.services.chat_service.search_similar_chunks",
+            new=AsyncMock(return_value=[]),
+        ),
+        patch(
+            "llm_rag_assistant.app.services.chat_service.fetch_project_stats",
+            new=AsyncMock(return_value=None),
+        ) as mock_stats,
+        patch(
+            "llm_rag_assistant.app.services.chat_service.generate_answer",
+            new=AsyncMock(return_value="답변"),
+        ),
+    ):
+        await answer_question(object(), project_id=5, question="블로커 몇 건이야?", user_id=7)
+
+    assert mock_stats.await_args.kwargs["assignee_id"] is None

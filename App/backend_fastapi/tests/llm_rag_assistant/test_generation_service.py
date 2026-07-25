@@ -265,6 +265,21 @@ def test_stats_block_lists_status_counts_and_assignee_distribution() -> None:
     assert "7일 내 마감 2건" in block
 
 
+def test_stats_block_lists_the_askers_own_totals() -> None:
+    """개인 집계가 없으면 '내 업무 알려줘'에 모델이 출처 5건을 세어 '총 5건'이라 답한다."""
+    block = _format_stats(
+        _stats(mine={"total": 30, "by_status": {"todo": 20, "done": 10}, "due_soon": 3})
+    )
+
+    assert "내 업무 30건" in block
+    assert "예정 20건" in block
+    assert "7일 내 마감 3건" in block
+
+
+def test_stats_block_omits_the_personal_section_for_general_questions() -> None:
+    assert "내 업무" not in _format_stats(_stats(mine=None))
+
+
 def test_stats_block_is_empty_without_stats() -> None:
     assert _format_stats(None) == ""
 
