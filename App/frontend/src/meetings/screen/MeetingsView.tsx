@@ -426,6 +426,7 @@ export function MeetingsView() {
   const [confirmReregister, setConfirmReregister] = useState<(() => void) | null>(null);
   const [editingMeetingId, setEditingMeetingId] = useState<string | null>(null);
   const [editingTranscript, setEditingTranscript] = useState("");
+  const [viewingOriginalMeeting, setViewingOriginalMeeting] = useState<{ title: string; content: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const pdfCaptureRef = useRef<HTMLDivElement | null>(null);
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -635,18 +636,17 @@ export function MeetingsView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
-  // 알림의 "바로가기"를 통해 특정 회의록으로 딥링크된 경우, 저장 확정 여부(savedAt)에 따라
-  // 알맞은 탭으로 보내준다: 저장 확정된 회의록은 "저장된" 탭, 분석만 완료되고 아직
-  // 저장 전(MEETING_ANALYSIS_COMPLETED_NOTIFY_LEADER 알림 시점)인 회의록은 "분석/업로드" 탭.
-  // 목록이 아직 로드되기 전이라면 selected만 먼저 세팅해두고, 목록 로드 후 이 effect가
-  // 다시 실행될 때 탭을 결정한다.
+  // 알림의 "바로가기"를 통해 특정 회의록으로 딥링크된 경우, 저장 여부와 무관하게 항상
+  // "분석/업로드" 탭에서 그 회의록의 분석 상세(요약/결정사항/To-Do)를 바로 보여준다.
+  // "저장된 회의록" 탭은 목록만 보여주고 클릭해야 내용이 열리므로, 알림에서 바로 온
+  // 사용자에게는 상세가 곧장 뜨는 이 탭이 맞다(역할분배 등 후속 작업이 To-Do 목록에서 이뤄짐).
   useEffect(() => {
     const targetMeetingId = searchParams.get("meetingId");
     if (!targetMeetingId || deepLinkHandledIdRef.current === targetMeetingId) return;
     setSelected(targetMeetingId);
     const target = meetings.find(item => item.id === targetMeetingId);
     if (!target) return;
-    setHomeTab(target.savedAt ? "saved" : "analyze");
+    setHomeTab("analyze");
     deepLinkHandledIdRef.current = targetMeetingId;
   }, [searchParams, meetings]);
 
@@ -837,6 +837,20 @@ export function MeetingsView() {
     setEditingMeetingId(null);
     setEditingTranscript("");
     void refreshMeetingsFromServer();
+  };
+
+  // 저장된 회의록 목록에서 항목을 클릭하면 분석결과가 아니라 원문(transcript)이 먼저 보여야 한다.
+  // originalPreview는 renderResults()(업로드 직후 화면) 전용 모달이라 이 화면(메인 return)에서는
+  // 렌더링되지 않으므로, 별도의 viewingOriginalMeeting 상태 + renderOriginalTextModal()을 쓴다.
+  const handleViewSavedMeetingOriginal = (meeting: Meeting) => {
+    setSelected(meeting.id);
+    fetchMeeting(projectId, meeting.id)
+      .then(response => {
+        setViewingOriginalMeeting({ title: meeting.title, content: response.transcript ?? "" });
+      })
+      .catch(() => {
+        setViewingOriginalMeeting({ title: meeting.title, content: "" });
+      });
   };
 
   const handleViewOriginal = async () => {
@@ -1320,6 +1334,32 @@ export function MeetingsView() {
           >
             회의록 + To-Do 삭제
           </button>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
+  const renderOriginalTextModal = () => viewingOriginalMeeting ? (
+    <div className="fixed inset-0 z-[65] flex items-center justify-center px-4">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setViewingOriginalMeeting(null)} />
+      <div className="relative w-full max-w-2xl max-h-[85vh] flex flex-col rounded-2xl bg-white shadow-2xl border border-border">
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-border shrink-0">
+          <div className="text-sm font-bold text-foreground truncate">{viewingOriginalMeeting.title}</div>
+          <button onClick={() => setViewingOriginalMeeting(null)} className="p-1.5 hover:bg-muted rounded-lg transition-colors shrink-0">
+            <X className="w-4 h-4 text-muted-foreground" />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-5">
+          {viewingOriginalMeeting.content ? (
+            <pre className="text-xs text-foreground leading-relaxed" style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", fontFamily: "'JetBrains Mono','Noto Sans KR',monospace" }}>
+              {viewingOriginalMeeting.content}
+            </pre>
+          ) : (
+            <div className="flex flex-col items-center justify-center text-center py-10 text-muted-foreground">
+              <FileText className="w-10 h-10 mb-3 text-slate-300" />
+              <div className="text-sm font-semibold text-foreground mb-1">원문을 불러오지 못했습니다.</div>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -1964,6 +2004,7 @@ export function MeetingsView() {
       {renderDeletingOverlay()}
       {renderDeleteConfirmModal()}
       {renderReregisterConfirmModal()}
+      {renderOriginalTextModal()}
 
       <div className="flex gap-2 border-b border-border px-4 shrink-0">
         <button
@@ -2397,17 +2438,16 @@ export function MeetingsView() {
               {savedMeetingsList.map(m => {
                 const isPendingVersion = Boolean(m.originalMeetingId) && m.status === "pending";
                 return (
-                <div key={m.id} onClick={() => { setSelected(m.id); setHomeTab("analyze"); }}
+                <div key={m.id} onClick={() => handleViewSavedMeetingOriginal(m)}
                   role="button"
                   tabIndex={0}
                   onKeyDown={event => {
                     if (event.key === "Enter" || event.key === " ") {
                       event.preventDefault();
-                      setSelected(m.id);
-                      setHomeTab("analyze");
+                      handleViewSavedMeetingOriginal(m);
                     }
                   }}
-                  className="w-full text-left p-3 rounded-lg border border-border bg-card hover:bg-muted transition-all cursor-pointer">
+                  className={`w-full text-left p-3 rounded-lg border transition-all cursor-pointer ${selected === m.id ? "border-blue-300 bg-blue-50" : "border-border bg-card hover:bg-muted"}`}>
                   <div className="flex items-center justify-between mb-1">
                     <span className="text-[10px] font-mono text-muted-foreground">{m.date}</span>
                     <div className="flex items-center gap-1.5">

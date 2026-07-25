@@ -515,23 +515,14 @@ public class MeetingAnalysisService {
     }
 
     @Transactional
+    // 저장 확정은 별도 알림을 보내지 않는다 — 회의록 분석 완료 시(MeetingAnalysisPersistence)
+    // 이미 MEETING_ANALYSIS_COMPLETED_NOTIFY_LEADER 알림이 발송되며, 사용자 관점에서 "저장 = 분석"이라
+    // 같은 사건에 대해 알림이 두 번 가는 것을 막는다.
     public MeetingSaveResponse confirmSave(String projectId, String meetingId) {
         Meeting meeting = requireProjectMeeting(projectId, meetingId);
         if (meeting == null) return null;
         meeting.markSaved();
         meetingRepository.save(meeting);
-
-        Long actorId = CurrentUser.id();
-        Long leaderId = projectMemberRepository.findByProjectIdAndRole(meeting.getProjectId(), ProjectRole.LEADER)
-            .map(ProjectMember::getUserId)
-            .orElse(null);
-        String actorName = defaultString(resolveNameById(actorId), "누군가");
-        notificationService.notifyActorAndCounterpart(
-            actorId, "MEETING_SAVED", "회의록이 저장되었습니다", "'" + meeting.getTitle() + "' 회의록이 저장되었습니다.",
-            leaderId, "MEETING_SAVED_NOTIFY_LEADER", "회의록이 저장되었습니다",
-            actorName + "님이 '" + meeting.getTitle() + "' 회의록을 저장했습니다. 역할분배를 진행해주세요.",
-            "meeting", parseLongOrNull(meetingId)
-        );
         return new MeetingSaveResponse(meetingId, "SAVED");
     }
 
@@ -954,6 +945,15 @@ public class MeetingAnalysisService {
         if (name.endsWith(".pdf") || contentType.equals("application/pdf")) {
             return extractPdfText(file);
         }
+        if (name.endsWith(".pptx")) {
+            return extractPptxText(file);
+        }
+        if (name.endsWith(".ppt")) {
+            return extractPptText(file);
+        }
+        if (name.endsWith(".doc")) {
+            return extractDocText(file);
+        }
         if (!textLike) {
             return "업로드 파일명: " + file.getOriginalFilename() + ". 바이너리 문서는 FastAPI 문서 파서 또는 STT 단계에서 텍스트 추출 예정.";
         }
@@ -1013,6 +1013,72 @@ public class MeetingAnalysisService {
             return extractPdfTextFromBytes(file.getBytes());
         } catch (IOException e) {
             throw new IllegalArgumentException("PDF 회의록을 읽을 수 없습니다.");
+        }
+    }
+
+    private String extractPptxText(MultipartFile file) {
+        try (org.apache.poi.xslf.usermodel.XMLSlideShow slideShow =
+                 new org.apache.poi.xslf.usermodel.XMLSlideShow(file.getInputStream())) {
+            StringBuilder text = new StringBuilder();
+            for (org.apache.poi.xslf.usermodel.XSLFSlide slide : slideShow.getSlides()) {
+                for (org.apache.poi.sl.usermodel.Shape<?, ?> shape : slide.getShapes()) {
+                    if (shape instanceof org.apache.poi.xslf.usermodel.XSLFTextShape textShape) {
+                        String shapeText = textShape.getText();
+                        if (shapeText != null && !shapeText.isBlank()) {
+                            text.append(shapeText).append("\n");
+                        }
+                    }
+                }
+            }
+            String result = text.toString().trim();
+            if (result.isBlank()) {
+                throw new IllegalArgumentException("PPTX에서 분석할 텍스트를 추출하지 못했습니다.");
+            }
+            return result;
+        } catch (IllegalArgumentException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IllegalArgumentException("PPTX 텍스트 추출에 실패했습니다.");
+        }
+    }
+
+    private String extractPptText(MultipartFile file) {
+        try (org.apache.poi.hslf.usermodel.HSLFSlideShow slideShow =
+                 new org.apache.poi.hslf.usermodel.HSLFSlideShow(file.getInputStream())) {
+            StringBuilder text = new StringBuilder();
+            for (org.apache.poi.hslf.usermodel.HSLFSlide slide : slideShow.getSlides()) {
+                for (org.apache.poi.hslf.usermodel.HSLFShape shape : slide.getShapes()) {
+                    if (shape instanceof org.apache.poi.hslf.usermodel.HSLFTextShape textShape) {
+                        String shapeText = textShape.getText();
+                        if (shapeText != null && !shapeText.isBlank()) {
+                            text.append(shapeText).append("\n");
+                        }
+                    }
+                }
+            }
+            String result = text.toString().trim();
+            if (result.isBlank()) {
+                throw new IllegalArgumentException("PPT에서 분석할 텍스트를 추출하지 못했습니다.");
+            }
+            return result;
+        } catch (IllegalArgumentException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IllegalArgumentException("PPT 텍스트 추출에 실패했습니다.");
+        }
+    }
+
+    private String extractDocText(MultipartFile file) {
+        try (org.apache.poi.hwpf.HWPFDocument document = new org.apache.poi.hwpf.HWPFDocument(file.getInputStream())) {
+            String result = document.getDocumentText().trim();
+            if (result.isBlank()) {
+                throw new IllegalArgumentException("DOC에서 분석할 텍스트를 추출하지 못했습니다.");
+            }
+            return result;
+        } catch (IllegalArgumentException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IllegalArgumentException("DOC 텍스트 추출에 실패했습니다.");
         }
     }
 

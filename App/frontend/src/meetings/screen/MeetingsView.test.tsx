@@ -196,8 +196,22 @@ describe("MeetingsView 홈 탭", () => {
     expect(await screen.findByText("수정됨")).toBeInTheDocument();
   });
 
-  it("저장된 회의록 카드를 클릭하면 분석/업로드 탭으로 전환되어 상세 결과를 볼 수 있다", async () => {
+  it("저장된 회의록 카드를 클릭하면 분석결과가 아니라 회의록 원문이 보인다", async () => {
     const user = userEvent.setup();
+    // selected 변경 시 실행되는 다른 useEffect도 fetchMeeting을 호출하므로, mockResolvedValueOnce가 아니라
+    // mockResolvedValue로 모든 호출에 transcript를 포함한 응답을 주도록 한다.
+    fetchMeeting.mockResolvedValue({
+      meetingId: "1",
+      projectId: "1",
+      status: "COMPLETED",
+      sourceType: "document",
+      fileName: "meeting.txt",
+      analysisSource: "FASTAPI",
+      analysis: null,
+      errorMessage: null,
+      attendees: [],
+      transcript: "오늘 회의에서는 신규 기능을 논의했습니다.",
+    });
     render(
       <MemoryRouter initialEntries={["/meetings"]}>
         <MeetingsView />
@@ -208,10 +222,13 @@ describe("MeetingsView 홈 탭", () => {
     await user.click(screen.getByRole("button", { name: "저장된 회의록" }));
     await user.click(await screen.findByText("저장된 정기회의"));
 
-    expect(screen.getByRole("button", { name: "분석/업로드" })).toHaveClass("border-blue-600");
+    expect(await screen.findByText("오늘 회의에서는 신규 기능을 논의했습니다.")).toBeInTheDocument();
   });
 
-  it("meetingId 쿼리파라미터가 있으면 저장된 회의록 탭으로 전환되고 해당 회의록이 선택된다", async () => {
+  it("meetingId 쿼리파라미터가 있으면 저장 여부와 무관하게 분석/업로드 탭에서 해당 회의록 상세가 바로 보인다", async () => {
+    // "1"은 beforeEach의 fetchMeetings 목록에서 savedAt이 있는(저장 확정된) 회의록이다.
+    // "저장된 회의록" 탭은 목록만 보여주고 클릭해야 내용이 열리므로, 알림 바로가기로 온
+    // 사용자에게는 상세가 곧장 뜨는 분석/업로드 탭으로 보내야 한다.
     render(
       <MemoryRouter initialEntries={["/meetings?meetingId=1"]}>
         <MeetingsView />
@@ -220,14 +237,12 @@ describe("MeetingsView 홈 탭", () => {
 
     await waitFor(() => expect(fetchMeetings).toHaveBeenCalled());
 
-    // 대상 회의록(savedAt 있음)이 목록에 반영된 뒤에 탭이 결정되므로 waitFor로 최종 상태를 확인한다.
-    await waitFor(() => expect(screen.getByRole("button", { name: "저장된 회의록" })).toHaveClass("border-blue-600"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "분석/업로드" })).toHaveClass("border-blue-600"));
+    expect(screen.getByRole("button", { name: "저장된 회의록" })).not.toHaveClass("border-blue-600");
   });
 
-  it("meetingId 쿼리파라미터의 회의록이 아직 저장되지 않았으면(savedAt null) 분석/업로드 탭으로 전환된다", async () => {
+  it("meetingId 쿼리파라미터의 회의록이 아직 저장되지 않았어도(savedAt null) 분석/업로드 탭으로 전환된다", async () => {
     // "2"는 beforeEach의 fetchMeetings 목록에서 savedAt: null(분석 완료, 저장 확정 전) 상태다.
-    // MEETING_ANALYSIS_COMPLETED_NOTIFY_LEADER 알림의 바로가기는 이 상태에서 발송되므로,
-    // 저장된 탭이 아니라 분석/업로드 탭으로 이동해야 한다.
     render(
       <MemoryRouter initialEntries={["/meetings?meetingId=2"]}>
         <MeetingsView />

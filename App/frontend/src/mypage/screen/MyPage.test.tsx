@@ -9,6 +9,9 @@ import type { Task } from "../../board/libs/types/task";
 import { useAuth } from "../../global/hooks/useAuth";
 import { fetchReviewerProjects } from "../libs/utils/reviewerApi";
 import type { ReviewerProject } from "../libs/utils/reviewerApi";
+import { getProjectMembers } from "../../global/api/projectsApi";
+import { fetchContributionReport, fetchContributionScore } from "../../contributors/libs/utils/contributorsApi";
+import { fetchAttendanceSummary } from "../../meetings/libs/utils/meetingAiApi";
 
 vi.mock("../../global/hooks/useAuth", () => ({
   useAuth: vi.fn(),
@@ -24,6 +27,20 @@ vi.mock("../../global/api/evaluationApi", () => ({
 
 vi.mock("../libs/utils/reviewerApi", () => ({
   fetchReviewerProjects: vi.fn(),
+}));
+
+vi.mock("../../global/api/projectsApi", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../global/api/projectsApi")>();
+  return { ...actual, getProjectMembers: vi.fn() };
+});
+
+vi.mock("../../contributors/libs/utils/contributorsApi", () => ({
+  fetchContributionReport: vi.fn(),
+  fetchContributionScore: vi.fn(),
+}));
+
+vi.mock("../../meetings/libs/utils/meetingAiApi", () => ({
+  fetchAttendanceSummary: vi.fn(),
 }));
 
 function makeTask(id: string, assignee: string, status: Task["status"], dueDate: string): Task {
@@ -277,5 +294,97 @@ describe("MyPage reviewer view", () => {
     await waitFor(() => expect(screen.getAllByText("AI 기반 식단 추천 앱").length).toBeGreaterThan(0));
     expect(screen.queryByText("한국대학교 컴퓨터공학과")).not.toBeInTheDocument();
     expect(screen.queryByText("캡스톤디자인 2024-2")).not.toBeInTheDocument();
+  });
+});
+
+describe("MyPage reviewer view — contribution tabs", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.mocked(useAuth).mockReturnValue({
+      isAuthenticated: true,
+      loading: false,
+      user: { id: 6, email: "reviewer@university.ac.kr", name: "고무서" },
+      projectRoles: [{ projectId: 2, projectTitle: "AI 기반 식단 추천 앱", role: "심사자" }],
+      currentProjectId: 2,
+      currentProject: { projectId: 2, projectTitle: "AI 기반 식단 추천 앱", role: "심사자" },
+      selectProject: vi.fn(),
+      addLocalProjectRole: vi.fn(),
+      loginWithGoogle: vi.fn(),
+      logout: vi.fn(),
+      refreshMe: vi.fn(),
+    });
+    vi.mocked(fetchReviewerProjects).mockResolvedValue([makeReviewerProject(2, "AI 기반 식단 추천 앱")]);
+    vi.mocked(getProjectMembers).mockResolvedValue([
+      { userId: 1, name: "김민준", email: "kim@univ.ac.kr", role: "팀장" },
+    ]);
+    vi.mocked(fetchContributionReport).mockResolvedValue([
+      { userId: 1, name: "김민준", summary: "팀장으로서 프로젝트를 이끌며 AI 모델 개발에 기여.", evidence: ["To-Do #3", "12.10 회의록"] },
+    ]);
+    vi.mocked(fetchContributionScore).mockResolvedValue({
+      members: [{
+        assigneeId: "1", workloadComponent: 78, taskComponent: 85, meetingComponent: 90,
+        contributionScore: 92, anomalyType: "NONE", taskCountActiveRel: 1, difficultyAvgRel: 1, overdueCount: 0,
+      }],
+      note: null, teamMeanCompletion: 0.8,
+    });
+    vi.mocked(fetchTasks).mockResolvedValue([makeTask("T1", "1", "done", "2026-01-10")]);
+    vi.mocked(fetchAttendanceSummary).mockResolvedValue([
+      { userId: 1, name: "김민준", meetingsAttended: 3, totalMeetings: 4, attendanceRate: 0.75 },
+    ]);
+  });
+
+  it("renders real member data on the 기여도 리포트 tab and does not show commit/PR counts", async () => {
+    renderMyPage();
+
+    await waitFor(() => expect(screen.getAllByText("AI 기반 식단 추천 앱").length).toBeGreaterThan(0));
+    await userEvent.click(await screen.findByRole("button", { name: "기여도 리포트" }));
+
+    await waitFor(() => expect(screen.getByText("김민준")).toBeInTheDocument());
+    expect(screen.getByText(/AI 요약:/)).toBeInTheDocument();
+    expect(screen.getByText(/팀장으로서 프로젝트를 이끌며/)).toBeInTheDocument();
+    expect(screen.queryByText(/커밋/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/PR/)).not.toBeInTheDocument();
+  });
+
+  it("renders AI summary and evidence chips on the AI 평가 근거 tab", async () => {
+    renderMyPage();
+
+    await waitFor(() => expect(screen.getAllByText("AI 기반 식단 추천 앱").length).toBeGreaterThan(0));
+    await userEvent.click(await screen.findByRole("button", { name: "AI 평가 근거" }));
+
+    await waitFor(() => expect(screen.getByText("AI 분석 요약")).toBeInTheDocument());
+    expect(screen.getByText("To-Do #3")).toBeInTheDocument();
+    expect(screen.getByText("12.10 회의록")).toBeInTheDocument();
+  });
+
+  it("shows an error message with a retry button on the 기여도 리포트 tab when a call fails, and retries on click", async () => {
+    vi.mocked(fetchContributionScore)
+      .mockRejectedValueOnce(new Error("AI 서버 오류"))
+      .mockResolvedValueOnce({
+        members: [{
+          assigneeId: "1", workloadComponent: 78, taskComponent: 85, meetingComponent: 90,
+          contributionScore: 92, anomalyType: "NONE", taskCountActiveRel: 1, difficultyAvgRel: 1, overdueCount: 0,
+        }],
+        note: null, teamMeanCompletion: 0.8,
+      });
+
+    renderMyPage();
+
+    await waitFor(() => expect(screen.getAllByText("AI 기반 식단 추천 앱").length).toBeGreaterThan(0));
+    await userEvent.click(await screen.findByRole("button", { name: "기여도 리포트" }));
+
+    await waitFor(() => expect(screen.getByText("기여도 리포트를 불러오지 못했습니다.")).toBeInTheDocument());
+    await userEvent.click(screen.getByRole("button", { name: /다시 시도/ }));
+    await waitFor(() => expect(screen.getByText("김민준")).toBeInTheDocument());
+  });
+
+  it("does not fetch contribution data while the default 팀 요약 tab is active", async () => {
+    renderMyPage();
+
+    await waitFor(() => expect(screen.getAllByText("AI 기반 식단 추천 앱").length).toBeGreaterThan(0));
+    expect(getProjectMembers).not.toHaveBeenCalled();
+    expect(fetchContributionReport).not.toHaveBeenCalled();
+    expect(fetchContributionScore).not.toHaveBeenCalled();
+    expect(fetchAttendanceSummary).not.toHaveBeenCalled();
   });
 });
