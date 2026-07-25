@@ -33,8 +33,38 @@ jobs:
       - name: Verify context load test actually ran
         run: python3 ci/verify-context-test-ran.py
 
+  # 배포 게이트가 백엔드만 막고 있어서, 프론트 빌드가 깨진 코드가 main에 들어오면
+  # 배포가 서버에서 이미지 빌드 단계에 실패했다. compose는 컨테이너를 교체하지 못한 채
+  # 구 버전이 계속 떠 있어 겉으로는 정상으로 보였다(2026-07-25). 서버에 닿기 전에 막는다.
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: App/frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Enable corepack
+        run: corepack enable
+        working-directory: .
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+          cache-dependency-path: App/frontend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Run tests
+        run: pnpm test
+
   deploy:
-    needs: test
+    needs: [test, frontend]
     runs-on: ubuntu-latest
     steps:
       - name: Set up SSH

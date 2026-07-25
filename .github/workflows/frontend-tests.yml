@@ -1,0 +1,49 @@
+name: Frontend tests
+
+# 백엔드는 CI가 막아주는데 프론트엔드는 아무것도 실행하지 않았다. 그래서
+# src/global/lib/evalStatus.ts가 .gitignore의 lib/ 규칙에 걸려 누락된 채 머지됐고,
+# pnpm build가 "Could not resolve"로 깨진 코드가 dev와 main을 그대로 통과했다.
+# 운영 배포가 며칠간 조용히 실패했다(2026-07-25). 머지 전에 잡는다.
+on:
+  pull_request:
+    paths:
+      - 'App/frontend/**'
+      - '.github/workflows/frontend-tests.yml'
+  push:
+    branches: [dev, main]
+    paths:
+      - 'App/frontend/**'
+      - '.github/workflows/frontend-tests.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: App/frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      # setup-node의 cache: pnpm 이 PATH에서 pnpm을 찾으므로 corepack을 먼저 켠다.
+      # 버전은 package.json의 packageManager(pnpm@10.34.5)를 그대로 따른다.
+      - name: Enable corepack
+        run: corepack enable
+        working-directory: .
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+          cache-dependency-path: App/frontend/pnpm-lock.yaml
+
+      # --frozen-lockfile: package.json과 락파일이 어긋나면 여기서 실패한다.
+      # 이 불일치로도 배포가 깨진 적이 있다(2026-07-24, @testing-library/dom).
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # 운영 이미지와 동일한 빌드. 미해결 import는 여기서 잡힌다.
+      - name: Build
+        run: pnpm build
+
+      - name: Run tests
+        run: pnpm test
