@@ -168,6 +168,35 @@ public class MeController {
         return new java.util.ArrayList<>(deduped);
     }
 
+    private static final byte[] PNG_MAGIC = { (byte) 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A };
+    private static final byte[] JPEG_MAGIC = { (byte) 0xFF, (byte) 0xD8, (byte) 0xFF };
+
+    /**
+     * 클라이언트가 보내는 Content-Type 헤더는 그대로 조작할 수 있으므로 신뢰하지 않는다 — 실제 파일의
+     * 첫 바이트(매직 넘버)로 PNG/JPEG 여부를 직접 판정한다. 둘 다 아니면 null(허용하지 않는 파일).
+     */
+    private String detectImageContentType(byte[] bytes) {
+        if (startsWith(bytes, PNG_MAGIC)) {
+            return "image/png";
+        }
+        if (startsWith(bytes, JPEG_MAGIC)) {
+            return "image/jpeg";
+        }
+        return null;
+    }
+
+    private boolean startsWith(byte[] data, byte[] prefix) {
+        if (data.length < prefix.length) {
+            return false;
+        }
+        for (int i = 0; i < prefix.length; i++) {
+            if (data[i] != prefix[i]) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     /**
      * ImageIO.read()로 픽셀을 전부 디코딩하지 않고, 리더가 노출하는 헤더 정보만으로 width/height를 구한다.
      * PNG/JPEG 헤더는 파일 앞부분에 있어 몇 KB만 파싱해도 해상도를 알 수 있다 — 이 값으로 먼저 걸러내면
@@ -202,10 +231,6 @@ public class MeController {
         if (file.isEmpty()) {
             return ResponseEntity.badRequest().body(ApiResponse.fail("FILE_REQUIRED", "파일이 비어있습니다."));
         }
-        String contentType = file.getContentType();
-        if (!"image/png".equalsIgnoreCase(contentType) && !"image/jpeg".equalsIgnoreCase(contentType)) {
-            return ResponseEntity.badRequest().body(ApiResponse.fail("UNSUPPORTED_FILE_TYPE", "PNG 또는 JPG 파일만 업로드할 수 있습니다."));
-        }
         if (file.getSize() > AVATAR_MAX_BYTES) {
             return ResponseEntity.badRequest().body(ApiResponse.fail("FILE_TOO_LARGE", "파일 용량은 10MB를 초과할 수 없습니다."));
         }
@@ -215,6 +240,13 @@ public class MeController {
             bytes = file.getBytes();
         } catch (IOException e) {
             return ResponseEntity.badRequest().body(ApiResponse.fail("FILE_READ_FAILED", "파일을 읽을 수 없습니다."));
+        }
+
+        // 클라이언트가 보낸 Content-Type 헤더는 신뢰하지 않는다 — 실제 파일 바이트(매직 넘버)로 PNG/JPEG
+        // 여부를 직접 판정한다. 예: .png 확장자에 실행 파일을 넣어 보내는 위장 업로드를 여기서 막는다.
+        String contentType = detectImageContentType(bytes);
+        if (contentType == null) {
+            return ResponseEntity.badRequest().body(ApiResponse.fail("UNSUPPORTED_FILE_TYPE", "PNG 또는 JPG 파일만 업로드할 수 있습니다."));
         }
 
         // ImageIO.read()로 픽셀 전체를 디코딩하면, 작은 파일이 극단적으로 큰 해상도로 압축되어 있는
@@ -234,8 +266,19 @@ public class MeController {
             return ResponseEntity.badRequest().body(ApiResponse.fail("INVALID_IMAGE", "올바른 이미지 파일이 아닙니다."));
         }
 
+        // 여기까지 왔으면 해상도가 이미 AVATAR_MAX_DIMENSION 이하로 확정됐으므로, 전체 디코딩을 해도
+        // 메모리 사용량이 최대 2000x2000 픽셀로 제한된다 — 이제는 안전하게 픽셀까지 디코딩해서 헤더만
+        // 그럴듯하고 실제 픽셀 데이터는 잘려있거나 손상된 파일(예: 앞부분만 유효한 PNG 헤더 + 쓰레기 데이터)을 걸러낸다.
+        try {
+            if (ImageIO.read(new ByteArrayInputStream(bytes)) == null) {
+                return ResponseEntity.badRequest().body(ApiResponse.fail("INVALID_IMAGE", "손상된 이미지 파일입니다."));
+            }
+        } catch (IOException | RuntimeException e) {
+            return ResponseEntity.badRequest().body(ApiResponse.fail("INVALID_IMAGE", "손상된 이미지 파일입니다."));
+        }
+
         User user = currentUserOrThrow();
-        String extension = "image/png".equalsIgnoreCase(contentType) ? "png" : "jpg";
+        String extension = "image/png".equals(contentType) ? "png" : "jpg";
         String storagePath = "avatars/" + user.getId() + "/" + UUID.randomUUID() + "." + extension;
         String previousPath = user.getProfileImagePath();
 

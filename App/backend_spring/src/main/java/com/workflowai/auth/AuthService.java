@@ -11,6 +11,7 @@ import java.util.Set;
 import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -39,6 +40,7 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final SupabaseStorageClient storageClient;
 
+    @Autowired
     public AuthService(
         GoogleOAuthService googleOAuthService,
         UserRepository userRepository,
@@ -51,6 +53,20 @@ public class AuthService {
         this.jwtService = jwtService;
         this.passwordEncoder = passwordEncoder;
         this.storageClient = storageClient;
+    }
+
+    /**
+     * storageClient가 추가되기 전 시그니처와의 하위 호환용 생성자. Spring은 위의 @Autowired 생성자로만
+     * 빈을 만들고, 이 생성자는 이 시그니처로 직접 AuthService를 생성하던 기존 코드/테스트가 계속
+     * 동작하도록 남겨둔다. storageClient가 없으면 avatarUrlOrNull()이 null을 반환하도록 방어한다.
+     */
+    public AuthService(
+        GoogleOAuthService googleOAuthService,
+        UserRepository userRepository,
+        JwtService jwtService,
+        PasswordEncoder passwordEncoder
+    ) {
+        this(googleOAuthService, userRepository, jwtService, passwordEncoder, null);
     }
 
     @Transactional
@@ -175,7 +191,7 @@ public class AuthService {
      * 잠깐이라도 비어 보이는 것을 막는다. 서명 URL 발급이 실패해도 로그인 자체를 막지 않고 null로 넘긴다.
      */
     private String avatarUrlOrNull(User user) {
-        if (user.getProfileImagePath() == null) {
+        if (user.getProfileImagePath() == null || storageClient == null) {
             return null;
         }
         try {
