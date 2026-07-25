@@ -70,7 +70,7 @@ export function TermsScreen() {
     try {
       const raw = sessionStorage.getItem(SIGNUP_DRAFT_KEY);
       const draft = raw ? JSON.parse(raw) : {};
-      sessionStorage.setItem(SIGNUP_DRAFT_KEY, JSON.stringify({ ...draft, agreed: true }));
+      sessionStorage.setItem(SIGNUP_DRAFT_KEY, JSON.stringify({ ...draft, termsAgreed: true }));
     } catch {
       // sessionStorage를 못 쓰는 환경이면 그냥 넘어간다 — 회원가입 화면에서 다시 체크하면 된다.
     }

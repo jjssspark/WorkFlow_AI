@@ -1,4 +1,4 @@
-import { useEffect, useState, type ChangeEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { useNavigate } from "react-router";
 import {
   AlertTriangle,
@@ -34,7 +34,8 @@ interface SignupDraft {
   name: string;
   email: string;
   isProfessor: boolean;
-  agreed: boolean;
+  termsAgreed: boolean;
+  privacyAgreed: boolean;
 }
 
 function loadSignupDraft(): SignupDraft | null {
@@ -55,7 +56,8 @@ export function SignupScreen() {
   const [pw, setPw] = useState("");
   const [pwConfirm, setPwConfirm] = useState("");
   const [showPw, setShowPw] = useState(false);
-  const [agreed, setAgreed] = useState(draft?.agreed ?? false);
+  const [termsAgreed, setTermsAgreed] = useState(draft?.termsAgreed ?? false);
+  const [privacyAgreed, setPrivacyAgreed] = useState(draft?.privacyAgreed ?? false);
   const [loading, setLoading] = useState(false);
   const [isProfessor, setIsProfessor] = useState(draft?.isProfessor ?? false);
   const [professorNo, setProfessorNo] = useState("");
@@ -65,16 +67,16 @@ export function SignupScreen() {
   const [showPrivacyModal, setShowPrivacyModal] = useState(false);
 
   useEffect(() => {
-    const nextDraft: SignupDraft = { name, email, isProfessor, agreed };
+    const nextDraft: SignupDraft = { name, email, isProfessor, termsAgreed, privacyAgreed };
     sessionStorage.setItem(SIGNUP_DRAFT_KEY, JSON.stringify(nextDraft));
-  }, [name, email, isProfessor, agreed]);
+  }, [name, email, isProfessor, termsAgreed, privacyAgreed]);
 
   const goToTerms = () => navigate("/terms");
 
   const pwMatch = Boolean(pw && pwConfirm && pw === pwConfirm);
   const pwMismatch = Boolean(pw && pwConfirm && pw !== pwConfirm);
   const professorValid = !isProfessor || Boolean(professorNo.trim() || certificateName);
-  const valid = Boolean(name.trim() && email.trim() && pw && pwMatch && agreed && professorValid);
+  const valid = Boolean(name.trim() && email.trim() && pw && pwMatch && termsAgreed && privacyAgreed && professorValid);
 
   const handleCertificateChange = (event: ChangeEvent<HTMLInputElement>) => {
     setCertificateName(event.target.files?.[0]?.name ?? "");
@@ -108,8 +110,8 @@ export function SignupScreen() {
           password: pw,
           name: name.trim(),
           roleType: isProfessor ? "REVIEWER" : "MEMBER",
-          termsAgreed: agreed,
-          privacyAgreed: agreed,
+          termsAgreed,
+          privacyAgreed,
         }),
       });
 
@@ -293,20 +295,36 @@ export function SignupScreen() {
                 )}
               </div>
 
-              <div className="flex items-start gap-2 mt-5 mb-6 select-none">
-                <button
-                  type="button"
-                  aria-label={agreed ? "이용약관 동의 해제" : "이용약관 보기"}
-                  onClick={() => (agreed ? setAgreed(false) : goToTerms())}
-                  className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-all mt-0.5 cursor-pointer shrink-0 ${agreed ? "border-blue-500 bg-blue-500" : "border-slate-400 bg-input-background"}`}
-                >
-                  {agreed && <Check className="w-3 h-3 text-white" />}
-                </button>
-                <span className="text-xs text-muted-foreground leading-relaxed">
-                  <button type="button" onClick={goToTerms} className="font-semibold text-blue-600 hover:text-blue-700">이용약관</button> 및{" "}
-                  <button type="button" onClick={() => setShowPrivacyModal(true)} className="font-semibold text-blue-600 hover:text-blue-700">개인정보처리방침</button>에 동의합니다.
-                  {!agreed && <span className="block mt-1 text-[11px] text-muted-foreground">이용약관을 끝까지 확인해야 동의할 수 있습니다.</span>}
-                </span>
+              <div className="mt-5 mb-6 space-y-2.5">
+                <div className="flex items-start gap-2 select-none">
+                  <button
+                    type="button"
+                    aria-label={termsAgreed ? "이용약관 동의 해제" : "이용약관 보기"}
+                    onClick={() => (termsAgreed ? setTermsAgreed(false) : goToTerms())}
+                    className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-all mt-0.5 cursor-pointer shrink-0 ${termsAgreed ? "border-blue-500 bg-blue-500" : "border-slate-400 bg-input-background"}`}
+                  >
+                    {termsAgreed && <Check className="w-3 h-3 text-white" />}
+                  </button>
+                  <span className="text-xs text-muted-foreground leading-relaxed">
+                    (필수) <button type="button" onClick={goToTerms} className="font-semibold text-blue-600 hover:text-blue-700">이용약관</button>에 동의합니다.
+                    {!termsAgreed && <span className="block mt-1 text-[11px] text-muted-foreground">이용약관을 끝까지 확인해야 동의할 수 있습니다.</span>}
+                  </span>
+                </div>
+
+                <div className="flex items-start gap-2 select-none">
+                  <button
+                    type="button"
+                    aria-label={privacyAgreed ? "개인정보처리방침 동의 해제" : "개인정보처리방침 보기"}
+                    onClick={() => (privacyAgreed ? setPrivacyAgreed(false) : setShowPrivacyModal(true))}
+                    className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-all mt-0.5 cursor-pointer shrink-0 ${privacyAgreed ? "border-blue-500 bg-blue-500" : "border-slate-400 bg-input-background"}`}
+                  >
+                    {privacyAgreed && <Check className="w-3 h-3 text-white" />}
+                  </button>
+                  <span className="text-xs text-muted-foreground leading-relaxed">
+                    (필수) <button type="button" onClick={() => setShowPrivacyModal(true)} className="font-semibold text-blue-600 hover:text-blue-700">개인정보처리방침</button>에 동의합니다.
+                    {!privacyAgreed && <span className="block mt-1 text-[11px] text-muted-foreground">개인정보처리방침을 끝까지 확인해야 동의할 수 있습니다.</span>}
+                  </span>
+                </div>
               </div>
 
               {signupError && (
@@ -353,7 +371,12 @@ export function SignupScreen() {
         </div>
       </div>
 
-      {showPrivacyModal && <PrivacyPolicyModal onClose={() => setShowPrivacyModal(false)} />}
+      {showPrivacyModal && (
+        <PrivacyPolicyModal
+          onClose={() => setShowPrivacyModal(false)}
+          onAgree={() => { setPrivacyAgreed(true); setShowPrivacyModal(false); }}
+        />
+      )}
     </div>
   );
 }
@@ -366,7 +389,22 @@ const PRIVACY_SECTIONS = [
   { title: "5. 이용자의 권리", body: "이용자는 언제든지 자신의 개인정보를 조회, 수정, 삭제, 처리정지를 요청할 수 있으며, 이는 개인정보 수정 화면 또는 고객센터를 통해 처리할 수 있습니다." },
 ];
 
-function PrivacyPolicyModal({ onClose }: { onClose: () => void }) {
+// 끝까지 스크롤했다고 판정하는 여유값(px) — TermsScreen과 동일한 기준.
+const PRIVACY_SCROLL_END_THRESHOLD_PX = 8;
+
+function PrivacyPolicyModal({ onClose, onAgree }: { onClose: () => void; onAgree: () => void }) {
+  const [scrolledToEnd, setScrolledToEnd] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  const checkScrolledToEnd = (el: HTMLDivElement) => {
+    const reachedEnd = el.scrollHeight - el.scrollTop - el.clientHeight <= PRIVACY_SCROLL_END_THRESHOLD_PX;
+    if (reachedEnd) setScrolledToEnd(true);
+  };
+
+  useEffect(() => {
+    if (scrollRef.current) checkScrolledToEnd(scrollRef.current);
+  }, []);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4" onClick={onClose}>
       <div
@@ -379,7 +417,11 @@ function PrivacyPolicyModal({ onClose }: { onClose: () => void }) {
             <X className="w-4 h-4" />
           </button>
         </div>
-        <div className="px-6 py-4 max-h-[60vh] overflow-y-auto space-y-4">
+        <div
+          ref={scrollRef}
+          onScroll={(e) => checkScrolledToEnd(e.currentTarget)}
+          className="px-6 py-4 max-h-[60vh] overflow-y-auto space-y-4"
+        >
           {PRIVACY_SECTIONS.map((section) => (
             <div key={section.title}>
               <h3 className="text-xs font-bold text-foreground mb-1">{section.title}</h3>
@@ -388,13 +430,17 @@ function PrivacyPolicyModal({ onClose }: { onClose: () => void }) {
           ))}
         </div>
         <div className="px-6 py-4 border-t border-border">
+          {!scrolledToEnd && (
+            <p className="text-center text-[11px] text-muted-foreground mb-2">끝까지 스크롤해야 동의할 수 있습니다.</p>
+          )}
           <button
             type="button"
-            onClick={onClose}
-            className="w-full py-2.5 rounded-xl text-white text-sm font-semibold hover:opacity-90 transition-opacity"
-            style={{ background: "linear-gradient(135deg, #3B5BDB 0%, #4F6EF7 100%)" }}
+            onClick={onAgree}
+            disabled={!scrolledToEnd}
+            className="w-full py-2.5 rounded-xl text-white text-sm font-semibold hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:opacity-50"
+            style={{ background: scrolledToEnd ? "linear-gradient(135deg, #3B5BDB 0%, #4F6EF7 100%)" : "#C1C9D9" }}
           >
-            확인
+            동의합니다
           </button>
         </div>
       </div>

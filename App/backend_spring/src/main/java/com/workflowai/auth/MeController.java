@@ -11,14 +11,16 @@ import com.workflowai.user.User;
 import com.workflowai.user.UserRepository;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import javax.imageio.ImageIO;
+import javax.imageio.ImageReader;
+import javax.imageio.stream.ImageInputStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -166,6 +168,34 @@ public class MeController {
         return new java.util.ArrayList<>(deduped);
     }
 
+    /**
+     * ImageIO.read()로 픽셀을 전부 디코딩하지 않고, 리더가 노출하는 헤더 정보만으로 width/height를 구한다.
+     * PNG/JPEG 헤더는 파일 앞부분에 있어 몇 KB만 파싱해도 해상도를 알 수 있다 — 이 값으로 먼저 걸러내면
+     * 실제 픽셀 버퍼(가로*세로*채널)를 할당하기 전에 지나치게 큰 이미지를 차단할 수 있다.
+     * 유효한 이미지가 아니면 null을 반환한다.
+     */
+    private int[] readImageDimensions(byte[] bytes) throws IOException {
+        try (ImageInputStream iis = ImageIO.createImageInputStream(new ByteArrayInputStream(bytes))) {
+            if (iis == null) {
+                return null;
+            }
+            Iterator<ImageReader> readers = ImageIO.getImageReaders(iis);
+            if (!readers.hasNext()) {
+                return null;
+            }
+            ImageReader reader = readers.next();
+            try {
+                reader.setInput(iis, true, true);
+                return new int[] { reader.getWidth(0), reader.getHeight(0) };
+            } catch (RuntimeException e) {
+                // 헤더가 형식은 맞지만 내용이 손상된 파일 — 유효하지 않은 이미지로 처리한다.
+                return null;
+            } finally {
+                reader.dispose();
+            }
+        }
+    }
+
     @Operation(summary = "프로필 사진 업로드", description = "PNG/JPG, 10MB 이하, 가로세로 2000px 이하만 허용한다.")
     @PostMapping(value = "/avatar")
     public ResponseEntity<ApiResponse<UserSummary>> uploadAvatar(@RequestParam MultipartFile file) {
@@ -187,19 +217,21 @@ public class MeController {
             return ResponseEntity.badRequest().body(ApiResponse.fail("FILE_READ_FAILED", "파일을 읽을 수 없습니다."));
         }
 
-        BufferedImage image;
+        // ImageIO.read()로 픽셀 전체를 디코딩하면, 작은 파일이 극단적으로 큰 해상도로 압축되어 있는
+        // "압축 폭탄"에 메모리를 다 써버릴 수 있다. 전체 디코딩 전에 ImageReader로 헤더(메타데이터)만
+        // 읽어 해상도부터 확인하고, 넘으면 픽셀 버퍼를 만들지 않고 바로 거부한다.
         try {
-            image = ImageIO.read(new ByteArrayInputStream(bytes));
+            int[] dimensions = readImageDimensions(bytes);
+            if (dimensions == null) {
+                return ResponseEntity.badRequest().body(ApiResponse.fail("INVALID_IMAGE", "올바른 이미지 파일이 아닙니다."));
+            }
+            if (dimensions[0] > AVATAR_MAX_DIMENSION || dimensions[1] > AVATAR_MAX_DIMENSION) {
+                return ResponseEntity.badRequest().body(ApiResponse.fail(
+                    "IMAGE_TOO_LARGE", "이미지 크기는 " + AVATAR_MAX_DIMENSION + "x" + AVATAR_MAX_DIMENSION + " 이하여야 합니다."
+                ));
+            }
         } catch (IOException e) {
-            image = null;
-        }
-        if (image == null) {
             return ResponseEntity.badRequest().body(ApiResponse.fail("INVALID_IMAGE", "올바른 이미지 파일이 아닙니다."));
-        }
-        if (image.getWidth() > AVATAR_MAX_DIMENSION || image.getHeight() > AVATAR_MAX_DIMENSION) {
-            return ResponseEntity.badRequest().body(ApiResponse.fail(
-                "IMAGE_TOO_LARGE", "이미지 크기는 " + AVATAR_MAX_DIMENSION + "x" + AVATAR_MAX_DIMENSION + " 이하여야 합니다."
-            ));
         }
 
         User user = currentUserOrThrow();
