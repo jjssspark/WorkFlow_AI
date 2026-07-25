@@ -137,7 +137,10 @@ public class AuthService {
     private AuthTokenResponse issueTokens(User user) {
         String accessToken = jwtService.issueAccessToken(user);
         String refreshToken = jwtService.issueRefreshToken(user);
-        UserSummary summary = new UserSummary(user.getId(), user.getEmail(), user.getName());
+        UserSummary summary = new UserSummary(
+            user.getId(), user.getEmail(), user.getName(),
+            user.getAffiliation(), user.getFieldTags(), user.getGithubUsername(), null
+        );
         return new AuthTokenResponse(accessToken, refreshToken, jwtService.accessTokenTtlSeconds(), summary);
     }
 

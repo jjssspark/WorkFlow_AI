@@ -113,6 +113,20 @@ export function BoardView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // 마이페이지의 "오늘 할 일"/"이번 주 마감"에서 넘어온 taskId — 업무 목록이 로드된 뒤 상세 패널을 연다.
+  useEffect(() => {
+    if (loadState !== "ready") return;
+    const taskId = searchParams.get("taskId");
+    if (!taskId) return;
+    if (tasks.some((t) => t.id === taskId)) {
+      setSelId(taskId);
+    }
+    const next = new URLSearchParams(searchParams);
+    next.delete("taskId");
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadState, tasks]);
+
   const handleTaskCreated = (task: Task) => {
     setTasks((prev) => [task, ...prev]);
   };

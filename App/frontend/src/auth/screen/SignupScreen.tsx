@@ -1,4 +1,4 @@
-import { useState, type ChangeEvent } from "react";
+import { useEffect, useState, type ChangeEvent } from "react";
 import { useNavigate } from "react-router";
 import {
   AlertTriangle,
@@ -24,21 +24,50 @@ import { tokenStore } from "../../global/api/tokenStore";
 
 const demoAuthEnabled = import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO_AUTH === "true";
 
+// 회원가입 폼은 순수 useState라 /terms로 이동했다 돌아오면 초기화된다 — sessionStorage에 임시 저장해 왕복 시 값을 유지한다.
+export const SIGNUP_DRAFT_KEY = "workflow-ai:signup-draft";
+
+interface SignupDraft {
+  name: string;
+  email: string;
+  pw: string;
+  pwConfirm: string;
+  isProfessor: boolean;
+  agreed: boolean;
+}
+
+function loadSignupDraft(): SignupDraft | null {
+  try {
+    const raw = sessionStorage.getItem(SIGNUP_DRAFT_KEY);
+    return raw ? (JSON.parse(raw) as SignupDraft) : null;
+  } catch {
+    return null;
+  }
+}
+
 export function SignupScreen() {
   const navigate = useNavigate();
   const { loginWithGoogle, refreshMe } = useAuth();
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [pw, setPw] = useState("");
-  const [pwConfirm, setPwConfirm] = useState("");
+  const draft = loadSignupDraft();
+  const [name, setName] = useState(draft?.name ?? "");
+  const [email, setEmail] = useState(draft?.email ?? "");
+  const [pw, setPw] = useState(draft?.pw ?? "");
+  const [pwConfirm, setPwConfirm] = useState(draft?.pwConfirm ?? "");
   const [showPw, setShowPw] = useState(false);
-  const [agreed, setAgreed] = useState(false);
+  const [agreed, setAgreed] = useState(draft?.agreed ?? false);
   const [loading, setLoading] = useState(false);
-  const [isProfessor, setIsProfessor] = useState(false);
+  const [isProfessor, setIsProfessor] = useState(draft?.isProfessor ?? false);
   const [professorNo, setProfessorNo] = useState("");
   const [certificateName, setCertificateName] = useState("");
   const [approvalSubmitted, setApprovalSubmitted] = useState(false);
   const [signupError, setSignupError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const nextDraft: SignupDraft = { name, email, pw, pwConfirm, isProfessor, agreed };
+    sessionStorage.setItem(SIGNUP_DRAFT_KEY, JSON.stringify(nextDraft));
+  }, [name, email, pw, pwConfirm, isProfessor, agreed]);
+
+  const goToTerms = () => navigate("/terms");
 
   const pwMatch = Boolean(pw && pwConfirm && pw === pwConfirm);
   const pwMismatch = Boolean(pw && pwConfirm && pw !== pwConfirm);
@@ -90,6 +119,7 @@ export function SignupScreen() {
         tokenStore.setTokens(response.tokens.accessToken, response.tokens.refreshToken, null);
         await refreshMe();
       }
+      sessionStorage.removeItem(SIGNUP_DRAFT_KEY);
       navigate("/projects", { replace: true });
     } catch (error) {
       setSignupError(error instanceof ApiRequestError ? error.message : "회원가입 처리에 실패했습니다.");
@@ -259,18 +289,21 @@ export function SignupScreen() {
                 )}
               </div>
 
-              <label className="flex items-start gap-2 mt-5 mb-6 cursor-pointer select-none">
-                <div
-                  onClick={() => setAgreed(v => !v)}
-                  className={`w-4 h-4 rounded border flex items-center justify-center transition-all mt-0.5 cursor-pointer shrink-0 ${agreed ? "border-blue-500 bg-blue-500" : "border-border"}`}
+              <div className="flex items-start gap-2 mt-5 mb-6 select-none">
+                <button
+                  type="button"
+                  aria-label={agreed ? "이용약관 동의 해제" : "이용약관 보기"}
+                  onClick={() => (agreed ? setAgreed(false) : goToTerms())}
+                  className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-all mt-0.5 cursor-pointer shrink-0 ${agreed ? "border-blue-500 bg-blue-500" : "border-slate-400 bg-input-background"}`}
                 >
                   {agreed && <Check className="w-3 h-3 text-white" />}
-                </div>
+                </button>
                 <span className="text-xs text-muted-foreground leading-relaxed">
-                  <button className="font-semibold text-blue-600 hover:text-blue-700">이용약관</button> 및{" "}
-                  <button className="font-semibold text-blue-600 hover:text-blue-700">개인정보처리방침</button>에 동의합니다.
+                  <button type="button" onClick={goToTerms} className="font-semibold text-blue-600 hover:text-blue-700">이용약관</button> 및{" "}
+                  <button type="button" className="font-semibold text-blue-600 hover:text-blue-700">개인정보처리방침</button>에 동의합니다.
+                  {!agreed && <span className="block mt-1 text-[11px] text-muted-foreground">이용약관을 끝까지 확인해야 동의할 수 있습니다.</span>}
                 </span>
-              </label>
+              </div>
 
               {signupError && (
                 <div className="mb-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-600">

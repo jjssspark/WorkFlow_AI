@@ -93,7 +93,7 @@ export function ProjectSettingsSection() {
           <Field label="시작일" value={project.startDate ?? "미설정"} />
           <Field label="최종 마감일" value={project.deadline ?? "미설정"} />
           <Field label="중간 점검일" value={project.midCheckDate ?? "미설정"} />
-          <Field label="예상 인원" value={project.memberLimit ? `${project.memberLimit}명 (현재 ${project.memberCount}명)` : `현재 ${project.memberCount}명`} />
+          <Field label="예상 인원" value={`${project.memberLimit ?? 0}명 (현재 ${project.memberCount ?? 0}명)`} />
           <Field label="목표 산출물" value={project.deliverables?.join(", ") || "미설정"} />
           <Field label="기술 스택" value={project.techStack?.join(", ") || "미설정"} />
           <Field label="설명" value={project.description ?? "미설정"} full />
