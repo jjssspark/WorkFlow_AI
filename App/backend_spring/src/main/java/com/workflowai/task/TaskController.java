@@ -242,7 +242,9 @@ public class TaskController {
             );
             // 알림 3대상: 1) 행위자 본인(자기 확인 — 본인이 곧 담당자면 제목을 "담당 업무 상태 변경"으로),
             // 2) 담당자(행위자와 다를 때만), 3) 팀장(행위자 본인이어도 포함).
-            // 행위자 본인은 위에서 이미 자기 알림을 받으므로, 팀장 루프에서는 중복 방지를 위해 제외한다.
+            // 행위자 본인과 담당자는 위에서 이미 각자의 알림을 받으므로, 팀장 루프에서는
+            // 중복 발송 방지를 위해 둘 다 제외한다 - 팀장이 곧 담당자인 업무를 다른 사람이
+            // 옮긴 경우, 담당자 알림과 팀장 알림이 같은 사람에게 두 번 가는 것을 막는다.
             String actorName = userName(moveActorId);
             String selfContent = "'" + task.getTitle() + "' 업무 상태를 '" + label + "'(으)로 변경했습니다.";
             String othersContent = actorName + "님이 '" + task.getTitle() + "' 업무 상태를 '" + label + "'(으)로 변경했습니다.";
@@ -257,7 +259,7 @@ public class TaskController {
             projectMemberRepository.findAllByProjectId(projectDbId).stream()
                 .filter(member -> member.getRole() == ProjectRole.LEADER)
                 .map(com.workflowai.project.ProjectMember::getUserId)
-                .filter(leaderId -> !leaderId.equals(moveActorId))
+                .filter(leaderId -> !leaderId.equals(moveActorId) && !leaderId.equals(task.getAssigneeId()))
                 .forEach(leaderId -> notificationService.notify(
                     leaderId, "STATUS_CHANGED", "업무 상태 변경",
                     othersContent, "task", task.getId()

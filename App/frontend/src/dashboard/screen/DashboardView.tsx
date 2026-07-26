@@ -234,7 +234,9 @@ export function DashboardView() {
             {isSummaryPending ? (
               <EmptyState>데이터를 불러오는 중입니다</EmptyState>
             ) : upcomingDeadlines.length ? upcomingDeadlines.map((task, index) => {
-              const member = resolveMemberDisplay(task.assigneeName, index);
+              // UpcomingTaskDto에는 assigneeId가 없어 index를 색상 키로 넘기면 렌더 순서에
+              // 따라 같은 사람이 다른 색을 받는다 - 이름을 안정적인 키로 대신 사용한다.
+              const member = resolveMemberDisplay(task.assigneeName, index, task.assigneeName);
               const dueSoon = (daysUntilDue(task.dueDate) ?? Infinity) <= 3;
               return (
                 <div key={task.id} className="flex items-center gap-2.5">

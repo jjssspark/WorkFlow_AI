@@ -101,9 +101,9 @@ public class DashboardController {
         }
     }
 
-    @Operation(summary = "마일스톤 생성", description = "프로젝트에 새 마일스톤을 추가한다.")
+    @Operation(summary = "마일스톤 생성", description = "프로젝트에 새 마일스톤을 추가한다. 팀장만 생성할 수 있다.")
     @PostMapping("/milestones")
-    @PreAuthorize("@projectAccess.isMember(#projectId)")
+    @PreAuthorize("@projectAccess.hasRole(#projectId, 'LEADER')")
     public ApiResponse<MilestoneProgressDto> createMilestone(
         @Parameter(description = "프로젝트 ID", example = "demo-project") @PathVariable String projectId,
         @Valid @RequestBody CreateMilestoneRequest request
@@ -111,9 +111,9 @@ public class DashboardController {
         return ApiResponse.ok(dashboardService.createMilestone(projectId, request.title(), request.startDate(), request.dueDate()));
     }
 
-    @Operation(summary = "마일스톤 수정", description = "마일스톤의 이름/시작일/마감일을 수정한다.")
+    @Operation(summary = "마일스톤 수정", description = "마일스톤의 이름/시작일/마감일을 수정한다. 팀장만 수정할 수 있다.")
     @PatchMapping("/milestones/{milestoneId}")
-    @PreAuthorize("@projectAccess.isMember(#projectId)")
+    @PreAuthorize("@projectAccess.hasRole(#projectId, 'LEADER')")
     public ApiResponse<MilestoneProgressDto> updateMilestone(
         @Parameter(description = "프로젝트 ID", example = "demo-project") @PathVariable String projectId,
         @Parameter(description = "마일스톤 ID") @PathVariable Long milestoneId,
@@ -122,9 +122,9 @@ public class DashboardController {
         return ApiResponse.ok(dashboardService.updateMilestone(projectId, milestoneId, request.title(), request.startDate(), request.dueDate()));
     }
 
-    @Operation(summary = "마일스톤 삭제", description = "마일스톤을 삭제한다. 연결된 업무는 삭제되지 않고 마일스톤 연결만 해제된다.")
+    @Operation(summary = "마일스톤 삭제", description = "마일스톤을 삭제한다. 연결된 업무는 삭제되지 않고 마일스톤 연결만 해제된다. 팀장만 삭제할 수 있다.")
     @DeleteMapping("/milestones/{milestoneId}")
-    @PreAuthorize("@projectAccess.isMember(#projectId)")
+    @PreAuthorize("@projectAccess.hasRole(#projectId, 'LEADER')")
     public ApiResponse<Void> deleteMilestone(
         @Parameter(description = "프로젝트 ID", example = "demo-project") @PathVariable String projectId,
         @Parameter(description = "마일스톤 ID") @PathVariable Long milestoneId

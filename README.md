@@ -47,7 +47,7 @@ VITE_ENABLE_DEMO_AUTH=true
 
 기본 앱 실행에서는 Flyway가 비활성화되어 기존 운영 DB에 자동 마이그레이션을 적용하지 않습니다. 배포 DB 스키마는 팀에서 검토한 뒤 아래 둘 중 하나로 반영합니다.
 
-- 권장: `App/backend_spring/src/main/resources/db/init/04_add_password_auth.sql`, `05_add_reviewer_approval_status.sql`, `06_add_project_onboarding_fields.sql`을 운영 DB에 수동 적용
+- 권장: `App/backend_spring/src/main/resources/db/init/04_add_password_auth.sql`, `05_add_reviewer_approval_status.sql`, `06_add_project_onboarding_fields.sql`, `07_add_milestone_start_date_and_task_done_date.sql`을 운영 DB에 수동 적용 (07은 컬럼 추가 외에 기존 완료 업무의 done_date를 updated_at 기준으로 backfill하는 UPDATE문도 포함)
 - Flyway 사용 시: 스키마 상태를 먼저 확인한 뒤 `SPRING_FLYWAY_ENABLED=true`를 명시. 기존에 테이블이 있는 DB에서 처음 Flyway를 켜는 경우 `baseline-on-migrate` 기본값은 `true`라서 schema history 부재로 기동이 막히지 않는다. 신규 빈 DB에서 엄격하게 검증하려면 `SPRING_FLYWAY_BASELINE_ON_MIGRATE=false`로 override
 
 `SPRING_FLYWAY_ENABLED` 기본값은 `false`이고, Flyway를 켰을 때의 `SPRING_FLYWAY_BASELINE_ON_MIGRATE` 기본값은 `true`입니다.

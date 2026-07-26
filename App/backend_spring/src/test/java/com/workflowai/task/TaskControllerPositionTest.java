@@ -161,6 +161,35 @@ class TaskControllerPositionTest {
     }
 
     @Test
+    void doesNotDoubleNotifyLeaderWhoIsAlsoTheAssignee() throws Exception {
+        // 담당자(3L)가 곧 팀장이고, 행위자(1L, 다른 팀장)는 그와 다른 사람인 상황.
+        // 담당자 알림(assignee != actor)과 팀장 루프 알림이 모두 담당자=3L을 대상으로
+        // 잡을 수 있으므로, 실제로는 단 한 번만 알림이 가야 한다.
+        authenticateAs(1L);
+        when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
+        Task task = new Task(
+            1L, "원래 제목", "frontend", "todo", 3L,
+            LocalDate.of(2026, 7, 1), "medium", "원래 설명",
+            "MANUAL", null, 1L, 0.0
+        );
+        when(taskRepository.findById(anyLong())).thenReturn(Optional.of(task));
+        when(projectMemberRepository.findByProjectIdAndUserId(1L, 1L))
+            .thenReturn(Optional.of(new ProjectMember(1L, 1L, ProjectRole.LEADER)));
+        when(taskRepository.save(any(Task.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(projectMemberRepository.findAllByProjectId(1L)).thenReturn(List.of(
+            new ProjectMember(1L, 1L, ProjectRole.LEADER),
+            new ProjectMember(1L, 3L, ProjectRole.LEADER)
+        ));
+
+        mockMvc.perform(patch("/api/v1/projects/demo-project/tasks/42/position")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"status\":\"inprogress\",\"position\":1.0}"))
+            .andExpect(status().isOk());
+
+        verify(notificationService, times(1)).notify(eq(3L), eq("STATUS_CHANGED"), any(), any(), eq("task"), any());
+    }
+
+    @Test
     void doesNotNotifyWhenStatusUnchanged() throws Exception {
         authenticateAs(3L);
         when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
