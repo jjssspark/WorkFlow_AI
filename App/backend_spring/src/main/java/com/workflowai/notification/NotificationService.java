@@ -1,25 +1,18 @@
 package com.workflowai.notification;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
-import org.springframework.transaction.support.TransactionTemplate;
 
 /** TaskController 등이 업무 생성/수정/삭제/이동 시 알림을 남기기 위해 쓰는 공용 서비스. ActivityService와 같은 포지션. */
 @Service
 public class NotificationService {
-    private static final Logger log = LoggerFactory.getLogger(NotificationService.class);
-
     private final NotificationRepository notificationRepository;
-    private final TransactionTemplate requiresNewTransaction;
+    private final NotificationAsyncSender asyncSender;
 
-    public NotificationService(NotificationRepository notificationRepository, PlatformTransactionManager transactionManager) {
+    public NotificationService(NotificationRepository notificationRepository, NotificationAsyncSender asyncSender) {
         this.notificationRepository = notificationRepository;
-        this.requiresNewTransaction = new TransactionTemplate(transactionManager);
-        this.requiresNewTransaction.setPropagationBehavior(TransactionTemplate.PROPAGATION_REQUIRES_NEW);
+        this.asyncSender = asyncSender;
     }
 
     public void notify(Long userId, String type, String title, String content, String targetType, Long targetId) {
@@ -39,12 +32,12 @@ public class NotificationService {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
-                    sendSafely(userId, type, title, content, targetType, targetId);
+                    asyncSender.sendAsync(userId, type, title, content, targetType, targetId);
                 }
             });
             return;
         }
-        sendSafely(userId, type, title, content, targetType, targetId);
+        asyncSender.sendSafely(userId, type, title, content, targetType, targetId);
     }
 
     /**
@@ -61,15 +54,6 @@ public class NotificationService {
         }
         if (counterpartUserId != null && !counterpartUserId.equals(actorUserId)) {
             notifyAfterCommit(counterpartUserId, counterpartType, counterpartTitle, counterpartContent, targetType, targetId);
-        }
-    }
-
-    private void sendSafely(Long userId, String type, String title, String content, String targetType, Long targetId) {
-        try {
-            requiresNewTransaction.executeWithoutResult(status ->
-                notify(userId, type, title, content, targetType, targetId));
-        } catch (Exception e) {
-            log.warn("알림 발송 실패. userId={}, type={}, targetType={}, targetId={}", userId, type, targetType, targetId, e);
         }
     }
 }

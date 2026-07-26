@@ -367,7 +367,7 @@ const buildMeetingFromAnalysisResponse = (
 };
 
 export function MeetingsView() {
-  const { currentProjectId, user, currentProject } = useAuth();
+  const { currentProjectId, currentProject } = useAuth();
   const currentUserRole = deriveCurrentUserRole(currentProject?.role);
   const projectId = String(currentProjectId ?? DEMO_PROJECT_ID);
   const navigate = useNavigate();
@@ -709,7 +709,7 @@ export function MeetingsView() {
 
   // ── Upload type metadata ─────────────────────────────────────────────────────
   const UPLOAD_TYPES = [
-    { id:"document", label:"문서 업로드", desc:"PDF, Word, TXT, HWP 등 회의록 문서", icon:FileText, accept:".pdf,.doc,.docx,.txt,.hwp", color:"#3B5BDB", bg:"rgba(59,91,219,0.1)", note:"텍스트를 추출해 AI가 분석합니다." },
+    { id:"document", label:"문서 업로드", desc:"PDF, Word, PPT, TXT, HWP 등 회의록 문서", icon:FileText, accept:".pdf,.doc,.docx,.ppt,.pptx,.txt,.hwp", color:"#3B5BDB", bg:"rgba(59,91,219,0.1)", note:"텍스트를 추출해 AI가 분석합니다." },
     { id:"audio",    label:"음성파일 업로드", desc:"mp3, wav, m4a 등 녹음파일", icon:Radio,    accept:".mp3,.wav,.m4a,.ogg", color:"#7048E8", bg:"rgba(112,72,232,0.1)", note:"음성을 텍스트로 변환한 뒤 분석합니다." },
   ] as const;
 
@@ -933,18 +933,9 @@ export function MeetingsView() {
       setAnalysisError("분석할 회의록 파일을 먼저 업로드해주세요.");
       return;
     }
-    const fallbackCurrentUserId = user ? String(user.id) : null;
-    const selectedAttendeeIds = partIds.length > 0
-      ? partIds
-      : fallbackCurrentUserId
-        ? [fallbackCurrentUserId]
-        : [];
-    if (selectedAttendeeIds.length === 0) {
-      setAnalysisError("프로젝트 멤버 정보를 불러온 뒤 참석자를 1명 이상 선택해주세요.");
-      return;
-    }
     if (partIds.length === 0) {
-      setPartIds(selectedAttendeeIds);
+      setAnalysisError("참석자를 1명 이상 선택해주세요.");
+      return;
     }
     const uploadedAt = new Date().toISOString();
     const title = meetTitle.trim() || stripFileExtension(selectedFile.name);
@@ -972,8 +963,8 @@ export function MeetingsView() {
       meetingDate: meetDate,
       meetingKind: meetKind,
       sourceType: uploadType,
-      participants: selectedAttendeeIds.map(id => projectMembers.find(member => String(member.userId) === id)?.name ?? id),
-      attendeeIds: selectedAttendeeIds.map(Number),
+      participants: partIds.map(id => projectMembers.find(member => String(member.userId) === id)?.name ?? id),
+      attendeeIds: partIds.map(Number),
     }).then(response => {
       setAnalysisRequestPending(false);
       setActiveMeetingId(response.meetingId);

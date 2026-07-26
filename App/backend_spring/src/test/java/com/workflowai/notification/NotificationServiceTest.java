@@ -23,7 +23,8 @@ class NotificationServiceTest {
     private PlatformTransactionManager transactionManager;
 
     private NotificationService newService() {
-        return new NotificationService(notificationRepository, transactionManager);
+        NotificationAsyncSender asyncSender = new NotificationAsyncSender(notificationRepository, transactionManager);
+        return new NotificationService(notificationRepository, asyncSender);
     }
 
     @Test

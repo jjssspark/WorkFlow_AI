@@ -81,11 +81,16 @@ export interface MeetingDeleteResponse {
   status: "DELETED";
 }
 
+const DELETE_MEETING_TIMEOUT_MS = 10000;
+
 export async function deleteMeeting(projectId: string, meetingId: string, deleteLinkedTasks = false): Promise<MeetingDeleteResponse> {
   const query = new URLSearchParams({ deleteLinkedTasks: String(deleteLinkedTasks) });
-  return apiFetch<MeetingDeleteResponse>(`/projects/${projectId}/meetings/${meetingId}?${query.toString()}`, {
-    method: "DELETE",
-  });
+  return apiFetch<MeetingDeleteResponse>(
+    `/projects/${projectId}/meetings/${meetingId}?${query.toString()}`,
+    { method: "DELETE" },
+    true,
+    DELETE_MEETING_TIMEOUT_MS
+  );
 }
 
 export async function retryMeetingAnalysis(projectId: string, meetingId: string): Promise<MeetingAnalysisResponse> {
