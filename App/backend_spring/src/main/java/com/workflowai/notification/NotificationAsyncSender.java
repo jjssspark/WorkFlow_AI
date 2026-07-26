@@ -13,16 +13,25 @@ import org.springframework.transaction.support.TransactionTemplate;
  * REQUIRES_NEW로 동기 실행하면 API 응답이 그만큼 지연된다(예: 회의록 삭제 시 왕복 지연이 큰
  * DB에서 알림 2건 저장 때문에 응답이 초 단위로 늘어남). 알림은 부가 기능이므로 별도 스레드에서
  * 처리해 응답 경로를 막지 않는다.
+ *
+ * 저장이 실제로 커밋된 직후(같은 메서드 안에서) broadcaster로 실시간 push까지 함께 한다 —
+ * 커밋 전에 push하면 클라이언트가 곧바로 목록을 다시 불러왔을 때 아직 없는 알림을 보게 될 수 있다.
  */
 @Component
 public class NotificationAsyncSender {
     private static final Logger log = LoggerFactory.getLogger(NotificationAsyncSender.class);
 
     private final NotificationRepository notificationRepository;
+    private final NotificationBroadcaster broadcaster;
     private final TransactionTemplate requiresNewTransaction;
 
-    public NotificationAsyncSender(NotificationRepository notificationRepository, PlatformTransactionManager transactionManager) {
+    public NotificationAsyncSender(
+        NotificationRepository notificationRepository,
+        PlatformTransactionManager transactionManager,
+        NotificationBroadcaster broadcaster
+    ) {
         this.notificationRepository = notificationRepository;
+        this.broadcaster = broadcaster;
         this.requiresNewTransaction = new TransactionTemplate(transactionManager);
         this.requiresNewTransaction.setPropagationBehavior(TransactionTemplate.PROPAGATION_REQUIRES_NEW);
     }
@@ -34,8 +43,9 @@ public class NotificationAsyncSender {
 
     public void sendSafely(Long userId, String type, String title, String content, String targetType, Long targetId) {
         try {
-            requiresNewTransaction.executeWithoutResult(status ->
+            Notification saved = requiresNewTransaction.execute(status ->
                 notificationRepository.save(new Notification(userId, type, title, content, targetType, targetId)));
+            broadcaster.broadcast(userId, NotificationDto.from(saved));
         } catch (Exception e) {
             log.warn("알림 발송 실패. userId={}, type={}, targetType={}, targetId={}", userId, type, targetType, targetId, e);
         }
