@@ -1,10 +1,14 @@
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { RequireAuth } from "./useAuthGuard";
+import { RequireAdmin, RequireAuth } from "./useAuthGuard";
 
 const mockAuth = vi.hoisted(() => ({
-  state: { isAuthenticated: false, loading: false },
+  state: {
+    isAuthenticated: false,
+    loading: false,
+    user: null as { isAdmin: boolean } | null,
+  },
 }));
 
 vi.mock("./useAuth", () => ({
@@ -52,5 +56,57 @@ describe("RequireAuth", () => {
 
     expect(screen.getByText("Invite content")).toBeInTheDocument();
     expect(sessionStorage.getItem("pendingInvite")).toBeNull();
+  });
+});
+
+function renderAdminAt(path: string) {
+  return render(
+    <MemoryRouter initialEntries={[path]}>
+      <Routes>
+        <Route element={<RequireAdmin />}>
+          <Route path="/admin/reviewers" element={<div>Admin content</div>} />
+        </Route>
+        <Route path="/dashboard" element={<div>Dashboard content</div>} />
+      </Routes>
+    </MemoryRouter>
+  );
+}
+
+describe("RequireAdmin", () => {
+  beforeEach(() => {
+    mockAuth.state.loading = false;
+    mockAuth.state.user = null;
+  });
+
+  it("user.isAdmin이 true면 하위 라우트를 렌더링한다", () => {
+    mockAuth.state.user = { isAdmin: true };
+
+    renderAdminAt("/admin/reviewers");
+
+    expect(screen.getByText("Admin content")).toBeInTheDocument();
+  });
+
+  it("user.isAdmin이 false이면 대시보드로 리다이렉트한다", () => {
+    mockAuth.state.user = { isAdmin: false };
+
+    renderAdminAt("/admin/reviewers");
+
+    expect(screen.getByText("Dashboard content")).toBeInTheDocument();
+  });
+
+  it("user가 null이면 대시보드로 리다이렉트한다", () => {
+    mockAuth.state.user = null;
+
+    renderAdminAt("/admin/reviewers");
+
+    expect(screen.getByText("Dashboard content")).toBeInTheDocument();
+  });
+
+  it("loading 중이면 로딩 화면을 보여준다", () => {
+    mockAuth.state.loading = true;
+
+    renderAdminAt("/admin/reviewers");
+
+    expect(screen.getByText("로딩 중...")).toBeInTheDocument();
   });
 });

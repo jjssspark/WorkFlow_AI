@@ -2,6 +2,7 @@ package com.workflowai.auth;
 
 import com.workflowai.security.JwtService;
 import com.workflowai.task.SupabaseStorageClient;
+import com.workflowai.user.ReviewerStatus;
 import com.workflowai.user.User;
 import com.workflowai.user.UserRepository;
 import io.jsonwebtoken.Claims;
@@ -25,9 +26,11 @@ public class AuthService {
     private static final String PROVIDER_LOCAL = "local";
     private static final String ROLE_TYPE_MEMBER = "MEMBER";
     private static final String ROLE_TYPE_REVIEWER = "REVIEWER";
-    private static final String REVIEWER_STATUS_PENDING = "PENDING";
     private static final int MIN_PASSWORD_LENGTH = 8;
     private static final int AVATAR_SIGNED_URL_EXPIRES_SECONDS = 24 * 60 * 60;
+    private static final int MAX_AFFILIATION_LENGTH = 100;
+    private static final int MAX_FACULTY_ID_LENGTH = 50;
+    private static final Pattern FACULTY_ID_PATTERN = Pattern.compile("^[A-Za-z0-9-]+$");
     private static final Pattern EMAIL_PATTERN = Pattern.compile(
         "^[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}$",
         Pattern.CASE_INSENSITIVE
@@ -98,7 +101,8 @@ public class AuthService {
      */
     @Transactional
     public SignupResponse signup(
-        String email, String password, String name, String roleType, boolean termsAgreed, boolean privacyAgreed
+        String email, String password, String name, String roleType, boolean termsAgreed, boolean privacyAgreed,
+        String affiliation, String facultyId
     ) {
         String normalizedEmail = normalizeEmail(email);
         String normalizedName = normalizeName(name);
@@ -122,14 +126,20 @@ public class AuthService {
             throw new EmailAlreadyExistsException();
         }
 
-        String passwordHash = passwordEncoder.encode(password);
         boolean isReviewerApplication = ROLE_TYPE_REVIEWER.equals(normalizedRoleType);
+        ReviewerFields reviewerFields = isReviewerApplication
+            ? normalizeAndValidateReviewerFields(affiliation, facultyId, "심사자 신청은 소속과 교수 식별번호를 입력해야 합니다.")
+            : null;
+
+        String passwordHash = passwordEncoder.encode(password);
         User newUser = new User(normalizedEmail, normalizedName, PROVIDER_LOCAL, normalizedEmail, passwordHash);
         LocalDateTime now = LocalDateTime.now();
         newUser.setTermsAgreedAt(now);
         newUser.setPrivacyAgreedAt(now);
-        if (isReviewerApplication) {
-            newUser.setReviewerStatus(REVIEWER_STATUS_PENDING);
+        if (reviewerFields != null) {
+            newUser.setAffiliation(reviewerFields.affiliation());
+            newUser.setFacultyId(reviewerFields.facultyId());
+            newUser.setReviewerStatus(ReviewerStatus.PENDING);
         }
         User user;
         try {
@@ -162,10 +172,43 @@ public class AuthService {
         if (!passwordEncoder.matches(password, user.getPasswordHash())) {
             throw new InvalidCredentialsException();
         }
-        if (REVIEWER_STATUS_PENDING.equals(user.getReviewerStatus())) {
+        if (user.getReviewerStatus() == ReviewerStatus.PENDING) {
             throw new ReviewerApprovalPendingException();
         }
+        if (user.getReviewerStatus() == ReviewerStatus.REJECTED) {
+            throw new ReviewerApplicationRejectedException(user.getReviewerRejectionReason());
+        }
         return issueTokens(user);
+    }
+
+    /**
+     * 거부된 심사자 신청을 다시 제출한다. 로그인은 여전히 막힌 상태이므로 이메일/비밀번호로 본인을
+     * 확인한 뒤, 소속·교수 식별번호를 새로 받아 REJECTED -> PENDING으로 되돌린다. 재신청도 관리자
+     * 재검토가 필요하므로 토큰은 발급하지 않는다.
+     */
+    @Transactional
+    public SignupResponse reapplyAsReviewer(String email, String password, String affiliation, String facultyId) {
+        String normalizedEmail = normalizeEmail(email);
+        User user = userRepository.findByEmail(normalizedEmail)
+            .orElseThrow(InvalidCredentialsException::new);
+        if (user.getPasswordHash() == null) {
+            throw new GoogleAccountRequiredException();
+        }
+        if (!passwordEncoder.matches(password, user.getPasswordHash())) {
+            throw new InvalidCredentialsException();
+        }
+        if (user.getReviewerStatus() != ReviewerStatus.REJECTED) {
+            throw new ReapplyNotAllowedException();
+        }
+
+        ReviewerFields fields = normalizeAndValidateReviewerFields(affiliation, facultyId, "소속과 교수 식별번호를 입력해야 합니다.");
+        user.setAffiliation(fields.affiliation());
+        user.setFacultyId(fields.facultyId());
+        user.setReviewerStatus(ReviewerStatus.PENDING);
+        user.setReviewerRejectionReason(null);
+        userRepository.save(user);
+
+        return SignupResponse.pendingReviewerApproval();
     }
 
     public AuthTokenResponse refresh(String refreshToken) {
@@ -181,7 +224,8 @@ public class AuthService {
         String refreshToken = jwtService.issueRefreshToken(user);
         UserSummary summary = new UserSummary(
             user.getId(), user.getEmail(), user.getName(),
-            user.getAffiliation(), user.getFieldTags(), user.getGithubUsername(), avatarUrlOrNull(user)
+            user.getAffiliation(), user.getFieldTags(), user.getGithubUsername(), avatarUrlOrNull(user),
+            user.isAdmin()
         );
         return new AuthTokenResponse(accessToken, refreshToken, jwtService.accessTokenTtlSeconds(), summary);
     }
@@ -208,6 +252,27 @@ public class AuthService {
 
     private String normalizeName(String name) {
         return name == null ? "" : name.trim();
+    }
+
+    private record ReviewerFields(String affiliation, String facultyId) {
+    }
+
+    private ReviewerFields normalizeAndValidateReviewerFields(String affiliation, String facultyId, String blankMessage) {
+        String normalizedAffiliation = affiliation == null ? "" : affiliation.trim();
+        String normalizedFacultyId = facultyId == null ? "" : facultyId.trim();
+        if (normalizedAffiliation.isBlank() || normalizedFacultyId.isBlank()) {
+            throw new InvalidSignupInputException(blankMessage);
+        }
+        if (normalizedAffiliation.length() > MAX_AFFILIATION_LENGTH) {
+            throw new InvalidSignupInputException("소속은 " + MAX_AFFILIATION_LENGTH + "자 이하로 입력해주세요.");
+        }
+        if (normalizedFacultyId.length() > MAX_FACULTY_ID_LENGTH) {
+            throw new InvalidSignupInputException("교수 식별번호는 " + MAX_FACULTY_ID_LENGTH + "자 이하로 입력해주세요.");
+        }
+        if (!FACULTY_ID_PATTERN.matcher(normalizedFacultyId).matches()) {
+            throw new InvalidSignupInputException("교수 식별번호는 영문, 숫자, 하이픈만 사용할 수 있습니다.");
+        }
+        return new ReviewerFields(normalizedAffiliation, normalizedFacultyId);
     }
 
     private String normalizeRoleType(String roleType) {
