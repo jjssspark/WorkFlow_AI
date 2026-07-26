@@ -39,6 +39,13 @@ describe("usePendingApprovalCount", () => {
     expect(fetchPendingApprovalTasks).not.toHaveBeenCalled();
   });
 
+  it("does not call the API when no project is selected", () => {
+    const { result } = renderHook(() => usePendingApprovalCount(null));
+
+    expect(result.current).toBe(0);
+    expect(fetchPendingApprovalTasks).not.toHaveBeenCalled();
+  });
+
   it("silently falls back to 0 when the fetch fails", async () => {
     vi.mocked(fetchPendingApprovalTasks).mockRejectedValue(new Error("네트워크 오류"));
 

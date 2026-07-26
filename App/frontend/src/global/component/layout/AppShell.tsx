@@ -22,6 +22,7 @@ export function AppShell() {
   const { collapsed, toggle: toggleCollapsed } = useSidebarCollapsed();
   const isMobile = useIsMobile();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [pendingInvite, setPendingInvite] = useState<string | null>(() => sessionStorage.getItem("pendingInvite"));
 
   useEffect(() => {
     setMobileOpen(false);
@@ -67,6 +68,17 @@ export function AppShell() {
     setMobileOpen(false);
   };
 
+  const acceptPendingInvite = () => {
+    if (!pendingInvite) return;
+    navigate(pendingInvite);
+    setPendingInvite(null);
+  };
+
+  const dismissPendingInvite = () => {
+    sessionStorage.removeItem("pendingInvite");
+    setPendingInvite(null);
+  };
+
   return (
     <div className="flex h-screen overflow-hidden bg-background" style={{ fontFamily: "'Inter', 'Noto Sans KR', sans-serif" }}>
       <div
@@ -97,6 +109,29 @@ export function AppShell() {
 
         {/* Content */}
         <main className="flex-1 overflow-hidden flex flex-col">
+          {pendingInvite && (
+            <div className="shrink-0 px-6 py-2.5 border-b border-blue-100 bg-blue-50 flex items-center justify-between gap-3">
+              <span className="text-xs font-semibold text-blue-700">참여 대기 중인 초대가 있습니다.</span>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={acceptPendingInvite}
+                  className="px-3 py-1 rounded text-xs font-semibold text-white"
+                  style={{ background: "#3B5BDB" }}
+                >
+                  참여하기
+                </button>
+                <button
+                  type="button"
+                  onClick={dismissPendingInvite}
+                  aria-label="초대 안내 닫기"
+                  className="px-2 py-1 rounded text-xs text-blue-700 hover:bg-blue-100"
+                >
+                  닫기
+                </button>
+              </div>
+            </div>
+          )}
           {isReadOnlyContent && (
             <div className="shrink-0 px-6 py-2.5 border-b border-violet-100 bg-violet-50 text-xs font-semibold text-violet-700">
               심사자 열람 전용 모드입니다. 프로젝트 정보는 확인만 가능하며 수정, 등록, 업로드 액션은 비활성화됩니다.
