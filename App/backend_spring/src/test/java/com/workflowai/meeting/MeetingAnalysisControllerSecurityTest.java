@@ -85,6 +85,16 @@ class MeetingAnalysisControllerSecurityTest {
             .andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
     }
 
+    @Test
+    void reanalyzeReturns403WhenReviewer() throws Exception {
+        when(projectAccess.isMember(eq("demo-project"))).thenReturn(true);
+
+        mockMvc.perform(post("/api/v1/projects/demo-project/meetings/6/reanalyze")
+                .with(user("reviewer")))
+            .andExpect(status().isForbidden())
+            .andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
+    }
+
     @Configuration
     @EnableMethodSecurity
     @Import(MeetingAnalysisController.class)

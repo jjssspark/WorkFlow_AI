@@ -264,6 +264,36 @@ class MeetingAnalysisPersistenceTest {
     }
 
     @Test
+    void assignsTodoUsingRootMeetingAttendeesWhenMeetingIsAVersion() {
+        MeetingAnalysisPersistence persistence = newPersistence();
+        Meeting version = newMeeting();
+        // 버전(수정본)은 원본 회의록(id=5)을 가리킨다. 버전 자신(id=6)에는 참석자 행이 없다는 것이
+        // 이 테스트의 핵심 전제 — meetingAttendeeRepository.findByMeetingId(6L)은 스텁하지 않으므로
+        // Mockito 기본값(빈 리스트)을 반환하며, 이것이 실제 운영 데이터 상태를 그대로 재현한다.
+        org.springframework.test.util.ReflectionTestUtils.setField(version, "originalMeetingId", 5L);
+        when(meetingRepository.findByIdForUpdate(6L)).thenReturn(Optional.of(version));
+        stubSaves();
+        stubMember("박지수", 3L);
+        // 원본 회의록(id=5)에는 참석자가 등록되어 있다.
+        when(meetingAttendeeRepository.findByMeetingId(5L)).thenReturn(List.of(new MeetingAttendee(5L, 3L)));
+
+        MeetingAnalysisResult result = new MeetingAnalysisResult(
+            "요약",
+            List.of("결정1"),
+            List.of(new MeetingTodo("업무1", "설명", "박지수", null, "2026-07-20", "HIGH", "ETC", true)),
+            List.of("위험1"),
+            List.of("키워드1"),
+            new MeetingMeta("정기회의_수정본", "2026-07-15", List.of("박지수"))
+        );
+
+        persistence.saveAnalysisSuccess(6L, result, "FASTAPI");
+
+        ArgumentCaptor<MeetingActionItem> actionItemCaptor = ArgumentCaptor.forClass(MeetingActionItem.class);
+        verify(meetingActionItemRepository).save(actionItemCaptor.capture());
+        assertThat(actionItemCaptor.getValue().getFinalAssigneeId()).isEqualTo(3L);
+    }
+
+    @Test
     void leavesTodoUnassignedWhenCandidateIsProjectMemberButNotMeetingAttendee() {
         MeetingAnalysisPersistence persistence = newPersistence();
         Meeting meeting = newMeeting();

@@ -998,6 +998,80 @@ class MeetingAnalysisServiceTest {
         verify(meetingAnalysisJobPublisher).enqueue(any(), any(), any());
     }
 
+    @Test
+    void reanalyzeVersionReturnsNullWhenMeetingMissing() {
+        mockMember(1L);
+        when(meetingRepository.findByIdAndProjectId(999L, 1L)).thenReturn(Optional.empty());
+        MeetingAnalysisService service = newService();
+
+        MeetingVersionResponse response = service.reanalyzeVersion("demo-project", "999");
+
+        assertThat(response).isNull();
+    }
+
+    @Test
+    void reanalyzeVersionRejectsOriginalMeeting() {
+        mockMember(1L);
+        Meeting original = new Meeting(1L, "정기회의", "document", "path.txt", "failed", LocalDate.now(), "정기회의", "a.txt", 10L, 10L);
+        ReflectionTestUtils.setField(original, "id", 5L);
+        when(meetingRepository.findByIdAndProjectId(5L, 1L)).thenReturn(Optional.of(original));
+        MeetingAnalysisService service = newService();
+
+        assertThatThrownBy(() -> service.reanalyzeVersion("demo-project", "5"))
+            .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void reanalyzeVersionRejectsWhenAlreadyCompleted() {
+        mockMember(1L);
+        Meeting version = new Meeting(1L, "정기회의_수정본", "document", null, "completed", LocalDate.now(), "정기회의", "a.txt", 10L, null);
+        ReflectionTestUtils.setField(version, "id", 6L);
+        ReflectionTestUtils.setField(version, "originalMeetingId", 5L);
+        version.setTranscript("수정된 내용");
+        when(meetingRepository.findByIdAndProjectId(6L, 1L)).thenReturn(Optional.of(version));
+        MeetingAnalysisService service = newService();
+
+        assertThatThrownBy(() -> service.reanalyzeVersion("demo-project", "6"))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessage("MEETING_NOT_REANALYZABLE");
+    }
+
+    @Test
+    void reanalyzeVersionTriggersAnalysisInPlaceForPendingVersion() {
+        mockMember(1L);
+        Meeting version = new Meeting(1L, "정기회의_수정본", "document", null, "pending", LocalDate.now(), "정기회의", "a.txt", 10L, null);
+        ReflectionTestUtils.setField(version, "id", 6L);
+        ReflectionTestUtils.setField(version, "originalMeetingId", 5L);
+        version.setTranscript("수정된 내용");
+        when(meetingRepository.findByIdAndProjectId(6L, 1L)).thenReturn(Optional.of(version));
+        when(meetingRepository.save(any(Meeting.class))).thenAnswer(inv -> inv.getArgument(0));
+        MeetingAnalysisService service = newService();
+
+        MeetingVersionResponse response = service.reanalyzeVersion("demo-project", "6");
+
+        assertThat(response.meetingId()).isEqualTo("6");
+        assertThat(response.status()).isEqualTo("PROCESSING");
+        assertThat(version.getAnalysisStatus()).isEqualTo("processing");
+        verify(meetingRepository).save(any(Meeting.class));
+        verify(meetingAnalysisJobPublisher).enqueue(any(), any(), any());
+    }
+
+    @Test
+    void reanalyzeVersionAllowsFailedStatus() {
+        mockMember(1L);
+        Meeting version = new Meeting(1L, "정기회의_수정본", "document", null, "failed", LocalDate.now(), "정기회의", "a.txt", 10L, null);
+        ReflectionTestUtils.setField(version, "id", 6L);
+        ReflectionTestUtils.setField(version, "originalMeetingId", 5L);
+        version.setTranscript("수정된 내용");
+        when(meetingRepository.findByIdAndProjectId(6L, 1L)).thenReturn(Optional.of(version));
+        when(meetingRepository.save(any(Meeting.class))).thenAnswer(inv -> inv.getArgument(0));
+        MeetingAnalysisService service = newService();
+
+        MeetingVersionResponse response = service.reanalyzeVersion("demo-project", "6");
+
+        assertThat(response.status()).isEqualTo("PROCESSING");
+    }
+
     private byte[] createPdfBytes(String text) throws Exception {
         try (PDDocument document = new PDDocument(); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
             PDPage page = new PDPage();

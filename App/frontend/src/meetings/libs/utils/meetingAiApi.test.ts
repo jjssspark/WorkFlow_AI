@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { apiFetch } from "../../../global/api/apiClient";
-import { confirmMeetingSave, createMeetingVersion, fetchAttendanceDetail } from "./meetingAiApi";
+import { confirmMeetingSave, createMeetingVersion, fetchAttendanceDetail, reanalyzeMeeting } from "./meetingAiApi";
 
 vi.mock("../../../global/api/apiClient", () => ({
   apiFetch: vi.fn(),
@@ -56,6 +56,21 @@ describe("createMeetingVersion", () => {
       method: "POST",
       body: JSON.stringify({ transcript: "수정된 본문", triggerAnalysis: true }),
     });
+    expect(result.status).toBe("PROCESSING");
+  });
+});
+
+describe("reanalyzeMeeting", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("바디 없이 POST /reanalyze 엔드포인트를 호출한다", async () => {
+    vi.mocked(apiFetch).mockResolvedValue({ meetingId: "6", status: "PROCESSING" });
+
+    const result = await reanalyzeMeeting("demo-project", "6");
+
+    expect(apiFetch).toHaveBeenCalledWith("/projects/demo-project/meetings/6/reanalyze", { method: "POST" });
     expect(result.status).toBe("PROCESSING");
   });
 });

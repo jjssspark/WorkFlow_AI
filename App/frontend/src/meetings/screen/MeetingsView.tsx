@@ -8,7 +8,7 @@ import { addActivity } from "../../board/libs/utils/activityStore";
 import { CATEGORIES } from "../../board/libs/mock/tasks";
 import type { Meeting, UploadFlow, UploadType, GenTodo, SavedMeetingRecord } from "../libs/types/meeting";
 import type { CatId, Priority, Task } from "../../board/libs/types/task";
-import { analyzeMeeting, confirmMeetingSave, deleteMeeting, fetchMeeting, fetchMeetings, registerMeetingTasks, retryMeetingAnalysis } from "../libs/utils/meetingAiApi";
+import { analyzeMeeting, confirmMeetingSave, deleteMeeting, fetchMeeting, fetchMeetings, reanalyzeMeeting, registerMeetingTasks, retryMeetingAnalysis } from "../libs/utils/meetingAiApi";
 import { MeetingEditPanel } from "../components/MeetingEditPanel";
 import type { MeetingAiResult } from "../libs/types/meetingAiTypes";
 import { deleteTask, DEMO_PROJECT_ID } from "../../board/libs/utils/taskApi";
@@ -413,6 +413,9 @@ export function MeetingsView() {
   const [newTodoError, setNewTodoError] = useState<string | null>(null);
   const [saveMeetingMessage, setSaveMeetingMessage] = useState<string | null>(null);
   const [saveMeetingError, setSaveMeetingError] = useState<string | null>(null);
+  const [reanalyzingMeetingId, setReanalyzingMeetingId] = useState<string | null>(null);
+  const [reanalyzeMessage, setReanalyzeMessage] = useState<string | null>(null);
+  const [reanalyzeError, setReanalyzeError] = useState<string | null>(null);
   const [originalViewMessage, setOriginalViewMessage] = useState<string | null>(null);
   const [originalPreview, setOriginalPreview] = useState<{ kind: "text"; content: string; fileName: string } | { kind: "unsupported"; fileName: string } | null>(null);
   const [pdfExportMessage, setPdfExportMessage] = useState<string | null>(null);
@@ -636,17 +639,21 @@ export function MeetingsView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
-  // 알림의 "바로가기"를 통해 특정 회의록으로 딥링크된 경우, 저장 여부와 무관하게 항상
-  // "분석/업로드" 탭에서 그 회의록의 분석 상세(요약/결정사항/To-Do)를 바로 보여준다.
+  // 알림의 "바로가기"를 통해 특정 회의록으로 딥링크된 경우, 원본 회의록은 저장 여부와
+  // 무관하게 "분석/업로드" 탭에서 분석 상세(요약/결정사항/To-Do)를 바로 보여준다.
   // "저장된 회의록" 탭은 목록만 보여주고 클릭해야 내용이 열리므로, 알림에서 바로 온
   // 사용자에게는 상세가 곧장 뜨는 이 탭이 맞다(역할분배 등 후속 작업이 To-Do 목록에서 이뤄짐).
+  // 다만 수정본(버전)은 바로 아래 분기에서 예외적으로 "저장된 회의록" 탭으로 보낸다.
   useEffect(() => {
     const targetMeetingId = searchParams.get("meetingId");
     if (!targetMeetingId || deepLinkHandledIdRef.current === targetMeetingId) return;
     setSelected(targetMeetingId);
     const target = meetings.find(item => item.id === targetMeetingId);
     if (!target) return;
-    setHomeTab("analyze");
+    // 수정본(버전)은 "저장된 회의록" 탭에서만 내용을 볼 수 있다 — "분석/업로드" 탭은
+    // 아직 분석 전/실패 상태인 버전에 대해 빈 안내 문구만 보여주므로, 수정 알림("바로가기")으로
+    // 온 사용자를 그리로 보내면 안 된다. 원본 회의록은 기존대로 분석/업로드 탭으로 보낸다.
+    setHomeTab(target.originalMeetingId ? "saved" : "analyze");
     deepLinkHandledIdRef.current = targetMeetingId;
   }, [searchParams, meetings]);
 
@@ -831,6 +838,25 @@ export function MeetingsView() {
         setEditingTranscript("");
         setEditingMeetingId(meetingId);
       });
+  };
+
+  // pending/failed 상태인 버전(수정본)을 편집 화면 없이 그 자리에서 재분석한다.
+  // 새 버전을 만들지 않고 이미 저장된 transcript로 분석만 재실행하므로 fetchMeeting 조회가 필요 없다.
+  const handleReanalyzeVersion = async (meetingId: string) => {
+    setReanalyzingMeetingId(meetingId);
+    setReanalyzeError(null);
+    try {
+      await reanalyzeMeeting(projectId, meetingId);
+      setReanalyzeMessage("AI 재분석을 요청했습니다.");
+      setTimeout(() => setReanalyzeMessage(null), 2500);
+      void refreshMeetingsFromServer();
+    } catch (error) {
+      const status = error instanceof ApiRequestError ? ` (${error.status})` : "";
+      setReanalyzeError(`재분석 요청에 실패했습니다${status}. 잠시 후 다시 시도해주세요.`);
+      setTimeout(() => setReanalyzeError(null), 4000);
+    } finally {
+      setReanalyzingMeetingId(null);
+    }
   };
 
   const closeMeetingEditAndRefresh = () => {
@@ -2425,9 +2451,12 @@ export function MeetingsView() {
               <div className="text-xs leading-relaxed max-w-sm">회의록 분석 후 '회의록 분석결과 저장'을 눌러 저장하면 이곳에 표시됩니다.</div>
             </div>
           ) : (
+            <>
+            {reanalyzeMessage && <div className="text-[10px] text-emerald-600 mb-2">{reanalyzeMessage}</div>}
+            {reanalyzeError && <div className="text-[10px] text-red-600 mb-2">{reanalyzeError}</div>}
             <div className="space-y-2 max-w-2xl">
               {savedMeetingsList.map(m => {
-                const isPendingVersion = Boolean(m.originalMeetingId) && m.status === "pending";
+                const isPendingVersion = Boolean(m.originalMeetingId) && (m.status === "pending" || m.status === "failed");
                 return (
                 <div key={m.id} onClick={() => handleViewSavedMeetingOriginal(m)}
                   role="button"
@@ -2451,8 +2480,16 @@ export function MeetingsView() {
                       {currentUserRole !== "reviewer" && (
                         <button
                           type="button"
-                          onClick={event => { event.stopPropagation(); handleOpenMeetingEdit(m.id); }}
-                          className="text-[10px] font-medium px-2 py-0.5 rounded-full border border-border text-foreground hover:bg-muted"
+                          disabled={reanalyzingMeetingId === m.id}
+                          onClick={event => {
+                            event.stopPropagation();
+                            if (isPendingVersion) {
+                              void handleReanalyzeVersion(m.id);
+                            } else {
+                              handleOpenMeetingEdit(m.id);
+                            }
+                          }}
+                          className="text-[10px] font-medium px-2 py-0.5 rounded-full border border-border text-foreground hover:bg-muted disabled:opacity-50"
                         >
                           {isPendingVersion ? "AI 재분석하기" : "수정"}
                         </button>
@@ -2464,6 +2501,7 @@ export function MeetingsView() {
                 );
               })}
             </div>
+            </>
           )}
         </div>
       )}

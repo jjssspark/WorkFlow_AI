@@ -556,22 +556,45 @@ public class MeetingAnalysisService {
             return new MeetingVersionResponse(String.valueOf(version.getId()), "SAVED");
         }
 
-        AiAnalyzeRequest aiRequest = new AiAnalyzeRequest(
+        return triggerAnalysis(version, projectId, request.transcript());
+    }
+
+    private MeetingVersionResponse triggerAnalysis(Meeting meeting, String projectId, String text) {
+        AiAnalyzeRequest request = new AiAnalyzeRequest(
             projectId,
-            version.getTitle(),
-            version.getMeetingDate() == null ? LocalDate.now().toString() : version.getMeetingDate().toString(),
-            defaultString(version.getMeetingType(), "정기회의"),
-            defaultString(version.getFileType(), "document"),
-            version.getOriginalFileName(),
-            request.transcript(),
+            meeting.getTitle(),
+            meeting.getMeetingDate() == null ? LocalDate.now().toString() : meeting.getMeetingDate().toString(),
+            defaultString(meeting.getMeetingType(), "정기회의"),
+            defaultString(meeting.getFileType(), "document"),
+            meeting.getOriginalFileName(),
+            text,
             List.of()
         );
         UUID jobId = UUID.randomUUID();
-        version.setAnalysisStatus("processing");
-        version.setAnalysisJobId(jobId);
-        meetingRepository.save(version);
-        runAnalysisAfterCommit(version.getId(), aiRequest, jobId);
-        return new MeetingVersionResponse(String.valueOf(version.getId()), "PROCESSING");
+        meeting.setAnalysisStatus("processing");
+        meeting.setAnalysisJobId(jobId);
+        meetingRepository.save(meeting);
+        runAnalysisAfterCommit(meeting.getId(), request, jobId);
+        return new MeetingVersionResponse(String.valueOf(meeting.getId()), "PROCESSING");
+    }
+
+    @Transactional
+    public MeetingVersionResponse reanalyzeVersion(String projectId, String meetingId) {
+        Meeting meeting = requireProjectMeeting(projectId, meetingId);
+        if (meeting == null) return null;
+        if (meeting.getOriginalMeetingId() == null) {
+            throw new IllegalArgumentException("원본 회의록은 재분석할 수 없습니다. 수정 후 다시 시도해주세요.");
+        }
+        String status = meeting.getAnalysisStatus();
+        if (!"pending".equals(status) && !"failed".equals(status)) {
+            throw new IllegalStateException("MEETING_NOT_REANALYZABLE");
+        }
+        String text = meeting.getTranscript();
+        if (text == null || text.isBlank()) {
+            throw new IllegalArgumentException("재분석할 회의록 원문이 없습니다.");
+        }
+
+        return triggerAnalysis(meeting, projectId, text);
     }
 
     // count 기반 접미사는 중간 버전이 삭제돼 번호에 공백이 생기면 이미 존재하는 제목을 다시 만들어낼 수 있으므로,
