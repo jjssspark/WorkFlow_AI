@@ -54,8 +54,8 @@ export function LoginScreen() {
           });
       tokenStore.clear();
       tokenStore.setTokens(tokens.accessToken, tokens.refreshToken, tokens.testSessionId ?? null);
-      await refreshMe();
-      navigate("/projects", { replace: true });
+      const me = await refreshMe();
+      navigate(me?.user.isAdmin ? "/admin/reviewers" : "/projects", { replace: true });
     } catch (error) {
       if (error instanceof ApiRequestError) {
         setLoginError(error.message);
