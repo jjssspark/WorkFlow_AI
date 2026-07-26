@@ -29,3 +29,11 @@ export async function markNotificationsRead(ids: string[]): Promise<void> {
     body: JSON.stringify({ ids: ids.map(Number) }),
   });
 }
+
+/** AI 진행률 보고서 생성에 성공했을 때, 요청한 본인에게 완료 알림을 남긴다. */
+export async function notifyProgressReportReady(content: string): Promise<void> {
+  await apiFetch<null>("/notifications/progress-report", {
+    method: "POST",
+    body: JSON.stringify({ content }),
+  });
+}

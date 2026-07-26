@@ -32,6 +32,9 @@ class NotificationControllerTest {
     @MockitoBean
     private NotificationRepository notificationRepository;
 
+    @MockitoBean
+    private NotificationService notificationService;
+
     @AfterEach
     void clearSecurityContext() {
         SecurityContextHolder.clearContext();

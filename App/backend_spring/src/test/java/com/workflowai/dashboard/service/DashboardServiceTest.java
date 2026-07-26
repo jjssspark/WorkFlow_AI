@@ -17,6 +17,7 @@ import com.workflowai.dashboard.entity.Milestone;
 import com.workflowai.dashboard.entity.MlPrediction;
 import com.workflowai.dashboard.repository.MilestoneRepository;
 import com.workflowai.dashboard.repository.MlPredictionRepository;
+import com.workflowai.notification.NotificationService;
 import com.workflowai.project.Project;
 import com.workflowai.project.ProjectMemberRepository;
 import com.workflowai.project.ProjectRepository;
@@ -47,12 +48,13 @@ class DashboardServiceTest {
     @Mock private FastApiDashboardClient fastApiDashboardClient;
     @Mock private FastApiWorkloadScoreClient fastApiWorkloadScoreClient;
     @Mock private ProjectRepository projectRepository;
+    @Mock private NotificationService notificationService;
 
     private DashboardService newService() {
         return new DashboardService(
             taskRepository, milestoneRepository, activityRepository, mlPredictionRepository,
             userRepository, projectMemberRepository, demoDataService, fastApiDashboardClient,
-            fastApiWorkloadScoreClient, projectRepository
+            fastApiWorkloadScoreClient, projectRepository, notificationService
         );
     }
 
@@ -182,11 +184,11 @@ class DashboardServiceTest {
     @Test
     void createMilestoneSavesAndReturnsZeroProgress() {
         when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
-        Milestone saved = new Milestone(1L, "MVP 발표", LocalDate.of(2026, 8, 15));
+        Milestone saved = new Milestone(1L, "MVP 발표", null, LocalDate.of(2026, 8, 15));
         ReflectionTestUtils.setField(saved, "id", 42L);
         when(milestoneRepository.save(any(Milestone.class))).thenReturn(saved);
 
-        MilestoneProgressDto result = newService().createMilestone("demo-project", "MVP 발표", LocalDate.of(2026, 8, 15));
+        MilestoneProgressDto result = newService().createMilestone("demo-project", "MVP 발표", null, LocalDate.of(2026, 8, 15));
 
         assertThat(result.id()).isEqualTo("42");
         assertThat(result.title()).isEqualTo("MVP 발표");
