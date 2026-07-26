@@ -85,6 +85,28 @@ class MeetingAnalysisControllerSecurityTest {
             .andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
     }
 
+    @Test
+    void deleteMeetingAnalysisReturns403WhenReviewer() throws Exception {
+        when(projectAccess.isMember(eq("demo-project"))).thenReturn(true);
+
+        mockMvc.perform(delete("/api/v1/projects/demo-project/meetings/5/analysis")
+                .with(user("reviewer")))
+            .andExpect(status().isForbidden())
+            .andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
+    }
+
+    @Test
+    void deleteMeetingAnalysisReturns403WhenMember() throws Exception {
+        // 분석 결과 삭제도 팀장 전용이라 팀원(MEMBER)도 403이어야 한다.
+        when(projectAccess.isMember(eq("demo-project"))).thenReturn(true);
+        when(projectAccess.hasRole(eq("demo-project"), eq("MEMBER"))).thenReturn(true);
+
+        mockMvc.perform(delete("/api/v1/projects/demo-project/meetings/5/analysis")
+                .with(user("member")))
+            .andExpect(status().isForbidden())
+            .andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
+    }
+
     @Configuration
     @EnableMethodSecurity
     @Import(MeetingAnalysisController.class)
