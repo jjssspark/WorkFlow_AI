@@ -8,7 +8,7 @@ import { addActivity } from "../../board/libs/utils/activityStore";
 import { CATEGORIES } from "../../board/libs/mock/tasks";
 import type { Meeting, UploadFlow, UploadType, GenTodo, SavedMeetingRecord } from "../libs/types/meeting";
 import type { CatId, Priority, Task } from "../../board/libs/types/task";
-import { analyzeMeeting, confirmMeetingSave, deleteMeeting, fetchMeeting, fetchMeetings, registerMeetingTasks, retryMeetingAnalysis } from "../libs/utils/meetingAiApi";
+import { analyzeMeeting, confirmMeetingSave, deleteMeeting, fetchMeeting, fetchMeetings, reanalyzeMeeting, registerMeetingTasks, retryMeetingAnalysis } from "../libs/utils/meetingAiApi";
 import { MeetingEditPanel } from "../components/MeetingEditPanel";
 import type { MeetingAiResult } from "../libs/types/meetingAiTypes";
 import { deleteTask, DEMO_PROJECT_ID } from "../../board/libs/utils/taskApi";
@@ -413,6 +413,9 @@ export function MeetingsView() {
   const [newTodoError, setNewTodoError] = useState<string | null>(null);
   const [saveMeetingMessage, setSaveMeetingMessage] = useState<string | null>(null);
   const [saveMeetingError, setSaveMeetingError] = useState<string | null>(null);
+  const [reanalyzingMeetingId, setReanalyzingMeetingId] = useState<string | null>(null);
+  const [reanalyzeMessage, setReanalyzeMessage] = useState<string | null>(null);
+  const [reanalyzeError, setReanalyzeError] = useState<string | null>(null);
   const [originalViewMessage, setOriginalViewMessage] = useState<string | null>(null);
   const [originalPreview, setOriginalPreview] = useState<{ kind: "text"; content: string; fileName: string } | { kind: "unsupported"; fileName: string } | null>(null);
   const [pdfExportMessage, setPdfExportMessage] = useState<string | null>(null);
@@ -831,6 +834,25 @@ export function MeetingsView() {
         setEditingTranscript("");
         setEditingMeetingId(meetingId);
       });
+  };
+
+  // pending/failed 상태인 버전(수정본)을 편집 화면 없이 그 자리에서 재분석한다.
+  // 새 버전을 만들지 않고 이미 저장된 transcript로 분석만 재실행하므로 fetchMeeting 조회가 필요 없다.
+  const handleReanalyzeVersion = async (meetingId: string) => {
+    setReanalyzingMeetingId(meetingId);
+    setReanalyzeError(null);
+    try {
+      await reanalyzeMeeting(projectId, meetingId);
+      setReanalyzeMessage("AI 재분석을 요청했습니다.");
+      setTimeout(() => setReanalyzeMessage(null), 2500);
+      void refreshMeetingsFromServer();
+    } catch (error) {
+      const status = error instanceof ApiRequestError ? ` (${error.status})` : "";
+      setReanalyzeError(`재분석 요청에 실패했습니다${status}. 잠시 후 다시 시도해주세요.`);
+      setTimeout(() => setReanalyzeError(null), 4000);
+    } finally {
+      setReanalyzingMeetingId(null);
+    }
   };
 
   const closeMeetingEditAndRefresh = () => {
@@ -2434,9 +2456,12 @@ export function MeetingsView() {
               <div className="text-xs leading-relaxed max-w-sm">회의록 분석 후 '회의록 분석결과 저장'을 눌러 저장하면 이곳에 표시됩니다.</div>
             </div>
           ) : (
+            <>
+            {reanalyzeMessage && <div className="text-[10px] text-emerald-600 mb-2">{reanalyzeMessage}</div>}
+            {reanalyzeError && <div className="text-[10px] text-red-600 mb-2">{reanalyzeError}</div>}
             <div className="space-y-2 max-w-2xl">
               {savedMeetingsList.map(m => {
-                const isPendingVersion = Boolean(m.originalMeetingId) && m.status === "pending";
+                const isPendingVersion = Boolean(m.originalMeetingId) && (m.status === "pending" || m.status === "failed");
                 return (
                 <div key={m.id} onClick={() => handleViewSavedMeetingOriginal(m)}
                   role="button"
@@ -2460,8 +2485,16 @@ export function MeetingsView() {
                       {currentUserRole !== "reviewer" && (
                         <button
                           type="button"
-                          onClick={event => { event.stopPropagation(); handleOpenMeetingEdit(m.id); }}
-                          className="text-[10px] font-medium px-2 py-0.5 rounded-full border border-border text-foreground hover:bg-muted"
+                          disabled={reanalyzingMeetingId === m.id}
+                          onClick={event => {
+                            event.stopPropagation();
+                            if (isPendingVersion) {
+                              void handleReanalyzeVersion(m.id);
+                            } else {
+                              handleOpenMeetingEdit(m.id);
+                            }
+                          }}
+                          className="text-[10px] font-medium px-2 py-0.5 rounded-full border border-border text-foreground hover:bg-muted disabled:opacity-50"
                         >
                           {isPendingVersion ? "AI 재분석하기" : "수정"}
                         </button>
@@ -2473,6 +2506,7 @@ export function MeetingsView() {
                 );
               })}
             </div>
+            </>
           )}
         </div>
       )}
