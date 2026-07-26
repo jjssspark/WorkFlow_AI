@@ -80,7 +80,7 @@ services:
     build: ./backend_spring
     container_name: workflow-backend-spring
     environment:
-      TZ: Asia/Seoul # LocalDateTime.now()가 KST 기준으로 찍히도록(알림 등 타임존 없는 시각 표시 보정)
+      TZ: Asia/Seoul # LocalDateTime.now() 등이 KST(UTC+9) 벽시계 값으로 나오도록 JVM 타임존 고정
       DB_HOST: db # application.properties에서 이 이름으로 참조
       REDIS_HOST: redis
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092 # KafkaConfig.java의 실제 프로퍼티 키에 맞춰 이름 조정

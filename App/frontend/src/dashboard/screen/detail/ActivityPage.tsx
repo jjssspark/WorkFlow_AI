@@ -55,11 +55,26 @@ export function ActivityPage() {
   const [typeFilter, setTypeFilter] = useState("전체");
   const [memberFilter, setMemberFilter] = useState("전체");
   const [search, setSearch] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
+
+  const manualRefresh = async () => {
+    setRefreshing(true);
+    await refetch();
+    setRefreshing(false);
+  };
 
   const memberOptions = useMemo(
     () => Array.from(new Set(activities.map(item => item.actorName).filter(Boolean))) as string[],
     [activities]
   );
+  // 전역 색상 팔레트와 동기화하려면 이름이 아니라 실제 user id로 색상을 키잉해야 한다.
+  const actorIdByName = useMemo(() => {
+    const map = new Map<string, string | null>();
+    activities.forEach(item => {
+      if (item.actorName && !map.has(item.actorName)) map.set(item.actorName, item.actorId);
+    });
+    return map;
+  }, [activities]);
 
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -85,8 +100,8 @@ export function ActivityPage() {
           <p className="text-sm text-muted-foreground mt-0.5">팀 전체 활동을 타임라인으로 확인하고 중요 변경사항을 파악합니다.</p>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={() => refetch()} className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-border bg-card text-foreground rounded-lg hover:bg-muted transition-colors">
-            <RefreshCw className="w-3.5 h-3.5" /> 새로고침
+          <button onClick={manualRefresh} disabled={refreshing} className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-border bg-card text-foreground rounded-lg hover:bg-muted transition-colors disabled:opacity-50">
+            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} /> 새로고침
           </button>
           <button onClick={() => navigate("/dashboard/dash-progress")} className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-white rounded-lg" style={{ background: "linear-gradient(135deg,#7048E8,#4F6EF7)" }}>
             <Sparkles className="w-3.5 h-3.5" /> AI 분석 보기
@@ -121,11 +136,11 @@ export function ActivityPage() {
 
       <div className="grid grid-cols-3 gap-4">
         <div className="col-span-2 space-y-1">
-          {filtered.map((activity, index) => {
+          {!loading && !refreshing && filtered.map((activity, index) => {
             const normalized = normalizeActivityType(activity.type);
             const meta = ACTIVITY_ICONS[normalized];
             const IconComp = meta.icon;
-            const actor = resolveMemberDisplay(activity.actorName, index);
+            const actor = resolveMemberDisplay(activity.actorName, index, activity.actorId);
             const isLast = index === filtered.length - 1;
             return (
               <div key={activity.id} className="flex gap-3">
@@ -154,9 +169,9 @@ export function ActivityPage() {
               </div>
             );
           })}
-          {(loading || filtered.length === 0) && (
+          {(loading || refreshing || filtered.length === 0) && (
             <div className="flex items-center justify-center h-32 text-sm text-muted-foreground">
-              {loading ? "데이터를 불러오는 중입니다" : "표시할 활동이 없습니다."}
+              {loading || refreshing ? "데이터를 불러오는 중입니다." : "표시할 활동이 없습니다."}
             </div>
           )}
         </div>
@@ -184,8 +199,8 @@ export function ActivityPage() {
           </div>
           <div className="bg-card rounded-xl border border-border shadow-sm p-4">
             <div className="text-sm font-semibold text-foreground mb-3">팀원별 활동량</div>
-            {memberOptions.map((name, index) => {
-              const member = resolveMemberDisplay(name, index);
+            {!loading && !refreshing && memberOptions.map((name, index) => {
+              const member = resolveMemberDisplay(name, index, actorIdByName.get(name));
               const count = activities.filter(activity => activity.actorName === name).length;
               const maxCount = Math.max(...memberOptions.map(memberName => activities.filter(activity => activity.actorName === memberName).length), 1);
               return (
@@ -196,9 +211,9 @@ export function ActivityPage() {
                 </div>
               );
             })}
-            {(loading || memberOptions.length === 0) && (
+            {(loading || refreshing || memberOptions.length === 0) && (
               <div className="text-xs text-muted-foreground">
-                {loading ? "데이터를 불러오는 중입니다" : "활동 기록이 없습니다."}
+                {loading || refreshing ? "데이터를 불러오는 중입니다." : "활동 기록이 없습니다."}
               </div>
             )}
           </div>
