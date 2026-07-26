@@ -132,7 +132,9 @@ public class MeetingAnalysisPersistence {
             )
         );
 
-        Set<Long> attendeeUserIds = meetingAttendeeRepository.findByMeetingId(meetingId).stream()
+        // 버전(수정본)은 참석자 행을 별도로 갖지 않으므로, 원본(root) 회의록의 참석자 집합을 기준으로 담당자를 판별한다.
+        Long attendeeSourceMeetingId = meeting.getOriginalMeetingId() != null ? meeting.getOriginalMeetingId() : meetingId;
+        Set<Long> attendeeUserIds = meetingAttendeeRepository.findByMeetingId(attendeeSourceMeetingId).stream()
             .map(MeetingAttendee::getUserId)
             .collect(Collectors.toSet());
 

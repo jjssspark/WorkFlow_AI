@@ -649,7 +649,10 @@ export function MeetingsView() {
     setSelected(targetMeetingId);
     const target = meetings.find(item => item.id === targetMeetingId);
     if (!target) return;
-    setHomeTab("analyze");
+    // 수정본(버전)은 "저장된 회의록" 탭에서만 내용을 볼 수 있다 — "분석/업로드" 탭은
+    // 아직 분석 전/실패 상태인 버전에 대해 빈 안내 문구만 보여주므로, 수정 알림("바로가기")으로
+    // 온 사용자를 그리로 보내면 안 된다. 원본 회의록은 기존대로 분석/업로드 탭으로 보낸다.
+    setHomeTab(target.originalMeetingId ? "saved" : "analyze");
     deepLinkHandledIdRef.current = targetMeetingId;
   }, [searchParams, meetings]);
 

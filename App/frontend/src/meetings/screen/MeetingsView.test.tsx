@@ -254,4 +254,22 @@ describe("MeetingsView 홈 탭", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "분석/업로드" })).toHaveClass("border-blue-600"));
     expect(screen.getByRole("button", { name: "저장된 회의록" })).not.toHaveClass("border-blue-600");
   });
+
+  it("meetingId 쿼리파라미터의 회의록이 수정본(버전)이면 저장된 회의록 탭으로 전환된다", async () => {
+    // "6"은 originalMeetingId가 있는 버전이다 — 분석/업로드 탭이 아니라 저장된 회의록 탭으로 가야 한다.
+    fetchMeetings.mockResolvedValue([
+      { meetingId: "1", title: "저장된 정기회의", meetingDate: "2026-07-19", meetingType: "정기회의", analysisStatus: "completed", savedAt: "2026-07-19T10:00:00", originalMeetingId: null, tasksRegistered: false },
+      { meetingId: "6", title: "저장된 정기회의_수정본", meetingDate: "2026-07-23", meetingType: "정기회의", analysisStatus: "pending", savedAt: "2026-07-23T10:00:00", originalMeetingId: "1", tasksRegistered: false },
+    ]);
+    render(
+      <MemoryRouter initialEntries={["/meetings?meetingId=6"]}>
+        <MeetingsView />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(fetchMeetings).toHaveBeenCalled());
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "저장된 회의록" })).toHaveClass("border-blue-600"));
+    expect(screen.getByRole("button", { name: "분석/업로드" })).not.toHaveClass("border-blue-600");
+  });
 });
