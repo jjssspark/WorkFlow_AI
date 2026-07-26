@@ -7,6 +7,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.workflowai.security.JwtService;
+import com.workflowai.task.SupabaseStorageClient;
 import com.workflowai.user.User;
 import com.workflowai.user.UserRepository;
 import java.util.Optional;
@@ -26,13 +27,14 @@ class AuthServiceTest {
     @Mock private GoogleOAuthService googleOAuthService;
     @Mock private UserRepository userRepository;
     @Mock private JwtService jwtService;
+    @Mock private SupabaseStorageClient storageClient;
 
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
     private AuthService authService;
 
     @BeforeEach
     void setUp() {
-        authService = new AuthService(googleOAuthService, userRepository, jwtService, passwordEncoder);
+        authService = new AuthService(googleOAuthService, userRepository, jwtService, passwordEncoder, storageClient);
     }
 
     @Test
@@ -43,7 +45,7 @@ class AuthServiceTest {
         when(jwtService.issueRefreshToken(any())).thenReturn("refresh-token");
         when(jwtService.accessTokenTtlSeconds()).thenReturn(1800L);
 
-        SignupResponse response = authService.signup(" New@Example.COM ", "12345678", " 홍길동 ", "MEMBER");
+        SignupResponse response = authService.signup(" New@Example.COM ", "12345678", " 홍길동 ", "MEMBER", true, true);
 
         ArgumentCaptor<User> savedUser = ArgumentCaptor.forClass(User.class);
         verify(userRepository).saveAndFlush(savedUser.capture());
@@ -52,6 +54,8 @@ class AuthServiceTest {
         assertThat(savedUser.getValue().getProvider()).isEqualTo("local");
         assertThat(savedUser.getValue().getEmail()).isEqualTo("new@example.com");
         assertThat(savedUser.getValue().getName()).isEqualTo("홍길동");
+        assertThat(savedUser.getValue().getTermsAgreedAt()).isNotNull();
+        assertThat(savedUser.getValue().getPrivacyAgreedAt()).isNotNull();
 
         assertThat(response.status()).isEqualTo("ACTIVE");
         assertThat(response.tokens()).isNotNull();
@@ -63,7 +67,7 @@ class AuthServiceTest {
         when(userRepository.existsByEmail("prof@example.com")).thenReturn(false);
         when(userRepository.saveAndFlush(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        SignupResponse response = authService.signup("prof@example.com", "12345678", "고교수", "REVIEWER");
+        SignupResponse response = authService.signup("prof@example.com", "12345678", "고교수", "REVIEWER", true, true);
 
         assertThat(response.status()).isEqualTo("PENDING_REVIEWER_APPROVAL");
         assertThat(response.tokens()).isNull();
@@ -103,7 +107,7 @@ class AuthServiceTest {
     void signup_duplicateEmail_throws() {
         when(userRepository.existsByEmail("dup@example.com")).thenReturn(true);
 
-        assertThatThrownBy(() -> authService.signup("dup@example.com", "12345678", "이름", "MEMBER"))
+        assertThatThrownBy(() -> authService.signup("dup@example.com", "12345678", "이름", "MEMBER", true, true))
             .isInstanceOf(EmailAlreadyExistsException.class);
     }
 
@@ -112,26 +116,58 @@ class AuthServiceTest {
         when(userRepository.existsByEmail("race@example.com")).thenReturn(false, true);
         when(userRepository.saveAndFlush(any(User.class))).thenThrow(new DataIntegrityViolationException("duplicate email"));
 
-        assertThatThrownBy(() -> authService.signup("race@example.com", "12345678", "이름", "MEMBER"))
+        assertThatThrownBy(() -> authService.signup("race@example.com", "12345678", "이름", "MEMBER", true, true))
             .isInstanceOf(EmailAlreadyExistsException.class);
     }
 
     @Test
     void signup_shortPassword_throws() {
-        assertThatThrownBy(() -> authService.signup("short@example.com", "1234", "이름", "MEMBER"))
+        assertThatThrownBy(() -> authService.signup("short@example.com", "1234", "이름", "MEMBER", true, true))
             .isInstanceOf(InvalidSignupInputException.class);
     }
 
     @Test
     void signup_invalidEmail_throws() {
-        assertThatThrownBy(() -> authService.signup("not-an-email", "12345678", "이름", "MEMBER"))
+        assertThatThrownBy(() -> authService.signup("not-an-email", "12345678", "이름", "MEMBER", true, true))
             .isInstanceOf(InvalidSignupInputException.class);
     }
 
     @Test
     void signup_invalidRoleType_throws() {
-        assertThatThrownBy(() -> authService.signup("role@example.com", "12345678", "이름", "ADMIN"))
+        assertThatThrownBy(() -> authService.signup("role@example.com", "12345678", "이름", "ADMIN", true, true))
             .isInstanceOf(InvalidSignupInputException.class);
+    }
+
+    @Test
+    void signup_termsNotAgreed_throwsAndNeverSaves() {
+        assertThatThrownBy(() -> authService.signup("terms@example.com", "12345678", "이름", "MEMBER", false, true))
+            .isInstanceOf(InvalidSignupInputException.class);
+
+        verify(userRepository, org.mockito.Mockito.never()).saveAndFlush(any());
+    }
+
+    @Test
+    void signup_privacyNotAgreed_throwsAndNeverSaves() {
+        assertThatThrownBy(() -> authService.signup("privacy@example.com", "12345678", "이름", "MEMBER", true, false))
+            .isInstanceOf(InvalidSignupInputException.class);
+
+        verify(userRepository, org.mockito.Mockito.never()).saveAndFlush(any());
+    }
+
+    @Test
+    void loginWithPassword_avatarSet_returnsSignedUrlInTokenResponse() {
+        String hash = passwordEncoder.encode("12345678");
+        User user = new User("avatar@example.com", "홍길동", "local", "avatar@example.com", hash);
+        user.setProfileImagePath("avatars/1/pic.png");
+        when(userRepository.findByEmail("avatar@example.com")).thenReturn(Optional.of(user));
+        when(jwtService.issueAccessToken(user)).thenReturn("access-token");
+        when(jwtService.issueRefreshToken(user)).thenReturn("refresh-token");
+        when(jwtService.accessTokenTtlSeconds()).thenReturn(1800L);
+        when(storageClient.createSignedUrl("avatars/1/pic.png", 86400, null)).thenReturn("https://signed.example/avatars/1/pic.png");
+
+        AuthTokenResponse tokens = authService.loginWithPassword("avatar@example.com", "12345678");
+
+        assertThat(tokens.user().avatarUrl()).isEqualTo("https://signed.example/avatars/1/pic.png");
     }
 
     @Test

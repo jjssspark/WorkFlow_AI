@@ -9,6 +9,7 @@ import type { OpenAIAssistantEventDetail } from "../libs/utils/openAIAssistant";
 import { ConfirmActionCard } from "../components/ConfirmActionCard";
 import type { ExecutionResult } from "../libs/utils/actionExecutor";
 import { confirmAction } from "../libs/utils/confirmAction";
+import { shouldShowSources } from "../libs/utils/sourceVisibility";
 
 const NO_PROJECT_MESSAGE = "아직 연결된 프로젝트가 없습니다. 프로젝트를 만들고 회의록을 업로드한 뒤 다시 질문해주세요.";
 
@@ -274,7 +275,7 @@ export function AIAssistant({ onClose, pendingQuestion }: AIAssistantProps) {
                 style={m.role === "user" ? { background: "linear-gradient(135deg, #3B5BDB 0%, #4F6EF7 100%)" } : {}}>
                 {m.content}
               </div>
-              {m.sources && m.sources.length > 0 && (
+              {m.sources && shouldShowSources(m.content, m.sources) && (
                 <div className="flex flex-wrap gap-1.5 mt-1.5">
                   {m.sources.map((s, si) => (
                     <span key={si} className="text-[10px] px-2 py-0.5 rounded-full bg-secondary text-muted-foreground border border-border">

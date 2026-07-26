@@ -266,7 +266,7 @@ export function RoadmapView() {
         )}
       </div>
 
-      <div className="flex-1 min-h-0 overflow-auto">
+      <div className="flex-1 min-h-0 overflow-auto px-6 py-4">
         <div className="w-full min-w-[840px] relative">
           <div className="sticky top-0 z-20 w-full grid grid-cols-[300px_minmax(520px,1fr)] h-11 bg-muted border-b border-border">
             <div className="px-4 flex items-center border-r border-border text-xs font-semibold">단계 / 업무</div>

@@ -12,21 +12,21 @@ class AuthRequestValidationTest {
 
     @Test
     void signupRequest_rejectsInvalidEmail() {
-        SignupRequest request = new SignupRequest("not-an-email", "12345678", "홍길동", "MEMBER");
+        SignupRequest request = new SignupRequest("not-an-email", "12345678", "홍길동", "MEMBER", true, true);
 
         assertThat(validator.validate(request)).isNotEmpty();
     }
 
     @Test
     void signupRequest_rejectsInvalidRoleType() {
-        SignupRequest request = new SignupRequest("user@example.com", "12345678", "홍길동", "ADMIN");
+        SignupRequest request = new SignupRequest("user@example.com", "12345678", "홍길동", "ADMIN", true, true);
 
         assertThat(validator.validate(request)).isNotEmpty();
     }
 
     @Test
     void signupRequest_acceptsReviewerApplication() {
-        SignupRequest request = new SignupRequest("prof@example.com", "12345678", "고교수", "REVIEWER");
+        SignupRequest request = new SignupRequest("prof@example.com", "12345678", "고교수", "REVIEWER", true, true);
 
         assertThat(validator.validate(request)).isEmpty();
     }

@@ -46,4 +46,34 @@ describe("AppShell", () => {
 
     expect(await screen.findByText("현재 프로젝트 진행률을 요약해줘")).toBeInTheDocument();
   });
+
+  it("sessionStorage에 pendingInvite가 있으면 초대 안내 배너를 보여준다", () => {
+    sessionStorage.setItem("pendingInvite", "/invite/AQ28CU79");
+    renderAppShell();
+    expect(screen.getByText("참여 대기 중인 초대가 있습니다.")).toBeInTheDocument();
+  });
+
+  it("pendingInvite가 없으면 배너를 보여주지 않는다", () => {
+    renderAppShell();
+    expect(screen.queryByText("참여 대기 중인 초대가 있습니다.")).not.toBeInTheDocument();
+  });
+
+  it("닫기를 누르면 배너가 사라지고 sessionStorage에서도 제거된다", async () => {
+    sessionStorage.setItem("pendingInvite", "/invite/AQ28CU79");
+    renderAppShell();
+
+    await userEvent.click(screen.getByRole("button", { name: "초대 안내 닫기" }));
+
+    expect(screen.queryByText("참여 대기 중인 초대가 있습니다.")).not.toBeInTheDocument();
+    expect(sessionStorage.getItem("pendingInvite")).toBeNull();
+  });
+
+  it("참여하기를 누르면 배너가 사라진다", async () => {
+    sessionStorage.setItem("pendingInvite", "/invite/AQ28CU79");
+    renderAppShell();
+
+    await userEvent.click(screen.getByRole("button", { name: "참여하기" }));
+
+    expect(screen.queryByText("참여 대기 중인 초대가 있습니다.")).not.toBeInTheDocument();
+  });
 });

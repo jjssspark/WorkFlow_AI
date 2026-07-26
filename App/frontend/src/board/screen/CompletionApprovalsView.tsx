@@ -217,7 +217,7 @@ export function CompletionApprovalsView() {
         {loadState === "ready" && visibleTasks.length > 0 && (
           <PanelGroup direction="horizontal">
             <Panel defaultSize={selTask ? 65 : 100} minSize={40} className="min-w-0">
-              <div className="h-full overflow-y-auto scrollbar-thin">
+              <div className="h-full overflow-y-auto scrollbar-thin px-5 py-4">
                 <table className="w-full text-xs border-collapse">
                   <thead className="sticky top-0 bg-card z-10">
                     <tr className="border-b border-border text-left text-[10.5px] text-muted-foreground">
