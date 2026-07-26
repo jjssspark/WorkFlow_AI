@@ -1,18 +1,34 @@
 from __future__ import annotations
 
+from datetime import date
+
 import pytest
 
 from llm_rag_assistant.app.services.project_stats_service import fetch_project_stats
 
 
 class _FakeConn:
-    def __init__(self, rows: list[dict]) -> None:
+    """집계 쿼리와 마감 임박 목록 쿼리를 본문으로 구분해 각각의 행을 돌려준다."""
+
+    def __init__(
+        self,
+        rows: list[dict],
+        due_soon_rows: list[dict] | None = None,
+        overdue_rows: list[dict] | None = None,
+    ) -> None:
         self._rows = rows
+        self._due_soon_rows = due_soon_rows or []
+        self._overdue_rows = overdue_rows or []
         self.calls: list[tuple] = []
 
     async def fetch(self, query: str, *args):
         self.calls.append((query, args))
-        return self._rows
+        if "COUNT(*) OVER ()" not in query:
+            return self._rows
+        return self._overdue_rows if "DESC" in query else self._due_soon_rows
+
+    def call_for(self, marker: str) -> tuple:
+        return next(call for call in self.calls if marker in call[0])
 
     async def __aenter__(self):
         return self
@@ -51,6 +67,7 @@ def _row(
     count: int,
     due_soon: int = 0,
     assignee_id: int | None = None,
+    overdue: int = 0,
 ) -> dict:
     return {
         "status": status,
@@ -58,6 +75,7 @@ def _row(
         "assignee_name": name,
         "cnt": count,
         "due_soon_cnt": due_soon,
+        "overdue_cnt": overdue,
     }
 
 
@@ -188,6 +206,77 @@ async def test_has_no_personal_section_when_the_asker_owns_nothing() -> None:
     stats = await fetch_project_stats(pool, 1, assignee_id=99)
 
     assert stats["mine"] is None
+
+
+def _due_row(due_date: str, title: str, name: str | None, match_total: int) -> dict:
+    return {
+        "due_date": date.fromisoformat(due_date),
+        "title": title,
+        "assignee_name": name,
+        "match_total": match_total,
+    }
+
+
+@pytest.mark.asyncio
+async def test_lists_due_soon_tasks_nearest_first() -> None:
+    """마감일은 임베딩에 없어 유사도 검색으로는 못 찾는다. 목록을 SQL로 확정해 넣는다."""
+    conn = _FakeConn(
+        [_row("todo", "허영주", 20, due_soon=3, assignee_id=1)],
+        due_soon_rows=[
+            _due_row("2026-07-26", "업무 상세 우측 패널 구현", "허영주", 9),
+            _due_row("2026-07-27", "대시보드 위험도 표시", None, 9),
+        ],
+    )
+
+    stats = await fetch_project_stats(_FakePool(conn), 1)
+
+    assert [item["title"] for item in stats["due_soon_list"]] == [
+        "업무 상세 우측 패널 구현",
+        "대시보드 위험도 표시",
+    ]
+    assert stats["due_soon_list"][1]["assignee_name"] is None
+    assert stats["due_soon_remaining"] == 7
+
+
+@pytest.mark.asyncio
+async def test_overdue_list_is_separate_and_most_recent_first() -> None:
+    """한 목록에 합치면 지난 마감이 상한을 다 먹는다(실측: 지난 48건에 밀려 임박 16건이 0줄)."""
+    conn = _FakeConn(
+        [_row("todo", "허영주", 20)],
+        due_soon_rows=[_due_row("2026-07-26", "임박 업무", "허영주", 1)],
+        overdue_rows=[_due_row("2025-12-28", "밀린 업무", "이은주", 48)],
+    )
+
+    stats = await fetch_project_stats(_FakePool(conn), 1)
+
+    assert [item["title"] for item in stats["due_soon_list"]] == ["임박 업무"]
+    assert [item["title"] for item in stats["overdue_list"]] == ["밀린 업무"]
+    assert stats["overdue_remaining"] == 47
+    assert conn.call_for("ORDER BY t.due_date DESC")
+
+
+@pytest.mark.asyncio
+async def test_both_lists_are_scoped_to_the_asker_for_personal_questions() -> None:
+    """개인화 질문에 남의 업무를 섞으면 모델이 그걸 본인 것처럼 답한다(retrieval_service와 같은 방침)."""
+    conn = _FakeConn([_row("todo", "허영주", 1, assignee_id=1)])
+
+    await fetch_project_stats(_FakePool(conn), 1, assignee_id=7)
+
+    assert conn.call_for("ORDER BY t.due_date, t.id")[1][2] == 7
+    assert conn.call_for("ORDER BY t.due_date DESC")[1][1] == 7
+
+
+@pytest.mark.asyncio
+async def test_counts_overdue_tasks_separately() -> None:
+    """목록에는 지난 마감이 섞여 나오므로, 숫자 쪽에도 같은 기준의 값이 있어야 설명이 맞는다."""
+    pool = _FakePool(_FakeConn([
+        _row("todo", "허영주", 20, due_soon=3, overdue=4),
+        _row("done", "허영주", 10),
+    ]))
+
+    stats = await fetch_project_stats(pool, 1)
+
+    assert stats["overdue"] == 4
 
 
 @pytest.mark.asyncio

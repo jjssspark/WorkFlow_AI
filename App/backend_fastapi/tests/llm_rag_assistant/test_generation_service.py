@@ -280,6 +280,58 @@ def test_stats_block_omits_the_personal_section_for_general_questions() -> None:
     assert "내 업무" not in _format_stats(_stats(mine=None))
 
 
+def test_stats_block_lists_due_soon_tasks_with_dates_and_owners() -> None:
+    """마감일은 임베딩에 없어 검색으로 못 찾는다. 목록이 없으면 '마감 임박 뭐야'에 답할 재료가 없다."""
+    block = _format_stats(
+        _stats(
+            overdue=4,
+            due_soon_list=[
+                {"due_date": date(2026, 7, 24), "title": "지난 마감 업무", "assignee_name": "허영주"},
+                {"due_date": date(2026, 7, 26), "title": "우측 패널 구현", "assignee_name": None},
+            ],
+            due_soon_remaining=6,
+        )
+    )
+
+    assert "지난 마감 4건" in block
+    assert "2026-07-24 지난 마감 업무 (허영주)" in block
+    assert "2026-07-26 우측 패널 구현 (미배정)" in block
+    assert "외 6건" in block
+
+
+def test_stats_block_omits_the_overflow_note_when_everything_is_listed() -> None:
+    block = _format_stats(
+        _stats(
+            due_soon_list=[{"due_date": date(2026, 7, 24), "title": "업무", "assignee_name": "허영주"}],
+            due_soon_remaining=0,
+        )
+    )
+
+    assert "외 0건" not in block
+    assert "외 " not in block
+
+
+def test_stats_block_keeps_overdue_tasks_in_their_own_section() -> None:
+    """한 목록으로 합치면 지난 마감이 상한을 다 먹어 임박 업무가 한 줄도 안 나온다."""
+    block = _format_stats(
+        _stats(
+            due_soon_list=[{"due_date": date(2026, 7, 26), "title": "임박", "assignee_name": "허영주"}],
+            due_soon_remaining=0,
+            overdue_list=[{"due_date": date(2025, 12, 28), "title": "밀림", "assignee_name": "이은주"}],
+            overdue_remaining=47,
+        )
+    )
+
+    assert block.index("마감 임박 업무(7일 내") < block.index("지난 마감 미완료 업무(최근 순)")
+    assert "2026-07-26 임박 (허영주)" in block
+    assert "2025-12-28 밀림 (이은주)" in block
+    assert "외 47건" in block
+
+
+def test_stats_block_omits_the_due_soon_list_when_empty() -> None:
+    assert "마감 임박 업무" not in _format_stats(_stats(due_soon_list=[]))
+
+
 def test_stats_block_is_empty_without_stats() -> None:
     assert _format_stats(None) == ""
 
