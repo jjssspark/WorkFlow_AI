@@ -2461,7 +2461,7 @@ export function MeetingsView() {
             <div className="text-sm font-medium">
               {meeting.status === "pending" ? "예정된 회의입니다" : meeting.status === "processing" ? "AI 분석 중입니다. 잠시 후 다시 확인해주세요" : meeting.status === "failed" ? "AI 분석에 실패했습니다. 다시 업로드하거나 재분석을 시도해주세요" : "AI 분석 결과를 불러오는 중입니다"}
             </div>
-            {meeting.status === "failed" && (
+            {meeting.status === "failed" && currentUserRole !== "reviewer" && (
               <button
                 type="button"
                 onClick={() => handleRetryFromList(meeting)}

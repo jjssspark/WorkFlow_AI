@@ -812,6 +812,31 @@ class MeetingAnalysisServiceTest {
     }
 
     @Test
+    void retryFallsBackToSavedTranscriptWhenStoredFileIsNotTextExtractable() throws Exception {
+        mockMember(1L);
+        Path audioFile = Files.createTempFile("meeting-audio", ".mp3");
+        Files.write(audioFile, new byte[] { 0, 1, 2, 3 });
+        Meeting meeting = new Meeting(
+            1L, "정기회의", "audio", audioFile.toString(), "failed", LocalDate.now(), "정기회의", "recording.mp3", null, 5L
+        );
+        meeting.setTranscript("이전에 분석된 원문 내용");
+        when(meetingRepository.findByIdAndProjectId(9L, 1L)).thenReturn(Optional.of(meeting));
+        when(meetingAttendeeRepository.findByMeetingId(9L)).thenReturn(List.of());
+        MeetingAnalysisService service = newService();
+
+        MeetingAnalysisResponse response = service.retry("demo-project", "9");
+
+        assertThat(response.status()).isEqualTo("PROCESSING");
+        assertThat(meeting.getAnalysisStatus()).isEqualTo("processing");
+        assertThat(meeting.getTranscript()).isEqualTo("이전에 분석된 원문 내용");
+        verify(meetingAnalysisJobPublisher).enqueue(eq(9L), eq(new AiAnalyzeRequest(
+            "demo-project", "정기회의", meeting.getMeetingDate().toString(), "정기회의", "audio", "recording.mp3",
+            "이전에 분석된 원문 내용", List.of()
+        )), eq(meeting.getAnalysisJobId()));
+        Files.deleteIfExists(audioFile);
+    }
+
+    @Test
     void retryFailsWithClearMessageWhenStoredFileIsEmpty() throws Exception {
         mockMember(1L);
         Path emptyFile = Files.createTempFile("meeting-empty", ".txt");

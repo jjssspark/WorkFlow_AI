@@ -5,15 +5,26 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { buildGeneratedTodos, deriveCurrentUserRole, MeetingsView } from "./MeetingsView";
 import type { MeetingAiResult } from "../libs/types/meetingAiTypes";
 
+const mockUseAuth = vi.fn();
 vi.mock("../../global/hooks/useAuth", () => ({
-  useAuth: () => ({
-    user: { id: 1, email: "leader@test.com", name: "김민준" },
-    projectRoles: [{ projectId: 1, projectTitle: "테스트 프로젝트", role: "팀장" }],
-    currentProjectId: 1,
-    currentProject: { projectId: 1, projectTitle: "테스트 프로젝트", role: "팀장" },
-    logout: vi.fn(),
-  }),
+  useAuth: () => mockUseAuth(),
 }));
+
+const asLeader = () => ({
+  user: { id: 1, email: "leader@test.com", name: "김민준" },
+  projectRoles: [{ projectId: 1, projectTitle: "테스트 프로젝트", role: "팀장" }],
+  currentProjectId: 1,
+  currentProject: { projectId: 1, projectTitle: "테스트 프로젝트", role: "팀장" },
+  logout: vi.fn(),
+});
+
+const asReviewer = () => ({
+  user: { id: 2, email: "reviewer@test.com", name: "박심사" },
+  projectRoles: [{ projectId: 1, projectTitle: "테스트 프로젝트", role: "심사자" }],
+  currentProjectId: 1,
+  currentProject: { projectId: 1, projectTitle: "테스트 프로젝트", role: "심사자" },
+  logout: vi.fn(),
+});
 
 vi.mock("../../global/api/projectsApi", () => ({
   getProjectMembers: vi.fn().mockResolvedValue([
@@ -115,6 +126,7 @@ describe("MeetingsView 홈 탭", () => {
   beforeEach(() => {
     localStorage.clear();
     vi.clearAllMocks();
+    mockUseAuth.mockReturnValue(asLeader());
     fetchMeetings.mockResolvedValue([
       { meetingId: "1", title: "저장된 정기회의", meetingDate: "2026-07-19", meetingType: "정기회의", analysisStatus: "completed", savedAt: "2026-07-19T10:00:00", originalMeetingId: null, tasksRegistered: false },
       { meetingId: "2", title: "미저장 준비회의", meetingDate: "2026-07-20", meetingType: "정기회의", analysisStatus: "completed", savedAt: null, originalMeetingId: null, tasksRegistered: false },
@@ -264,6 +276,7 @@ describe("MeetingsView 삭제 플로우 분리", () => {
   beforeEach(() => {
     localStorage.clear();
     vi.clearAllMocks();
+    mockUseAuth.mockReturnValue(asLeader());
     deleteMeetingAnalysis.mockResolvedValue({ meetingId: "1", status: "DELETED" });
     deleteMeeting.mockResolvedValue({ meetingId: "1", status: "DELETED" });
     // 목록에서 첫 회의록이 자동 선택되면서 상세 조회 effect가 fetchMeeting을 호출하므로 목업해둔다.
@@ -368,6 +381,7 @@ describe("MeetingsView 분석 결과 삭제 후 재분석", () => {
   beforeEach(() => {
     localStorage.clear();
     vi.clearAllMocks();
+    mockUseAuth.mockReturnValue(asLeader());
     retryMeetingAnalysis.mockResolvedValue({
       meetingId: "1",
       projectId: "1",
@@ -399,5 +413,23 @@ describe("MeetingsView 분석 결과 삭제 후 재분석", () => {
     await user.click(await screen.findByRole("button", { name: "재분석하기" }));
 
     await waitFor(() => expect(retryMeetingAnalysis).toHaveBeenCalledWith("1", "1"));
+  });
+
+  it("심사자에게는 분석 실패 상태의 회의록을 선택해도 '재분석하기' 버튼이 보이지 않는다", async () => {
+    mockUseAuth.mockReturnValue(asReviewer());
+    fetchMeetings.mockResolvedValue([
+      { meetingId: "1", title: "실패한 회의", meetingDate: "2026-07-19", meetingType: "정기회의", analysisStatus: "failed", savedAt: null, originalMeetingId: null, tasksRegistered: false },
+    ]);
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={["/meetings"]}>
+        <MeetingsView />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(fetchMeetings).toHaveBeenCalled());
+    await user.click(await screen.findByText("실패한 회의"));
+
+    expect(screen.queryByRole("button", { name: "재분석하기" })).not.toBeInTheDocument();
   });
 });

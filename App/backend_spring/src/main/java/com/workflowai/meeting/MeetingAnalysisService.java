@@ -265,6 +265,14 @@ public class MeetingAnalysisService {
         }
 
         String text = extractTextFromStoredFile(meeting);
+        // 파일에서 텍스트를 추출하지 못해도, 이전에 성공적으로 분석되어 저장된 transcript가 있다면
+        // (deleteAnalysis()가 분석 결과만 지우고 transcript는 보존해두는 경우) 그것으로 재분석을 시도한다.
+        if (text == null || text.isBlank()) {
+            String transcript = meeting.getTranscript();
+            if (transcript != null && !transcript.isBlank()) {
+                text = transcript;
+            }
+        }
         if (text == null) {
             String errorMessage = MeetingAnalysisPersistence.REUPLOAD_REQUIRED_ERROR_MESSAGE;
             meetingAnalysisPersistence.saveAnalysisFailure(id, errorMessage);
