@@ -19,6 +19,8 @@ export function AppShell() {
   const location = useLocation();
   const { projectRoles } = useAuth();
   const [aiOpen, setAIOpen] = useState(false);
+  // 닫혀 있는 동안 답변이 도착했는지. 창을 열면 곧 읽게 되므로 그때 지운다.
+  const [unreadAnswer, setUnreadAnswer] = useState(false);
   const [pendingQuestion, setPendingQuestion] = useState<OpenAIAssistantEventDetail | null>(null);
   const { collapsed, toggle: toggleCollapsed } = useSidebarCollapsed();
   const isMobile = useIsMobile();
@@ -35,6 +37,7 @@ export function AppShell() {
         ? event.detail as OpenAIAssistantEventDetail | undefined
         : undefined;
       setPendingQuestion(detail ?? null);
+      setUnreadAnswer(false);
       setAIOpen(true);
     };
     window.addEventListener(OPEN_AI_ASSISTANT_EVENT, open);
@@ -43,6 +46,7 @@ export function AppShell() {
 
   const openAI = () => {
     setPendingQuestion(null);
+    setUnreadAnswer(false);
     setAIOpen(true);
   };
 
@@ -161,14 +165,25 @@ export function AppShell() {
           }`}
           style={{ background: "linear-gradient(135deg, #7048E8 0%, #4F6EF7 100%)", ...assistantFab.style }}>
           <Sparkles className="w-6 h-6 pointer-events-none" />
+          {unreadAnswer && (
+            <span aria-label="읽지 않은 답변 있음"
+              className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-rose-500 border-2 border-white pointer-events-none" />
+          )}
         </button>
       )}
 
       {/* AI panel overlay */}
-      {aiOpen && (
+      {/* 패널은 닫혀도 언마운트하지 않는다. 언마운트하면 진행 중인 답변 요청이 함께 끊긴다.
+          가림막만 열려 있을 때 띄운다. */}
+      {!isJudge && (
         <>
-          <div className="fixed inset-0 bg-black/10 z-40" onClick={closeAI} />
-          <AIAssistant onClose={closeAI} pendingQuestion={pendingQuestion} />
+          {aiOpen && <div className="fixed inset-0 bg-black/10 z-40" onClick={closeAI} />}
+          <AIAssistant
+            onClose={closeAI}
+            pendingQuestion={pendingQuestion}
+            isOpen={aiOpen}
+            onAnswerWhileClosed={() => setUnreadAnswer(true)}
+          />
         </>
       )}
     </div>
