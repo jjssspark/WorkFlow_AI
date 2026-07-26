@@ -151,6 +151,53 @@ jobs:
             fi
           '
 
+      - name: Preflight Flyway validate without changing services
+        run: |
+          ssh -i ~/.ssh/oci_deploy_key "${{ secrets.OCI_USER }}@${{ secrets.OCI_HOST }}" '
+            set -eu
+            cd /home/ubuntu/work-flow/App
+            flyway_enabled=$(sed -n "s/^SPRING_FLYWAY_ENABLED=//p" .env | tail -n 1)
+            if [ "${flyway_enabled:-false}" != "true" ]; then
+              echo "Flyway is disabled on this host; skipping validate preflight."
+              exit 0
+            fi
+
+            # 워킹트리는 아직 옛 커밋이다. reset 없이 새 커밋의 마이그레이션만 꺼내 검증한다.
+            cd /home/ubuntu/work-flow
+            git fetch --quiet origin main
+            rm -rf /tmp/flyway-preflight-sql
+            mkdir -p /tmp/flyway-preflight-sql
+            git archive origin/main App/backend_spring/src/main/resources/db/migration \
+              | tar -x -C /tmp/flyway-preflight-sql --strip-components=7
+
+            cd /home/ubuntu/work-flow/App
+            jdbc_url=$(sed -n "s/^SPRING_DATASOURCE_URL=//p" .env | tail -n 1)
+            db_user=$(sed -n "s/^SPRING_DATASOURCE_USERNAME=//p" .env | tail -n 1)
+            db_password=$(sed -n "s/^SPRING_DATASOURCE_PASSWORD=//p" .env | tail -n 1)
+            baseline_version=$(sed -n "s/^SPRING_FLYWAY_BASELINE_VERSION=//p" .env | tail -n 1)
+            baseline_version=${baseline_version:-20260721.1}
+            test -n "$jdbc_url"
+            test -n "$db_password"
+
+            # 런타임 flyway-core와 같은 버전이어야 체크섬 산출이 일치한다.
+            set +e
+            docker run --rm -v /tmp/flyway-preflight-sql:/flyway/sql:ro flyway/flyway:11.7.2 \
+              -url="$jdbc_url" -user="$db_user" -password="$db_password" \
+              -locations=filesystem:/flyway/sql \
+              -baselineOnMigrate=true -baselineVersion="$baseline_version" \
+              validate
+            validate_status=$?
+            set -e
+            rm -rf /tmp/flyway-preflight-sql
+
+            if [ "$validate_status" -ne 0 ]; then
+              echo "Flyway validate preflight failed. Containers were NOT replaced; the running service is untouched."
+              echo "Fix the schema history mismatch before redeploying. Code rollback will NOT resolve this."
+              exit 1
+            fi
+            echo "Flyway validate preflight passed."
+          '
+
       - name: Deploy (git fetch + reset --hard origin/main + docker compose up -d --build)
         id: deploy
         run: |
@@ -316,6 +363,16 @@ jobs:
       - name: Verify rollback health
         if: always() && steps.rollback.outcome == 'success'
         run: |
+          # 이 스텝은 러너에서 돈다. Spring 로그는 서버에만 있으므로 ssh로 확인한다.
+          # 코드 롤백으로 고쳐지지 않는 실패에 20회(약 3분) 재시도하지 않기 위해 루프 전에 판정한다.
+          if ssh -i ~/.ssh/oci_deploy_key "${{ secrets.OCI_USER }}@${{ secrets.OCI_HOST }}" '
+            docker logs --tail 500 workflow-backend-spring 2>&1 | grep -q "FlywayValidateException"
+          '; then
+            echo "Rollback cannot fix this: the failure is a Flyway schema-history mismatch,"
+            echo "not a code regression. Reverting code leaves flyway_schema_history unchanged."
+            echo "Manual intervention required — see docs/trouble-shooting/2026-07-26-flyway-checksum-crashloop.md"
+            exit 1
+          fi
           for i in $(seq 1 20); do
             code=$(curl -s -m 10 -o /dev/null -w '%{http_code}' "https://${{ secrets.OCI_DOMAIN }}/api/v1/health" || echo 000)
             if [ "$code" = "200" ]; then
