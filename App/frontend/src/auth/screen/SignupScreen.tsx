@@ -19,11 +19,9 @@ import {
 import { AuthBrandPanel } from "../components/AuthBrandPanel";
 import { AuthInput } from "../components/AuthInput";
 import { useAuth } from "../../global/hooks/useAuth";
-import { API_BASE_URL, apiFetch, ApiRequestError, type ApiEnvelope } from "../../global/api/apiClient";
-import type { AuthTokenResponse, SignupResponse } from "../../global/api/authTypes";
+import { apiFetch, ApiRequestError } from "../../global/api/apiClient";
+import type { SignupResponse } from "../../global/api/authTypes";
 import { tokenStore } from "../../global/api/tokenStore";
-
-const demoAuthEnabled = import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO_AUTH === "true";
 
 // 회원가입 폼은 순수 useState라 /terms로 이동했다 돌아오면 초기화된다 — sessionStorage에 임시 저장해 왕복 시 값을 유지한다.
 // 비밀번호는 절대 포함하지 않는다 — sessionStorage는 평문으로 남고 XSS/공유 PC 등에서 읽힐 수 있어,
@@ -61,6 +59,7 @@ export function SignupScreen() {
   const [loading, setLoading] = useState(false);
   const [isProfessor, setIsProfessor] = useState(draft?.isProfessor ?? false);
   const [professorNo, setProfessorNo] = useState("");
+  const [affiliation, setAffiliation] = useState("");
   const [certificateName, setCertificateName] = useState("");
   const [approvalSubmitted, setApprovalSubmitted] = useState(false);
   const [signupError, setSignupError] = useState<string | null>(null);
@@ -75,27 +74,11 @@ export function SignupScreen() {
 
   const pwMatch = Boolean(pw && pwConfirm && pw === pwConfirm);
   const pwMismatch = Boolean(pw && pwConfirm && pw !== pwConfirm);
-  const professorValid = !isProfessor || Boolean(professorNo.trim() || certificateName);
+  const professorValid = !isProfessor || Boolean(professorNo.trim() && affiliation.trim());
   const valid = Boolean(name.trim() && email.trim() && pw && pwMatch && termsAgreed && privacyAgreed && professorValid);
 
   const handleCertificateChange = (event: ChangeEvent<HTMLInputElement>) => {
     setCertificateName(event.target.files?.[0]?.name ?? "");
-  };
-
-  // 데모 전용: "승인 완료 시연하기" 버튼(demoAuthEnabled일 때만 노출)에서만 사용 — 실제 회원가입 흐름과는 무관.
-  const loginWithDevAccount = async (demoUserId: string) => {
-    const response = await fetch(`${API_BASE_URL}/auth/dev-login-token/${demoUserId}`);
-    const contentType = response.headers.get("Content-Type") ?? "";
-    if (!contentType.toLowerCase().includes("application/json")) {
-      throw new Error("인증 서버가 아직 준비되지 않았습니다. 잠시 후 다시 시도해주세요.");
-    }
-    const body = await response.json() as ApiEnvelope<AuthTokenResponse>;
-    if (!response.ok || !body.success || !body.data?.accessToken || !body.data?.refreshToken) {
-      throw new Error(body.error?.message ?? "회원가입 처리에 실패했습니다.");
-    }
-    tokenStore.clear();
-    tokenStore.setTokens(body.data.accessToken, body.data.refreshToken, null);
-    await refreshMe();
   };
 
   const handleSubmit = async () => {
@@ -112,6 +95,8 @@ export function SignupScreen() {
           roleType: isProfessor ? "REVIEWER" : "MEMBER",
           termsAgreed,
           privacyAgreed,
+          affiliation: isProfessor ? affiliation.trim() : undefined,
+          facultyId: isProfessor ? professorNo.trim() : undefined,
         }),
       });
 
@@ -129,23 +114,6 @@ export function SignupScreen() {
       navigate("/projects", { replace: true });
     } catch (error) {
       setSignupError(error instanceof ApiRequestError ? error.message : "회원가입 처리에 실패했습니다.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleApproveDemo = async () => {
-    if (!demoAuthEnabled || loading) {
-      navigate("/login");
-      return;
-    }
-    setSignupError(null);
-    setLoading(true);
-    try {
-      await loginWithDevAccount("6");
-      navigate("/projects", { replace: true });
-    } catch (error) {
-      setSignupError(error instanceof Error ? error.message : "심사자 승인 시연에 실패했습니다.");
     } finally {
       setLoading(false);
     }
@@ -186,17 +154,6 @@ export function SignupScreen() {
                 </div>
               )}
 
-              {demoAuthEnabled && (
-                <button
-                  onClick={() => void handleApproveDemo()}
-                  disabled={loading}
-                  className="mt-5 w-full py-3 rounded-xl text-white text-sm font-semibold transition-opacity hover:opacity-90 disabled:opacity-60 flex items-center justify-center gap-2"
-                  style={{ background: "linear-gradient(135deg, #7048E8 0%, #4F6EF7 100%)" }}
-                >
-                  <ShieldCheck className="w-4 h-4" />
-                  {loading ? "승인 처리 중..." : "승인 완료 시연하기"}
-                </button>
-              )}
               <button onClick={() => navigate("/login")} className="w-full mt-3 text-sm font-semibold text-blue-600 hover:text-blue-700">
                 로그인 화면으로 이동
               </button>
@@ -270,6 +227,15 @@ export function SignupScreen() {
 
                 {isProfessor && (
                   <div className="mt-4 space-y-3">
+                    <div>
+                      <label className="text-xs font-semibold text-foreground">소속기관 또는 학과</label>
+                      <input
+                        value={affiliation}
+                        onChange={e => setAffiliation(e.target.value)}
+                        className="mt-1.5 w-full rounded-xl border border-border bg-input-background px-3 py-2.5 text-sm outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
+                        placeholder="예: 컴퓨터공학과"
+                      />
+                    </div>
                     <div>
                       <label className="text-xs font-semibold text-foreground">교수 일련번호 또는 교직원 번호</label>
                       <input

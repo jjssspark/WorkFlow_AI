@@ -8,6 +8,7 @@ export interface UserSummary {
   field: string[] | null;
   githubUsername: string | null;
   avatarUrl: string | null;
+  isAdmin: boolean;
 }
 
 export interface ProjectRoleSummary {

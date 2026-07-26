@@ -8,8 +8,8 @@
 # ports가 append돼서 0.0.0.0 게시가 그대로 남는다.
 services:
   db:
-    # 공식 postgres:17에는 pgvector가 없다. docs/db/migrations/001이 CREATE EXTENSION vector를
-    # 쓰므로 확장이 포함된 이미지가 필요하다.
+    # 공식 postgres:17에는 pgvector가 없다. V20260701_1__document_chunks_vector.sql이
+    # CREATE EXTENSION vector를 쓰므로 확장이 포함된 이미지가 필요하다.
     image: pgvector/pgvector:pg17
     restart: unless-stopped
     # 호스트에 게시하지 않는다. 외부에서 봐야 하면 SSH 터널을 쓴다:

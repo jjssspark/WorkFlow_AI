@@ -92,12 +92,11 @@ services:
       SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:-jdbc:postgresql://db:5432/workflow}
       SPRING_DATASOURCE_USERNAME: ${SPRING_DATASOURCE_USERNAME:-postgres}
       SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:-root}
-      SPRING_FLYWAY_ENABLED: ${SPRING_FLYWAY_ENABLED:-true}
+      # 기본은 꺼짐. application.yml(기본 false)·DEPLOY_OCI.md와 맞춘다. compose만 true였던 탓에
+      # 로컬 compose가 공유 Supabase의 flyway_schema_history를 바꿀 수 있었다(2026-07-26 장애).
+      # 운영 서버는 .env에 SPRING_FLYWAY_ENABLED=true를 명시해 켠다.
+      SPRING_FLYWAY_ENABLED: ${SPRING_FLYWAY_ENABLED:-false}
       SPRING_FLYWAY_BASELINE_VERSION: ${SPRING_FLYWAY_BASELINE_VERSION:-20260721.1}
-      # 기본은 false(안전) — 2026-07-24 dev 병합(contribution_score) 때 재넘버링된 마이그레이션이
-      # 이미 옛 번호로 적용된 환경(예: 공유 Supabase)에서만 로컬 .env로 true를 켜서 우회한다.
-      # 정식 해결은 flyway_schema_history 정합화(팀 논의 필요) — 이건 임시 우회다.
-      SPRING_FLYWAY_OUT_OF_ORDER: ${SPRING_FLYWAY_OUT_OF_ORDER:-false}
       WORKFLOW_AI_FASTAPI_URL: http://backend-fastapi:8000
       RAG_INTERNAL_API_KEY: ${RAG_INTERNAL_API_KEY}
       JWT_SECRET: ${JWT_SECRET}
@@ -161,6 +160,12 @@ services:
       HF_TOKEN: ${HF_TOKEN:-}
       HUGGINGFACEHUB_API_TOKEN: ${HUGGINGFACEHUB_API_TOKEN:-${HF_TOKEN:-}}
       HF_MEETING_ANALYSIS_MODEL: ${HF_MEETING_ANALYSIS_MODEL:-Qwen/Qwen3-4B-Instruct-2507}
+      # RAG 답변 생성 백엔드. 미지정이면 MEETING_ANALYSIS_PROVIDER를 따르되 RAG가 모르는 값
+      # ("auto" 등)이면 huggingface로 남는다 (generation_service._resolve_provider).
+      # HF 크레딧이 끊겼을 때 ollama로 두면 호스트의 로컬 모델로 답변이 계속 나간다.
+      RAG_PROVIDER: ${RAG_PROVIDER:-}
+      # 위가 ollama일 때 쓸 로컬 모델. GENERATION_MODEL(ai_contribution_report용)과 분리돼 있다.
+      RAG_OLLAMA_MODEL: ${RAG_OLLAMA_MODEL:-gemma4:e2b}
       HF_MEETING_ANALYSIS_ENDPOINT: ${HF_MEETING_ANALYSIS_ENDPOINT:-https://router.huggingface.co/v1/chat/completions}
       HF_MEETING_ANALYSIS_TIMEOUT_SECONDS: ${HF_MEETING_ANALYSIS_TIMEOUT_SECONDS:-35}
       # 900 토큰으로는 요약+결정사항+위험요소+투두 여러 건을 포함한 JSON이 완성되기 전에
