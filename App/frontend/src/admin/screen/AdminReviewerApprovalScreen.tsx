@@ -25,6 +25,8 @@ export function AdminReviewerApprovalScreen() {
   const [rejectingUserId, setRejectingUserId] = useState<number | null>(null);
   const [rejectReason, setRejectReason] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
+  const [pendingUserId, setPendingUserId] = useState<number | null>(null);
+  const [totalElements, setTotalElements] = useState(0);
 
   const load = async () => {
     setLoading(true);
@@ -32,6 +34,7 @@ export function AdminReviewerApprovalScreen() {
     try {
       const result = await listReviewerApplications(status, 0, 20);
       setApplications(result.items);
+      setTotalElements(result.totalElements);
     } catch (err) {
       setError(err instanceof ApiRequestError ? err.message : "목록을 불러오지 못했습니다.");
     } finally {
@@ -46,11 +49,17 @@ export function AdminReviewerApprovalScreen() {
 
   const handleApprove = async (userId: number) => {
     setActionError(null);
+    setPendingUserId(userId);
     try {
       await approveReviewerApplication(userId);
       await load();
     } catch (err) {
       setActionError(err instanceof ApiRequestError ? err.message : "승인 처리에 실패했습니다.");
+      if (err instanceof ApiRequestError && err.code === "REVIEWER_STATUS_CONFLICT") {
+        await load();
+      }
+    } finally {
+      setPendingUserId(null);
     }
   };
 
@@ -63,12 +72,19 @@ export function AdminReviewerApprovalScreen() {
   const confirmReject = async () => {
     if (rejectingUserId === null || !rejectReason.trim()) return;
     setActionError(null);
+    const userId = rejectingUserId;
+    setPendingUserId(userId);
     try {
-      await rejectReviewerApplication(rejectingUserId, rejectReason.trim());
+      await rejectReviewerApplication(userId, rejectReason.trim());
       setRejectingUserId(null);
       await load();
     } catch (err) {
       setActionError(err instanceof ApiRequestError ? err.message : "거부 처리에 실패했습니다.");
+      if (err instanceof ApiRequestError && err.code === "REVIEWER_STATUS_CONFLICT") {
+        await load();
+      }
+    } finally {
+      setPendingUserId(null);
     }
   };
 
@@ -106,6 +122,11 @@ export function AdminReviewerApprovalScreen() {
             {status === "PENDING" ? "승인 대기 중인 심사자 신청이 없습니다." : "해당 상태의 신청이 없습니다."}
           </div>
         )}
+        {!loading && !error && totalElements > applications.length && (
+          <div className="mb-2 text-xs text-muted-foreground">
+            전체 {totalElements}건 중 {applications.length}건 표시 중 (최신순)
+          </div>
+        )}
 
         <div className="space-y-3">
           {applications.map((application) => (
@@ -120,16 +141,20 @@ export function AdminReviewerApprovalScreen() {
                     <button
                       onClick={() => void handleApprove(application.userId)}
                       aria-label="승인"
-                      className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-emerald-600 hover:opacity-90"
+                      disabled={pendingUserId === application.userId}
+                      className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-emerald-600 hover:opacity-90 disabled:opacity-50"
                     >
-                      <Check className="w-3.5 h-3.5" /> 승인
+                      <Check className="w-3.5 h-3.5" />
+                      {pendingUserId === application.userId ? "처리 중..." : "승인"}
                     </button>
                     <button
                       onClick={() => openRejectForm(application.userId)}
                       aria-label="거부"
-                      className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-red-500 hover:opacity-90"
+                      disabled={pendingUserId === application.userId}
+                      className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-red-500 hover:opacity-90 disabled:opacity-50"
                     >
-                      <X className="w-3.5 h-3.5" /> 거부
+                      <X className="w-3.5 h-3.5" />
+                      {pendingUserId === application.userId ? "처리 중..." : "거부"}
                     </button>
                   </div>
                 )}
@@ -156,10 +181,10 @@ export function AdminReviewerApprovalScreen() {
                     </button>
                     <button
                       onClick={() => void confirmReject()}
-                      disabled={!rejectReason.trim()}
+                      disabled={!rejectReason.trim() || pendingUserId === application.userId}
                       className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-red-500 hover:opacity-90 disabled:opacity-50"
                     >
-                      거부 확정
+                      {pendingUserId === application.userId ? "처리 중..." : "거부 확정"}
                     </button>
                   </div>
                 </div>

@@ -96,6 +96,8 @@ class AdminReviewerControllerSecurityTest {
         }
     }
 
+    // 이 어드바이스는 테스트 전용이다 — 실제 403 응답 형식은 SecurityConfig.handleForbidden()이 만든다.
+    // 이 테스트는 @PreAuthorize가 실제로 차단하는지만 검증한다.
     @RestControllerAdvice
     static class AccessDeniedResponseAdvice {
         @ExceptionHandler(AccessDeniedException.class)

@@ -222,7 +222,8 @@ public class AuthController {
     @Operation(
         summary = "실제 회원가입 (이메일/비밀번호)",
         description = "이메일/비밀번호로 실제 계정을 생성한다. roleType=REVIEWER면 토큰을 발급하지 않고 "
-            + "PENDING_REVIEWER_APPROVAL 상태로만 계정을 만든다(관리자 승인 절차는 아직 없음 — 최소 구현). "
+            + "PENDING_REVIEWER_APPROVAL 상태로만 계정을 만들며, 관리자가 관리자 API(/api/v1/admin/reviewers)에서 "
+            + "승인/거부하기 전까지 로그인할 수 없다. "
             + "이메일 중복이면 409, 입력값이 유효하지 않으면 400을 반환한다."
     )
     @PostMapping("/signup")
