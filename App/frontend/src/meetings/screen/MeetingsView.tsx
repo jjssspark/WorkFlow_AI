@@ -639,10 +639,11 @@ export function MeetingsView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
-  // 알림의 "바로가기"를 통해 특정 회의록으로 딥링크된 경우, 저장 여부와 무관하게 항상
-  // "분석/업로드" 탭에서 그 회의록의 분석 상세(요약/결정사항/To-Do)를 바로 보여준다.
+  // 알림의 "바로가기"를 통해 특정 회의록으로 딥링크된 경우, 원본 회의록은 저장 여부와
+  // 무관하게 "분석/업로드" 탭에서 분석 상세(요약/결정사항/To-Do)를 바로 보여준다.
   // "저장된 회의록" 탭은 목록만 보여주고 클릭해야 내용이 열리므로, 알림에서 바로 온
   // 사용자에게는 상세가 곧장 뜨는 이 탭이 맞다(역할분배 등 후속 작업이 To-Do 목록에서 이뤄짐).
+  // 다만 수정본(버전)은 바로 아래 분기에서 예외적으로 "저장된 회의록" 탭으로 보낸다.
   useEffect(() => {
     const targetMeetingId = searchParams.get("meetingId");
     if (!targetMeetingId || deepLinkHandledIdRef.current === targetMeetingId) return;
