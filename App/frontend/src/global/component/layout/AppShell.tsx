@@ -11,6 +11,7 @@ import {
 import type { Tab } from "../../../board/libs/types/task";
 import { useAuth } from "../../hooks/useAuth";
 import { useSidebarCollapsed } from "../../hooks/useSidebarCollapsed";
+import { useDraggableFab } from "../../hooks/useDraggableFab";
 import { useIsMobile } from "../ui/use-mobile";
 
 export function AppShell() {
@@ -49,6 +50,8 @@ export function AppShell() {
     setAIOpen(false);
     setPendingQuestion(null);
   };
+
+  const assistantFab = useDraggableFab(openAI);
 
   const activeTab = (location.pathname.split("/").filter(Boolean)[0] ?? "dashboard") as Tab;
   const isJudge = projectRoles.length > 0 && projectRoles.every(pr => pr.role === "심사자");
@@ -151,10 +154,13 @@ export function AppShell() {
 
       {/* AI floating button */}
       {!isJudge && !aiOpen && (
-        <button onClick={openAI}
-          className="fixed bottom-6 right-6 w-14 h-14 rounded-2xl shadow-xl flex items-center justify-center text-white transition-transform hover:scale-105 z-40"
-          style={{ background: "linear-gradient(135deg, #7048E8 0%, #4F6EF7 100%)" }}>
-          <Sparkles className="w-6 h-6" />
+        <button {...assistantFab.handlers}
+          aria-label="AI 어시스턴트 열기 (끌어서 위치 이동)"
+          className={`fixed w-14 h-14 rounded-2xl shadow-xl flex items-center justify-center text-white transition-transform z-40 ${
+            assistantFab.isDragging ? "cursor-grabbing" : "cursor-grab hover:scale-105"
+          }`}
+          style={{ background: "linear-gradient(135deg, #7048E8 0%, #4F6EF7 100%)", ...assistantFab.style }}>
+          <Sparkles className="w-6 h-6 pointer-events-none" />
         </button>
       )}
 
