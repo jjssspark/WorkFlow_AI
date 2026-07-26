@@ -44,9 +44,6 @@ public class Task {
     @Column(name = "due_date")
     private LocalDate dueDate;
 
-    @Column(name = "done_date")
-    private LocalDate doneDate;
-
     private String priority;
 
     @Column(columnDefinition = "text")
@@ -131,7 +128,6 @@ public class Task {
         this.position = position;
         this.createdAt = LocalDateTime.now();
         this.updatedAt = LocalDateTime.now();
-        this.doneDate = "done".equals(status) ? LocalDate.now() : null;
     }
 
     public Long getId() {
@@ -172,10 +168,6 @@ public class Task {
 
     public LocalDate getDueDate() {
         return dueDate;
-    }
-
-    public LocalDate getDoneDate() {
-        return doneDate;
     }
 
     public String getPriority() {
@@ -222,14 +214,8 @@ public class Task {
         return updatedAt;
     }
 
-    /** 칸반 드래그앤드롭: 카드를 다른 컬럼/다른 위치로 옮긴다.
-     * status가 새로 "done"이 되면 done_date를 오늘로 채우고, "done"에서 다른 상태로 되돌아가면 비운다. */
+    /** 칸반 드래그앤드롭: 카드를 다른 컬럼/다른 위치로 옮긴다. */
     public void moveTo(String status, double position) {
-        if (!"done".equals(this.status) && "done".equals(status)) {
-            this.doneDate = LocalDate.now();
-        } else if ("done".equals(this.status) && !"done".equals(status)) {
-            this.doneDate = null;
-        }
         this.status = status;
         this.position = position;
     }

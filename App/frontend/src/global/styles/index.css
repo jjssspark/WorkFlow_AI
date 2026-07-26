@@ -20,16 +20,6 @@ html.capture-canvas #root > * {
   transform-origin: top left;
 }
 
-/* 완전히 숨긴 스크롤바 — 드래그 스크롤은 되지만 스크롤바 자체는 어떤 상태에서도 보이지 않는다
-   (차트처럼 스크롤 UI를 아예 노출하고 싶지 않은 곳에 쓴다). */
-.scrollbar-none {
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-}
-.scrollbar-none::-webkit-scrollbar {
-  display: none;
-}
-
 /* Thin scrollbar: invisible at rest, fades in on hover so scroll affordance
    doesn't clutter the UI but is still discoverable when content overflows. */
 .scrollbar-thin {

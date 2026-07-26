@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { fetchDashboardProgress, refreshDelayRisk } from "../utils/dashboardApi";
 import type { ProgressDetailResponse } from "../types/dashboard";
 
@@ -7,41 +7,20 @@ export function useDashboardProgress(projectId: string | number | null | undefin
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // 최초 로드 이후의 refetch에서는 loading을 true로 만들지 않는다 — 화면 전체가 다시 "불러오는 중"으로
-  // 비워지지 않고, 새 데이터가 도착했을 때 바뀐 값만 조용히 갱신되게 한다.
-  const hasLoadedRef = useRef(false);
-  useEffect(() => {
-    hasLoadedRef.current = false;
-  }, [projectId]);
-
-  // 요청 세대(generation) 번호 - 응답이 도착했을 때 이 값이 요청 시점과 다르면(그사이
-  // projectId가 바뀌어 load가 다시 호출됨) 이전 프로젝트의 응답으로 최신 상태를
-  // 덮어쓰지 않도록 무시한다.
-  const generationRef = useRef(0);
 
   const load = useCallback(() => {
-    const generation = ++generationRef.current;
     if (projectId == null) {
       setData(null);
       setLoading(false);
       setError(null);
       return Promise.resolve();
     }
-    if (!hasLoadedRef.current) setLoading(true);
+    setLoading(true);
     setError(null);
     return fetchDashboardProgress(projectId)
-      .then(result => {
-        if (generation === generationRef.current) setData(result);
-      })
-      .catch((err: Error) => {
-        if (generation === generationRef.current) setError(err.message);
-      })
-      .finally(() => {
-        if (generation === generationRef.current) {
-          hasLoadedRef.current = true;
-          setLoading(false);
-        }
-      });
+      .then(result => setData(result))
+      .catch((err: Error) => setError(err.message))
+      .finally(() => setLoading(false));
   }, [projectId]);
 
   useEffect(() => {

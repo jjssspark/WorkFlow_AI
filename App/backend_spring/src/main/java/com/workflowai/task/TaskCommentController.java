@@ -27,7 +27,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 // DONE: @projectAccess.isMember(#projectId)로 프로젝트 멤버십 검사 적용 완료 (2026-07-18).
-@Tag(name = "업무 댓글", description = "업무에 대한 댓글 조회/작성/수정/삭제 API")
+@Tag(name = "업무 코멘트", description = "업무에 대한 코멘트 조회/작성/수정/삭제 API")
 @RestController
 @RequestMapping("/api/v1/projects/{projectId}/tasks/{taskId}/comments")
 public class TaskCommentController {
@@ -81,7 +81,7 @@ public class TaskCommentController {
         return TaskCommentDto.from(comment, authorName, authorMockId);
     }
 
-    @Operation(summary = "댓글 조회", description = "업무에 등록된 댓글를 작성 순서대로 조회합니다.")
+    @Operation(summary = "코멘트 조회", description = "업무에 등록된 코멘트를 작성 순서대로 조회합니다.")
     @GetMapping
     @PreAuthorize("@projectAccess.isMember(#projectId)")
     public ResponseEntity<ApiResponse<List<TaskCommentDto>>> getComments(
@@ -99,7 +99,7 @@ public class TaskCommentController {
         return ResponseEntity.ok(ApiResponse.ok(dtos));
     }
 
-    @Operation(summary = "댓글 작성", description = "업무에 새 댓글를 남깁니다. type=FEEDBACK은 팀장만 작성할 수 있습니다.")
+    @Operation(summary = "코멘트 작성", description = "업무에 새 코멘트를 남깁니다. type=FEEDBACK은 팀장만 작성할 수 있습니다.")
     @PostMapping
     @PreAuthorize("@projectAccess.isMember(#projectId)")
     @Transactional
@@ -109,7 +109,7 @@ public class TaskCommentController {
         @RequestBody TaskCommentCreateRequest request
     ) {
         if (request.content() == null || request.content().isBlank()) {
-            return ResponseEntity.badRequest().body(ApiResponse.fail("CONTENT_REQUIRED", "댓글 내용은 필수입니다."));
+            return ResponseEntity.badRequest().body(ApiResponse.fail("CONTENT_REQUIRED", "코멘트 내용은 필수입니다."));
         }
         Task task = resolveTaskOrNull(projectId, taskId);
         if (task == null) {
@@ -124,43 +124,36 @@ public class TaskCommentController {
         User author = userRepository.findById(authorDbId).orElse(null);
         String authorName = author != null ? author.getName() : "알 수 없음";
         String authorMockId = author != null ? author.getProviderId() : null;
-        boolean isFeedback = "FEEDBACK".equals(type);
-        String verb = isFeedback ? "피드백을" : "댓글를";
-        String noun = isFeedback ? "피드백이" : "댓글가";
-        String notificationContent = authorName + "님이 '" + task.getTitle() + "' 업무에 " + verb + " 남겼습니다.";
         if (task.getAssigneeId() != null && !task.getAssigneeId().equals(authorDbId)) {
+            boolean isFeedback = "FEEDBACK".equals(type);
+            String verb = isFeedback ? "피드백을" : "코멘트를";
+            String noun = isFeedback ? "피드백이" : "코멘트가";
             notificationService.notify(
                 task.getAssigneeId(), "TASK_COMMENT", "새 " + noun + " 달렸습니다.",
-                notificationContent, "task", task.getId()
+                "'" + authorName + "'님이 '" + task.getTitle() + "' 업무에 " + verb + " 남겼습니다.", "task", task.getId()
             );
         }
-        // 알림 대상: 업무 담당자 + 댓글 작성자 본인만(팀장 제외).
-        // 댓글 작성자 본인에게도 "등록됨" 확인 알림을 남긴다.
-        notificationService.notify(
-            authorDbId, "TASK_COMMENT", "댓글이 등록되었습니다.",
-            "'" + task.getTitle() + "' 업무에 " + verb + " 남겼습니다.", "task", task.getId()
-        );
         return ResponseEntity.ok(ApiResponse.ok(TaskCommentDto.from(saved, authorName, authorMockId)));
     }
 
-    @Operation(summary = "댓글 수정", description = "댓글 내용을 수정합니다.")
+    @Operation(summary = "코멘트 수정", description = "코멘트 내용을 수정합니다.")
     @PatchMapping("/{commentId}")
     @PreAuthorize("@projectAccess.isMember(#projectId)")
     public ResponseEntity<ApiResponse<TaskCommentDto>> updateComment(
         @Parameter(description = "프로젝트 ID", example = "demo-project") @PathVariable String projectId,
         @Parameter(description = "업무 ID") @PathVariable Long taskId,
-        @Parameter(description = "댓글 ID") @PathVariable Long commentId,
+        @Parameter(description = "코멘트 ID") @PathVariable Long commentId,
         @RequestBody TaskCommentUpdateRequest request
     ) {
         if (request.content() == null || request.content().isBlank()) {
-            return ResponseEntity.badRequest().body(ApiResponse.fail("CONTENT_REQUIRED", "댓글 내용은 비워둘 수 없습니다."));
+            return ResponseEntity.badRequest().body(ApiResponse.fail("CONTENT_REQUIRED", "코멘트 내용은 비워둘 수 없습니다."));
         }
         if (resolveTaskOrNull(projectId, taskId) == null) {
             return ResponseEntity.status(404).body(ApiResponse.fail("TASK_NOT_FOUND", "업무를 찾을 수 없습니다."));
         }
         TaskComment comment = taskCommentRepository.findById(commentId).orElse(null);
         if (comment == null || !comment.getTaskId().equals(taskId)) {
-            return ResponseEntity.status(404).body(ApiResponse.fail("COMMENT_NOT_FOUND", "댓글를 찾을 수 없습니다."));
+            return ResponseEntity.status(404).body(ApiResponse.fail("COMMENT_NOT_FOUND", "코멘트를 찾을 수 없습니다."));
         }
         comment.setContent(request.content());
         taskCommentRepository.save(comment);
@@ -170,20 +163,20 @@ public class TaskCommentController {
         return ResponseEntity.ok(ApiResponse.ok(TaskCommentDto.from(comment, authorName, authorMockId)));
     }
 
-    @Operation(summary = "댓글 삭제", description = "댓글를 삭제합니다.")
+    @Operation(summary = "코멘트 삭제", description = "코멘트를 삭제합니다.")
     @DeleteMapping("/{commentId}")
     @PreAuthorize("@projectAccess.isMember(#projectId)")
     public ResponseEntity<ApiResponse<Void>> deleteComment(
         @Parameter(description = "프로젝트 ID", example = "demo-project") @PathVariable String projectId,
         @Parameter(description = "업무 ID") @PathVariable Long taskId,
-        @Parameter(description = "댓글 ID") @PathVariable Long commentId
+        @Parameter(description = "코멘트 ID") @PathVariable Long commentId
     ) {
         if (resolveTaskOrNull(projectId, taskId) == null) {
             return ResponseEntity.status(404).body(ApiResponse.fail("TASK_NOT_FOUND", "업무를 찾을 수 없습니다."));
         }
         TaskComment comment = taskCommentRepository.findById(commentId).orElse(null);
         if (comment == null || !comment.getTaskId().equals(taskId)) {
-            return ResponseEntity.status(404).body(ApiResponse.fail("COMMENT_NOT_FOUND", "댓글를 찾을 수 없습니다."));
+            return ResponseEntity.status(404).body(ApiResponse.fail("COMMENT_NOT_FOUND", "코멘트를 찾을 수 없습니다."));
         }
         taskCommentRepository.delete(comment);
         return ResponseEntity.ok(ApiResponse.ok(null));
