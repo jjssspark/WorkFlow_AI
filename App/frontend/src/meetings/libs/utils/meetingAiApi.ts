@@ -93,6 +93,16 @@ export async function deleteMeeting(projectId: string, meetingId: string, delete
   );
 }
 
+export async function deleteMeetingAnalysis(projectId: string, meetingId: string, deleteLinkedTasks = false): Promise<MeetingDeleteResponse> {
+  const query = new URLSearchParams({ deleteLinkedTasks: String(deleteLinkedTasks) });
+  return apiFetch<MeetingDeleteResponse>(
+    `/projects/${projectId}/meetings/${meetingId}/analysis?${query.toString()}`,
+    { method: "DELETE" },
+    true,
+    DELETE_MEETING_TIMEOUT_MS
+  );
+}
+
 export async function retryMeetingAnalysis(projectId: string, meetingId: string): Promise<MeetingAnalysisResponse> {
   return apiFetch<MeetingAnalysisResponse>(`/projects/${projectId}/meetings/${meetingId}/retry`, {
     method: "POST",
