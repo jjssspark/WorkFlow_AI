@@ -129,6 +129,21 @@ describe("Header 알림", () => {
     expect(mockNavigate).toHaveBeenCalledWith("/meetings?meetingId=7");
   });
 
+  it("수정 알림(MEETING_EDITED)에도 바로가기 버튼이 보이고 클릭 시 meetingId로 이동한다", async () => {
+    vi.mocked(fetchNotifications).mockResolvedValue([
+      { id: "1", type: "MEETING_EDITED", title: "회의록을 수정했습니다", content: null, targetType: "meeting", targetId: "9", read: false, createdAt: new Date().toISOString() },
+    ]);
+    vi.mocked(markNotificationsRead).mockResolvedValue(undefined);
+
+    renderHeader();
+    await openBell();
+
+    const shortcutButton = await screen.findByRole("button", { name: "바로가기" });
+    await userEvent.click(shortcutButton);
+
+    expect(mockNavigate).toHaveBeenCalledWith("/meetings?meetingId=9");
+  });
+
   it("액션불필요 알림에는 바로가기 버튼이 없다", async () => {
     vi.mocked(fetchNotifications).mockResolvedValue([
       { id: "1", type: "MEETING_SAVED", title: "회의록이 저장됐습니다", content: null, targetType: "meeting", targetId: "7", read: false, createdAt: new Date().toISOString() },
