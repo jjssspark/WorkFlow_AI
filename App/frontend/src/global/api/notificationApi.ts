@@ -75,6 +75,9 @@ export function subscribeNotificationStream(handlers: NotificationStreamHandlers
     const accessToken = tokenStore.getAccessToken();
     if (!accessToken) return;
 
+    // fetch()가 응답을 받기 전(await 도중)에도 재접속 이벤트가 들어올 수 있어,
+    // 응답 완료 후가 아니라 여기서 동기적으로 먼저 잠가야 그 사이의 중복 호출도 막힌다.
+    isConnected = true;
     try {
       const response = await fetch(`${API_BASE_URL}/notifications/stream`, {
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -82,7 +85,6 @@ export function subscribeNotificationStream(handlers: NotificationStreamHandlers
       });
       if (!response.ok || !response.body) throw new Error(`알림 스트림 연결 실패: ${response.status}`);
 
-      isConnected = true;
       handlers.onConnectedChange?.(true);
       attempt = 0;
       await readStream(response.body, handlers.onNotification);
