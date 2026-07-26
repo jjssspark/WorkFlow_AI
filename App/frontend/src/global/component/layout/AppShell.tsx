@@ -4,6 +4,7 @@ import { Sparkles } from "lucide-react";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
 import { AIAssistant } from "../../../ai/screen/AIAssistant";
+import { Toaster } from "../ui/sonner";
 import {
   OPEN_AI_ASSISTANT_EVENT,
   type OpenAIAssistantEventDetail,
@@ -165,6 +166,8 @@ export function AppShell() {
           <AIAssistant onClose={closeAI} pendingQuestion={pendingQuestion} />
         </>
       )}
+
+      <Toaster position="top-right" />
     </div>
   );
 }
