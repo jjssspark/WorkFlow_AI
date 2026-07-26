@@ -153,3 +153,9 @@ export async function createMeetingVersion(
     body: JSON.stringify({ transcript, triggerAnalysis }),
   });
 }
+
+export async function reanalyzeMeeting(projectId: string, meetingId: string): Promise<MeetingVersionResponseDto> {
+  return apiFetch<MeetingVersionResponseDto>(`/projects/${projectId}/meetings/${meetingId}/reanalyze`, {
+    method: "POST",
+  });
+}
