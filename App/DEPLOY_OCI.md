@@ -190,9 +190,10 @@ supabase migration list --linked
 > 두 디렉터리를 합칠 수 없는 이유: `docker-entrypoint-initdb.d`는 알파벳순으로 실행하는데
 > `001_`이 `01_`보다 앞서서 순서가 뒤집힌다.
 
-> ⚠️ **재실행 위험(001~007 전체 공통):** 이 저장소는 Flyway 등 마이그레이션 이력
-> 추적을 쓰지 않는다(`SPRING_FLYWAY_ENABLED` 기본 false) — 즉 어떤 마이그레이션을
-> 이미 적용했는지 DB가 스스로 기억하지 못한다. 위 for 루프는 **재배포할 때마다
+> ⚠️ **재실행 위험(001~007 전체 공통):** `SPRING_FLYWAY_ENABLED`는 기본 false이고,
+> 운영 서버만 `.env`에 `true`를 명시해 Flyway 이력 추적을 쓴다. 이 디렉터리
+> (`docs/db/migrations`)는 **Flyway 관리 대상이 아니라서** 어떤 마이그레이션을 이미
+> 적용했는지 DB가 기억하지 못한다. 위 for 루프는 **재배포할 때마다
 > 001~007을 처음부터 다시 실행**하므로, 나머지 마이그레이션은 대부분 `IF NOT EXISTS` 등으로
 > 안전하지만 **007만은 특히 위험하다**: 007은 `document_chunks.embedding`을 전부
 > `NULL`로 초기화하는 파괴적 변경이라, 이미 재임베딩까지 끝난 운영 DB에 실수로
