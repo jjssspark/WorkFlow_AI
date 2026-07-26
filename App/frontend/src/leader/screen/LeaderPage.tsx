@@ -1,6 +1,4 @@
 import { NavLink, Outlet } from "react-router";
-import { useAuth } from "../../global/hooks/useAuth";
-import { usePendingApprovalCount } from "../libs/hooks/usePendingApprovalCount";
 
 const TABS = [
   { path: "completion-approvals", label: "완료승인 대기" },
@@ -8,9 +6,6 @@ const TABS = [
 ];
 
 export function LeaderPage() {
-  const { currentProjectId } = useAuth();
-  const pendingCount = usePendingApprovalCount(currentProjectId);
-
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <div className="flex border-b border-border shrink-0 bg-card px-2">
@@ -24,9 +19,7 @@ export function LeaderPage() {
               }`
             }
           >
-            {tab.path === "completion-approvals" && pendingCount > 0
-              ? `${tab.label} (${pendingCount})`
-              : tab.label}
+            {tab.label}
           </NavLink>
         ))}
       </div>

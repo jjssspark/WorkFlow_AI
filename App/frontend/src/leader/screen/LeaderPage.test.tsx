@@ -1,27 +1,20 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Navigate, Route, Routes } from "react-router";
-import { describe, expect, it, vi } from "vitest";
-import { AuthProvider } from "../../global/hooks/useAuth";
+import { describe, expect, it } from "vitest";
 import { LeaderPage } from "./LeaderPage";
-
-vi.mock("../libs/hooks/usePendingApprovalCount", () => ({
-  usePendingApprovalCount: () => 0,
-}));
 
 function renderLeaderPage(initialPath: string) {
   return render(
-    <AuthProvider>
-      <MemoryRouter initialEntries={[initialPath]}>
-        <Routes>
-          <Route path="/leader" element={<LeaderPage />}>
-            <Route index element={<Navigate to="completion-approvals" replace />} />
-            <Route path="completion-approvals" element={<div>APPROVALS_CONTENT</div>} />
-            <Route path="roadmap" element={<div>ROADMAP_CONTENT</div>} />
-          </Route>
-        </Routes>
-      </MemoryRouter>
-    </AuthProvider>
+    <MemoryRouter initialEntries={[initialPath]}>
+      <Routes>
+        <Route path="/leader" element={<LeaderPage />}>
+          <Route index element={<Navigate to="completion-approvals" replace />} />
+          <Route path="completion-approvals" element={<div>APPROVALS_CONTENT</div>} />
+          <Route path="roadmap" element={<div>ROADMAP_CONTENT</div>} />
+        </Route>
+      </Routes>
+    </MemoryRouter>
   );
 }
 
