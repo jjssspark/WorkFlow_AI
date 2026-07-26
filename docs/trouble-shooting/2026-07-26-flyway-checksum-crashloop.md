@@ -4,7 +4,7 @@
 - 범위: `App/backend_spring`, 공유 Supabase, `.github/workflows/deploy-oci.yml`
 - 영향: 운영 API 전면 중단 (06:38~07:19 UTC, 약 41분 / 배포 실패 확정 06:51부터 28분)
 - 관련 실행: Actions run `30191388671` (실패)
-- 후속 설계: [스키마 마이그레이션 파이프라인 정비](../superpowers/specs/2026-07-26-migration-pipeline-hardening-design.md)
+- 후속 결정: [스키마 변경 경로 Flyway 일원화](../decisions/2026-07-26-flyway-single-migration-path.md)
 - 유사 사례: [2026-07-23 크래시루프와 동작하지 않은 롤백](2026-07-23-spring-context-crashloop-and-dead-rollback.md)
 
 ## 증상
@@ -144,4 +144,4 @@ document_chunks   185행 중 185행 임베딩 보존
   불일치. 지금은 무해하나 다음 초기화 때 V파일을 조용히 건너뛰게 만드는 지뢰다. 제거할 것.
 - `flyway_schema_history_bak_20260726` (16행), `App/.env.bak-20260726-071924` — 안정화 후 삭제.
 - `users.reviewer_rejection_reason` — origin에 없는 유령 컬럼. 정식 V파일로 올리거나 제거.
-- 구조적 재발 방지는 [설계 문서](../superpowers/specs/2026-07-26-migration-pipeline-hardening-design.md) 참조.
+- 구조적 재발 방지는 [결정 기록](../decisions/2026-07-26-flyway-single-migration-path.md) 참조.
