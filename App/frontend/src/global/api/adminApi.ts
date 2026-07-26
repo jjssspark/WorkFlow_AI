@@ -7,7 +7,7 @@ export interface ReviewerApplicationSummary {
   name: string;
   email: string;
   affiliation: string | null;
-  facultyIdMasked: string | null;
+  facultyId: string | null;
   status: ReviewerApplicationStatus;
   createdAt: string;
   rejectionReason: string | null;

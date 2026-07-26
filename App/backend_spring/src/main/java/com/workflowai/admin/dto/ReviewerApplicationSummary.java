@@ -8,7 +8,7 @@ public record ReviewerApplicationSummary(
     String name,
     String email,
     String affiliation,
-    String facultyIdMasked,
+    String facultyId,
     ReviewerStatus status,
     LocalDateTime createdAt,
     String rejectionReason

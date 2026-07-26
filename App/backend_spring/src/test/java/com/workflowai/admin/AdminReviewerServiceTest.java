@@ -33,7 +33,7 @@ class AdminReviewerServiceTest {
     }
 
     @Test
-    void listApplications_masksFacultyId() {
+    void listApplications_returnsFacultyIdUnmasked() {
         User user = new User("prof@example.com", "고교수", "local", "prof@example.com", "hash");
         user.setAffiliation("컴퓨터공학과");
         user.setFacultyId("PROF-2026-001");
@@ -46,8 +46,7 @@ class AdminReviewerServiceTest {
 
         assertThat(result.items()).hasSize(1);
         ReviewerApplicationSummary summary = result.items().get(0);
-        assertThat(summary.facultyIdMasked()).isNotEqualTo("PROF-2026-001");
-        assertThat(summary.facultyIdMasked()).startsWith("PR");
+        assertThat(summary.facultyId()).isEqualTo("PROF-2026-001");
         assertThat(summary.affiliation()).isEqualTo("컴퓨터공학과");
     }
 

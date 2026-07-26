@@ -18,7 +18,7 @@ const PENDING_APPLICATION = {
   name: "고교수",
   email: "prof@example.com",
   affiliation: "컴퓨터공학과",
-  facultyIdMasked: "PR***01",
+  facultyId: "PROF-2026-001",
   status: "PENDING" as const,
   createdAt: "2026-07-26T00:00:00",
   rejectionReason: null,

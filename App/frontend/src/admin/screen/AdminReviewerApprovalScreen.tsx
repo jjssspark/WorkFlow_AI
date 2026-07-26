@@ -160,7 +160,7 @@ export function AdminReviewerApprovalScreen() {
                 )}
               </div>
               <div className="mt-2 text-xs text-muted-foreground">
-                소속: <span>{application.affiliation ?? "-"}</span> · 교수 식별번호: <span>{application.facultyIdMasked ?? "-"}</span>
+                소속: <span>{application.affiliation ?? "-"}</span> · 교수 식별번호: <span>{application.facultyId ?? "-"}</span>
               </div>
               {application.rejectionReason && (
                 <div className="mt-1 text-xs text-red-500">거부 사유: {application.rejectionReason}</div>

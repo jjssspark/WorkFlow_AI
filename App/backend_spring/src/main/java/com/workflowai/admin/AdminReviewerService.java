@@ -37,22 +37,12 @@ public class AdminReviewerService {
         }
     }
 
+    /** 관리자는 신청자 본인 확인을 위해 교수 식별번호를 그대로 볼 수 있어야 한다(마스킹 없음). */
     private ReviewerApplicationSummary toSummary(User user) {
         return new ReviewerApplicationSummary(
             user.getId(), user.getName(), user.getEmail(), user.getAffiliation(),
-            maskFacultyId(user.getFacultyId()), user.getReviewerStatus(), user.getCreatedAt(),
+            user.getFacultyId(), user.getReviewerStatus(), user.getCreatedAt(),
             user.getReviewerRejectionReason()
         );
-    }
-
-    /** 앞 2자/뒤 2자만 남기고 가운데를 가린다. 6자 이하는 전부 가린다. */
-    private String maskFacultyId(String facultyId) {
-        if (facultyId == null) {
-            return null;
-        }
-        if (facultyId.length() <= 6) {
-            return "*".repeat(facultyId.length());
-        }
-        return facultyId.substring(0, 2) + "*".repeat(facultyId.length() - 4) + facultyId.substring(facultyId.length() - 2);
     }
 }
