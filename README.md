@@ -45,12 +45,12 @@ VITE_ENABLE_DEMO_AUTH=true
 
 ## DB 마이그레이션
 
-기본 앱 실행에서는 Flyway가 비활성화되어 기존 운영 DB에 자동 마이그레이션을 적용하지 않습니다. 배포 DB 스키마는 팀에서 검토한 뒤 아래 둘 중 하나로 반영합니다.
+스키마 변경은 Flyway(`App/backend_spring/src/main/resources/db/migration/V*.sql`)로 관리합니다.
 
-- 권장: `App/backend_spring/src/main/resources/db/init/04_add_password_auth.sql`, `05_add_reviewer_approval_status.sql`, `06_add_project_onboarding_fields.sql`, `07_add_milestone_start_date_and_task_done_date.sql`을 운영 DB에 수동 적용 (07은 컬럼 추가 외에 기존 완료 업무의 done_date를 updated_at 기준으로 backfill하는 UPDATE문도 포함)
-- Flyway 사용 시: 스키마 상태를 먼저 확인한 뒤 `SPRING_FLYWAY_ENABLED=true`를 명시. 기존에 테이블이 있는 DB에서 처음 Flyway를 켜는 경우 `baseline-on-migrate` 기본값은 `true`라서 schema history 부재로 기동이 막히지 않는다. 신규 빈 DB에서 엄격하게 검증하려면 `SPRING_FLYWAY_BASELINE_ON_MIGRATE=false`로 override
-
-`SPRING_FLYWAY_ENABLED` 기본값은 `false`이고, Flyway를 켰을 때의 `SPRING_FLYWAY_BASELINE_ON_MIGRATE` 기본값은 `true`입니다.
+- **새 스키마 변경은 새 `V*.sql` 파일을 추가**합니다. 이미 배포되어 적용된 `V*.sql`은 CI가 수정을 차단하므로 절대 고치지 말 것 — 바꿀 게 있으면 그 변경을 되돌리거나 보완하는 새 버전 파일을 추가합니다.
+- **로컬 개발 환경은 Flyway를 자동으로 켜지 않습니다** (`SPRING_FLYWAY_ENABLED` 기본값 `false`). 로컬 `.env`에 `SPRING_FLYWAY_ENABLED=true`나 `SPRING_FLYWAY_OUT_OF_ORDER`가 남아있다면 지울 것 — 로컬 compose에서 이 값들을 켜두면 로컬 실행이 공유 DB의 `flyway_schema_history`에 영향을 줄 수 있습니다.
+- **공유 DB(Supabase 등)에 대한 마이그레이션 적용은 배포 파이프라인만 수행**합니다. 로컬 앱이 스키마 불일치(schema validation 오류)로 기동하지 못해도, psql·DBeaver·Supabase SQL Editor 등으로 공유 DB에 직접 SQL을 실행하지 않습니다 — 새 `V*.sql`을 추가해 배포 파이프라인을 통해 반영합니다.
+- 신규 빈 DB에서 엄격하게 검증하려면 `SPRING_FLYWAY_BASELINE_ON_MIGRATE=false`로 override할 수 있습니다(기본값은 `true`).
 
 ## 기술 스택
 
