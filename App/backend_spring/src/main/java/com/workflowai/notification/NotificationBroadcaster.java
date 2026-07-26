@@ -38,7 +38,7 @@ public class NotificationBroadcaster {
     for (SseEmitter emitter : emitters) {
       try {
         emitter.send(SseEmitter.event().name("notification").data(dto));
-      } catch (IOException e) {
+      } catch (Exception e) {
         remove(userId, emitter);
       }
     }
@@ -50,7 +50,7 @@ public class NotificationBroadcaster {
       for (SseEmitter emitter : entry.getValue()) {
         try {
           emitter.send(SseEmitter.event().comment("ping"));
-        } catch (IOException e) {
+        } catch (Exception e) {
           remove(entry.getKey(), emitter);
         }
       }
