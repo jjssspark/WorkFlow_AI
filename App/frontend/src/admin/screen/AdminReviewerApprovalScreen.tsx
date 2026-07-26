@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { ArrowLeft, Check, X } from "lucide-react";
+import { useAuth } from "../../global/hooks/useAuth";
 import {
   listReviewerApplications,
   approveReviewerApplication,
@@ -18,6 +19,7 @@ const STATUS_TABS: { value: ReviewerApplicationStatus; label: string }[] = [
 
 export function AdminReviewerApprovalScreen() {
   const navigate = useNavigate();
+  const { logout } = useAuth();
   const [status, setStatus] = useState<ReviewerApplicationStatus>("PENDING");
   const [applications, setApplications] = useState<ReviewerApplicationSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -91,7 +93,10 @@ export function AdminReviewerApprovalScreen() {
   return (
     <div className="min-h-screen bg-background px-6 py-8" style={{ fontFamily: "'Inter', 'Noto Sans KR', sans-serif" }}>
       <div className="max-w-3xl mx-auto">
-        <button onClick={() => navigate("/login")} className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-4">
+        <button
+          onClick={() => { logout(); navigate("/login", { replace: true }); }}
+          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-4"
+        >
           <ArrowLeft className="w-4 h-4" /> 로그인 화면으로 돌아가기
         </button>
         <h1 className="text-xl font-bold text-foreground mb-1">심사자 승인</h1>

@@ -25,6 +25,8 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/v1/admin/reviewers")
 public class AdminReviewerController {
+    private static final int MAX_PAGE_SIZE = 100;
+
     private final AdminReviewerService adminReviewerService;
 
     public AdminReviewerController(AdminReviewerService adminReviewerService) {
@@ -39,7 +41,11 @@ public class AdminReviewerController {
         @RequestParam(defaultValue = "0") int page,
         @RequestParam(defaultValue = "20") int size
     ) {
-        var pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+        // page/size는 프론트가 값을 검증한다고 가정할 수 없다 — 음수 page나 과도한 size가
+        // PageRequest.of()에서 예외를 던지거나 지나치게 큰 조회를 유발하지 않도록 여기서 정리한다.
+        int safePage = Math.max(page, 0);
+        int safeSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
+        var pageable = PageRequest.of(safePage, safeSize, Sort.by(Sort.Direction.DESC, "createdAt"));
         return ApiResponse.ok(adminReviewerService.listApplications(status, pageable));
     }
 

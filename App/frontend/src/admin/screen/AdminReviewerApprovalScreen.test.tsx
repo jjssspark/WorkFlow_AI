@@ -13,6 +13,11 @@ vi.mock("../../global/api/adminApi", () => ({
   rejectReviewerApplication: mockReject,
 }));
 
+const mockLogout = vi.hoisted(() => vi.fn());
+vi.mock("../../global/hooks/useAuth", () => ({
+  useAuth: () => ({ logout: mockLogout }),
+}));
+
 const PENDING_APPLICATION = {
   userId: 1,
   name: "고교수",
@@ -28,6 +33,7 @@ beforeEach(() => {
   mockList.mockReset();
   mockApprove.mockReset();
   mockReject.mockReset();
+  mockLogout.mockReset();
 });
 
 function renderScreen() {
@@ -80,5 +86,15 @@ describe("AdminReviewerApprovalScreen", () => {
     renderScreen();
 
     expect(await screen.findByText("승인 대기 중인 심사자 신청이 없습니다.")).toBeInTheDocument();
+  });
+
+  it("로그인 화면으로 돌아가기 버튼을 누르면 로그아웃한다", async () => {
+    mockList.mockResolvedValue({ items: [], page: 0, size: 20, totalElements: 0, totalPages: 0 });
+    renderScreen();
+    await screen.findByText("승인 대기 중인 심사자 신청이 없습니다.");
+
+    await userEvent.click(screen.getByRole("button", { name: /로그인 화면으로 돌아가기/ }));
+
+    expect(mockLogout).toHaveBeenCalledTimes(1);
   });
 });
