@@ -264,6 +264,28 @@ public class AuthController {
         }
     }
 
+    @Operation(
+        summary = "거부된 심사자 재신청",
+        description = "REJECTED 상태 계정만 가능. 이메일/비밀번호로 본인을 확인하고 소속·교수 식별번호를 "
+            + "다시 제출하면 PENDING으로 바뀌어 관리자가 재검토한다. 토큰은 발급하지 않는다."
+    )
+    @PostMapping("/reviewer-reapply")
+    public ResponseEntity<ApiResponse<SignupResponse>> reviewerReapply(@Valid @RequestBody ReviewerReapplyRequest request) {
+        try {
+            return ResponseEntity.ok(ApiResponse.ok(
+                authService.reapplyAsReviewer(request.email(), request.password(), request.affiliation(), request.facultyId())
+            ));
+        } catch (GoogleAccountRequiredException e) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ApiResponse.fail("GOOGLE_ACCOUNT_REQUIRED", e.getMessage()));
+        } catch (InvalidCredentialsException e) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ApiResponse.fail("INVALID_CREDENTIALS", e.getMessage()));
+        } catch (ReapplyNotAllowedException e) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(ApiResponse.fail("REAPPLY_NOT_ALLOWED", e.getMessage()));
+        } catch (InvalidSignupInputException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ApiResponse.fail("INVALID_SIGNUP_INPUT", e.getMessage()));
+        }
+    }
+
     @Operation(summary = "Refresh Token으로 Access Token 재발급")
     @PostMapping("/refresh")
     public ApiResponse<AuthTokenResponse> refresh(@Valid @RequestBody RefreshRequest request) {

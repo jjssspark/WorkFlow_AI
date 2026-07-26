@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
-import { User, Lock, Eye, EyeOff, ArrowRight, Check } from "lucide-react";
+import { User, Lock, Eye, EyeOff, ArrowRight, Check, Clock } from "lucide-react";
 import { AuthBrandPanel } from "../components/AuthBrandPanel";
 import { AuthInput } from "../components/AuthInput";
 import { useAuth } from "../../global/hooks/useAuth";
 import { apiFetch, ApiRequestError } from "../../global/api/apiClient";
-import type { AuthTokenResponse } from "../../global/api/authTypes";
+import type { AuthTokenResponse, SignupResponse } from "../../global/api/authTypes";
 import { tokenStore } from "../../global/api/tokenStore";
 
 const TEST_ACCOUNTS = [
@@ -32,6 +32,13 @@ export function LoginScreen() {
   const [remember, setRemember] = useState(false);
   const oauthFailed = searchParams.get("error") === "oauth_failed";
 
+  const [rejectedMessage, setRejectedMessage] = useState<string | null>(null);
+  const [reapplyAffiliation, setReapplyAffiliation] = useState("");
+  const [reapplyFacultyId, setReapplyFacultyId] = useState("");
+  const [reapplying, setReapplying] = useState(false);
+  const [reapplyError, setReapplyError] = useState<string | null>(null);
+  const [reapplySubmitted, setReapplySubmitted] = useState(false);
+
   const handleLogin = async () => {
     if (loggingIn) return;
     if (!username.trim() || !password.trim()) {
@@ -39,6 +46,7 @@ export function LoginScreen() {
       return;
     }
     setLoginError(null);
+    setRejectedMessage(null);
     setLoggingIn(true);
     try {
       const id = username.trim();
@@ -57,7 +65,9 @@ export function LoginScreen() {
       const me = await refreshMe();
       navigate(me?.user.isAdmin ? "/admin/reviewers" : "/projects", { replace: true });
     } catch (error) {
-      if (error instanceof ApiRequestError) {
+      if (error instanceof ApiRequestError && error.code === "REVIEWER_APPLICATION_REJECTED") {
+        setRejectedMessage(error.message);
+      } else if (error instanceof ApiRequestError) {
         setLoginError(error.message);
       } else {
         setLoginError("로그인에 실패했습니다. 잠시 후 다시 시도해주세요.");
@@ -73,6 +83,38 @@ export function LoginScreen() {
     setPassword(TEST_PASSWORD);
   };
 
+  const handleReapply = async () => {
+    if (reapplying || !reapplyAffiliation.trim() || !reapplyFacultyId.trim()) return;
+    setReapplyError(null);
+    setReapplying(true);
+    try {
+      const response = await apiFetch<SignupResponse>("/auth/reviewer-reapply", {
+        method: "POST",
+        body: JSON.stringify({
+          email: username.trim(),
+          password,
+          affiliation: reapplyAffiliation.trim(),
+          facultyId: reapplyFacultyId.trim(),
+        }),
+      });
+      if (response.status === "PENDING_REVIEWER_APPROVAL") {
+        setReapplySubmitted(true);
+      }
+    } catch (error) {
+      setReapplyError(error instanceof ApiRequestError ? error.message : "재신청 처리에 실패했습니다.");
+    } finally {
+      setReapplying(false);
+    }
+  };
+
+  const cancelReapply = () => {
+    setRejectedMessage(null);
+    setReapplySubmitted(false);
+    setReapplyError(null);
+    setReapplyAffiliation("");
+    setReapplyFacultyId("");
+  };
+
   return (
     <div className="flex min-h-screen flex-col lg:flex-row" style={{ fontFamily: "'Inter', 'Noto Sans KR', sans-serif" }}>
       <AuthBrandPanel />
@@ -84,6 +126,70 @@ export function LoginScreen() {
             <p className="text-sm text-muted-foreground">계속하려면 로그인하세요.</p>
           </div>
 
+          {rejectedMessage ? (
+            reapplySubmitted ? (
+              <div className="bg-card border border-border rounded-2xl p-6 shadow-sm">
+                <div className="w-12 h-12 rounded-2xl flex items-center justify-center mb-5" style={{ background: "rgba(112,72,232,0.12)", color: "#7048E8" }}>
+                  <Clock className="w-6 h-6" />
+                </div>
+                <h2 className="text-lg font-bold text-foreground mb-2">재신청이 접수되었습니다</h2>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  관리자 승인 후 다시 로그인할 수 있습니다.
+                </p>
+                <button onClick={cancelReapply} className="w-full mt-5 text-sm font-semibold text-blue-600 hover:text-blue-700">
+                  로그인 화면으로 돌아가기
+                </button>
+              </div>
+            ) : (
+              <div className="bg-card border border-border rounded-2xl p-6 shadow-sm">
+                <h2 className="text-lg font-bold text-foreground mb-2">심사자 신청이 거부되었습니다</h2>
+                <p className="text-sm text-muted-foreground leading-relaxed mb-4">{rejectedMessage}</p>
+                <p className="text-xs text-muted-foreground mb-4">
+                  소속과 교수 식별번호를 다시 확인하고 재신청하면 관리자가 다시 검토합니다.
+                </p>
+
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-xs font-semibold text-foreground">소속기관 또는 학과</label>
+                    <input
+                      value={reapplyAffiliation}
+                      onChange={e => setReapplyAffiliation(e.target.value)}
+                      className="mt-1.5 w-full rounded-xl border border-border bg-input-background px-3 py-2.5 text-sm outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
+                      placeholder="예: 컴퓨터공학과"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-foreground">교수 일련번호 또는 교직원 번호</label>
+                    <input
+                      value={reapplyFacultyId}
+                      onChange={e => setReapplyFacultyId(e.target.value)}
+                      className="mt-1.5 w-full rounded-xl border border-border bg-input-background px-3 py-2.5 text-sm outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
+                      placeholder="예: PROF-2026-001"
+                    />
+                  </div>
+                </div>
+
+                {reapplyError && (
+                  <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-600">
+                    {reapplyError}
+                  </div>
+                )}
+
+                <button
+                  onClick={() => void handleReapply()}
+                  disabled={reapplying || !reapplyAffiliation.trim() || !reapplyFacultyId.trim()}
+                  className="w-full mt-5 py-3 rounded-xl text-white text-sm font-semibold transition-opacity hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2"
+                  style={{ background: "linear-gradient(135deg, #7048E8 0%, #4F6EF7 100%)" }}
+                >
+                  {reapplying ? "재신청 처리 중..." : "재신청"}
+                </button>
+                <button onClick={cancelReapply} className="w-full mt-3 text-sm font-semibold text-muted-foreground hover:text-foreground">
+                  취소
+                </button>
+              </div>
+            )
+          ) : (
+          <>
           {oauthFailed && (
             <div className="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-600">
               Google 로그인에 실패했습니다. 다시 시도해주세요.
@@ -180,6 +286,8 @@ export function LoginScreen() {
                 계정을 누르면 아이디/비밀번호가 자동으로 채워집니다. 로그인 버튼을 눌러 접속하세요.
               </p>
             </div>
+          )}
+          </>
           )}
         </div>
       </div>

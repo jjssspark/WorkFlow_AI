@@ -127,33 +127,18 @@ public class AuthService {
         }
 
         boolean isReviewerApplication = ROLE_TYPE_REVIEWER.equals(normalizedRoleType);
-        String normalizedAffiliation = null;
-        String normalizedFacultyId = null;
-        if (isReviewerApplication) {
-            normalizedAffiliation = affiliation == null ? "" : affiliation.trim();
-            normalizedFacultyId = facultyId == null ? "" : facultyId.trim();
-            if (normalizedAffiliation.isBlank() || normalizedFacultyId.isBlank()) {
-                throw new InvalidSignupInputException("심사자 신청은 소속과 교수 식별번호를 입력해야 합니다.");
-            }
-            if (normalizedAffiliation.length() > MAX_AFFILIATION_LENGTH) {
-                throw new InvalidSignupInputException("소속은 " + MAX_AFFILIATION_LENGTH + "자 이하로 입력해주세요.");
-            }
-            if (normalizedFacultyId.length() > MAX_FACULTY_ID_LENGTH) {
-                throw new InvalidSignupInputException("교수 식별번호는 " + MAX_FACULTY_ID_LENGTH + "자 이하로 입력해주세요.");
-            }
-            if (!FACULTY_ID_PATTERN.matcher(normalizedFacultyId).matches()) {
-                throw new InvalidSignupInputException("교수 식별번호는 영문, 숫자, 하이픈만 사용할 수 있습니다.");
-            }
-        }
+        ReviewerFields reviewerFields = isReviewerApplication
+            ? normalizeAndValidateReviewerFields(affiliation, facultyId, "심사자 신청은 소속과 교수 식별번호를 입력해야 합니다.")
+            : null;
 
         String passwordHash = passwordEncoder.encode(password);
         User newUser = new User(normalizedEmail, normalizedName, PROVIDER_LOCAL, normalizedEmail, passwordHash);
         LocalDateTime now = LocalDateTime.now();
         newUser.setTermsAgreedAt(now);
         newUser.setPrivacyAgreedAt(now);
-        if (isReviewerApplication) {
-            newUser.setAffiliation(normalizedAffiliation);
-            newUser.setFacultyId(normalizedFacultyId);
+        if (reviewerFields != null) {
+            newUser.setAffiliation(reviewerFields.affiliation());
+            newUser.setFacultyId(reviewerFields.facultyId());
             newUser.setReviewerStatus(ReviewerStatus.PENDING);
         }
         User user;
@@ -194,6 +179,36 @@ public class AuthService {
             throw new ReviewerApplicationRejectedException(user.getReviewerRejectionReason());
         }
         return issueTokens(user);
+    }
+
+    /**
+     * 거부된 심사자 신청을 다시 제출한다. 로그인은 여전히 막힌 상태이므로 이메일/비밀번호로 본인을
+     * 확인한 뒤, 소속·교수 식별번호를 새로 받아 REJECTED -> PENDING으로 되돌린다. 재신청도 관리자
+     * 재검토가 필요하므로 토큰은 발급하지 않는다.
+     */
+    @Transactional
+    public SignupResponse reapplyAsReviewer(String email, String password, String affiliation, String facultyId) {
+        String normalizedEmail = normalizeEmail(email);
+        User user = userRepository.findByEmail(normalizedEmail)
+            .orElseThrow(InvalidCredentialsException::new);
+        if (user.getPasswordHash() == null) {
+            throw new GoogleAccountRequiredException();
+        }
+        if (!passwordEncoder.matches(password, user.getPasswordHash())) {
+            throw new InvalidCredentialsException();
+        }
+        if (user.getReviewerStatus() != ReviewerStatus.REJECTED) {
+            throw new ReapplyNotAllowedException();
+        }
+
+        ReviewerFields fields = normalizeAndValidateReviewerFields(affiliation, facultyId, "소속과 교수 식별번호를 입력해야 합니다.");
+        user.setAffiliation(fields.affiliation());
+        user.setFacultyId(fields.facultyId());
+        user.setReviewerStatus(ReviewerStatus.PENDING);
+        user.setReviewerRejectionReason(null);
+        userRepository.save(user);
+
+        return SignupResponse.pendingReviewerApproval();
     }
 
     public AuthTokenResponse refresh(String refreshToken) {
@@ -237,6 +252,27 @@ public class AuthService {
 
     private String normalizeName(String name) {
         return name == null ? "" : name.trim();
+    }
+
+    private record ReviewerFields(String affiliation, String facultyId) {
+    }
+
+    private ReviewerFields normalizeAndValidateReviewerFields(String affiliation, String facultyId, String blankMessage) {
+        String normalizedAffiliation = affiliation == null ? "" : affiliation.trim();
+        String normalizedFacultyId = facultyId == null ? "" : facultyId.trim();
+        if (normalizedAffiliation.isBlank() || normalizedFacultyId.isBlank()) {
+            throw new InvalidSignupInputException(blankMessage);
+        }
+        if (normalizedAffiliation.length() > MAX_AFFILIATION_LENGTH) {
+            throw new InvalidSignupInputException("소속은 " + MAX_AFFILIATION_LENGTH + "자 이하로 입력해주세요.");
+        }
+        if (normalizedFacultyId.length() > MAX_FACULTY_ID_LENGTH) {
+            throw new InvalidSignupInputException("교수 식별번호는 " + MAX_FACULTY_ID_LENGTH + "자 이하로 입력해주세요.");
+        }
+        if (!FACULTY_ID_PATTERN.matcher(normalizedFacultyId).matches()) {
+            throw new InvalidSignupInputException("교수 식별번호는 영문, 숫자, 하이픈만 사용할 수 있습니다.");
+        }
+        return new ReviewerFields(normalizedAffiliation, normalizedFacultyId);
     }
 
     private String normalizeRoleType(String roleType) {

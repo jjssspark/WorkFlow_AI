@@ -288,4 +288,57 @@ class AuthServiceTest {
 
         assertThat(tokens.accessToken()).isEqualTo("access-token");
     }
+
+    @Test
+    void reapplyAsReviewer_rejectedUser_movesToPendingWithNewFields() {
+        String hash = passwordEncoder.encode("12345678");
+        User rejected = new User("rejected@example.com", "고교수", "local", "rejected@example.com", hash);
+        rejected.setReviewerStatus(ReviewerStatus.REJECTED);
+        rejected.setReviewerRejectionReason("교수 식별번호를 다시 확인해주세요.");
+        when(userRepository.findByEmail("rejected@example.com")).thenReturn(Optional.of(rejected));
+
+        SignupResponse response = authService.reapplyAsReviewer(
+            "rejected@example.com", "12345678", "전자공학과", "PROF-2026-002"
+        );
+
+        assertThat(response.status()).isEqualTo("PENDING_REVIEWER_APPROVAL");
+        assertThat(rejected.getReviewerStatus()).isEqualTo(ReviewerStatus.PENDING);
+        assertThat(rejected.getAffiliation()).isEqualTo("전자공학과");
+        assertThat(rejected.getFacultyId()).isEqualTo("PROF-2026-002");
+        assertThat(rejected.getReviewerRejectionReason()).isNull();
+        verify(userRepository).save(rejected);
+    }
+
+    @Test
+    void reapplyAsReviewer_nonRejectedUser_throws() {
+        String hash = passwordEncoder.encode("12345678");
+        User pending = new User("pending@example.com", "고교수", "local", "pending@example.com", hash);
+        pending.setReviewerStatus(ReviewerStatus.PENDING);
+        when(userRepository.findByEmail("pending@example.com")).thenReturn(Optional.of(pending));
+
+        assertThatThrownBy(() -> authService.reapplyAsReviewer("pending@example.com", "12345678", "전자공학과", "PROF-2026-002"))
+            .isInstanceOf(ReapplyNotAllowedException.class);
+    }
+
+    @Test
+    void reapplyAsReviewer_wrongPassword_throwsInvalidCredentials() {
+        String hash = passwordEncoder.encode("12345678");
+        User rejected = new User("rejected2@example.com", "고교수", "local", "rejected2@example.com", hash);
+        rejected.setReviewerStatus(ReviewerStatus.REJECTED);
+        when(userRepository.findByEmail("rejected2@example.com")).thenReturn(Optional.of(rejected));
+
+        assertThatThrownBy(() -> authService.reapplyAsReviewer("rejected2@example.com", "wrong-password", "전자공학과", "PROF-2026-002"))
+            .isInstanceOf(InvalidCredentialsException.class);
+    }
+
+    @Test
+    void reapplyAsReviewer_missingFacultyId_throws() {
+        String hash = passwordEncoder.encode("12345678");
+        User rejected = new User("rejected3@example.com", "고교수", "local", "rejected3@example.com", hash);
+        rejected.setReviewerStatus(ReviewerStatus.REJECTED);
+        when(userRepository.findByEmail("rejected3@example.com")).thenReturn(Optional.of(rejected));
+
+        assertThatThrownBy(() -> authService.reapplyAsReviewer("rejected3@example.com", "12345678", "전자공학과", null))
+            .isInstanceOf(InvalidSignupInputException.class);
+    }
 }
