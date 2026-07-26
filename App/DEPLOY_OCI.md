@@ -178,9 +178,29 @@ docker logs workflow-backend-spring 2>&1 | grep -i flyway
 
 > `V20260701_1`~`V20260713_1`은 구 `docs/db/migrations/001~013`을 이관한 것이다. 운영
 > baseline(`20260721.1`)보다 번호가 낮아 `Below Baseline`으로 무시된다 — 운영에는 이미
-> 전부 적용돼 있으므로 의도된 동작이다. **빈 DB로 새로 구축하는 경우에는 이 14개도
-> 실행되지 않으므로 `db/init`이 해당 스키마를 포함해야 한다**(검증 미완료 —
-> [결정 기록](../docs/decisions/2026-07-26-flyway-single-migration-path.md) 참조).
+> 전부 적용돼 있으므로 의도된 동작이다. 빈 DB로 새로 구축할 때는 이 14개가 실행되지 않으므로
+> **같은 내용을 `db/init/11_pre_baseline_backfill.sql`이 담는다**(생성물). pgvector 확장,
+> `document_chunks.embedding` → `vector(1024)` 전환, `rag_assignee_sync_failures`가 여기서
+> 만들어진다. 새 V파일을 baseline 아래에 추가하는 일은 없어야 하므로 이 백필 파일도 갱신할
+> 일이 없다 — OCI 이관 시 baseline 재설계와 함께 폐기한다.
+
+### 빈 DB 구축 시 운영과 남는 차이 (2026-07-26 실측)
+
+`db/init` + Flyway로 빈 DB를 만들어 운영 Supabase와 객체 단위로 비교한 결과다. 아래는 모두
+이 문서의 변경과 무관한 **기존 divergence**이며, `docs/db/workflow_ai_schema.sql`(2026-07-22
+Supabase 덤프)에만 정의돼 있거나 어디에도 정의가 없다.
+
+| 차이 | 내용 | 영향 |
+|---|---|---|
+| `workload_scores` 테이블 일체 | 테이블·컬럼 5·FK 2·PK | FastAPI가 테이블 없음을 정상 처리한다(`load_workload_scores` 테스트로 보장) |
+| 성능 인덱스 6개 | `idx_tasks_project_id`, `idx_comments_target` 등 | 기능 영향 없음, 대용량에서 성능 차 |
+| `uq_action_items_created_task` | 유니크 제약 | 신규 환경에 중복 방지 없음 — 보강 필요 |
+| 매핑되지 않는 컬럼 5개 | `users.is_admin`·`faculty_id`·`reviewer_rejection_reason`, `tasks.done_date`, `evaluation_scores.total_score` | JPA 엔티티가 쓰지 않음. 운영에만 남은 잔재 |
+| FK 이름 6개 | 운영은 `*_fkey` 자동 이름, 신규는 `fk_*` 명시 이름 | 같은 테이블·컬럼에 존재해 무결성 동등 |
+| varchar 길이 10개 | 운영은 길이 무제한, 신규는 제한 있음 | 운영이 더 느슨한 쪽. 기동 검증에 영향 없음 |
+
+`evaluation_scores.total_score`는 머지되지 않은 `origin/contribution_score` 브랜치의 V파일에
+있다 — 2026-07-26 장애와 같은 경로(머지 안 된 브랜치가 운영 스키마를 바꿈)다.
 
 ### 임베딩 차원 전환 이력 (참고)
 
