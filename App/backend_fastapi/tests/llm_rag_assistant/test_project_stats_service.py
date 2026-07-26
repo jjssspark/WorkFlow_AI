@@ -8,23 +8,28 @@ from llm_rag_assistant.app.services.project_stats_service import fetch_project_s
 
 
 class _FakeConn:
-    """집계 쿼리와 마감 임박 목록 쿼리를 본문으로 구분해 각각의 행을 돌려준다."""
+    """집계 쿼리와 목록 쿼리들을 본문으로 구분해 각각의 행을 돌려준다."""
 
     def __init__(
         self,
         rows: list[dict],
         due_soon_rows: list[dict] | None = None,
         overdue_rows: list[dict] | None = None,
+        blocked_rows: list[dict] | None = None,
     ) -> None:
         self._rows = rows
         self._due_soon_rows = due_soon_rows or []
         self._overdue_rows = overdue_rows or []
+        self._blocked_rows = blocked_rows or []
         self.calls: list[tuple] = []
 
     async def fetch(self, query: str, *args):
         self.calls.append((query, args))
         if "COUNT(*) OVER ()" not in query:
             return self._rows
+        # 블로커 목록도 OVER ()를 쓰므로 마감 목록보다 먼저 걸러야 한다.
+        if "ORDER BY CASE" in query:
+            return self._blocked_rows
         return self._overdue_rows if "DESC" in query else self._due_soon_rows
 
     def call_for(self, marker: str) -> tuple:
@@ -277,6 +282,63 @@ async def test_counts_overdue_tasks_separately() -> None:
     stats = await fetch_project_stats(pool, 1)
 
     assert stats["overdue"] == 4
+
+
+def _blocked_row(
+    title: str,
+    description: str | None,
+    name: str | None,
+    match_total: int,
+    due_date: str | None = None,
+    priority: str = "high",
+) -> dict:
+    return {
+        "title": title,
+        "description": description,
+        "due_date": date.fromisoformat(due_date) if due_date else None,
+        "priority": priority,
+        "assignee_name": name,
+        "match_total": match_total,
+    }
+
+
+@pytest.mark.asyncio
+async def test_lists_blocked_tasks_with_the_reason_they_are_stuck() -> None:
+    """건수만으로는 '해결 방법 추천해줘'에 답할 재료가 없다 - 막힌 이유가 있어야 조언이 나온다."""
+    conn = _FakeConn(
+        [_row("blocked", "최동혁", 13, assignee_id=1)],
+        blocked_rows=[
+            _blocked_row("결제 SDK 충돌", "토스 SDK 버전 충돌로 빌드 실패", "최동혁", 13, "2026-07-30"),
+            _blocked_row("DB 인덱싱 최적화", None, None, 13, priority="medium"),
+        ],
+    )
+
+    stats = await fetch_project_stats(_FakePool(conn), 1)
+
+    assert [item["title"] for item in stats["blocked_list"]] == ["결제 SDK 충돌", "DB 인덱싱 최적화"]
+    assert stats["blocked_list"][0]["description"] == "토스 SDK 버전 충돌로 빌드 실패"
+    assert stats["blocked_list"][1]["description"] is None
+    assert stats["blocked_remaining"] == 11
+
+
+@pytest.mark.asyncio
+async def test_blocked_list_is_scoped_to_the_asker_for_personal_questions() -> None:
+    """'내 블로커'에 남의 업무를 섞으면 모델이 그걸 본인 것처럼 추천한다(마감 목록과 같은 방침)."""
+    conn = _FakeConn([_row("blocked", "허영주", 1, assignee_id=1)])
+
+    await fetch_project_stats(_FakePool(conn), 1, assignee_id=7)
+
+    assert conn.call_for("ORDER BY CASE")[1][2] == 7
+
+
+@pytest.mark.asyncio
+async def test_blocked_list_puts_high_priority_first() -> None:
+    """상한이 3건이라 정렬이 곧 '무엇을 보여줄지'다. 급한 것부터 잘려 나가면 안 된다."""
+    conn = _FakeConn([_row("blocked", "허영주", 1, assignee_id=1)])
+
+    await fetch_project_stats(_FakePool(conn), 1)
+
+    assert "WHEN 'high' THEN 0" in conn.call_for("ORDER BY CASE")[0]
 
 
 @pytest.mark.asyncio
