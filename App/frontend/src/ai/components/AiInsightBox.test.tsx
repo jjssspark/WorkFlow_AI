@@ -46,33 +46,13 @@ describe("AiInsightBox", () => {
     await waitFor(() => expect(screen.getByText("김민준님, 코드 리뷰를 먼저 진행하세요")).toBeInTheDocument());
   });
 
-  it("dispatches the open-AI-assistant event asking to elaborate on the answer already shown", async () => {
-    // 답변이 이미 로드된 상태에서 버튼을 누르면, 원래 prompt를 반복하지 않고 방금 보여준
-    // 답변 자체를 더 자세히 설명해달라는 후속 질문을 보낸다(AiInsightBox.tsx의 askAgain).
+  it("dispatches the open-AI-assistant event with the same prompt when the button is clicked", async () => {
     vi.mocked(apiFetch).mockResolvedValue({ type: "answer", message: "답변", sources: [] });
     const handler = vi.fn();
     window.addEventListener(OPEN_AI_ASSISTANT_EVENT, handler);
 
     render(<AiInsightBox projectId={1} prompt="블로커를 점검해줘" ready fallbackText="폴백" actionLabel="자세히" />);
     await waitFor(() => expect(screen.getByText("답변")).toBeInTheDocument());
-
-    await userEvent.click(screen.getByRole("button", { name: "자세히" }));
-
-    expect(handler).toHaveBeenCalledTimes(1);
-    const event = handler.mock.calls[0][0] as CustomEvent<{ question?: string }>;
-    expect(event.detail.question).toBe('방금 "AI 추천 액션"에서 보여준 다음 내용을 더 자세히 설명해줘: "답변"');
-
-    window.removeEventListener(OPEN_AI_ASSISTANT_EVENT, handler);
-  });
-
-  it("dispatches the open-AI-assistant event with the original prompt when clicked before an answer loads", async () => {
-    // 아직 답변이 없으면(hasAnswer=false) 후속 질문을 만들 답변 자체가 없으므로 원래
-    // prompt를 그대로 전달한다.
-    vi.mocked(apiFetch).mockImplementation(() => new Promise(() => {})); // 영원히 로딩 중
-    const handler = vi.fn();
-    window.addEventListener(OPEN_AI_ASSISTANT_EVENT, handler);
-
-    render(<AiInsightBox projectId={1} prompt="블로커를 점검해줘" ready fallbackText="폴백" actionLabel="자세히" />);
 
     await userEvent.click(screen.getByRole("button", { name: "자세히" }));
 

@@ -191,4 +191,52 @@ class MeetingAnalysisControllerTest {
                 .content("{\"transcript\":\"내용\",\"triggerAnalysis\":false}")))
             .hasCauseInstanceOf(DataIntegrityViolationException.class);
     }
+
+    @Test
+    void reanalyzeReturns404WhenMeetingMissing() throws Exception {
+        when(meetingAnalysisService.reanalyzeVersion("demo-project", "999")).thenReturn(null);
+        MeetingAnalysisController controller = new MeetingAnalysisController(meetingAnalysisService);
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
+
+        mockMvc.perform(post("/api/v1/projects/demo-project/meetings/999/reanalyze"))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.error.code").value("MEETING_NOT_FOUND"));
+    }
+
+    @Test
+    void reanalyzeReturns400WhenNotAVersion() throws Exception {
+        when(meetingAnalysisService.reanalyzeVersion("demo-project", "5"))
+            .thenThrow(new IllegalArgumentException("원본 회의록은 재분석할 수 없습니다. 수정 후 다시 시도해주세요."));
+        MeetingAnalysisController controller = new MeetingAnalysisController(meetingAnalysisService);
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
+
+        mockMvc.perform(post("/api/v1/projects/demo-project/meetings/5/reanalyze"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.code").value("NOT_A_VERSION"));
+    }
+
+    @Test
+    void reanalyzeReturns409WhenAlreadyCompleted() throws Exception {
+        when(meetingAnalysisService.reanalyzeVersion("demo-project", "6"))
+            .thenThrow(new IllegalStateException("MEETING_NOT_REANALYZABLE"));
+        MeetingAnalysisController controller = new MeetingAnalysisController(meetingAnalysisService);
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
+
+        mockMvc.perform(post("/api/v1/projects/demo-project/meetings/6/reanalyze"))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.error.code").value("MEETING_NOT_REANALYZABLE"));
+    }
+
+    @Test
+    void reanalyzeReturnsProcessingStatus() throws Exception {
+        when(meetingAnalysisService.reanalyzeVersion("demo-project", "6"))
+            .thenReturn(new MeetingVersionResponse("6", "PROCESSING"));
+        MeetingAnalysisController controller = new MeetingAnalysisController(meetingAnalysisService);
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
+
+        mockMvc.perform(post("/api/v1/projects/demo-project/meetings/6/reanalyze"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.meetingId").value("6"))
+            .andExpect(jsonPath("$.data.status").value("PROCESSING"));
+    }
 }

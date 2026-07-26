@@ -265,6 +265,14 @@ public class MeetingAnalysisService {
         }
 
         String text = extractTextFromStoredFile(meeting);
+        // 파일에서 텍스트를 추출하지 못해도, 이전에 성공적으로 분석되어 저장된 transcript가 있다면
+        // (deleteAnalysis()가 분석 결과만 지우고 transcript는 보존해두는 경우) 그것으로 재분석을 시도한다.
+        if (text == null || text.isBlank()) {
+            String transcript = meeting.getTranscript();
+            if (transcript != null && !transcript.isBlank()) {
+                text = transcript;
+            }
+        }
         if (text == null) {
             String errorMessage = MeetingAnalysisPersistence.REUPLOAD_REQUIRED_ERROR_MESSAGE;
             meetingAnalysisPersistence.saveAnalysisFailure(id, errorMessage);
@@ -489,6 +497,80 @@ public class MeetingAnalysisService {
         return new MeetingDeleteResponse(meetingId, "DELETED");
     }
 
+    /**
+     * 회의록 원본(파일, transcript, 참석자, savedAt)은 남기고 AI 분석 결과(meeting_analysis, To-Do 후보)만 지운다.
+     * 삭제 후 analysisStatus를 failed로 돌려 기존 /retry 엔드포인트(저장된 파일에서 텍스트 재추출)로
+     * 같은 파일을 다시 분석할 수 있게 한다 — 별도의 재분석 엔드포인트를 새로 만들지 않기 위한 설계다.
+     */
+    @Transactional
+    public MeetingDeleteResponse deleteAnalysis(String projectId, String meetingId, boolean deleteLinkedTasks) {
+        Long projectDbId = requireProjectMember(projectId);
+        Long meetingDbId = parseLongOrNull(meetingId);
+        if (meetingDbId == null) return null;
+        Meeting meeting = meetingRepository.findByIdAndProjectIdForUpdate(meetingDbId, projectDbId).orElse(null);
+        if (meeting == null) return null;
+        requireLeader(projectDbId);
+
+        if (!meetingAnalysisRepository.existsById(meetingDbId)) {
+            throw new IllegalStateException("MEETING_ANALYSIS_NOT_FOUND");
+        }
+
+        List<Task> linkedTasks = deleteLinkedTasks
+            ? taskRepository.findBySourceMeetingId(meetingDbId)
+            : List.of();
+        List<MeetingActionItem> linkedActionItems = deleteLinkedTasks
+            ? meetingActionItemRepository.findByMeetingId(meetingDbId)
+            : List.of();
+        ragIngestService.recordDeleteSourceIntent(meeting.getProjectId(), "meeting", meetingDbId);
+        linkedTasks.forEach(task ->
+            ragIngestService.recordDeleteSourceIntent(task.getProjectId(), "task", task.getId())
+        );
+        linkedActionItems.forEach(item ->
+            ragIngestService.recordDeleteSourceIntent(meeting.getProjectId(), "action_item", item.getId())
+        );
+
+        meetingAnalysisRepository.deleteById(meetingDbId);
+        if (deleteLinkedTasks) {
+            meetingActionItemRepository.deleteByMeetingId(meetingDbId);
+            taskRepository.deleteBySourceMeetingId(meetingDbId);
+        } else {
+            meetingActionItemRepository.clearMeetingId(meetingDbId);
+            taskRepository.clearSourceMeetingId(meetingDbId);
+        }
+
+        meeting.setAnalysisStatus("failed");
+        meetingRepository.save(meeting);
+
+        runAfterCommit(() ->
+            ragIngestService.deleteSourceBestEffort(meeting.getProjectId(), "meeting", meetingDbId)
+        );
+        linkedTasks.forEach(task ->
+            runAfterCommit(() ->
+                ragIngestService.deleteSourceBestEffort(task.getProjectId(), "task", task.getId())
+            )
+        );
+        linkedActionItems.forEach(item ->
+            runAfterCommit(() ->
+                ragIngestService.deleteSourceBestEffort(meeting.getProjectId(), "action_item", item.getId())
+            )
+        );
+
+        Long actorId = CurrentUser.id();
+        Long uploaderId = meeting.getUploadedBy();
+        String title = meeting.getTitle();
+        String actorName = defaultString(resolveNameById(actorId), "누군가");
+        String scopeSuffix = deleteLinkedTasks ? " (등록된 업무도 함께 삭제됨)" : " (등록된 업무는 유지됨)";
+
+        notificationService.notifyActorAndCounterpart(
+            actorId, "MEETING_ANALYSIS_DELETED", "회의록 분석 결과를 삭제했습니다",
+            "'" + title + "' 회의록의 분석 결과를 삭제했습니다." + scopeSuffix,
+            uploaderId, "MEETING_ANALYSIS_DELETED", "회의록 분석 결과가 삭제되었습니다",
+            actorName + "님이 '" + title + "' 회의록의 분석 결과를 삭제했습니다." + scopeSuffix,
+            "meeting", meetingDbId
+        );
+        return new MeetingDeleteResponse(meetingId, "DELETED");
+    }
+
     @Transactional
     public TaskRegisterResponse registerTasks(String projectId, String meetingId, TaskRegisterRequest request) {
         Meeting meeting = requireProjectMeeting(projectId, meetingId);
@@ -556,23 +638,48 @@ public class MeetingAnalysisService {
             return new MeetingVersionResponse(String.valueOf(version.getId()), "SAVED");
         }
 
-        AiAnalyzeRequest aiRequest = new AiAnalyzeRequest(
+        return triggerAnalysis(version, projectId, request.transcript());
+    }
+
+    private MeetingVersionResponse triggerAnalysis(Meeting meeting, String projectId, String text) {
+        AiAnalyzeRequest request = new AiAnalyzeRequest(
             projectId,
-            version.getTitle(),
-            version.getMeetingDate() == null ? LocalDate.now().toString() : version.getMeetingDate().toString(),
-            defaultString(version.getMeetingType(), "정기회의"),
-            defaultString(version.getFileType(), "document"),
-            version.getOriginalFileName(),
-            request.transcript(),
+            meeting.getTitle(),
+            meeting.getMeetingDate() == null ? LocalDate.now().toString() : meeting.getMeetingDate().toString(),
+            defaultString(meeting.getMeetingType(), "정기회의"),
+            defaultString(meeting.getFileType(), "document"),
+            meeting.getOriginalFileName(),
+            text,
             List.of()
         );
         UUID jobId = UUID.randomUUID();
-        version.setAnalysisStatus("processing");
-        version.setAnalysisJobId(jobId);
-        meetingRepository.save(version);
-        runAnalysisAfterCommit(version.getId(), aiRequest, jobId);
-        return new MeetingVersionResponse(String.valueOf(version.getId()), "PROCESSING");
+        meeting.setAnalysisStatus("processing");
+        meeting.setAnalysisJobId(jobId);
+        meetingRepository.save(meeting);
+        runAnalysisAfterCommit(meeting.getId(), request, jobId);
+        return new MeetingVersionResponse(String.valueOf(meeting.getId()), "PROCESSING");
     }
+
+    @Transactional
+    public MeetingVersionResponse reanalyzeVersion(String projectId, String meetingId) {
+        Meeting meeting = requireProjectMeeting(projectId, meetingId);
+        if (meeting == null) return null;
+        if (meeting.getOriginalMeetingId() == null) {
+            throw new IllegalArgumentException("원본 회의록은 재분석할 수 없습니다. 수정 후 다시 시도해주세요.");
+        }
+        String status = meeting.getAnalysisStatus();
+        if (!"pending".equals(status) && !"failed".equals(status)) {
+            throw new IllegalStateException("MEETING_NOT_REANALYZABLE");
+        }
+        String text = meeting.getTranscript();
+        if (text == null || text.isBlank()) {
+            throw new IllegalStateException(MISSING_TRANSCRIPT_MESSAGE);
+        }
+
+        return triggerAnalysis(meeting, projectId, text);
+    }
+
+    static final String MISSING_TRANSCRIPT_MESSAGE = "재분석할 회의록 원문이 없습니다.";
 
     // count 기반 접미사는 중간 버전이 삭제돼 번호에 공백이 생기면 이미 존재하는 제목을 다시 만들어낼 수 있으므로,
     // 루트 락으로 직렬화된 상태에서 실제로 존재하지 않는 제목을 찾을 때까지 순차 확인한다.

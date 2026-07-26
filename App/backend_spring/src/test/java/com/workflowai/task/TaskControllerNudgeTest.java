@@ -105,7 +105,7 @@ class TaskControllerNudgeTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.success").value(true));
 
-        verify(notificationService).notify(eq(3L), eq("TASK_NUDGE"), any(), any(), eq("task"), any());
+        verify(notificationService).notifyAfterCommit(eq(3L), eq("TASK_NUDGE"), any(), any(), eq("task"), any());
     }
 
     @Test
@@ -119,7 +119,7 @@ class TaskControllerNudgeTest {
                 .content("{\"kind\":\"PROGRESS\"}"))
             .andExpect(status().isOk());
 
-        verify(notificationService).notify(eq(3L), eq("TASK_NUDGE"), any(), any(), eq("task"), any());
+        verify(notificationService).notifyAfterCommit(eq(3L), eq("TASK_NUDGE"), any(), any(), eq("task"), any());
     }
 
     @Test
@@ -133,7 +133,7 @@ class TaskControllerNudgeTest {
                 .content("{\"kind\":\"URGENT\"}"))
             .andExpect(status().isOk());
 
-        verify(notificationService).notify(eq(3L), eq("TASK_NUDGE"), any(), any(), eq("task"), any());
+        verify(notificationService).notifyAfterCommit(eq(3L), eq("TASK_NUDGE"), any(), any(), eq("task"), any());
     }
 
     @Test
@@ -144,7 +144,7 @@ class TaskControllerNudgeTest {
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.error.code").value("INVALID_NUDGE_KIND"));
 
-        verify(notificationService, never()).notify(any(), any(), any(), any(), any(), any());
+        verify(notificationService, never()).notifyAfterCommit(any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -155,7 +155,7 @@ class TaskControllerNudgeTest {
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.error.code").value("INVALID_NUDGE_KIND"));
 
-        verify(notificationService, never()).notify(any(), any(), any(), any(), any(), any());
+        verify(notificationService, never()).notifyAfterCommit(any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -166,7 +166,7 @@ class TaskControllerNudgeTest {
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.error.code").value("INVALID_NUDGE_KIND"));
 
-        verify(notificationService, never()).notify(any(), any(), any(), any(), any(), any());
+        verify(notificationService, never()).notifyAfterCommit(any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -183,7 +183,7 @@ class TaskControllerNudgeTest {
     }
 
     @Test
-    void notifiesWhenActorIsTheAssignee() throws Exception {
+    void doesNotNotifyWhenActorIsTheAssignee() throws Exception {
         authenticateAs(3L);
         when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
         when(taskRepository.findById(anyLong())).thenReturn(Optional.of(existingTask()));
@@ -193,8 +193,6 @@ class TaskControllerNudgeTest {
                 .content("{\"kind\":\"START\"}"))
             .andExpect(status().isOk());
 
-        verify(notificationService).notify(
-            eq(3L), eq("TASK_NUDGE"), eq("업무 시작 알림"), any(), eq("task"), any()
-        );
+        verify(notificationService, never()).notifyAfterCommit(any(), any(), any(), any(), any(), any());
     }
 }

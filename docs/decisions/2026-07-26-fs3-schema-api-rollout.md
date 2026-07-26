@@ -55,7 +55,7 @@ ORDER BY table_name, column_name;
 
 SELECT version, description, success
 FROM flyway_schema_history
-WHERE version IN ('20260722.1', '20260726.2', '20260726.3')
+WHERE version IN ('20260722.1', '20260727.2', '20260727.3')
 ORDER BY installed_rank;
 ```
 

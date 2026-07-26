@@ -8,7 +8,7 @@ import { addActivity } from "../../board/libs/utils/activityStore";
 import { CATEGORIES } from "../../board/libs/mock/tasks";
 import type { Meeting, UploadFlow, UploadType, GenTodo, SavedMeetingRecord } from "../libs/types/meeting";
 import type { CatId, Priority, Task } from "../../board/libs/types/task";
-import { analyzeMeeting, confirmMeetingSave, deleteMeeting, fetchMeeting, fetchMeetings, registerMeetingTasks, retryMeetingAnalysis } from "../libs/utils/meetingAiApi";
+import { analyzeMeeting, confirmMeetingSave, deleteMeeting, deleteMeetingAnalysis, fetchMeeting, fetchMeetings, reanalyzeMeeting, registerMeetingTasks, retryMeetingAnalysis } from "../libs/utils/meetingAiApi";
 import { MeetingEditPanel } from "../components/MeetingEditPanel";
 import type { MeetingAiResult } from "../libs/types/meetingAiTypes";
 import { deleteTask, DEMO_PROJECT_ID } from "../../board/libs/utils/taskApi";
@@ -367,7 +367,7 @@ const buildMeetingFromAnalysisResponse = (
 };
 
 export function MeetingsView() {
-  const { currentProjectId, user, currentProject } = useAuth();
+  const { currentProjectId, currentProject } = useAuth();
   const currentUserRole = deriveCurrentUserRole(currentProject?.role);
   const projectId = String(currentProjectId ?? DEMO_PROJECT_ID);
   const navigate = useNavigate();
@@ -413,6 +413,9 @@ export function MeetingsView() {
   const [newTodoError, setNewTodoError] = useState<string | null>(null);
   const [saveMeetingMessage, setSaveMeetingMessage] = useState<string | null>(null);
   const [saveMeetingError, setSaveMeetingError] = useState<string | null>(null);
+  const [reanalyzingMeetingId, setReanalyzingMeetingId] = useState<string | null>(null);
+  const [reanalyzeMessage, setReanalyzeMessage] = useState<string | null>(null);
+  const [reanalyzeError, setReanalyzeError] = useState<string | null>(null);
   const [originalViewMessage, setOriginalViewMessage] = useState<string | null>(null);
   const [originalPreview, setOriginalPreview] = useState<{ kind: "text"; content: string; fileName: string } | { kind: "unsupported"; fileName: string } | null>(null);
   const [pdfExportMessage, setPdfExportMessage] = useState<string | null>(null);
@@ -423,6 +426,7 @@ export function MeetingsView() {
   const [deleteMessage, setDeleteMessage] = useState<string | null>(null);
   const [deletingMeetingId, setDeletingMeetingId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Meeting | null>(null);
+  const [deleteMode, setDeleteMode] = useState<"analysis" | "original" | null>(null);
   const [confirmReregister, setConfirmReregister] = useState<(() => void) | null>(null);
   const [editingMeetingId, setEditingMeetingId] = useState<string | null>(null);
   const [editingTranscript, setEditingTranscript] = useState("");
@@ -636,17 +640,21 @@ export function MeetingsView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
-  // 알림의 "바로가기"를 통해 특정 회의록으로 딥링크된 경우, 저장 여부와 무관하게 항상
-  // "분석/업로드" 탭에서 그 회의록의 분석 상세(요약/결정사항/To-Do)를 바로 보여준다.
+  // 알림의 "바로가기"를 통해 특정 회의록으로 딥링크된 경우, 원본 회의록은 저장 여부와
+  // 무관하게 "분석/업로드" 탭에서 분석 상세(요약/결정사항/To-Do)를 바로 보여준다.
   // "저장된 회의록" 탭은 목록만 보여주고 클릭해야 내용이 열리므로, 알림에서 바로 온
   // 사용자에게는 상세가 곧장 뜨는 이 탭이 맞다(역할분배 등 후속 작업이 To-Do 목록에서 이뤄짐).
+  // 다만 수정본(버전)은 바로 아래 분기에서 예외적으로 "저장된 회의록" 탭으로 보낸다.
   useEffect(() => {
     const targetMeetingId = searchParams.get("meetingId");
     if (!targetMeetingId || deepLinkHandledIdRef.current === targetMeetingId) return;
     setSelected(targetMeetingId);
     const target = meetings.find(item => item.id === targetMeetingId);
     if (!target) return;
-    setHomeTab("analyze");
+    // 수정본(버전)은 "저장된 회의록" 탭에서만 내용을 볼 수 있다 — "분석/업로드" 탭은
+    // 아직 분석 전/실패 상태인 버전에 대해 빈 안내 문구만 보여주므로, 수정 알림("바로가기")으로
+    // 온 사용자를 그리로 보내면 안 된다. 원본 회의록은 기존대로 분석/업로드 탭으로 보낸다.
+    setHomeTab(target.originalMeetingId ? "saved" : "analyze");
     deepLinkHandledIdRef.current = targetMeetingId;
   }, [searchParams, meetings]);
 
@@ -709,7 +717,7 @@ export function MeetingsView() {
 
   // ── Upload type metadata ─────────────────────────────────────────────────────
   const UPLOAD_TYPES = [
-    { id:"document", label:"문서 업로드", desc:"PDF, Word, TXT, HWP 등 회의록 문서", icon:FileText, accept:".pdf,.doc,.docx,.txt,.hwp", color:"#3B5BDB", bg:"rgba(59,91,219,0.1)", note:"텍스트를 추출해 AI가 분석합니다." },
+    { id:"document", label:"문서 업로드", desc:"PDF, Word, PPT, TXT, HWP 등 회의록 문서", icon:FileText, accept:".pdf,.doc,.docx,.ppt,.pptx,.txt,.hwp", color:"#3B5BDB", bg:"rgba(59,91,219,0.1)", note:"텍스트를 추출해 AI가 분석합니다." },
     { id:"audio",    label:"음성파일 업로드", desc:"mp3, wav, m4a 등 녹음파일", icon:Radio,    accept:".mp3,.wav,.m4a,.ogg", color:"#7048E8", bg:"rgba(112,72,232,0.1)", note:"음성을 텍스트로 변환한 뒤 분석합니다." },
   ] as const;
 
@@ -833,6 +841,25 @@ export function MeetingsView() {
       });
   };
 
+  // pending/failed 상태인 버전(수정본)을 편집 화면 없이 그 자리에서 재분석한다.
+  // 새 버전을 만들지 않고 이미 저장된 transcript로 분석만 재실행하므로 fetchMeeting 조회가 필요 없다.
+  const handleReanalyzeVersion = async (meetingId: string) => {
+    setReanalyzingMeetingId(meetingId);
+    setReanalyzeError(null);
+    try {
+      await reanalyzeMeeting(projectId, meetingId);
+      setReanalyzeMessage("AI 재분석을 요청했습니다.");
+      setTimeout(() => setReanalyzeMessage(null), 2500);
+      void refreshMeetingsFromServer();
+    } catch (error) {
+      const status = error instanceof ApiRequestError ? ` (${error.status})` : "";
+      setReanalyzeError(`재분석 요청에 실패했습니다${status}. 잠시 후 다시 시도해주세요.`);
+      setTimeout(() => setReanalyzeError(null), 4000);
+    } finally {
+      setReanalyzingMeetingId(null);
+    }
+  };
+
   const closeMeetingEditAndRefresh = () => {
     setEditingMeetingId(null);
     setEditingTranscript("");
@@ -933,18 +960,9 @@ export function MeetingsView() {
       setAnalysisError("분석할 회의록 파일을 먼저 업로드해주세요.");
       return;
     }
-    const fallbackCurrentUserId = user ? String(user.id) : null;
-    const selectedAttendeeIds = partIds.length > 0
-      ? partIds
-      : fallbackCurrentUserId
-        ? [fallbackCurrentUserId]
-        : [];
-    if (selectedAttendeeIds.length === 0) {
-      setAnalysisError("프로젝트 멤버 정보를 불러온 뒤 참석자를 1명 이상 선택해주세요.");
-      return;
-    }
     if (partIds.length === 0) {
-      setPartIds(selectedAttendeeIds);
+      setAnalysisError("참석자를 1명 이상 선택해주세요.");
+      return;
     }
     const uploadedAt = new Date().toISOString();
     const title = meetTitle.trim() || stripFileExtension(selectedFile.name);
@@ -972,8 +990,8 @@ export function MeetingsView() {
       meetingDate: meetDate,
       meetingKind: meetKind,
       sourceType: uploadType,
-      participants: selectedAttendeeIds.map(id => projectMembers.find(member => String(member.userId) === id)?.name ?? id),
-      attendeeIds: selectedAttendeeIds.map(Number),
+      participants: partIds.map(id => projectMembers.find(member => String(member.userId) === id)?.name ?? id),
+      attendeeIds: partIds.map(Number),
     }).then(response => {
       setAnalysisRequestPending(false);
       setActiveMeetingId(response.meetingId);
@@ -990,8 +1008,7 @@ export function MeetingsView() {
     });
   };
 
-  const handleRetryAnalysis = () => {
-    if (!activeMeetingId) return;
+  const runRetryAnalysis = (meetingId: string, title: string) => {
     const uploadedAt = new Date().toISOString();
     setAnalysisResult(null);
     setSelTodos([]);
@@ -1006,17 +1023,27 @@ export function MeetingsView() {
     setAnalysisRequestPending(true);
     setUploadFlow("analyzing");
 
-    void retryMeetingAnalysis(projectId, activeMeetingId).then(response => {
+    void retryMeetingAnalysis(projectId, meetingId).then(response => {
       setAnalysisRequestPending(false);
       setActiveMeetingId(response.meetingId);
       setAnalysisPhase("queued");
       setAnalyzeProgressTarget(28);
-      pollMeetingStatus(response.meetingId, meetTitle, uploadedAt);
+      pollMeetingStatus(response.meetingId, title, uploadedAt);
     }).catch(() => {
       setAnalysisRequestPending(false);
       setAnalysisError("재분석 요청에 실패했습니다. 다시 시도해주세요.");
       setUploadFlow("results");
     });
+  };
+
+  const handleRetryAnalysis = () => {
+    if (!activeMeetingId) return;
+    runRetryAnalysis(activeMeetingId, meetTitle);
+  };
+
+  const handleRetryFromList = (target: Meeting) => {
+    setMeetTitle(target.title);
+    runRetryAnalysis(target.id, target.title);
   };
 
   const removeMeetingFromLocalState = (meetingId: string) => {
@@ -1062,6 +1089,7 @@ export function MeetingsView() {
     if (deletingMeetingId) return;
 
     setDeleteTarget(null);
+    setDeleteMode(null);
     setDeletingMeetingId(target.id);
     setMeetingListError(null);
     setDeleteMessage(null);
@@ -1088,6 +1116,13 @@ export function MeetingsView() {
         removeMeetingFromLocalState(target.id);
         setDeleteMessage("서버에 없는 회의록이라 목록에서 제거했습니다.");
         setTimeout(() => setDeleteMessage(null), 2500);
+      } else if (error instanceof ApiRequestError && error.code === "REQUEST_TIMEOUT") {
+        // 클라이언트가 타임아웃으로 요청을 포기해도 서버는 처리를 계속할 수 있어, 실제로는
+        // 삭제가 이미 끝났을 수 있다. "삭제 안 됐다"고 단정하지 말고 서버 상태를 다시 조회해
+        // 화면을 실제 상태와 맞춘다.
+        setMeetingListError("삭제 확인이 지연되고 있습니다. 최신 상태를 다시 불러옵니다.");
+        setTimeout(() => setMeetingListError(null), 6000);
+        void refreshMeetingsFromServer();
       } else {
         const statusCode = error instanceof ApiRequestError ? error.status : null;
         const isAuthError = statusCode === 401 || message.includes("인증이 만료") || message.includes("다시 로그인");
@@ -1101,6 +1136,67 @@ export function MeetingsView() {
         setMeetingListError(errorMessage);
         setTimeout(() => setMeetingListError(null), 6000);
       }
+    } finally {
+      setDeletingMeetingId(null);
+    }
+  };
+
+  const updateMeetingAfterAnalysisDelete = (meetingId: string) => {
+    setMeetings(prev => {
+      const next = prev.map(item => item.id === meetingId
+        ? { ...item, status: "failed" as const, summary: undefined, decisions: undefined, todos: undefined, risks: undefined, analyzedAt: undefined, tasksRegistered: false }
+        : item);
+      saveStoredMeetings(next, projectId);
+      return next;
+    });
+    saveSavedMeetings(
+      getSavedMeetings(projectId).filter(item => item.meetingId !== meetingId),
+      projectId
+    );
+  };
+
+  const handleDeleteAnalysisResult = async (target: Meeting, deleteLinkedTasks: boolean) => {
+    if (deletingMeetingId) return;
+
+    setDeleteTarget(null);
+    setDeleteMode(null);
+    setDeletingMeetingId(target.id);
+    setMeetingListError(null);
+    setDeleteMessage(null);
+    try {
+      if (isServerMeetingId(target.id)) {
+        await deleteMeetingAnalysis(projectId, target.id, deleteLinkedTasks);
+      }
+      if (deleteLinkedTasks) {
+        await removeLinkedLocalTasks(target);
+      }
+      updateMeetingAfterAnalysisDelete(target.id);
+      setDeleteMessage(deleteLinkedTasks ? "분석 결과와 연동 업무가 삭제되었습니다." : "분석 결과가 삭제되었습니다.");
+      setTimeout(() => setDeleteMessage(null), 2500);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      const statusCode = error instanceof ApiRequestError ? error.status : null;
+      const isAuthError = statusCode === 401 || message.includes("인증이 만료") || message.includes("다시 로그인");
+      const isPermissionError = statusCode === 403;
+      const isMissingAnalysis = statusCode === 409;
+      const status = statusCode ? ` (${statusCode})` : "";
+      if (error instanceof ApiRequestError && error.code === "REQUEST_TIMEOUT") {
+        // handleDeleteMeeting과 동일한 이유: 클라이언트 타임아웃 후에도 서버는 삭제를 끝냈을 수 있으므로
+        // 실패로 단정하지 않고 서버 상태를 다시 조회해 화면을 맞춘다.
+        setMeetingListError("삭제 확인이 지연되고 있습니다. 최신 상태를 다시 불러옵니다.");
+        setTimeout(() => setMeetingListError(null), 6000);
+        void refreshMeetingsFromServer();
+        return;
+      }
+      const errorMessage = isAuthError
+        ? "로그인이 만료되어 삭제되지 않았습니다. 다시 로그인 후 삭제해주세요."
+        : isPermissionError
+          ? "팀장만 분석 결과를 삭제할 수 있습니다."
+          : isMissingAnalysis
+            ? "삭제할 분석 결과가 없습니다."
+            : `분석 결과 삭제에 실패했습니다${status}. 잠시 후 다시 시도해주세요.`;
+      setMeetingListError(errorMessage);
+      setTimeout(() => setMeetingListError(null), 6000);
     } finally {
       setDeletingMeetingId(null);
     }
@@ -1299,42 +1395,70 @@ export function MeetingsView() {
 
   const renderDeleteConfirmModal = () => deleteTarget ? (
     <div className="fixed inset-0 z-[65] flex items-center justify-center px-4">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setDeleteTarget(null)} />
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => { setDeleteTarget(null); setDeleteMode(null); }} />
       <div className="relative w-full max-w-md rounded-2xl bg-white shadow-2xl border border-border p-6">
         <div className="w-12 h-12 rounded-2xl bg-red-50 border border-red-100 flex items-center justify-center mb-4">
           <Trash2 className="w-6 h-6 text-red-600" />
         </div>
-        <h2 className="text-lg font-bold text-foreground">회의록 삭제</h2>
-        <p className="text-sm text-muted-foreground leading-relaxed mt-2">
-          '{deleteTarget.title}' 회의록을 삭제합니다. 업무보드에 등록된 To-Do는 선택에 따라 유지하거나 함께 삭제할 수 있습니다.
-        </p>
-        <div className="mt-5 rounded-xl bg-slate-50 border border-slate-200 px-4 py-3 text-xs text-slate-600 leading-relaxed">
-          <strong className="text-slate-900">회의록만 삭제</strong>를 선택하면 업무 목록은 그대로 남고, 원본 회의록 연결만 해제됩니다.
-        </div>
-        <div className="mt-6 flex flex-col sm:flex-row gap-2 justify-end">
-          <button
-            type="button"
-            onClick={() => setDeleteTarget(null)}
-            className="px-4 py-2 text-sm font-medium border border-border rounded-xl hover:bg-muted transition-colors"
-          >
-            취소
-          </button>
-          <button
-            type="button"
-            onClick={() => void handleDeleteMeeting(deleteTarget, false)}
-            className="px-4 py-2 text-sm font-semibold border border-blue-200 text-blue-700 bg-blue-50 rounded-xl hover:bg-blue-100 transition-colors"
-          >
-            회의록만 삭제
-          </button>
-          <button
-            type="button"
-            onClick={() => void handleDeleteMeeting(deleteTarget, true)}
-            className="px-4 py-2 text-sm font-semibold text-white rounded-xl hover:opacity-90 transition-opacity"
-            style={{ background: "linear-gradient(135deg,#EF4444,#DC2626)" }}
-          >
-            회의록 + To-Do 삭제
-          </button>
-        </div>
+        {deleteMode === "analysis" ? (
+          <>
+            <h2 className="text-lg font-bold text-foreground">분석 결과 삭제</h2>
+            <p className="text-sm text-muted-foreground leading-relaxed mt-2">
+              '{deleteTarget.title}' 회의록의 분석 결과를 삭제합니다. 원본 회의록은 저장된 회의록 목록에 그대로 남고, 같은 파일로 다시 분석할 수 있습니다.
+            </p>
+            <div className="mt-5 rounded-xl bg-slate-50 border border-slate-200 px-4 py-3 text-xs text-slate-600 leading-relaxed">
+              <strong className="text-slate-900">분석 결과만 삭제</strong>를 선택하면 업무 목록은 그대로 남고, 분석 결과 연결만 해제됩니다.
+            </div>
+            <div className="mt-6 flex flex-col sm:flex-row gap-2 justify-end">
+              <button
+                type="button"
+                onClick={() => { setDeleteTarget(null); setDeleteMode(null); }}
+                className="px-4 py-2 text-sm font-medium border border-border rounded-xl hover:bg-muted transition-colors"
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleDeleteAnalysisResult(deleteTarget, false)}
+                className="px-4 py-2 text-sm font-semibold border border-blue-200 text-blue-700 bg-blue-50 rounded-xl hover:bg-blue-100 transition-colors"
+              >
+                분석 결과만 삭제
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleDeleteAnalysisResult(deleteTarget, true)}
+                className="px-4 py-2 text-sm font-semibold text-white rounded-xl hover:opacity-90 transition-opacity"
+                style={{ background: "linear-gradient(135deg,#EF4444,#DC2626)" }}
+              >
+                분석 결과 + To-Do 삭제
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <h2 className="text-lg font-bold text-foreground">회의록 삭제</h2>
+            <p className="text-sm text-muted-foreground leading-relaxed mt-2">
+              '{deleteTarget.title}' 회의록을 삭제합니다. 분석 결과가 있다면 함께 삭제되며, 등록된 업무는 유지됩니다.
+            </p>
+            <div className="mt-6 flex flex-col sm:flex-row gap-2 justify-end">
+              <button
+                type="button"
+                onClick={() => { setDeleteTarget(null); setDeleteMode(null); }}
+                className="px-4 py-2 text-sm font-medium border border-border rounded-xl hover:bg-muted transition-colors"
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleDeleteMeeting(deleteTarget, false)}
+                className="px-4 py-2 text-sm font-semibold text-white rounded-xl hover:opacity-90 transition-opacity"
+                style={{ background: "linear-gradient(135deg,#EF4444,#DC2626)" }}
+              >
+                삭제
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   ) : null;
@@ -2263,12 +2387,13 @@ export function MeetingsView() {
                       type="button"
                       onClick={event => {
                         event.stopPropagation();
+                        setDeleteMode(m.status === "processed" ? "analysis" : "original");
                         setDeleteTarget(m);
                       }}
                       disabled={Boolean(deletingMeetingId)}
                       className="p-1 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                      title="회의록 삭제"
-                      aria-label={`${m.title} 회의록 삭제`}
+                      title={m.status === "processed" ? "분석 결과 삭제" : "회의록 삭제"}
+                      aria-label={m.status === "processed" ? `${m.title} 분석 결과 삭제` : `${m.title} 회의록 삭제`}
                     >
                       {deletingMeetingId === m.id ? <Loader2 className="w-3.5 h-3.5 animate-spin text-red-600" /> : <Trash2 className="w-3.5 h-3.5" />}
                     </button>
@@ -2377,6 +2502,16 @@ export function MeetingsView() {
             <div className="text-sm font-medium">
               {meeting.status === "pending" ? "예정된 회의입니다" : meeting.status === "processing" ? "AI 분석 중입니다. 잠시 후 다시 확인해주세요" : meeting.status === "failed" ? "AI 분석에 실패했습니다. 다시 업로드하거나 재분석을 시도해주세요" : "AI 분석 결과를 불러오는 중입니다"}
             </div>
+            {meeting.status === "failed" && currentUserRole !== "reviewer" && (
+              <button
+                type="button"
+                onClick={() => handleRetryFromList(meeting)}
+                className="px-5 py-2.5 text-sm font-semibold text-white rounded-xl hover:opacity-90 transition-opacity"
+                style={{ background: "linear-gradient(135deg,#3B5BDB,#4F6EF7)" }}
+              >
+                재분석하기
+              </button>
+            )}
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center h-full gap-3 text-center text-muted-foreground">
@@ -2434,9 +2569,12 @@ export function MeetingsView() {
               <div className="text-xs leading-relaxed max-w-sm">회의록 분석 후 '회의록 분석결과 저장'을 눌러 저장하면 이곳에 표시됩니다.</div>
             </div>
           ) : (
+            <>
+            {reanalyzeMessage && <div className="text-[10px] text-emerald-600 mb-2">{reanalyzeMessage}</div>}
+            {reanalyzeError && <div className="text-[10px] text-red-600 mb-2">{reanalyzeError}</div>}
             <div className="space-y-2 max-w-2xl">
               {savedMeetingsList.map(m => {
-                const isPendingVersion = Boolean(m.originalMeetingId) && m.status === "pending";
+                const isPendingVersion = Boolean(m.originalMeetingId) && (m.status === "pending" || m.status === "failed");
                 return (
                 <div key={m.id} onClick={() => handleViewSavedMeetingOriginal(m)}
                   role="button"
@@ -2460,10 +2598,34 @@ export function MeetingsView() {
                       {currentUserRole !== "reviewer" && (
                         <button
                           type="button"
-                          onClick={event => { event.stopPropagation(); handleOpenMeetingEdit(m.id); }}
-                          className="text-[10px] font-medium px-2 py-0.5 rounded-full border border-border text-foreground hover:bg-muted"
+                          disabled={reanalyzingMeetingId === m.id}
+                          onClick={event => {
+                            event.stopPropagation();
+                            if (isPendingVersion) {
+                              void handleReanalyzeVersion(m.id);
+                            } else {
+                              handleOpenMeetingEdit(m.id);
+                            }
+                          }}
+                          className="text-[10px] font-medium px-2 py-0.5 rounded-full border border-border text-foreground hover:bg-muted disabled:opacity-50"
                         >
                           {isPendingVersion ? "AI 재분석하기" : "수정"}
+                        </button>
+                      )}
+                      {currentUserRole === "leader" && (
+                        <button
+                          type="button"
+                          onClick={event => {
+                            event.stopPropagation();
+                            setDeleteMode("original");
+                            setDeleteTarget(m);
+                          }}
+                          disabled={Boolean(deletingMeetingId)}
+                          className="p-1 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                          title="회의록 삭제"
+                          aria-label={`${m.title} 회의록 삭제`}
+                        >
+                          {deletingMeetingId === m.id ? <Loader2 className="w-3.5 h-3.5 animate-spin text-red-600" /> : <Trash2 className="w-3.5 h-3.5" />}
                         </button>
                       )}
                     </div>
@@ -2473,6 +2635,7 @@ export function MeetingsView() {
                 );
               })}
             </div>
+            </>
           )}
         </div>
       )}

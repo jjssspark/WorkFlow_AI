@@ -4,7 +4,6 @@ import com.workflowai.common.DemoDataService;
 import com.workflowai.common.UtcTimeFormat;
 import com.workflowai.activity.Activity;
 import com.workflowai.activity.ActivityRepository;
-import com.workflowai.notification.NotificationService;
 import com.workflowai.project.Project;
 import com.workflowai.project.ProjectMember;
 import com.workflowai.project.ProjectMemberRepository;
@@ -33,11 +32,9 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class DashboardService {
@@ -61,7 +58,6 @@ public class DashboardService {
     private final FastApiDashboardClient fastApiDashboardClient;
     private final FastApiWorkloadScoreClient fastApiWorkloadScoreClient;
     private final ProjectRepository projectRepository;
-    private final NotificationService notificationService;
 
     public DashboardService(
         TaskRepository taskRepository,
@@ -73,8 +69,7 @@ public class DashboardService {
         DemoDataService demoDataService,
         FastApiDashboardClient fastApiDashboardClient,
         FastApiWorkloadScoreClient fastApiWorkloadScoreClient,
-        ProjectRepository projectRepository,
-        NotificationService notificationService
+        ProjectRepository projectRepository
     ) {
         this.taskRepository = taskRepository;
         this.milestoneRepository = milestoneRepository;
@@ -86,7 +81,6 @@ public class DashboardService {
         this.fastApiDashboardClient = fastApiDashboardClient;
         this.fastApiWorkloadScoreClient = fastApiWorkloadScoreClient;
         this.projectRepository = projectRepository;
-        this.notificationService = notificationService;
     }
 
     public DashboardSummaryResponse getSummary(String projectIdParam) {
@@ -192,79 +186,11 @@ public class DashboardService {
             .toList();
     }
 
-    /** 마일스톤을 새로 만들고, 팀장/팀원 전체(생성자 포함)에게 알린 뒤, 진행률 0%인 MilestoneProgressDto로 반환한다. */
-    public MilestoneProgressDto createMilestone(String projectIdParam, String title, java.time.LocalDate startDate, java.time.LocalDate dueDate) {
+    /** 마일스톤을 새로 만들고, 방금 만든 마일스톤을 진행률 0%인 MilestoneProgressDto로 반환한다. */
+    public MilestoneProgressDto createMilestone(String projectIdParam, String title, java.time.LocalDate dueDate) {
         Long projectId = demoDataService.resolveProjectId(projectIdParam);
-        Milestone saved = milestoneRepository.save(new Milestone(projectId, title, startDate, dueDate));
-
-        String content = "'" + saved.getTitle() + "' 마일스톤이 추가되었습니다.";
-        projectMemberRepository.findAllByProjectId(projectId).stream()
-            .map(ProjectMember::getUserId)
-            .forEach(memberId -> notificationService.notify(
-                memberId, "MILESTONE_CREATED", "마일스톤이 추가되었습니다.", content, "milestone", saved.getId()
-            ));
-
+        Milestone saved = milestoneRepository.save(new Milestone(projectId, title, dueDate));
         return toMilestoneProgressDto(saved, List.of());
-    }
-
-    /** 마일스톤의 이름/시작일/마감일을 수정하고, 최신 진행률을 담아 MilestoneProgressDto로 반환한다. */
-    public MilestoneProgressDto updateMilestone(
-        String projectIdParam, Long milestoneId, String title, java.time.LocalDate startDate, java.time.LocalDate dueDate
-    ) {
-        Long projectId = demoDataService.resolveProjectId(projectIdParam);
-        Milestone milestone = milestoneRepository.findById(milestoneId)
-            .filter(m -> m.getProjectId().equals(projectId))
-            .orElseThrow(() -> new IllegalArgumentException("마일스톤을 찾을 수 없습니다."));
-
-        String titleBefore = milestone.getTitle();
-        java.time.LocalDate startDateBefore = milestone.getStartDate();
-        java.time.LocalDate dueDateBefore = milestone.getDueDate();
-
-        milestone.applyUpdate(title, startDate, dueDate);
-        Milestone saved = milestoneRepository.save(milestone);
-
-        List<String> changes = new ArrayList<>();
-        if (!Objects.equals(titleBefore, saved.getTitle())) {
-            changes.add("이름이 '" + saved.getTitle() + "'(으)로");
-        }
-        if (!Objects.equals(startDateBefore, saved.getStartDate())) {
-            changes.add("시작일이 " + (saved.getStartDate() == null ? "미정" : saved.getStartDate() + "일") + "(으)로");
-        }
-        if (!Objects.equals(dueDateBefore, saved.getDueDate())) {
-            changes.add("마감일이 " + (saved.getDueDate() == null ? "미정" : saved.getDueDate() + "일") + "(으)로");
-        }
-        if (!changes.isEmpty()) {
-            String content = "마일스톤 '" + titleBefore + "'의 " + String.join(", ", changes) + " 변경되었습니다.";
-            projectMemberRepository.findAllByProjectId(projectId).stream()
-                .map(ProjectMember::getUserId)
-                .forEach(memberId -> notificationService.notify(
-                    memberId, "MILESTONE_UPDATED", "마일스톤이 수정되었습니다.", content, "milestone", saved.getId()
-                ));
-        }
-
-        List<Task> linkedTasks = taskRepository.findByProjectIdOrderByCreatedAtDesc(projectId).stream()
-            .filter(t -> milestoneId.equals(t.getMilestoneId()))
-            .toList();
-        return toMilestoneProgressDto(saved, linkedTasks);
-    }
-
-    /** 마일스톤 연결 업무를 일정 미정으로 옮긴 뒤 삭제하고, 팀 전체에 알린다. */
-    @Transactional
-    public void deleteMilestone(String projectIdParam, Long milestoneId) {
-        Long projectId = demoDataService.resolveProjectId(projectIdParam);
-        Milestone milestone = milestoneRepository.findById(milestoneId)
-            .filter(m -> m.getProjectId().equals(projectId))
-            .orElseThrow(() -> new IllegalArgumentException("마일스톤을 찾을 수 없습니다."));
-        String title = milestone.getTitle();
-        taskRepository.clearMilestoneId(projectId, milestoneId);
-        milestoneRepository.delete(milestone);
-
-        String content = "'" + title + "' 마일스톤이 삭제되었습니다.";
-        projectMemberRepository.findAllByProjectId(projectId).stream()
-            .map(ProjectMember::getUserId)
-            .forEach(memberId -> notificationService.notify(
-                memberId, "MILESTONE_DELETED", "마일스톤이 삭제되었습니다.", content, "milestone", null
-            ));
     }
 
     /** FastAPI에 재예측을 요청한 뒤(베스트-에포트) 최신 진행률 상세를 반환한다. */
@@ -364,9 +290,7 @@ public class DashboardService {
             status,
             taskCount,
             doneCount,
-            progressPercent,
-            milestone.getCreatedAt() == null ? null : milestone.getCreatedAt().toString(),
-            linkedTasks.stream().map(t -> String.valueOf(t.getId())).toList()
+            progressPercent
         );
     }
 
@@ -428,7 +352,6 @@ public class DashboardService {
         return new ActivityItemDto(
             String.valueOf(activity.getId()),
             activity.getType(),
-            activity.getActorId() == null ? null : String.valueOf(activity.getActorId()),
             resolveUserName(activity.getActorId()),
             activity.getMessage(),
             activity.getTargetId() == null ? null : String.valueOf(activity.getTargetId()),
@@ -445,7 +368,6 @@ public class DashboardService {
             task.getAssigneeId() == null ? null : String.valueOf(task.getAssigneeId()),
             resolveUserName(task.getAssigneeId()),
             task.getDueDate() == null ? null : task.getDueDate().toString(),
-            task.getDoneDate() == null ? null : task.getDoneDate().toString(),
             task.getPriority(),
             task.getDescription(),
             task.getSourceType(),

@@ -99,7 +99,7 @@ class TaskControllerCreateTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.success").value(true));
 
-        verify(notificationService).notify(
+        verify(notificationService).notifyAfterCommit(
             eq(5L), eq("TASK_ASSIGNED"), any(), any(), eq("task"), any()
         );
         verify(ragIngestService).ingestBestEffort(1L, "task", null, "새 업무", 5L);
@@ -151,7 +151,7 @@ class TaskControllerCreateTest {
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.error.code").value("INVALID_ASSIGNEE_ID"));
 
-        verify(notificationService, never()).notify(any(), any(), any(), any(), any(), any());
+        verify(notificationService, never()).notifyAfterCommit(any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -168,6 +168,6 @@ class TaskControllerCreateTest {
                     """))
             .andExpect(status().isOk());
 
-        verify(notificationService, never()).notify(any(), any(), any(), any(), any(), any());
+        verify(notificationService, never()).notifyAfterCommit(any(), any(), any(), any(), any(), any());
     }
 }

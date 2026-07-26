@@ -1,32 +1,18 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { ChevronRight, Search, Calendar, Bell, LogOut, Menu } from "lucide-react";
 import { TAB_TITLES } from "../../lib/constants/nav";
 import type { Tab } from "../../../board/libs/types/task";
 import {
-  fetchNotifications, fetchUnreadNotificationCount, markNotificationsRead,
+  ACTION_REQUIRED_NOTIFICATION_TYPES, fetchNotifications, markNotificationsRead,
   type NotificationResponse,
 } from "../../api/notificationApi";
 import { useAuth } from "../../hooks/useAuth";
+import { useNotifications } from "../../hooks/useNotifications";
 import { usePresence } from "../../hooks/usePresence";
 import { useProject } from "../../hooks/useProject";
 import type { ProjectRoleKo } from "../../api/authTypes";
 import { useIsMobile } from "../ui/use-mobile";
-import { stableColorForId } from "../../lib/utils/memberColor";
-
-const NOTIFICATION_POLL_INTERVAL_MS = 30_000;
-
-const ACTION_REQUIRED_NOTIFICATION_TYPES = new Set([
-  "MEETING_ANALYSIS_COMPLETED_NOTIFY_LEADER",
-  "MEETING_SAVED_NOTIFY_LEADER",
-]);
-
-/** 백엔드 LocalDateTime(오프셋 없음)은 항상 KST(Asia/Seoul, UTC+9) 벽시계 값이므로,
- * 보는 사람의 브라우저 타임존과 무관하게 정확한 시각으로 파싱하려면 "+09:00"을 명시해야 한다. */
-function parseKstDateTime(dateStr: string): Date {
-  const hasOffset = /[Zz]|[+-]\d{2}:?\d{2}$/.test(dateStr);
-  return new Date(hasOffset ? dateStr : `${dateStr}+09:00`);
-}
 
 const ROLE_COLORS: Record<ProjectRoleKo, string> = {
   "팀장": "#3B5BDB",
@@ -57,35 +43,15 @@ export function Header({ onOpenMobileMenu }: { onOpenMobileMenu?: () => void }) 
   const isMobile = useIsMobile();
   const [searchOpen, setSearchOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
-  const { isAuthenticated, currentProject, currentProjectId, logout } = useAuth();
+  const { currentProject, currentProjectId, logout } = useAuth();
+  const { unreadCount, refreshUnreadCount } = useNotifications();
   const presenceUsers = usePresence(currentProjectId);
   const projectDetail = useProject(currentProjectId);
   const currentProjectName = currentProject?.projectTitle ?? null;
   const dDay = projectDetail?.deadline ? computeDDay(projectDetail.deadline) : null;
   const role: ProjectRoleKo = currentProject?.role ?? "팀장";
   const [notifications, setNotifications] = useState<NotificationResponse[]>([]);
-  const [unreadCount, setUnreadCount] = useState(0);
   const [notifError, setNotifError] = useState(false);
-
-  // 실시간 푸시(SSE/WebSocket)가 아직 없어 안 읽은 개수만 주기적으로 폴링한다.
-  // 목록 자체는 벨을 열 때만 불러온다(불필요한 요청을 줄이기 위함).
-  useEffect(() => {
-    if (!isAuthenticated) return;
-    let cancelled = false;
-    const loadUnreadCount = () => {
-      fetchUnreadNotificationCount().then((count) => {
-        if (!cancelled) setUnreadCount(count);
-      }).catch((err) => {
-        if (!cancelled) console.error("안 읽은 알림 개수를 불러오지 못했습니다.", err);
-      });
-    };
-    loadUnreadCount();
-    const interval = setInterval(loadUnreadCount, NOTIFICATION_POLL_INTERVAL_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [isAuthenticated]);
 
   const handleToggleNotifications = async () => {
     const opening = !notifOpen;
@@ -110,8 +76,7 @@ export function Header({ onOpenMobileMenu }: { onOpenMobileMenu?: () => void }) 
     const unreadIds = list.filter((n) => !n.read).map((n) => n.id);
     try {
       await markNotificationsRead(unreadIds);
-      const count = await fetchUnreadNotificationCount();
-      setUnreadCount(count);
+      await refreshUnreadCount();
     } catch (err) {
       console.error("알림 읽음 처리에 실패했습니다.", err);
       // 실패 시 배지 숫자는 그대로 둔다 — 안 읽음 처리에 실패했는데 0으로 낮추면 실제로
@@ -215,7 +180,7 @@ export function Header({ onOpenMobileMenu }: { onOpenMobileMenu?: () => void }) 
                           <div className="font-semibold">{n.title}</div>
                         </div>
                         {n.content && <div className="text-muted-foreground mt-0.5">{n.content}</div>}
-                        <div className="text-[10px] text-muted-foreground mt-0.5">{parseKstDateTime(n.createdAt).toLocaleString("ko-KR", { timeZone: "Asia/Seoul", month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" })}</div>
+                        <div className="text-[10px] text-muted-foreground mt-0.5">{new Date(n.createdAt).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "Asia/Seoul" })}</div>
                         {isActionRequired && n.targetType === "meeting" && n.targetId && (
                           <button
                             onClick={() => {
@@ -245,7 +210,7 @@ export function Header({ onOpenMobileMenu }: { onOpenMobileMenu?: () => void }) 
                   key={presenceUser.userId}
                   title={`${presenceUser.name} / ${presenceUser.role}`}
                   className="w-8 h-8 rounded-full border-2 border-card flex items-center justify-center text-white text-xs font-semibold"
-                  style={{ background: stableColorForId(presenceUser.userId) }}
+                  style={{ background: "#3B5BDB" }}
                 >
                   {presenceUser.name.slice(0, 1)}
                 </div>

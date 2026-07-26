@@ -34,6 +34,7 @@ vi.mock("../../global/hooks/useAuth", () => ({
     currentProjectId: 1,
     currentProject: { role: "팀장" },
     user: { id: 1, name: "허영주" },
+    projectContextReady: true,
   }),
 }));
 

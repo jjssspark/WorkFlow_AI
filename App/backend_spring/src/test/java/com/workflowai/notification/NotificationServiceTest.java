@@ -21,9 +21,12 @@ class NotificationServiceTest {
     private NotificationRepository notificationRepository;
     @Mock
     private PlatformTransactionManager transactionManager;
+    @Mock
+    private NotificationBroadcaster broadcaster;
 
     private NotificationService newService() {
-        return new NotificationService(notificationRepository, transactionManager);
+        NotificationAsyncSender asyncSender = new NotificationAsyncSender(notificationRepository, transactionManager, broadcaster);
+        return new NotificationService(notificationRepository, asyncSender);
     }
 
     @Test

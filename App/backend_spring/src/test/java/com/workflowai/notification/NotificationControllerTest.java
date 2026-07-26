@@ -7,6 +7,7 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.workflowai.security.UserPrincipal;
@@ -21,6 +22,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 @WebMvcTest(NotificationController.class)
 @AutoConfigureMockMvc(addFilters = false)
@@ -33,7 +35,7 @@ class NotificationControllerTest {
     private NotificationRepository notificationRepository;
 
     @MockitoBean
-    private NotificationService notificationService;
+    private NotificationBroadcaster notificationBroadcaster;
 
     @AfterEach
     void clearSecurityContext() {
@@ -160,5 +162,16 @@ class NotificationControllerTest {
             .andExpect(status().isOk());
 
         verify(notificationRepository).findByIdInAndUserId(expectedCapped, 5L);
+    }
+
+    @Test
+    void streamStartsAnAsyncSseSubscriptionForCurrentUser() throws Exception {
+        authenticateAs(5L);
+        when(notificationBroadcaster.subscribe(5L)).thenReturn(new SseEmitter());
+
+        mockMvc.perform(get("/api/v1/notifications/stream"))
+            .andExpect(request().asyncStarted());
+
+        verify(notificationBroadcaster).subscribe(5L);
     }
 }
