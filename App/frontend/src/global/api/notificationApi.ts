@@ -53,6 +53,9 @@ const RECONNECT_MAX_DELAY_MS = 15000;
 export function subscribeNotificationStream(handlers: NotificationStreamHandlers, signal: AbortSignal): void {
   let attempt = 0;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  // visibilitychange/online 이벤트가 기존 연결이 살아있는 동안에도 발생할 수 있어,
+  // 이 가드가 없으면 같은 스트림에 중복 구독이 생겨 알림이 두 번씩 전달된다.
+  let isConnected = false;
 
   const clearReconnectTimer = () => {
     if (reconnectTimer) {
@@ -68,7 +71,7 @@ export function subscribeNotificationStream(handlers: NotificationStreamHandlers
   };
 
   const connect = async () => {
-    if (signal.aborted) return;
+    if (signal.aborted || isConnected) return;
     const accessToken = tokenStore.getAccessToken();
     if (!accessToken) return;
 
@@ -79,12 +82,14 @@ export function subscribeNotificationStream(handlers: NotificationStreamHandlers
       });
       if (!response.ok || !response.body) throw new Error(`알림 스트림 연결 실패: ${response.status}`);
 
+      isConnected = true;
       handlers.onConnectedChange?.(true);
       attempt = 0;
       await readStream(response.body, handlers.onNotification);
     } catch {
       if (signal.aborted) return;
     } finally {
+      isConnected = false;
       handlers.onConnectedChange?.(false);
       if (!signal.aborted) scheduleReconnect();
     }
