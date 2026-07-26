@@ -4,7 +4,7 @@ import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthProvider } from "../../hooks/useAuth";
 import { Header } from "./Header";
-import { fetchNotifications, fetchUnreadNotificationCount, markNotificationsRead } from "../../api/notificationApi";
+import { fetchNotifications, markNotificationsRead } from "../../api/notificationApi";
 
 vi.mock("../ui/use-mobile", () => ({ useIsMobile: () => true }));
 
@@ -40,8 +40,8 @@ describe("Header (mobile)", () => {
 
 vi.mock("../../api/notificationApi", () => ({
   fetchNotifications: vi.fn(),
-  fetchUnreadNotificationCount: vi.fn().mockResolvedValue(0),
   markNotificationsRead: vi.fn(),
+  ACTION_REQUIRED_NOTIFICATION_TYPES: new Set(["MEETING_ANALYSIS_COMPLETED_NOTIFY_LEADER", "MEETING_SAVED_NOTIFY_LEADER"]),
 }));
 
 // 첫 번째 describe("Header (mobile)")는 실제 AuthProvider(비로그인 상태)로도 문제없이 렌더링돼야
@@ -55,6 +55,9 @@ vi.mock("../../hooks/useAuth", async () => {
   return { ...actual, useAuth: () => mockUseAuth() };
 });
 
+const mockUseNotifications = vi.fn().mockReturnValue({ unreadCount: 0, refreshUnreadCount: vi.fn() });
+vi.mock("../../hooks/useNotifications", () => ({ useNotifications: () => mockUseNotifications() }));
+
 describe("Header 알림", () => {
   beforeEach(() => {
     localStorage.clear();
@@ -66,6 +69,7 @@ describe("Header 알림", () => {
       selectProject: vi.fn(), addLocalProjectRole: vi.fn(), loginWithGoogle: vi.fn(),
       logout: vi.fn(), refreshMe: vi.fn(),
     });
+    mockUseNotifications.mockReturnValue({ unreadCount: 0, refreshUnreadCount: vi.fn() });
   });
 
   async function openBell() {
@@ -99,18 +103,20 @@ describe("Header 알림", () => {
     expect(markNotificationsRead).not.toHaveBeenCalled();
   });
 
-  it("읽음 처리에 실패해도 안 읽음 배지 숫자를 그대로 유지한다", async () => {
-    vi.mocked(fetchUnreadNotificationCount).mockResolvedValue(3);
+  it("읽음 처리에 실패하면 refreshUnreadCount를 호출하지 않아 배지 숫자가 그대로 유지된다", async () => {
+    const refreshUnreadCount = vi.fn();
+    mockUseNotifications.mockReturnValue({ unreadCount: 3, refreshUnreadCount });
     vi.mocked(fetchNotifications).mockResolvedValue([
       { id: "1", type: "TASK_ASSIGNED", title: "제목", content: null, targetType: null, targetId: null, read: false, createdAt: new Date().toISOString() },
     ]);
     vi.mocked(markNotificationsRead).mockRejectedValue(new Error("network error"));
 
     renderHeader();
-    await waitFor(() => expect(screen.getByRole("button", { name: "알림" }).textContent).toContain("3"));
+    expect(screen.getByRole("button", { name: "알림" }).textContent).toContain("3");
 
     await openBell();
     await waitFor(() => expect(markNotificationsRead).toHaveBeenCalledWith(["1"]));
+    expect(refreshUnreadCount).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "알림" }).textContent).toContain("3");
   });
 

@@ -317,7 +317,7 @@ public class MeetingAnalysisPersistence {
     private void sendNotificationSafely(Long userId, String type, String title, String content, Long meetingId) {
         try {
             requiresNewNotificationTransaction.executeWithoutResult(status ->
-                notificationService.notify(userId, type, title, content, "meeting", meetingId));
+                notificationService.notifyAfterCommit(userId, type, title, content, "meeting", meetingId));
         } catch (Exception e) {
             log.warn("회의 분석 알림 발송 실패. meetingId={}, userId={}, type={}", meetingId, userId, type, e);
         }

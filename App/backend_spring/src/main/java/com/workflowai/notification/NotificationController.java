@@ -6,21 +6,25 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.List;
 import java.util.Objects;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 @Tag(name = "알림", description = "로그인 사용자의 알림 조회/읽음 처리 API")
 @RestController
 @RequestMapping("/api/v1/notifications")
 public class NotificationController {
     private final NotificationRepository notificationRepository;
+    private final NotificationBroadcaster notificationBroadcaster;
 
-    public NotificationController(NotificationRepository notificationRepository) {
+    public NotificationController(NotificationRepository notificationRepository, NotificationBroadcaster notificationBroadcaster) {
         this.notificationRepository = notificationRepository;
+        this.notificationBroadcaster = notificationBroadcaster;
     }
 
     @Operation(summary = "내 알림 목록 조회", description = "로그인 사용자의 알림을 최신순으로 최대 50건 조회합니다.")
@@ -41,6 +45,13 @@ public class NotificationController {
         Long userId = CurrentUser.id();
         long count = notificationRepository.countByUserIdAndReadFalse(userId);
         return ResponseEntity.ok(ApiResponse.ok(new UnreadCountResponse(count)));
+    }
+
+    @Operation(summary = "알림 실시간 구독", description = "SSE로 새 알림을 즉시 push 받는다. 연결이 끊기면 클라이언트가 재연결해야 한다.")
+    @GetMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter stream() {
+        Long userId = CurrentUser.id();
+        return notificationBroadcaster.subscribe(userId);
     }
 
     @Operation(
