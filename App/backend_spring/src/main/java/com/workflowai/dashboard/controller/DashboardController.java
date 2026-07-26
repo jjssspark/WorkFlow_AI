@@ -8,7 +8,6 @@ import com.workflowai.dashboard.DTO.DashboardSummaryResponse;
 import com.workflowai.dashboard.DTO.DelayRiskDto;
 import com.workflowai.dashboard.DTO.MilestoneProgressDto;
 import com.workflowai.dashboard.DTO.ProgressDetailResponse;
-import com.workflowai.dashboard.DTO.UpdateMilestoneRequest;
 import com.workflowai.dashboard.DTO.WorkloadScoreResponseDto;
 import com.workflowai.dashboard.service.DashboardService;
 import com.workflowai.security.CurrentUser;
@@ -20,9 +19,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -101,36 +98,14 @@ public class DashboardController {
         }
     }
 
-    @Operation(summary = "마일스톤 생성", description = "프로젝트에 새 마일스톤을 추가한다. 팀장만 생성할 수 있다.")
+    @Operation(summary = "마일스톤 생성", description = "프로젝트에 새 마일스톤을 추가한다.")
     @PostMapping("/milestones")
-    @PreAuthorize("@projectAccess.hasRole(#projectId, 'LEADER')")
+    @PreAuthorize("@projectAccess.isMember(#projectId)")
     public ApiResponse<MilestoneProgressDto> createMilestone(
         @Parameter(description = "프로젝트 ID", example = "demo-project") @PathVariable String projectId,
         @Valid @RequestBody CreateMilestoneRequest request
     ) {
-        return ApiResponse.ok(dashboardService.createMilestone(projectId, request.title(), request.startDate(), request.dueDate()));
-    }
-
-    @Operation(summary = "마일스톤 수정", description = "마일스톤의 이름/시작일/마감일을 수정한다. 팀장만 수정할 수 있다.")
-    @PatchMapping("/milestones/{milestoneId}")
-    @PreAuthorize("@projectAccess.hasRole(#projectId, 'LEADER')")
-    public ApiResponse<MilestoneProgressDto> updateMilestone(
-        @Parameter(description = "프로젝트 ID", example = "demo-project") @PathVariable String projectId,
-        @Parameter(description = "마일스톤 ID") @PathVariable Long milestoneId,
-        @Valid @RequestBody UpdateMilestoneRequest request
-    ) {
-        return ApiResponse.ok(dashboardService.updateMilestone(projectId, milestoneId, request.title(), request.startDate(), request.dueDate()));
-    }
-
-    @Operation(summary = "마일스톤 삭제", description = "마일스톤을 삭제한다. 연결된 업무는 삭제되지 않고 마일스톤 연결만 해제된다. 팀장만 삭제할 수 있다.")
-    @DeleteMapping("/milestones/{milestoneId}")
-    @PreAuthorize("@projectAccess.hasRole(#projectId, 'LEADER')")
-    public ApiResponse<Void> deleteMilestone(
-        @Parameter(description = "프로젝트 ID", example = "demo-project") @PathVariable String projectId,
-        @Parameter(description = "마일스톤 ID") @PathVariable Long milestoneId
-    ) {
-        dashboardService.deleteMilestone(projectId, milestoneId);
-        return ApiResponse.ok(null);
+        return ApiResponse.ok(dashboardService.createMilestone(projectId, request.title(), request.dueDate()));
     }
 
     @Operation(

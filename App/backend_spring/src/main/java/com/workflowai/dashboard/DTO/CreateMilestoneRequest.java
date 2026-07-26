@@ -7,7 +7,6 @@ import java.time.LocalDate;
 @Schema(description = "마일스톤 생성 요청")
 public record CreateMilestoneRequest(
     @Schema(example = "MVP 발표") @NotBlank String title,
-    @Schema(description = "시작일 (선택)", example = "2026-08-01") LocalDate startDate,
     @Schema(description = "마감일 (선택)", example = "2026-08-15") LocalDate dueDate
 ) {
 }

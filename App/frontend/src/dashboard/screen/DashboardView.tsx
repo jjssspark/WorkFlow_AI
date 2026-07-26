@@ -1,18 +1,3 @@
-{/* <전체 대시보드 페이지 목록 (9개)>
-1. 대시보드 페이지(DashboardView.tsx)
-2. 전체 업무 관리 페이지(AllTasksPage.tsx)
-3. 진행률 분석 페이지(ProgressPage.tsx)
-4. 블로커 관리 페이지(BlockersPage.tsx)
-5. 진행 중 업무 모니터링 페이지(InProgressPage.tsx)
-6. 전체 진행률 페이지(DashProgressPage.tsx)
-7. 마감 임박 업무 페이지(UrgentTasksPage.tsx)
-8. 팀원별 업무량 페이지(WorkloadPage.tsx)
-9. 최근 활동 페이지(ActivityPage.tsx) */}
-
-
-// ===================================================
-// 대시보드 페이지(DashboardView.tsx)
-import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import {
@@ -40,13 +25,11 @@ import { useDashboardProgress } from "../libs/hooks/useDashboardProgress";
 import { useDashboardSummary } from "../libs/hooks/useDashboardSummary";
 import { useDashboardTasks } from "../libs/hooks/useDashboardTasks";
 import { activityIconMeta, activityMessage, activityTypeLabel, formatRelativeTime } from "../libs/utils/activityDisplay";
-import { daysSince, daysUntilDue, formatDashboardDueDate, isDelayRisk, normalizeTaskStatus } from "../libs/utils/dashboardTaskUtils";
+import { daysSince, daysUntilDue, formatDashboardDueDate, isDangerDelayRisk, normalizeTaskStatus } from "../libs/utils/dashboardTaskUtils";
 import { resolveMemberDisplay } from "../libs/utils/memberDisplay";
 import { AiInsightBox } from "../../ai/components/AiInsightBox";
 import { openAIAssistant } from "../../ai/libs/utils/openAIAssistant";
 import { ProgressFrequencyChart } from "../components/ProgressFrequencyChart";
-import { AddTaskModal } from "../../board/components/AddTaskModal";
-import { getProjectMembers, type MemberResponse } from "../../global/api/projectsApi";
 
 function EmptyState({ children }: { children: string }) {
   return <div className="w-full h-full flex items-center justify-center py-8 text-center text-xs text-muted-foreground">{children}</div>;
@@ -74,25 +57,10 @@ function WorkloadTooltip({ active, payload, label }: { active?: boolean; payload
 export function DashboardView() {
   const navigate = useNavigate();
   const onCardClick = (p: DetailPage) => navigate(`/dashboard/${p}`);
-  const { user, currentProjectId, currentProject } = useAuth();
-  const isLeader = currentProject?.role === "팀장";
+  const { user, currentProjectId } = useAuth();
   const { data: summary, loading: summaryLoading, error: summaryError } = useDashboardSummary(currentProjectId);
   const { data: progress, loading: progressLoading, error: progressError } = useDashboardProgress(currentProjectId);
   const { data: tasks, loading: tasksLoading } = useDashboardTasks(currentProjectId);
-  const [showAddTask, setShowAddTask] = useState(false);
-  const [projectMembers, setProjectMembers] = useState<MemberResponse[]>([]);
-
-  useEffect(() => {
-    if (currentProjectId == null) {
-      setProjectMembers([]);
-      return;
-    }
-    let cancelled = false;
-    getProjectMembers(currentProjectId)
-      .then(result => { if (!cancelled) setProjectMembers(result); })
-      .catch(() => { if (!cancelled) setProjectMembers([]); });
-    return () => { cancelled = true; };
-  }, [currentProjectId]);
 
   const deliverablesActive = NAV_ITEMS.find((item) => item.id === "deliverables")?.activate !== false;
   const isSummaryPending = summaryLoading && !summary;
@@ -114,7 +82,7 @@ export function DashboardView() {
   const projectStart = progress?.projectCreatedAt ?? null;
   const projectDeadline = progress?.projectDeadline ?? null;
 
-  const dangerRiskTaskIds = new Set((progress?.delayRisks ?? []).filter(risk => isDelayRisk(risk.result)).map(risk => risk.taskId));
+  const dangerRiskTaskIds = new Set((progress?.delayRisks ?? []).filter(risk => isDangerDelayRisk(risk.result)).map(risk => risk.taskId));
   const longestStalledDangerTask = tasks
     .filter(task => dangerRiskTaskIds.has(task.id))
     .reduce<{ title: string; days: number } | null>((longest, task) => {
@@ -123,11 +91,11 @@ export function DashboardView() {
     }, null);
   const aiInsightReady = !summaryLoading && !progressLoading && !tasksLoading;
   const aiInsightPrompt = longestStalledDangerTask
-    ? `지연위험도 주의/위험 업무 중, 가장 오래 정체된 업무인 '${longestStalledDangerTask.title}'의 대응법을 알려줘 (2~3문장).`
+    ? `사용자의 지연 위험도 '위험' 업무 중, 가장 현재 상태 체류시간이 긴 업무인 '${longestStalledDangerTask.title}'에 대해 먼저 처리할 일과 다음 액션을 알려줘.`
     : "";
 
   const quickActions = [
-    ...(isLeader ? [{ label: "업무 추가", icon: Plus, color: "#3B5BDB", onClick: () => setShowAddTask(true) }] : []),
+    { label: "업무 추가", icon: Plus, color: "#3B5BDB", onClick: () => navigate("/board?openAdd=1") },
     { label: "회의록 업로드", icon: Upload, color: "#7048E8", onClick: () => navigate("/meetings?upload=1") },
     ...(deliverablesActive ? [{ label: "산출물", icon: Package, color: "#0F766E", onClick: () => navigate("/deliverables") }] : []),
     { label: "AI 어시스턴트", icon: Sparkles, color: "#F59E0B", onClick: () => openAIAssistant() },
@@ -157,6 +125,7 @@ export function DashboardView() {
           projectId={currentProjectId}
           prompt={aiInsightPrompt}
           ready={aiInsightReady}
+          fallbackText={`${user?.name ?? "담당자"}님의 ${longestStalledDangerTask.title}이 지연 위험입니다.`}
           formatAnswer={answer => `${user?.name ?? "담당자"}님의 ${longestStalledDangerTask.title}이 지연 위험입니다. ${answer}`}
           actionLabel="자세히"
           variant="banner"
@@ -234,9 +203,7 @@ export function DashboardView() {
             {isSummaryPending ? (
               <EmptyState>데이터를 불러오는 중입니다</EmptyState>
             ) : upcomingDeadlines.length ? upcomingDeadlines.map((task, index) => {
-              // UpcomingTaskDto에는 assigneeId가 없어 index를 색상 키로 넘기면 렌더 순서에
-              // 따라 같은 사람이 다른 색을 받는다 - 이름을 안정적인 키로 대신 사용한다.
-              const member = resolveMemberDisplay(task.assigneeName, index, task.assigneeName);
+              const member = resolveMemberDisplay(task.assigneeName, index);
               const dueSoon = (daysUntilDue(task.dueDate) ?? Infinity) <= 3;
               return (
                 <div key={task.id} className="flex items-center gap-2.5">
@@ -326,14 +293,6 @@ export function DashboardView() {
           </div>
         </div>
       </div>
-
-      <AddTaskModal
-        open={showAddTask}
-        initialStatus="todo"
-        projectMembers={projectMembers}
-        onClose={() => setShowAddTask(false)}
-        onCreated={() => setShowAddTask(false)}
-      />
     </div>
   );
 }
