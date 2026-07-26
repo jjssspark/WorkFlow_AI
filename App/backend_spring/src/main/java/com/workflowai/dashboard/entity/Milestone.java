@@ -23,6 +23,9 @@ public class Milestone {
     @Column(nullable = false)
     private String title;
 
+    @Column(name = "start_date")
+    private LocalDate startDate;
+
     @Column(name = "due_date")
     private LocalDate dueDate;
 
@@ -32,9 +35,10 @@ public class Milestone {
     protected Milestone() {
     }
 
-    public Milestone(Long projectId, String title, LocalDate dueDate) {
+    public Milestone(Long projectId, String title, LocalDate startDate, LocalDate dueDate) {
         this.projectId = projectId;
         this.title = title;
+        this.startDate = startDate;
         this.dueDate = dueDate;
         this.createdAt = LocalDateTime.now();
     }
@@ -51,11 +55,21 @@ public class Milestone {
         return title;
     }
 
+    public LocalDate getStartDate() {
+        return startDate;
+    }
+
     public LocalDate getDueDate() {
         return dueDate;
     }
 
     public LocalDateTime getCreatedAt() {
         return createdAt;
+    }
+
+    public void applyUpdate(String title, LocalDate startDate, LocalDate dueDate) {
+        if (title != null && !title.isBlank()) this.title = title;
+        this.startDate = startDate;
+        this.dueDate = dueDate;
     }
 }

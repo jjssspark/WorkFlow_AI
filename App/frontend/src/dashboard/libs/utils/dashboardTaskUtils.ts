@@ -64,12 +64,13 @@ export function isDangerDelayRisk(result: string): boolean {
   return result.includes("위험") || normalized.includes("danger") || normalized.includes("high");
 }
 
-export function isDelayRisk(result: string): boolean {
+export function isCautionDelayRisk(result: string): boolean {
   const normalized = result.trim().toLowerCase();
-  return isDangerDelayRisk(result)
-    || result.includes("주의")
-    || normalized.includes("warning")
-    || normalized.includes("caution");
+  return result.includes("주의") || normalized.includes("caution") || normalized.includes("warning");
+}
+
+export function isDelayRisk(result: string): boolean {
+  return isDangerDelayRisk(result) || isCautionDelayRisk(result);
 }
 
 /** 백엔드가 내려주는 LocalDateTime 문자열(예: "2026-07-24T10:15:30")은 오프셋이 없어,

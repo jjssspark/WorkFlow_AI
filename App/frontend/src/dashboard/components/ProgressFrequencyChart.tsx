@@ -39,11 +39,9 @@ export function dateKeyOf(iso: string): string {
   return iso.slice(0, 10);
 }
 
-/** '업무가 완료 처리(status=done)된 날짜'만을 x축으로 삼아
+/** '업무가 완료 처리(status=done)된 날짜'(doneDate)만을 x축으로 삼아
  * 프로젝트 시작일~(마감일 또는 오늘) 범위의 누적 완료 업무량을 계산한다.
- * 오늘 완료 처리가 없었어도 차트가 항상 "오늘"까지 이어지도록 마지막 포인트로 오늘을 포함시킨다.
- * 완료일은 별도 이력이 없어 updatedAt을 완료 시점 근사로 쓴다 — 이 코드베이스 전반에서
- * 이미 쓰는 근사(daysSince 등)와 동일한 방식이다. */
+ * 오늘 완료 처리가 없었어도 차트가 항상 "오늘"까지 이어지도록 마지막 포인트로 오늘을 포함시킨다. */
 export function buildFrequencyChart(
   tasks: DashboardTaskDto[],
   projectStart: string | null,
@@ -56,7 +54,7 @@ export function buildFrequencyChart(
 
   const changeDates = new Set<string>();
   tasks.forEach(task => {
-    if (normalizeTaskStatus(task.status) === "done" && task.updatedAt) changeDates.add(dateKeyOf(task.updatedAt));
+    if (normalizeTaskStatus(task.status) === "done" && task.doneDate) changeDates.add(dateKeyOf(task.doneDate));
   });
   if (todayKey >= rangeStart && todayKey <= rangeEnd) changeDates.add(todayKey);
 
@@ -68,7 +66,7 @@ export function buildFrequencyChart(
   const points = sortedDates.map(dateKey => {
     const total = tasks.filter(task => task.createdAt && dateKeyOf(task.createdAt) <= dateKey).length;
     const done = tasks.filter(
-      task => normalizeTaskStatus(task.status) === "done" && task.updatedAt && dateKeyOf(task.updatedAt) <= dateKey
+      task => normalizeTaskStatus(task.status) === "done" && task.doneDate && dateKeyOf(task.doneDate) <= dateKey
     ).length;
     const dailyDoneCount = done - previousDone;
     previousDone = done;
@@ -105,8 +103,10 @@ export function ProgressFrequencyChart({
 }) {
   const frequencyChart = buildFrequencyChart(tasks, projectStart, projectDeadline);
   const frequencyYMax = Math.max(totalTasks, 1);
-  // 실제 데이터 포인트 수가 기본 스크롤 윈도우(7개)보다 적으면, 빈 스크롤 여백 없이 카드 폭 전체를 채운다.
-  const frequencyFillsFullWidth = frequencyChart.length < FREQUENCY_WINDOW_DAYS;
+  // 한 화면(윈도우)에는 항상 7일치만 보이게 한다 — 포인트 수가 7 이하면 카드 폭을 꽉 채우고,
+  // 7을 넘으면 "포인트 수/7" 비율만큼 콘텐츠 폭을 넓혀 초과분을 가로 스크롤로 보게 한다
+  // (픽셀 고정폭 대신 %로 계산해서, 카드가 넓을 때 오른쪽에 빈 여백이 남지 않는다).
+  const frequencyFillsFullWidth = frequencyChart.length <= FREQUENCY_WINDOW_DAYS;
   const frequencyScrollRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
@@ -125,8 +125,8 @@ export function ProgressFrequencyChart({
   const plotHeight = heightPx - CHART_MARGIN_TOP - CHART_MARGIN_BOTTOM;
   const bottomY = CHART_MARGIN_TOP + plotHeight;
 
-  const pixelWidth = Math.max(n * FREQUENCY_POINT_WIDTH, FREQUENCY_WINDOW_DAYS * FREQUENCY_POINT_WIDTH);
-  const viewBoxWidth = frequencyFillsFullWidth ? FULL_WIDTH_VIEWBOX : pixelWidth;
+  const widthPercent = frequencyFillsFullWidth ? 100 : (n / FREQUENCY_WINDOW_DAYS) * 100;
+  const viewBoxWidth = FULL_WIDTH_VIEWBOX;
 
   const xFor = (index: number) => {
     const usable = viewBoxWidth - AXIS_PADDING_X * 2;
@@ -174,11 +174,10 @@ export function ProgressFrequencyChart({
       </div>
       <div
         ref={frequencyScrollRef}
-        className={frequencyFillsFullWidth ? "flex-1 relative overflow-hidden" : "flex-1 overflow-x-auto overflow-y-hidden cursor-grab relative"}
+        className={`scrollbar-none ${frequencyFillsFullWidth ? "flex-1 relative overflow-hidden" : "flex-1 overflow-x-auto overflow-y-hidden cursor-grab relative"}`}
         style={{ height: heightPx }}
       >
-        <span className="absolute bottom-1 right-1 text-[9px] leading-none text-muted-foreground z-10">(일)</span>
-        <div style={{ width: frequencyFillsFullWidth ? "100%" : pixelWidth, height: heightPx }}>
+        <div style={{ width: `${widthPercent}%`, height: heightPx }}>
           <svg
             ref={svgRef}
             width="100%"
@@ -227,13 +226,18 @@ export function ProgressFrequencyChart({
               className="fixed rounded-lg bg-white shadow-lg border border-border px-3 py-2 text-[11px] space-y-0.5 pointer-events-none"
               style={{ left: hoverPos.x, top: hoverPos.y, transform: "translateX(-50%)", zIndex: 9999 }}
             >
-              <div className="font-semibold text-foreground whitespace-nowrap">{hoverPoint.label}</div>
+              <div className="font-semibold text-foreground whitespace-nowrap">
+                {hoverPoint.dateKey === dateKeyOf(new Date().toISOString()) ? `오늘 (${hoverPoint.dateKey})` : hoverPoint.label}
+              </div>
               <div className="text-muted-foreground whitespace-nowrap">전체 업무량: <span className="font-medium text-foreground">{hoverPoint.전체}개</span></div>
               <div className="text-muted-foreground whitespace-nowrap">일일 진행량: <span className="font-medium text-foreground">{hoverPoint.dailyDoneCount}개</span></div>
             </div>,
             document.body
           )}
         </div>
+      </div>
+      <div className="w-6 shrink-0 relative" style={{ height: heightPx }}>
+        <span className="absolute bottom-0 right-0 text-[9px] leading-none text-muted-foreground">(일)</span>
       </div>
     </div>
   );

@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, type MouseEvent as ReactMouseEvent } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router";
 import { Calendar, CheckCircle2, CheckSquare, Sparkles, TrendingUp } from "lucide-react";
 import { AiInsightBox } from "../../../ai/components/AiInsightBox";
@@ -22,7 +23,7 @@ import {
   parseKstDateTime,
   taskAssignee,
 } from "../../libs/utils/dashboardTaskUtils";
-import { resolveMemberDisplay } from "../../libs/utils/memberDisplay";
+import { resolveMemberDisplay, stableColorForId } from "../../libs/utils/memberDisplay";
 
 const CATEGORY_COLORS = ["#3B5BDB", "#7048E8", "#10B981", "#F59E0B", "#EF4444", "#06B6D4"];
 
@@ -32,6 +33,8 @@ export function ProgressPage() {
   const { data: progress, loading, error: progressError } = useDashboardProgress(currentProjectId);
   const { data: tasks, loading: tasksLoading } = useDashboardTasks(currentProjectId);
   const [generatingReport, setGeneratingReport] = useState(false);
+  const [hoveredMilestoneId, setHoveredMilestoneId] = useState<string | null>(null);
+  const [milestoneHoverPos, setMilestoneHoverPos] = useState<{ x: number; y: number } | null>(null);
   const navigate = useNavigate();
   const onBack = () => navigate("/dashboard");
 
@@ -41,19 +44,21 @@ export function ProgressPage() {
   const openTasks = Math.max(totalTasks - doneTasks, 0);
   const blockedCount = summary?.blockedTasks ?? 0;
   const doneThisWeekRows = tasks
-    .filter(task => normalizeTaskStatus(task.status) === "done" && (daysSince(task.updatedAt) ?? Infinity) <= 7)
+    .filter(task => normalizeTaskStatus(task.status) === "done" && (daysSince(task.doneDate) ?? Infinity) <= 7)
     .slice(0, 5);
   const workload = summary?.workload ?? [];
   const categoryBreakdown = progress?.categoryBreakdown ?? [];
   const milestones = progress?.milestones ?? [];
-  // 마일스톤별 별도 "시작일" 이력이 없어, 생성일(createdAt)을 시작일 근사치로 쓴다
-  // (이 코드베이스 전반에서 이미 쓰는 방식과 동일 — 완료일을 updatedAt으로 근사하는 것과 같은 맥락).
+  // 마일스톤에 시작일(startDate)이 입력돼 있으면 그대로 쓰고, 없는(과거) 마일스톤만
+  // 생성일(createdAt)을 시작일 근사치로 쓴다.
   const timelineMilestones = milestones
     .slice(0, 6)
-    .filter(item => item.createdAt && item.dueDate)
+    .filter(item => (item.startDate || item.createdAt) && item.dueDate)
     .map(item => ({
       ...item,
-      start: parseKstDateTime(item.createdAt as string).getTime(),
+      start: item.startDate
+        ? new Date(`${item.startDate}T00:00:00+09:00`).getTime()
+        : parseKstDateTime(item.createdAt as string).getTime(),
       end: new Date(`${item.dueDate}T00:00:00+09:00`).getTime(),
     }));
   const now = Date.now();
@@ -265,9 +270,9 @@ export function ProgressPage() {
               <div>
                 {/* 범례 */}
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mb-3 pb-3 border-b border-border">
-                  {timelineMilestones.map((item, index) => (
+                  {timelineMilestones.map(item => (
                     <span key={item.id} className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-                      <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: CATEGORY_COLORS[index % CATEGORY_COLORS.length] }} />
+                      <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: stableColorForId(item.id) }} />
                       {item.title}
                     </span>
                   ))}
@@ -298,12 +303,20 @@ export function ProgressPage() {
                       <div className="absolute top-0 bottom-0 w-px bg-blue-400 z-10" style={{ left: `${todayPct}%` }} />
                     </div>
                     <div className="space-y-1.5 p-2">
-                  {timelineMilestones.map((item, index) => {
-                    const color = CATEGORY_COLORS[index % CATEGORY_COLORS.length];
+                  {timelineMilestones.map(item => {
+                    const color = stableColorForId(item.id);
                     const leftPct = Math.max(((item.start - yearRangeStart) / yearRangeSpan) * 100, 0);
                     const widthPct = Math.max(((Math.min(item.end, yearRangeEnd) - item.start) / yearRangeSpan) * 100, 1.5);
                     return (
-                      <div key={item.id} className="flex items-center gap-0 h-6">
+                      <div
+                        key={item.id}
+                        className="flex items-center gap-0 h-6"
+                        onMouseMove={(event: ReactMouseEvent<HTMLDivElement>) => {
+                          setHoveredMilestoneId(item.id);
+                          setMilestoneHoverPos({ x: event.clientX, y: event.clientY });
+                        }}
+                        onMouseLeave={() => { setHoveredMilestoneId(null); setMilestoneHoverPos(null); }}
+                      >
                         <div className="w-32 shrink-0 pr-2 text-[10px] font-medium text-foreground truncate flex items-center gap-1.5">
                           <span className="w-2 h-2 rounded-full shrink-0" style={{ background: color }} />
                           {item.title}
@@ -327,6 +340,22 @@ export function ProgressPage() {
                     </div>
                   </div>
                 </div>
+                {hoveredMilestoneId && milestoneHoverPos && (() => {
+                  const hovered = timelineMilestones.find(m => m.id === hoveredMilestoneId);
+                  if (!hovered) return null;
+                  return createPortal(
+                    <div
+                      className="fixed rounded-lg bg-white shadow-lg border border-border px-3 py-2 text-[11px] space-y-0.5 pointer-events-none z-[9999]"
+                      style={{ left: milestoneHoverPos.x + 12, top: milestoneHoverPos.y + 12 }}
+                    >
+                      <div className="font-semibold text-foreground whitespace-nowrap">{hovered.title}</div>
+                      <div className="text-muted-foreground whitespace-nowrap">ID: <span className="font-medium text-foreground">{hovered.id}</span></div>
+                      <div className="text-muted-foreground whitespace-nowrap">시작일: <span className="font-medium text-foreground">{formatDashboardDueDate(hovered.startDate)}</span></div>
+                      <div className="text-muted-foreground whitespace-nowrap">마감일: <span className="font-medium text-foreground">{formatDashboardDueDate(hovered.dueDate)}</span></div>
+                    </div>,
+                    document.body
+                  );
+                })()}
               </div>
             ) : (
               <div className="py-8 text-center text-sm text-muted-foreground">

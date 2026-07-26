@@ -254,7 +254,7 @@ export function BlockersPage() {
                     <CheckCheck className="w-3.5 h-3.5" /> {resolvingTaskId === task.id ? "처리 중..." : "해결 완료"}
                   </button>
                   <button onClick={() => setDueDateTarget(task)} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-border bg-card text-foreground rounded-lg hover:bg-muted transition-colors">
-                    <Calendar className="w-3.5 h-3.5" /> 마감 조정
+                    <Calendar className="w-3.5 h-3.5" /> 마감일 조정
                   </button>
                   <button onClick={() => setCommentTarget(task)} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-border bg-card text-foreground rounded-lg hover:bg-muted transition-colors">
                     <MessageSquare className="w-3.5 h-3.5" /> 댓글

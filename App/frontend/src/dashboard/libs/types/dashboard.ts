@@ -23,6 +23,7 @@ export interface WorkloadEntryDto {
 export interface ActivityItemDto {
   id: string;
   type: string;
+  actorId: string | null;
   actorName: string | null;
   message: string | null;
   targetId: string | null;
@@ -37,6 +38,8 @@ export interface DashboardTaskDto {
   assigneeId: string | null;
   assigneeName: string | null;
   dueDate: string | null;
+  /** status가 done으로 바뀐 날짜(YYYY-MM-DD). done이 아니면 null — '완료 업무' 관련 날짜는 이 필드를 기준으로 삼는다. */
+  doneDate: string | null;
   priority: string | null;
   description: string | null;
   sourceType: string | null;
@@ -59,12 +62,13 @@ export interface DashboardSummaryResponse {
 export interface MilestoneProgressDto {
   id: string;
   title: string;
+  startDate: string | null;
   dueDate: string | null;
   status: string;
   taskCount: number;
   doneCount: number;
   progressPercent: number;
-  /** 별도 시작일 이력이 없어, 마일스톤 생성 시각을 일정표 타임라인의 시작일 근사치로 쓴다. */
+  /** startDate가 없는(과거) 마일스톤의 일정표 시작일 근사치로만 쓴다. */
   createdAt: string | null;
   taskIds: string[];
 }

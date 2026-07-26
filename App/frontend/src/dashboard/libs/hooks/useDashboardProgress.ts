@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchDashboardProgress, refreshDelayRisk } from "../utils/dashboardApi";
 import type { ProgressDetailResponse } from "../types/dashboard";
 
@@ -7,6 +7,12 @@ export function useDashboardProgress(projectId: string | number | null | undefin
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 최초 로드 이후의 refetch에서는 loading을 true로 만들지 않는다 — 화면 전체가 다시 "불러오는 중"으로
+  // 비워지지 않고, 새 데이터가 도착했을 때 바뀐 값만 조용히 갱신되게 한다.
+  const hasLoadedRef = useRef(false);
+  useEffect(() => {
+    hasLoadedRef.current = false;
+  }, [projectId]);
 
   const load = useCallback(() => {
     if (projectId == null) {
@@ -15,12 +21,15 @@ export function useDashboardProgress(projectId: string | number | null | undefin
       setError(null);
       return Promise.resolve();
     }
-    setLoading(true);
+    if (!hasLoadedRef.current) setLoading(true);
     setError(null);
     return fetchDashboardProgress(projectId)
       .then(result => setData(result))
       .catch((err: Error) => setError(err.message))
-      .finally(() => setLoading(false));
+      .finally(() => {
+        hasLoadedRef.current = true;
+        setLoading(false);
+      });
   }, [projectId]);
 
   useEffect(() => {

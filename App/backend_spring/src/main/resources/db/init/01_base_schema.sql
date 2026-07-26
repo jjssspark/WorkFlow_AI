@@ -118,6 +118,7 @@ CREATE TABLE milestones (
     id         BIGSERIAL PRIMARY KEY,
     project_id BIGINT NOT NULL,
     title      VARCHAR(200) NOT NULL,
+    start_date DATE,
     due_date   DATE,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_milestones_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
@@ -133,6 +134,7 @@ CREATE TABLE tasks (
     status       VARCHAR(20)  NOT NULL,
     assignee_id  BIGINT NULL,
     due_date     DATE,
+    done_date    DATE,
     priority     VARCHAR(20),
     description  TEXT,
     position     DOUBLE PRECISION NOT NULL DEFAULT 0,
