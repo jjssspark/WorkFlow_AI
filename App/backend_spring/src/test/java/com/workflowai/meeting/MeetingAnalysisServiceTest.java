@@ -562,6 +562,134 @@ class MeetingAnalysisServiceTest {
     }
 
     @Test
+    void deleteAnalysisRejectsWhenCurrentUserIsNotLeader() {
+        mockMember(1L);
+        when(projectMemberRepository.findByProjectIdAndUserId(1L, CURRENT_USER_ID))
+            .thenReturn(Optional.of(new ProjectMember(1L, CURRENT_USER_ID, ProjectRole.MEMBER)));
+        Meeting meeting = new Meeting(1L, "회의록", "text/plain", null, "completed", null, null, null, 50L, null);
+        when(meetingRepository.findByIdAndProjectIdForUpdate(20L, 1L)).thenReturn(Optional.of(meeting));
+        MeetingAnalysisService service = newService();
+
+        assertThatThrownBy(() -> service.deleteAnalysis("demo-project", "20", false))
+            .isInstanceOf(AccessDeniedException.class);
+
+        verify(meetingAnalysisRepository, never()).deleteById(any());
+    }
+
+    @Test
+    void deleteAnalysisReturnsNullWhenMeetingBelongsToAnotherProject() {
+        mockMember(1L);
+        when(meetingRepository.findByIdAndProjectIdForUpdate(99L, 1L)).thenReturn(Optional.empty());
+        MeetingAnalysisService service = newService();
+
+        assertThat(service.deleteAnalysis("demo-project", "99", false)).isNull();
+
+        verify(meetingAnalysisRepository, never()).deleteById(any());
+        verify(meetingRepository, never()).delete(any());
+    }
+
+    @Test
+    void deleteAnalysisRejectsWhenNoAnalysisExists() {
+        mockLeader(1L);
+        Meeting meeting = new Meeting(1L, "회의록", "document", "/tmp/x.txt", "failed", LocalDate.now(), "정기회의", "notes.txt", CURRENT_USER_ID, 5L);
+        when(meetingRepository.findByIdAndProjectIdForUpdate(21L, 1L)).thenReturn(Optional.of(meeting));
+        when(meetingAnalysisRepository.existsById(21L)).thenReturn(false);
+        MeetingAnalysisService service = newService();
+
+        assertThatThrownBy(() -> service.deleteAnalysis("demo-project", "21", false))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessage("MEETING_ANALYSIS_NOT_FOUND");
+
+        verify(meetingRepository, never()).delete(any());
+        verify(meetingRepository, never()).save(any());
+    }
+
+    @Test
+    void deleteAnalysisRemovesAnalysisRowButKeepsMeetingAndFile() throws Exception {
+        mockLeader(1L);
+        Path dir = Files.createTempDirectory("meeting-analysis-delete");
+        Path file = dir.resolve("notes.txt");
+        Files.writeString(file, "원문 그대로 남아야 함");
+        Meeting meeting = new Meeting(1L, "삭제 회의", "document", file.toString(), "completed", LocalDate.now(), "정기회의", "notes.txt", CURRENT_USER_ID, 5L);
+        meeting.setTranscript("원문 그대로 남아야 함");
+        when(meetingRepository.findByIdAndProjectIdForUpdate(8L, 1L)).thenReturn(Optional.of(meeting));
+        when(meetingAnalysisRepository.existsById(8L)).thenReturn(true);
+        when(meetingRepository.save(any(Meeting.class))).thenAnswer(inv -> inv.getArgument(0));
+        MeetingAnalysisService service = newService();
+
+        MeetingDeleteResponse response = service.deleteAnalysis("demo-project", "8", false);
+
+        assertThat(response.meetingId()).isEqualTo("8");
+        assertThat(response.status()).isEqualTo("DELETED");
+        verify(meetingAnalysisRepository).deleteById(8L);
+        verify(meetingActionItemRepository, never()).deleteByMeetingId(any());
+        verify(meetingActionItemRepository).clearMeetingId(8L);
+        verify(taskRepository, never()).deleteBySourceMeetingId(any());
+        verify(taskRepository).clearSourceMeetingId(8L);
+        verify(meetingRepository, never()).delete(any());
+        verify(meetingAttendeeRepository, never()).deleteByMeetingId(any());
+        assertThat(meeting.getAnalysisStatus()).isEqualTo("failed");
+        assertThat(meeting.getFilePath()).isEqualTo(file.toString());
+        assertThat(meeting.getTranscript()).isEqualTo("원문 그대로 남아야 함");
+        assertThat(Files.exists(file)).isTrue();
+        verify(ragIngestService).recordDeleteSourceIntent(1L, "meeting", 8L);
+        verify(ragIngestService).deleteSourceBestEffort(1L, "meeting", 8L);
+        Files.deleteIfExists(file);
+        Files.deleteIfExists(dir);
+    }
+
+    @Test
+    void deleteAnalysisCanRemoveLinkedBoardTasksWhenRequested() {
+        mockLeader(1L);
+        Meeting meeting = new Meeting(1L, "삭제 회의", "document", null, "completed", LocalDate.now(), "정기회의", "notes.txt", CURRENT_USER_ID, 5L);
+        when(meetingRepository.findByIdAndProjectIdForUpdate(9L, 1L)).thenReturn(Optional.of(meeting));
+        when(meetingAnalysisRepository.existsById(9L)).thenReturn(true);
+        when(meetingRepository.save(any(Meeting.class))).thenAnswer(inv -> inv.getArgument(0));
+        com.workflowai.task.Task linkedTask = new com.workflowai.task.Task(
+            1L, "연결 업무", "other", "todo", null, null, null, null, "MEETING_AI", 9L, 1L, 0.0
+        );
+        ReflectionTestUtils.setField(linkedTask, "id", 77L);
+        MeetingActionItem linkedActionItem = new MeetingActionItem(
+            9L, "후속 조치", null, "other", null, null, null, null, null
+        );
+        ReflectionTestUtils.setField(linkedActionItem, "id", 88L);
+        when(taskRepository.findBySourceMeetingId(9L)).thenReturn(List.of(linkedTask));
+        when(meetingActionItemRepository.findByMeetingId(9L)).thenReturn(List.of(linkedActionItem));
+        MeetingAnalysisService service = newService();
+
+        MeetingDeleteResponse response = service.deleteAnalysis("demo-project", "9", true);
+
+        assertThat(response.status()).isEqualTo("DELETED");
+        verify(meetingActionItemRepository).deleteByMeetingId(9L);
+        verify(taskRepository).deleteBySourceMeetingId(9L);
+        verify(taskRepository, never()).clearSourceMeetingId(any());
+        verify(meetingActionItemRepository, never()).clearMeetingId(any());
+        verify(ragIngestService).recordDeleteSourceIntent(1L, "task", 77L);
+        verify(ragIngestService).recordDeleteSourceIntent(1L, "action_item", 88L);
+        verify(ragIngestService).deleteSourceBestEffort(1L, "task", 77L);
+        verify(ragIngestService).deleteSourceBestEffort(1L, "action_item", 88L);
+    }
+
+    @Test
+    void deleteAnalysisNotifiesActorAndUploader() {
+        mockLeader(1L);
+        Long uploaderId = 50L;
+        Meeting meeting = new Meeting(1L, "삭제 회의", "document", null, "completed", LocalDate.now(), "정기회의", "notes.txt", uploaderId, 5L);
+        when(meetingRepository.findByIdAndProjectIdForUpdate(12L, 1L)).thenReturn(Optional.of(meeting));
+        when(meetingAnalysisRepository.existsById(12L)).thenReturn(true);
+        when(meetingRepository.save(any(Meeting.class))).thenAnswer(inv -> inv.getArgument(0));
+        MeetingAnalysisService service = newService();
+
+        service.deleteAnalysis("demo-project", "12", false);
+
+        verify(notificationService).notifyActorAndCounterpart(
+            eq(CURRENT_USER_ID), eq("MEETING_ANALYSIS_DELETED"), any(), any(),
+            eq(uploaderId), eq("MEETING_ANALYSIS_DELETED"), any(), any(),
+            eq("meeting"), eq(12L)
+        );
+    }
+
+    @Test
     void retryRejectsMeetingThatIsNotFailed() {
         mockMember(1L);
         Meeting meeting = new Meeting(1L, "정기회의", "document", "/tmp/x.txt", "processing", LocalDate.now(), "정기회의", "x.txt", null, 5L);
