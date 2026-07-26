@@ -363,3 +363,41 @@ describe("MeetingsView 삭제 플로우 분리", () => {
     expect(deleteMeetingAnalysis).not.toHaveBeenCalled();
   });
 });
+
+describe("MeetingsView 분석 결과 삭제 후 재분석", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.clearAllMocks();
+    retryMeetingAnalysis.mockResolvedValue({
+      meetingId: "1",
+      projectId: "1",
+      status: "PROCESSING",
+      sourceType: "document",
+      fileName: "meeting.txt",
+      analysisSource: null,
+      analysis: null,
+      errorMessage: null,
+      attendees: [],
+      transcript: null,
+    });
+  });
+
+  it("분석 실패 상태의 회의록을 선택하면 '재분석하기' 버튼이 보이고, 누르면 retryMeetingAnalysis를 호출한다", async () => {
+    fetchMeetings.mockResolvedValue([
+      { meetingId: "1", title: "실패한 회의", meetingDate: "2026-07-19", meetingType: "정기회의", analysisStatus: "failed", savedAt: null, originalMeetingId: null, tasksRegistered: false },
+    ]);
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={["/meetings"]}>
+        <MeetingsView />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(fetchMeetings).toHaveBeenCalled());
+    await user.click(await screen.findByText("실패한 회의"));
+
+    await user.click(await screen.findByRole("button", { name: "재분석하기" }));
+
+    await waitFor(() => expect(retryMeetingAnalysis).toHaveBeenCalledWith("1", "1"));
+  });
+});

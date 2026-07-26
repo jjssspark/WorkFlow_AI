@@ -982,8 +982,7 @@ export function MeetingsView() {
     });
   };
 
-  const handleRetryAnalysis = () => {
-    if (!activeMeetingId) return;
+  const runRetryAnalysis = (meetingId: string, title: string) => {
     const uploadedAt = new Date().toISOString();
     setAnalysisResult(null);
     setSelTodos([]);
@@ -998,17 +997,27 @@ export function MeetingsView() {
     setAnalysisRequestPending(true);
     setUploadFlow("analyzing");
 
-    void retryMeetingAnalysis(projectId, activeMeetingId).then(response => {
+    void retryMeetingAnalysis(projectId, meetingId).then(response => {
       setAnalysisRequestPending(false);
       setActiveMeetingId(response.meetingId);
       setAnalysisPhase("queued");
       setAnalyzeProgressTarget(28);
-      pollMeetingStatus(response.meetingId, meetTitle, uploadedAt);
+      pollMeetingStatus(response.meetingId, title, uploadedAt);
     }).catch(() => {
       setAnalysisRequestPending(false);
       setAnalysisError("재분석 요청에 실패했습니다. 다시 시도해주세요.");
       setUploadFlow("results");
     });
+  };
+
+  const handleRetryAnalysis = () => {
+    if (!activeMeetingId) return;
+    runRetryAnalysis(activeMeetingId, meetTitle);
+  };
+
+  const handleRetryFromList = (target: Meeting) => {
+    setMeetTitle(target.title);
+    runRetryAnalysis(target.id, target.title);
   };
 
   const removeMeetingFromLocalState = (meetingId: string) => {
@@ -2452,6 +2461,16 @@ export function MeetingsView() {
             <div className="text-sm font-medium">
               {meeting.status === "pending" ? "예정된 회의입니다" : meeting.status === "processing" ? "AI 분석 중입니다. 잠시 후 다시 확인해주세요" : meeting.status === "failed" ? "AI 분석에 실패했습니다. 다시 업로드하거나 재분석을 시도해주세요" : "AI 분석 결과를 불러오는 중입니다"}
             </div>
+            {meeting.status === "failed" && (
+              <button
+                type="button"
+                onClick={() => handleRetryFromList(meeting)}
+                className="px-5 py-2.5 text-sm font-semibold text-white rounded-xl hover:opacity-90 transition-opacity"
+                style={{ background: "linear-gradient(135deg,#3B5BDB,#4F6EF7)" }}
+              >
+                재분석하기
+              </button>
+            )}
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center h-full gap-3 text-center text-muted-foreground">
