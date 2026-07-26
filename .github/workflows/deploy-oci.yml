@@ -146,7 +146,8 @@ jobs:
             fi
             unset spring_db_password
             if [ "$schema_ready" != "1" ]; then
-              echo "Database schema preflight failed: apply migrations 009 and 010 before deployment."
+              echo "Database schema preflight failed: rag_assignee_sync_failures / meetings.analysis_job_id missing."
+              echo "Expected from V20260709_1 and V20260710_1 (formerly docs/db/migrations 009 and 010)."
               exit 1
             fi
           '

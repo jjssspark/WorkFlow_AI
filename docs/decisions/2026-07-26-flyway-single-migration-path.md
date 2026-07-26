@@ -14,6 +14,12 @@
 | `App/backend_spring/src/main/resources/db/init/*.sql` | 없음 | 컨테이너 최초 기동 (로컬 `db`만) |
 | `docs/db/migrations/0*.sql` | 없음 | 사람이 `for` 루프로 수동, 매 배포 재실행 |
 | `supabase/migrations/*.sql` | Supabase CLI | 아무도 실행하지 않음 (위와 중복) |
+| `docs/db/workflow_ai_schema.sql` | 없음 | 실행 경로 아님 — 2026-07-22 `supabase db dump` 스냅샷 |
+
+다섯 번째 항목은 이 문서를 처음 쓸 때 놓쳤다. 마이그레이션이 아니라 운영 스냅샷이라 경로로
+세지 않았는데, **운영에만 있고 다른 어디에도 없는 객체 21개가 여기에만 정의돼 있다**
+(`workload_scores` 테이블, `uq_action_items_created_task`, 성능 인덱스 6개 등). 즉 이 파일은
+운영 스키마가 어떻게 그렇게 됐는지 설명하지 못하고, 그렇다는 사실만 기록한다.
 
 여기에 두 제약이 겹쳤다.
 
@@ -36,6 +42,11 @@ compose로 띄울 때만 Flyway가 켜졌다.
 **1. 경로 일원화 — Flyway를 유일한 스키마 변경 경로로 한다.**
 `docs/db/migrations`는 V파일로 이관 후 폐기, `supabase/migrations`는 삭제한다. `db/init`은
 빈 DB 최초 부트스트랩 전용으로 역할을 고정한다.
+
+이관본 14개는 운영 baseline(`20260721.1`) 아래 번호를 받으므로 운영에서는 재실행되지 않지만
+**빈 DB에서도 실행되지 않는다.** 그래서 같은 내용을 `db/init/11_pre_baseline_backfill.sql`
+(생성물)에 둔다. `initdb.d`는 빈 볼륨에서 한 번만 돌기 때문에 운영에는 영향이 없다.
+중복이지만 baseline을 재설계할 때까지의 과도기 조치다 — 아래 "남은 divergence" 참조.
 
 **2. 실행 주체 제한 — 3층 방어.**
 
@@ -67,12 +78,34 @@ Postgres로 이관할 때 도구를 다시 갈아야 한다.
 **2층을 지금 Supabase에 적용.** 틈을 즉시 닫지만 롤 설계와 7명 `.env` 갱신을 이관 때 또
 해야 한다. 그때까지의 공백은 1층·3층으로 완화한다.
 
+## 남은 divergence — 빈 DB는 아직 운영과 같지 않다
+
+2026-07-26 실측: `db/init`(백필 포함) + Flyway로 빈 DB를 만들어 운영과 객체 단위로 비교했다.
+백필 도입으로 누락이 57개에서 30개로 줄었고, 줄어든 27개가 이관본 14개가 담당하는 부분이다
+(pgvector 확장, `embedding` → `vector(1024)`, `rag_assignee_sync_failures` 등).
+
+남은 30개는 전부 이 결정 이전부터 있던 차이다. 상세 표는
+[DEPLOY_OCI.md 8절](../../App/DEPLOY_OCI.md)에 있고, 성격은 세 가지다.
+
+- **`workflow_ai_schema.sql`에만 정의** (21개) — `workload_scores` 일체, 성능 인덱스 6개,
+  `uq_action_items_created_task`. 이 중 유니크 제약만 실제 무결성 차이다.
+- **어디에도 정의 없음** (5개) — `users.is_admin`·`faculty_id`·`reviewer_rejection_reason`,
+  `tasks.done_date`, `evaluation_scores.total_score`. JPA 엔티티가 매핑하지 않으므로 신규
+  환경 기동에는 영향이 없다. `total_score`는 머지되지 않은 `origin/contribution_score`
+  브랜치에서 왔다 — 이번 장애와 같은 경로다.
+- **이름·길이 차이** (FK 6개, varchar 10개) — 기능 동등. 운영이 더 느슨한 쪽이다.
+
+이 divergence를 어떻게 정리할지는 **OCI 자체호스팅 Postgres 이관 시점의 baseline 재설계와
+함께 결정한다.** 그때 baseline을 001 이전으로 내리면 이관본 14개가 정상 실행되고 백필 파일과
+`workflow_ai_schema.sql`을 함께 폐기할 수 있다.
+
 ## 되돌리는 법
 
 | 변경 | 되돌리기 |
 |---|---|
 | compose 기본값 `false` | `App/docker-compose.yml`에서 `:-true`로 복원 |
 | `docs/db/migrations` 폐기 | git에서 디렉터리 복원 (DB 영향 없음 — 이미 적용된 내용) |
+| `db/init/11_pre_baseline_backfill.sql` | 파일 삭제. 기존 볼륨에는 영향 없음(빈 볼륨에서만 실행) |
 | `supabase/migrations` 삭제 | git에서 복원 |
 | Preflight validate 스텝 | `.github/workflows/deploy-oci.yml`에서 해당 스텝 삭제 |
 | `migration-guard` CI | `.github/workflows/migration-guard.yml` 삭제 |
