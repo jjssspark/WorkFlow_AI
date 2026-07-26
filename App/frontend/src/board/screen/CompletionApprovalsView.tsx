@@ -19,7 +19,7 @@ import type { Task } from "../libs/types/task";
 const UNASSIGNED = "__unassigned__";
 
 export function CompletionApprovalsView() {
-  const { currentProjectId } = useAuth();
+  const { currentProjectId, projectContextReady } = useAuth();
   const projectId = currentProjectId ?? DEMO_PROJECT_ID;
   const [projectMembers, setProjectMembers] = useState<MemberResponse[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -55,9 +55,12 @@ export function CompletionApprovalsView() {
       .catch(() => setLoadState("error"));
   }, [projectId]);
 
+  // BoardView와 같은 이유로 projectContextReady 전에는 기다린다 - 안 그러면 새로고침 직후
+  // currentProjectId가 아직 null이라 DEMO_PROJECT_ID로 폴백해 엉뚱한 프로젝트의 승인 대기 목록이 보인다.
   useEffect(() => {
+    if (!projectContextReady) return;
     loadTasks();
-  }, [loadTasks]);
+  }, [loadTasks, projectContextReady]);
 
   useEffect(() => {
     if (currentProjectId == null) {
