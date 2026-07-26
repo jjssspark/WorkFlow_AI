@@ -30,7 +30,21 @@ else
   allowed_status='^(A|R[0-9]{3})[[:space:]]'
 fi
 
-violations=$(printf '%s\n' "$changed" | grep -vE "$allowed_status" || true)
+# dev에 같은 버전의 V20260726_1이 두 개 합쳐진 상태를 해소하기 위한 정확한 R100
+# 한 건만 허용한다. source가 merge된 뒤에는 base에 더 이상 존재하지 않으므로 재사용할 수 없다.
+approved_collision_rename=$(printf 'R100\t%s\t%s' \
+  "$migration_dir/V20260726_1__rag_assignee_sync_failures.sql" \
+  "$migration_dir/V20260727_1__rag_assignee_sync_failures.sql")
+
+violations=$(
+  while IFS= read -r change; do
+    if [ "$change" = "$approved_collision_rename" ]; then
+      echo '승인된 Flyway 버전 충돌 해소 rename 감지.' >&2
+    elif ! printf '%s\n' "$change" | grep -Eq "$allowed_status"; then
+      printf '%s\n' "$change"
+    fi
+  done <<< "$changed"
+)
 
 if [ -n "$violations" ]; then
   echo '::error::이미 적용된 마이그레이션 파일을 수정/삭제/이름변경할 수 없습니다.'
