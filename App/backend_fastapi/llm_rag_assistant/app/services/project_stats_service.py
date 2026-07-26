@@ -81,10 +81,35 @@ ORDER BY t.due_date DESC, t.id
 LIMIT $3
 """
 
+# "블로커 해결 방법 추천해줘"에 답하려면 건수가 아니라 막힌 이유가 필요하다. 이유는 청크에
+# 잘 안 들어가고("블로커"는 본문 단어가 아니라 status 값이라 유사도 검색에 안 걸린다) 설령
+# 걸려도 상위 5건에 들어온다는 보장이 없어, 마감 목록과 같은 방식으로 SQL로 확정한다.
+#
+# 정렬이 곧 "무엇을 보여줄지"다 - 상한이 작아서 급한 것이 잘려 나가면 목록이 있으나 마나다.
+# 우선순위(high>medium>low)를 먼저 보고, 같으면 마감이 가까운 순으로 본다. 마감이 없는 건은
+# 급한지 알 수 없으므로 NULLS LAST로 뒤에 둔다.
+#
+# 상태 문자열은 파라미터로 넘긴다. SQL에 'blocked'를 또 박으면 _BLOCKED_STATUS와 두 벌이 되어
+# 한쪽만 바뀔 때 목록과 건수가 조용히 어긋난다.
+_BLOCKED_LIST_SQL = """
+SELECT t.title, t.description, t.due_date, t.priority,
+       u.name AS assignee_name, COUNT(*) OVER () AS match_total
+FROM tasks t
+LEFT JOIN users u ON u.id = t.assignee_id
+WHERE t.project_id = $1
+  AND t.status = $2
+  AND ($3::bigint IS NULL OR t.assignee_id = $3)
+ORDER BY CASE t.priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
+         t.due_date NULLS LAST, t.id
+LIMIT $4
+"""
+
 # 프롬프트에 매번 붙는 줄이라 상한을 둔다. 넘는 만큼은 "외 N건"으로 알린다.
 # 임박 쪽을 더 크게 잡는다 - 지난 마감은 "얼마나 밀렸나"를 알리는 정도면 된다.
 _DUE_SOON_LIST_LIMIT = 5
 _OVERDUE_LIST_LIMIT = 3
+# 블로커는 건당 사유까지 붙어 한 줄이 길다. 3건이 넘어가면 무관한 질문의 프롬프트까지 무겁다.
+_BLOCKED_LIST_LIMIT = 3
 
 _UNASSIGNED_LABEL = "미배정"
 _BLOCKED_STATUS = "blocked"
@@ -108,6 +133,9 @@ async def fetch_project_stats(pool, project_id: int, assignee_id: int | None = N
             )
             overdue_rows = await conn.fetch(
                 _OVERDUE_LIST_SQL, project_id, assignee_id, _OVERDUE_LIST_LIMIT
+            )
+            blocked_rows = await conn.fetch(
+                _BLOCKED_LIST_SQL, project_id, _BLOCKED_STATUS, assignee_id, _BLOCKED_LIST_LIMIT
             )
     except Exception:
         # 삼켜도 되는 실패지만 원인까지 버리면 운영에서 왜 집계가 빠졌는지 알 수 없다.
@@ -160,6 +188,16 @@ async def fetch_project_stats(pool, project_id: int, assignee_id: int | None = N
 
     due_soon_list = _items(due_soon_rows)
     overdue_list = _items(overdue_rows)
+    blocked_list = [
+        {
+            "title": r["title"],
+            "description": r["description"],
+            "due_date": r["due_date"],
+            "priority": r["priority"],
+            "assignee_name": r["assignee_name"],
+        }
+        for r in blocked_rows
+    ]
 
     return {
         "total": total,
@@ -171,6 +209,8 @@ async def fetch_project_stats(pool, project_id: int, assignee_id: int | None = N
         "due_soon_remaining": _remaining(due_soon_rows),
         "overdue_list": overdue_list,
         "overdue_remaining": _remaining(overdue_rows),
+        "blocked_list": blocked_list,
+        "blocked_remaining": _remaining(blocked_rows),
         # 담당 업무가 0건이면 개인 블록 자체를 넣지 않는다. "내 업무 0건"이 컨텍스트에 있으면
         # 모델이 그걸 근거로 단정한다(_format_stats의 0건 항목 생략과 같은 이유).
         "mine": (

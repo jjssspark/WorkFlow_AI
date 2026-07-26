@@ -70,6 +70,32 @@ def _format_task_list(title: str, items: list[dict] | None, remaining: int | Non
     return lines
 
 
+# 사유는 사용자가 쓴 자유 서술이라 길이 상한이 없다. 통째로 넣으면 블로커 3건이 프롬프트를
+# 다 먹는다. 조언의 실마리는 앞머리에 있으므로 앞에서 자른다.
+_BLOCKED_REASON_MAX_LEN = 80
+
+
+def _format_blocked_list(items: list[dict] | None, remaining: int | None) -> list[str]:
+    if not items:
+        return []
+    lines = ["블로커 업무(우선순위 높은 순):"]
+    for item in items:
+        reason = (item.get("description") or "").strip()
+        if len(reason) > _BLOCKED_REASON_MAX_LEN:
+            reason = reason[:_BLOCKED_REASON_MAX_LEN] + "..."
+        # 사유가 비었는데 있는 척 넘기면 모델이 막힌 이유를 지어낸다. 비었음을 명시해야
+        # 근거 없는 조언 대신 "사유를 적어달라"고 되물을 수 있다.
+        reason_part = f"사유: {reason}" if reason else "사유 미기재"
+        due = item.get("due_date") or "미정"
+        lines.append(
+            f" - {item['title']} ({item['assignee_name'] or _UNASSIGNED_LABEL})"
+            f" 마감 {due} · 우선순위 {item.get('priority') or '미정'} · {reason_part}"
+        )
+    if remaining:
+        lines.append(f" - 외 {remaining}건")
+    return lines
+
+
 def _format_stats(stats: dict | None) -> str:
     if not stats:
         return ""
@@ -102,6 +128,10 @@ def _format_stats(stats: dict | None) -> str:
         stats.get("overdue_list"),
         stats.get("overdue_remaining"),
     )
+
+    # 담당자별 건수만으로는 "해결 방법 추천해줘"에 답할 재료가 없다. 무엇이 왜 막혔는지가
+    # 있어야 조언이 나온다.
+    lines += _format_blocked_list(stats.get("blocked_list"), stats.get("blocked_remaining"))
 
     # 프로젝트 전체 집계만으로는 "내 업무 몇 건"에 답할 재료가 없어 모델이 출처 표본을 센다
     # (실측: 실제 30건인데 "총 5건"). 개인화 질문일 때만 질문자 몫을 따로 넣는다.

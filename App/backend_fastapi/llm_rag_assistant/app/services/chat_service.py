@@ -26,7 +26,8 @@ _SNIPPET_MAX_LEN = 200
 # v5: 프로젝트 전수 집계 블록을 컨텍스트에 주입 (project_stats_service / generation_service)
 # v6: 개인화 질문에 질문자 본인 전수 집계("내 업무") 블록 추가
 # v7: 마감 임박 업무 확정 목록 + 지난 마감 건수 추가 (project_stats_service)
-_ANSWER_CACHE_SCHEMA_VERSION = "v7"
+# v8: 블로커 업무 확정 목록(사유·마감·우선순위) 추가 (project_stats_service)
+_ANSWER_CACHE_SCHEMA_VERSION = "v8"
 _ANSWER_CACHE_TTL_SECONDS = 1800
 
 # "내 할 일 알려줘" 류 개인화 질문 판별용. 순수 벡터 유사도만으로는 "내"가 누구인지 구분할

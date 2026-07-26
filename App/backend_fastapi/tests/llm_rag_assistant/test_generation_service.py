@@ -332,6 +332,48 @@ def test_stats_block_omits_the_due_soon_list_when_empty() -> None:
     assert "마감 임박 업무" not in _format_stats(_stats(due_soon_list=[]))
 
 
+def _blocked(title: str, description: str | None, name: str | None, **overrides) -> dict:
+    base = {
+        "title": title,
+        "description": description,
+        "assignee_name": name,
+        "due_date": date(2026, 7, 30),
+        "priority": "high",
+    }
+    return {**base, **overrides}
+
+
+def test_stats_block_lists_blocked_tasks_with_their_reason() -> None:
+    """건수만 있으면 '해결 방법 추천해줘'에 모델이 근거 없는 일반론을 만든다."""
+    block = _format_stats(
+        _stats(
+            blocked_list=[
+                _blocked("결제 SDK 충돌", "토스 SDK 버전 충돌로 빌드 실패", "최동혁"),
+                _blocked("DB 인덱싱", "EXPLAIN 결과 해석 미정", None, priority="medium", due_date=None),
+            ],
+            blocked_remaining=10,
+        )
+    )
+
+    assert "결제 SDK 충돌 (최동혁)" in block
+    assert "사유: 토스 SDK 버전 충돌로 빌드 실패" in block
+    assert "마감 2026-07-30" in block
+    assert "DB 인덱싱 (미배정)" in block
+    assert "마감 미정" in block
+    assert "외 10건" in block
+
+
+def test_stats_block_marks_blockers_that_have_no_reason_written() -> None:
+    """사유가 비었는데 있는 척 넘기면 모델이 이유를 지어낸다. 비었음을 명시해야 되물을 수 있다."""
+    block = _format_stats(_stats(blocked_list=[_blocked("사유 없는 블로커", None, "허영주")]))
+
+    assert "사유 미기재" in block
+
+
+def test_stats_block_omits_the_blocked_list_when_empty() -> None:
+    assert "블로커 업무" not in _format_stats(_stats(blocked_list=[]))
+
+
 def test_stats_block_is_empty_without_stats() -> None:
     assert _format_stats(None) == ""
 
