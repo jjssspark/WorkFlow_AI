@@ -673,11 +673,13 @@ public class MeetingAnalysisService {
         }
         String text = meeting.getTranscript();
         if (text == null || text.isBlank()) {
-            throw new IllegalArgumentException("재분석할 회의록 원문이 없습니다.");
+            throw new IllegalStateException(MISSING_TRANSCRIPT_MESSAGE);
         }
 
         return triggerAnalysis(meeting, projectId, text);
     }
+
+    static final String MISSING_TRANSCRIPT_MESSAGE = "재분석할 회의록 원문이 없습니다.";
 
     // count 기반 접미사는 중간 버전이 삭제돼 번호에 공백이 생기면 이미 존재하는 제목을 다시 만들어낼 수 있으므로,
     // 루트 락으로 직렬화된 상태에서 실제로 존재하지 않는 제목을 찾을 때까지 순차 확인한다.

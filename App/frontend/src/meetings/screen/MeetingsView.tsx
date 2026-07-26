@@ -1180,6 +1180,14 @@ export function MeetingsView() {
       const isPermissionError = statusCode === 403;
       const isMissingAnalysis = statusCode === 409;
       const status = statusCode ? ` (${statusCode})` : "";
+      if (error instanceof ApiRequestError && error.code === "REQUEST_TIMEOUT") {
+        // handleDeleteMeeting과 동일한 이유: 클라이언트 타임아웃 후에도 서버는 삭제를 끝냈을 수 있으므로
+        // 실패로 단정하지 않고 서버 상태를 다시 조회해 화면을 맞춘다.
+        setMeetingListError("삭제 확인이 지연되고 있습니다. 최신 상태를 다시 불러옵니다.");
+        setTimeout(() => setMeetingListError(null), 6000);
+        void refreshMeetingsFromServer();
+        return;
+      }
       const errorMessage = isAuthError
         ? "로그인이 만료되어 삭제되지 않았습니다. 다시 로그인 후 삭제해주세요."
         : isPermissionError

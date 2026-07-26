@@ -4,6 +4,7 @@ import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { buildGeneratedTodos, deriveCurrentUserRole, MeetingsView } from "./MeetingsView";
 import type { MeetingAiResult } from "../libs/types/meetingAiTypes";
+import { ApiRequestError } from "../../global/api/apiClient";
 
 const mockUseAuth = vi.fn();
 vi.mock("../../global/hooks/useAuth", () => ({
@@ -370,6 +371,27 @@ describe("MeetingsView 삭제 플로우 분리", () => {
 
     await waitFor(() => expect(deleteMeeting).toHaveBeenCalledWith("1", "2", false));
     expect(deleteMeetingAnalysis).not.toHaveBeenCalled();
+  });
+
+  it("분석 결과 삭제 요청이 타임아웃되면 실패로 단정하지 않고 서버 목록을 다시 조회한다", async () => {
+    fetchMeetings.mockResolvedValue([
+      { meetingId: "1", title: "분석완료 회의", meetingDate: "2026-07-19", meetingType: "정기회의", analysisStatus: "completed", savedAt: null, originalMeetingId: null, tasksRegistered: false },
+    ]);
+    deleteMeetingAnalysis.mockRejectedValue(new ApiRequestError("요청이 너무 오래 걸려 중단되었습니다.", 0, "REQUEST_TIMEOUT"));
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={["/meetings"]}>
+        <MeetingsView />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(fetchMeetings).toHaveBeenCalledTimes(1));
+    await user.click(await screen.findByLabelText("분석완료 회의 분석 결과 삭제"));
+    await user.click(await screen.findByRole("button", { name: "분석 결과만 삭제" }));
+
+    await waitFor(() => expect(deleteMeetingAnalysis).toHaveBeenCalledWith("1", "1", false));
+    expect(await screen.findByText("삭제 확인이 지연되고 있습니다. 최신 상태를 다시 불러옵니다.")).toBeInTheDocument();
+    await waitFor(() => expect(fetchMeetings).toHaveBeenCalledTimes(2));
   });
 
   it("'저장된 회의록' 탭의 새 삭제 버튼은 원본 삭제(deleteMeeting)를 호출한다", async () => {

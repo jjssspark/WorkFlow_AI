@@ -298,6 +298,9 @@ public class MeetingAnalysisController {
         } catch (IllegalArgumentException e) {
             return ResponseEntity.status(400).body(ApiResponse.fail("NOT_A_VERSION", e.getMessage()));
         } catch (IllegalStateException e) {
+            if (MeetingAnalysisService.MISSING_TRANSCRIPT_MESSAGE.equals(e.getMessage())) {
+                return ResponseEntity.status(400).body(ApiResponse.fail("MISSING_TRANSCRIPT", e.getMessage()));
+            }
             return ResponseEntity.status(409).body(ApiResponse.fail("MEETING_NOT_REANALYZABLE", "이미 분석 완료되었거나 분석 중인 회의록입니다."));
         }
     }
