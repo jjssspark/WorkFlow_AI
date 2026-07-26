@@ -1116,6 +1116,13 @@ export function MeetingsView() {
         removeMeetingFromLocalState(target.id);
         setDeleteMessage("서버에 없는 회의록이라 목록에서 제거했습니다.");
         setTimeout(() => setDeleteMessage(null), 2500);
+      } else if (error instanceof ApiRequestError && error.code === "REQUEST_TIMEOUT") {
+        // 클라이언트가 타임아웃으로 요청을 포기해도 서버는 처리를 계속할 수 있어, 실제로는
+        // 삭제가 이미 끝났을 수 있다. "삭제 안 됐다"고 단정하지 말고 서버 상태를 다시 조회해
+        // 화면을 실제 상태와 맞춘다.
+        setMeetingListError("삭제 확인이 지연되고 있습니다. 최신 상태를 다시 불러옵니다.");
+        setTimeout(() => setMeetingListError(null), 6000);
+        void refreshMeetingsFromServer();
       } else {
         const statusCode = error instanceof ApiRequestError ? error.status : null;
         const isAuthError = statusCode === 401 || message.includes("인증이 만료") || message.includes("다시 로그인");

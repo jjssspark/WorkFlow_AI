@@ -1,5 +1,7 @@
 package com.workflowai.notification;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -7,6 +9,8 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 /** TaskController 등이 업무 생성/수정/삭제/이동 시 알림을 남기기 위해 쓰는 공용 서비스. ActivityService와 같은 포지션. */
 @Service
 public class NotificationService {
+    private static final Logger log = LoggerFactory.getLogger(NotificationService.class);
+
     private final NotificationRepository notificationRepository;
     private final NotificationAsyncSender asyncSender;
 
@@ -32,7 +36,16 @@ public class NotificationService {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
-                    asyncSender.sendAsync(userId, type, title, content, targetType, targetId);
+                    // notificationExecutor 큐가 가득 차면 @Async 프록시의 submit()이
+                    // 이 스레드(요청 처리 스레드)에서 즉시 RejectedExecutionException을 던진다.
+                    // 원 트랜잭션은 이미 커밋된 뒤라, 여기서 예외를 흘리면 이미 성공한 API 응답이
+                    // 실패한 것처럼 보이게 된다 — 알림은 부가 기능이므로 격리한다.
+                    try {
+                        asyncSender.sendAsync(userId, type, title, content, targetType, targetId);
+                    } catch (RuntimeException e) {
+                        log.warn("알림 비동기 작업 제출 실패. userId={}, type={}, targetType={}, targetId={}",
+                            userId, type, targetType, targetId, e);
+                    }
                 }
             });
             return;
