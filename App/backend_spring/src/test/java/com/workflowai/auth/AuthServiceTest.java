@@ -8,6 +8,7 @@ import static org.mockito.Mockito.when;
 
 import com.workflowai.security.JwtService;
 import com.workflowai.task.SupabaseStorageClient;
+import com.workflowai.user.ReviewerStatus;
 import com.workflowai.user.User;
 import com.workflowai.user.UserRepository;
 import java.util.Optional;
@@ -74,14 +75,14 @@ class AuthServiceTest {
 
         ArgumentCaptor<User> savedUser = ArgumentCaptor.forClass(User.class);
         verify(userRepository).saveAndFlush(savedUser.capture());
-        assertThat(savedUser.getValue().getReviewerStatus()).isEqualTo("PENDING");
+        assertThat(savedUser.getValue().getReviewerStatus()).isEqualTo(ReviewerStatus.PENDING);
     }
 
     @Test
     void loginWithPassword_pendingReviewer_isBlocked() {
         String hash = passwordEncoder.encode("12345678");
         User pendingReviewer = new User("prof@example.com", "고교수", "local", "prof@example.com", hash);
-        pendingReviewer.setReviewerStatus("PENDING");
+        pendingReviewer.setReviewerStatus(ReviewerStatus.PENDING);
         when(userRepository.findByEmail("prof@example.com")).thenReturn(Optional.of(pendingReviewer));
 
         assertThatThrownBy(() -> authService.loginWithPassword("prof@example.com", "12345678"))
@@ -92,7 +93,7 @@ class AuthServiceTest {
     void loginWithPassword_approvedReviewer_issuesTokens() {
         String hash = passwordEncoder.encode("12345678");
         User approvedReviewer = new User("prof@example.com", "고교수", "local", "prof@example.com", hash);
-        approvedReviewer.setReviewerStatus("APPROVED");
+        approvedReviewer.setReviewerStatus(ReviewerStatus.APPROVED);
         when(userRepository.findByEmail("prof@example.com")).thenReturn(Optional.of(approvedReviewer));
         when(jwtService.issueAccessToken(approvedReviewer)).thenReturn("access-token");
         when(jwtService.issueRefreshToken(approvedReviewer)).thenReturn("refresh-token");

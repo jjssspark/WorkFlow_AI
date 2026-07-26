@@ -2,6 +2,7 @@ package com.workflowai.auth;
 
 import com.workflowai.security.JwtService;
 import com.workflowai.task.SupabaseStorageClient;
+import com.workflowai.user.ReviewerStatus;
 import com.workflowai.user.User;
 import com.workflowai.user.UserRepository;
 import io.jsonwebtoken.Claims;
@@ -25,7 +26,6 @@ public class AuthService {
     private static final String PROVIDER_LOCAL = "local";
     private static final String ROLE_TYPE_MEMBER = "MEMBER";
     private static final String ROLE_TYPE_REVIEWER = "REVIEWER";
-    private static final String REVIEWER_STATUS_PENDING = "PENDING";
     private static final int MIN_PASSWORD_LENGTH = 8;
     private static final int AVATAR_SIGNED_URL_EXPIRES_SECONDS = 24 * 60 * 60;
     private static final Pattern EMAIL_PATTERN = Pattern.compile(
@@ -129,7 +129,7 @@ public class AuthService {
         newUser.setTermsAgreedAt(now);
         newUser.setPrivacyAgreedAt(now);
         if (isReviewerApplication) {
-            newUser.setReviewerStatus(REVIEWER_STATUS_PENDING);
+            newUser.setReviewerStatus(ReviewerStatus.PENDING);
         }
         User user;
         try {
@@ -162,7 +162,7 @@ public class AuthService {
         if (!passwordEncoder.matches(password, user.getPasswordHash())) {
             throw new InvalidCredentialsException();
         }
-        if (REVIEWER_STATUS_PENDING.equals(user.getReviewerStatus())) {
+        if (user.getReviewerStatus() == ReviewerStatus.PENDING) {
             throw new ReviewerApprovalPendingException();
         }
         return issueTokens(user);
@@ -181,7 +181,8 @@ public class AuthService {
         String refreshToken = jwtService.issueRefreshToken(user);
         UserSummary summary = new UserSummary(
             user.getId(), user.getEmail(), user.getName(),
-            user.getAffiliation(), user.getFieldTags(), user.getGithubUsername(), avatarUrlOrNull(user)
+            user.getAffiliation(), user.getFieldTags(), user.getGithubUsername(), avatarUrlOrNull(user),
+            user.isAdmin()
         );
         return new AuthTokenResponse(accessToken, refreshToken, jwtService.accessTokenTtlSeconds(), summary);
     }
