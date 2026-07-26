@@ -265,6 +265,14 @@ public class MeetingAnalysisService {
         }
 
         String text = extractTextFromStoredFile(meeting);
+        // 파일에서 텍스트를 추출하지 못해도, 이전에 성공적으로 분석되어 저장된 transcript가 있다면
+        // (deleteAnalysis()가 분석 결과만 지우고 transcript는 보존해두는 경우) 그것으로 재분석을 시도한다.
+        if (text == null || text.isBlank()) {
+            String transcript = meeting.getTranscript();
+            if (transcript != null && !transcript.isBlank()) {
+                text = transcript;
+            }
+        }
         if (text == null) {
             String errorMessage = MeetingAnalysisPersistence.REUPLOAD_REQUIRED_ERROR_MESSAGE;
             meetingAnalysisPersistence.saveAnalysisFailure(id, errorMessage);
@@ -484,6 +492,80 @@ public class MeetingAnalysisService {
             "'" + title + "' 회의록을 삭제했습니다." + scopeSuffix,
             uploaderId, "MEETING_DELETED", "회의록이 삭제되었습니다",
             actorName + "님이 '" + title + "' 회의록을 삭제했습니다." + scopeSuffix,
+            "meeting", meetingDbId
+        );
+        return new MeetingDeleteResponse(meetingId, "DELETED");
+    }
+
+    /**
+     * 회의록 원본(파일, transcript, 참석자, savedAt)은 남기고 AI 분석 결과(meeting_analysis, To-Do 후보)만 지운다.
+     * 삭제 후 analysisStatus를 failed로 돌려 기존 /retry 엔드포인트(저장된 파일에서 텍스트 재추출)로
+     * 같은 파일을 다시 분석할 수 있게 한다 — 별도의 재분석 엔드포인트를 새로 만들지 않기 위한 설계다.
+     */
+    @Transactional
+    public MeetingDeleteResponse deleteAnalysis(String projectId, String meetingId, boolean deleteLinkedTasks) {
+        Long projectDbId = requireProjectMember(projectId);
+        Long meetingDbId = parseLongOrNull(meetingId);
+        if (meetingDbId == null) return null;
+        Meeting meeting = meetingRepository.findByIdAndProjectIdForUpdate(meetingDbId, projectDbId).orElse(null);
+        if (meeting == null) return null;
+        requireLeader(projectDbId);
+
+        if (!meetingAnalysisRepository.existsById(meetingDbId)) {
+            throw new IllegalStateException("MEETING_ANALYSIS_NOT_FOUND");
+        }
+
+        List<Task> linkedTasks = deleteLinkedTasks
+            ? taskRepository.findBySourceMeetingId(meetingDbId)
+            : List.of();
+        List<MeetingActionItem> linkedActionItems = deleteLinkedTasks
+            ? meetingActionItemRepository.findByMeetingId(meetingDbId)
+            : List.of();
+        ragIngestService.recordDeleteSourceIntent(meeting.getProjectId(), "meeting", meetingDbId);
+        linkedTasks.forEach(task ->
+            ragIngestService.recordDeleteSourceIntent(task.getProjectId(), "task", task.getId())
+        );
+        linkedActionItems.forEach(item ->
+            ragIngestService.recordDeleteSourceIntent(meeting.getProjectId(), "action_item", item.getId())
+        );
+
+        meetingAnalysisRepository.deleteById(meetingDbId);
+        if (deleteLinkedTasks) {
+            meetingActionItemRepository.deleteByMeetingId(meetingDbId);
+            taskRepository.deleteBySourceMeetingId(meetingDbId);
+        } else {
+            meetingActionItemRepository.clearMeetingId(meetingDbId);
+            taskRepository.clearSourceMeetingId(meetingDbId);
+        }
+
+        meeting.setAnalysisStatus("failed");
+        meetingRepository.save(meeting);
+
+        runAfterCommit(() ->
+            ragIngestService.deleteSourceBestEffort(meeting.getProjectId(), "meeting", meetingDbId)
+        );
+        linkedTasks.forEach(task ->
+            runAfterCommit(() ->
+                ragIngestService.deleteSourceBestEffort(task.getProjectId(), "task", task.getId())
+            )
+        );
+        linkedActionItems.forEach(item ->
+            runAfterCommit(() ->
+                ragIngestService.deleteSourceBestEffort(meeting.getProjectId(), "action_item", item.getId())
+            )
+        );
+
+        Long actorId = CurrentUser.id();
+        Long uploaderId = meeting.getUploadedBy();
+        String title = meeting.getTitle();
+        String actorName = defaultString(resolveNameById(actorId), "누군가");
+        String scopeSuffix = deleteLinkedTasks ? " (등록된 업무도 함께 삭제됨)" : " (등록된 업무는 유지됨)";
+
+        notificationService.notifyActorAndCounterpart(
+            actorId, "MEETING_ANALYSIS_DELETED", "회의록 분석 결과를 삭제했습니다",
+            "'" + title + "' 회의록의 분석 결과를 삭제했습니다." + scopeSuffix,
+            uploaderId, "MEETING_ANALYSIS_DELETED", "회의록 분석 결과가 삭제되었습니다",
+            actorName + "님이 '" + title + "' 회의록의 분석 결과를 삭제했습니다." + scopeSuffix,
             "meeting", meetingDbId
         );
         return new MeetingDeleteResponse(meetingId, "DELETED");
