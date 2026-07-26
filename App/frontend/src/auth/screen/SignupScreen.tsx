@@ -61,6 +61,7 @@ export function SignupScreen() {
   const [loading, setLoading] = useState(false);
   const [isProfessor, setIsProfessor] = useState(draft?.isProfessor ?? false);
   const [professorNo, setProfessorNo] = useState("");
+  const [affiliation, setAffiliation] = useState("");
   const [certificateName, setCertificateName] = useState("");
   const [approvalSubmitted, setApprovalSubmitted] = useState(false);
   const [signupError, setSignupError] = useState<string | null>(null);
@@ -75,7 +76,7 @@ export function SignupScreen() {
 
   const pwMatch = Boolean(pw && pwConfirm && pw === pwConfirm);
   const pwMismatch = Boolean(pw && pwConfirm && pw !== pwConfirm);
-  const professorValid = !isProfessor || Boolean(professorNo.trim() || certificateName);
+  const professorValid = !isProfessor || Boolean(professorNo.trim() && affiliation.trim());
   const valid = Boolean(name.trim() && email.trim() && pw && pwMatch && termsAgreed && privacyAgreed && professorValid);
 
   const handleCertificateChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -112,6 +113,8 @@ export function SignupScreen() {
           roleType: isProfessor ? "REVIEWER" : "MEMBER",
           termsAgreed,
           privacyAgreed,
+          affiliation: isProfessor ? affiliation.trim() : undefined,
+          facultyId: isProfessor ? professorNo.trim() : undefined,
         }),
       });
 
@@ -270,6 +273,15 @@ export function SignupScreen() {
 
                 {isProfessor && (
                   <div className="mt-4 space-y-3">
+                    <div>
+                      <label className="text-xs font-semibold text-foreground">소속기관 또는 학과</label>
+                      <input
+                        value={affiliation}
+                        onChange={e => setAffiliation(e.target.value)}
+                        className="mt-1.5 w-full rounded-xl border border-border bg-input-background px-3 py-2.5 text-sm outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
+                        placeholder="예: 컴퓨터공학과"
+                      />
+                    </div>
                     <div>
                       <label className="text-xs font-semibold text-foreground">교수 일련번호 또는 교직원 번호</label>
                       <input
