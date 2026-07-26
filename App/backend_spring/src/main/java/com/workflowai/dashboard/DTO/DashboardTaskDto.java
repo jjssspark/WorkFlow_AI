@@ -11,6 +11,7 @@ public record DashboardTaskDto(
     @Schema(description = "담당자 ID", example = "1") String assigneeId,
     @Schema(description = "담당자 이름", example = "김민준") String assigneeName,
     @Schema(description = "마감일(YYYY-MM-DD)", example = "2026-07-21") String dueDate,
+    @Schema(description = "완료일(YYYY-MM-DD) — status가 done으로 바뀐 날짜, done이 아니면 null", example = "2026-07-20") String doneDate,
     @Schema(description = "우선순위", example = "high") String priority,
     @Schema(description = "업무 설명") String description,
     @Schema(description = "업무 생성 출처", example = "MEETING_AI") String sourceType,
