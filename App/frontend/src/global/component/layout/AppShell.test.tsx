@@ -87,4 +87,24 @@ describe("AppShell", () => {
     // 언마운트하면 진행 중인 요청이 함께 끊겨 답변이 영영 오지 않는다. 숨기기만 해야 한다.
     expect(screen.getByText("진행률 요약해줘")).toBeInTheDocument();
   });
+
+  it("closes the assistant panel when Escape is pressed", async () => {
+    renderAppShell();
+    act(() => openAIAssistant("진행률 요약해줘"));
+    expect(await screen.findByRole("button", { name: "AI 어시스턴트 닫기" })).toBeInTheDocument();
+
+    await userEvent.keyboard("{Escape}");
+
+    expect(screen.queryByRole("button", { name: "AI 어시스턴트 닫기" })).not.toBeInTheDocument();
+  });
+
+  it("leaves Escape alone while the assistant is closed", async () => {
+    // 패널은 닫혀도 마운트된 채 남는다. 리스너를 열림 상태와 묶지 않으면 다른 화면에서 누른
+    // Esc까지 이 패널이 가로챈다.
+    renderAppShell();
+
+    await userEvent.keyboard("{Escape}");
+
+    expect(screen.getByRole("button", { name: "AI 어시스턴트 열기 (끌어서 위치 이동)" })).toBeInTheDocument();
+  });
 });

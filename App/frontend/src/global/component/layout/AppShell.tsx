@@ -55,6 +55,17 @@ export function AppShell() {
     setPendingQuestion(null);
   };
 
+  // 패널은 닫혀도 언마운트되지 않으므로 리스너를 열림 상태와 묶는다. 그러지 않으면 다른
+  // 화면에서 누른 Esc까지 숨어 있는 패널이 가로챈다.
+  useEffect(() => {
+    if (!aiOpen) return;
+    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") closeAI();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [aiOpen]);
+
   const assistantFab = useDraggableFab(openAI);
 
   const activeTab = (location.pathname.split("/").filter(Boolean)[0] ?? "dashboard") as Tab;
