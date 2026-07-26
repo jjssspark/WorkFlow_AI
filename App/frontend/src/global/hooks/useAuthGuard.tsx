@@ -33,3 +33,16 @@ export function RequireRole({ allow }: { allow: ProjectRoleKo[] }) {
   }
   return <Outlet />;
 }
+
+export function RequireAdmin() {
+  const { user, loading } = useAuth();
+  if (loading) {
+    return (
+      <div className="flex h-screen items-center justify-center text-sm text-muted-foreground">로딩 중...</div>
+    );
+  }
+  if (!user?.isAdmin) {
+    return <Navigate to="/dashboard" replace />;
+  }
+  return <Outlet />;
+}

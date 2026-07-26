@@ -264,9 +264,16 @@ export function Sidebar({ active, onSelect, onAI, collapsed, onToggleCollapsed, 
             </div>
           )}
           {!collapsed && (
-            <button type="button" onClick={() => navigate("/mypage/settings")} aria-label="개인정보 수정">
-              <Settings className="w-4 h-4 cursor-pointer shrink-0 hover:text-white transition-colors" style={{ color: "var(--muted-foreground)" }} />
-            </button>
+            <div className="flex items-center gap-2">
+              {user?.isAdmin && (
+                <button type="button" onClick={() => navigate("/admin/reviewers")} aria-label="관리자 페이지">
+                  <Shield className="w-4 h-4 cursor-pointer shrink-0 hover:text-white transition-colors" style={{ color: "var(--muted-foreground)" }} />
+                </button>
+              )}
+              <button type="button" onClick={() => navigate("/mypage/settings")} aria-label="개인정보 수정">
+                <Settings className="w-4 h-4 cursor-pointer shrink-0 hover:text-white transition-colors" style={{ color: "var(--muted-foreground)" }} />
+              </button>
+            </div>
           )}
         </div>
       </div>
