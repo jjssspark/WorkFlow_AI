@@ -44,4 +44,16 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
         filterChain.doFilter(request, response);
     }
+
+    /**
+     * SSE(SseEmitter) 같은 비동기 요청은 완료/타임아웃/에러 시 서블릿 컨테이너가 필터
+     * 체인을 ASYNC dispatch로 재실행한다. OncePerRequestFilter는 기본적으로 이 재실행을
+     * 건너뛰므로, SecurityContext가 비어있는 채로 AuthorizationFilter가 재평가되어
+     * 이미 커밋된 SSE 응답에 대해 AuthorizationDeniedException을 던지고 연결이 끊긴다.
+     * 재실행 시에도 이 필터가 Authorization 헤더로 재인증하도록 강제한다.
+     */
+    @Override
+    protected boolean shouldNotFilterAsyncDispatch() {
+        return false;
+    }
 }

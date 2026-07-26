@@ -1,16 +1,24 @@
 import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthProvider } from "../../hooks/useAuth";
+import { NotificationProvider } from "../../hooks/useNotifications";
 import { AppShell } from "./AppShell";
 import { openAIAssistant } from "../../../ai/libs/utils/openAIAssistant";
+
+vi.mock("../../api/notificationApi", () => ({
+  fetchUnreadNotificationCount: vi.fn().mockResolvedValue(0),
+  subscribeNotificationStream: vi.fn(),
+}));
 
 function renderAppShell() {
   return render(
     <MemoryRouter initialEntries={["/board"]}>
       <AuthProvider>
-        <AppShell />
+        <NotificationProvider>
+          <AppShell />
+        </NotificationProvider>
       </AuthProvider>
     </MemoryRouter>
   );

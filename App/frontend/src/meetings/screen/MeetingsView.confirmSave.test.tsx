@@ -71,6 +71,7 @@ async function analyzeAndReachResults() {
   const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
   await user.upload(fileInput, file);
 
+  await user.click(await screen.findByRole("button", { name: /김민준/ }));
   await user.click(screen.getByRole("button", { name: "AI 분석 시작" }));
 
   await waitFor(() => expect(screen.getByText("회의록 분석결과 저장")).toBeInTheDocument(), { timeout: 5000 });
@@ -104,6 +105,26 @@ describe("MeetingsView handleConfirmSave", () => {
       errorMessage: null,
       attendees: [],
     });
+  });
+
+  it("참석자를 1명도 선택하지 않으면 경고를 표시하고 분석을 시작하지 않는다", async () => {
+    const user = userEvent.setup();
+    renderView();
+
+    await waitFor(() => expect(fetchMeetings).toHaveBeenCalled());
+
+    await user.click(screen.getAllByRole("button", { name: "회의록 업로드" })[0]);
+    await user.click(screen.getByText("문서 업로드"));
+    await user.click(screen.getByRole("button", { name: /다음/ }));
+
+    const file = new File(["dummy"], "meeting.txt", { type: "text/plain" });
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+    await user.upload(fileInput, file);
+
+    await user.click(screen.getByRole("button", { name: "AI 분석 시작" }));
+
+    expect(await screen.findByText("참석자를 1명 이상 선택해주세요.")).toBeInTheDocument();
+    expect(analyzeMeeting).not.toHaveBeenCalled();
   });
 
   it("서버 저장 확정(confirmMeetingSave)이 실패하면 사용자에게 에러를 노출한다", async () => {
