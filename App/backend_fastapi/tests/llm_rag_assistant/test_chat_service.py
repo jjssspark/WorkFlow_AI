@@ -817,7 +817,7 @@ def test_cache_schema_version_matches_the_current_prompt_shape() -> None:
     이 테스트는 실패하라고 있는 것이다 - 프롬프트를 건드리면 여기서 걸리고, 그때 버전을
     올렸는지 스스로 확인하게 된다. 값만 고쳐 통과시키지 말 것.
     """
-    assert _ANSWER_CACHE_SCHEMA_VERSION == "v8"
+    assert _ANSWER_CACHE_SCHEMA_VERSION == "v10"
 
 
 @pytest.mark.asyncio
@@ -869,3 +869,21 @@ async def test_general_questions_do_not_scope_the_stats() -> None:
         await answer_question(object(), project_id=5, question="블로커 몇 건이야?", user_id=7)
 
     assert mock_stats.await_args.kwargs["assignee_id"] is None
+
+
+def test_answer_cache_key_separates_generation_providers() -> None:
+    """프로바이더를 바꾸면 답변 내용이 달라진다. 키가 같으면 로컬(ollama)로 만든 답변이
+    HF로 되돌린 뒤에도 TTL 동안 그대로 나간다(반대도 마찬가지)."""
+    with patch(
+        "llm_rag_assistant.app.services.chat_service.resolve_generation_provider",
+        return_value="ollama",
+    ):
+        local_key = _answer_cache_key(project_id=5, assignee_id=None, question="동일 질문")
+
+    with patch(
+        "llm_rag_assistant.app.services.chat_service.resolve_generation_provider",
+        return_value="huggingface",
+    ):
+        hosted_key = _answer_cache_key(project_id=5, assignee_id=None, question="동일 질문")
+
+    assert local_key != hosted_key
