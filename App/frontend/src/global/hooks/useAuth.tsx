@@ -17,7 +17,7 @@ interface AuthState {
   addLocalProjectRole: (projectTitle: string, role: ProjectRoleSummary["role"]) => number;
   loginWithGoogle: () => void;
   logout: () => void;
-  refreshMe: () => Promise<void>;
+  refreshMe: () => Promise<MeResponse | undefined>;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -62,17 +62,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const currentProject = projectRoles.find((pr) => pr.projectId === currentProjectId) ?? null;
 
-  const loadMe = async () => {
+  const loadMe = async (): Promise<MeResponse | undefined> => {
     if (!tokenStore.getAccessToken()) {
       setUser(null);
       setServerProjectRoles([]);
       setLoading(false);
-      return;
+      return undefined;
     }
     try {
       const me = await apiFetch<MeResponse>("/me");
       setUser(me.user);
       setServerProjectRoles(me.projectRoles);
+      return me;
     } catch (err) {
       tokenStore.clear();
       setUser(null);

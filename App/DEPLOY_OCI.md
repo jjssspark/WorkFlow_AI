@@ -159,53 +159,58 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 
 첫 빌드는 2 OCPU에서 **10~20분** 걸린다 (Gradle + pnpm + pip).
 
-## 8. DB 마이그레이션 적용 (신규 앱 기동 전)
+## 8. 스키마 마이그레이션
 
-compose는 `backend_spring/src/main/resources/db/init`만 자동 실행한다.
-`docs/db/migrations/001~010`은 **수동으로 적용해야 한다.** 특히 009와 010은
-RAG outbox와 Redis Stream 세대 펜싱에 필요하므로 신규 Spring 이미지를 기동하기 전에
-반드시 적용한다. OCI 자동 배포도 현재 Spring이 사용하는 실제 DB에서 두 스키마를
-확인하고, 누락 시 서비스를 변경하기 전에 중단한다.
+Flyway가 전담한다. 별도 수동 적용 절차는 없다. 운영 서버는 `.env`에
+`SPRING_FLYWAY_ENABLED=true`가 있어야 하며, 배포 시 `Preflight Flyway validate` 스텝이
+컨테이너 교체 전에 장부 정합성을 확인한다. 실패하면 배포가 중단되고 실행 중인 서비스는
+그대로 유지된다.
 
-init 스크립트는 `document_chunks.embedding`을 JSONB로 만들고, 마이그레이션 001이 이걸
-`VECTOR(768)`로, 007이 다시 `VECTOR(1024)`로 바꾼다(RAG 챗봇 임베딩 모델이
-Ollama/nomic-embed-text(768차원)에서 Hugging Face/BAAI/bge-m3(1024차원)로 전환됨에 따른
-스키마 변경). 001과 007을 건너뛰면 임베딩 기능이 나중에 깨진다.
+새 스키마 변경은 `App/backend_spring/src/main/resources/db/migration/`에
+`V<날짜>_<순번>__<설명>.sql` 형식으로 **새 파일을 추가**한다. 이미 적용된 파일은 절대
+수정하지 않는다(`migration-guard` CI가 차단한다).
 
-```bash
-cd work-flow
-for f in docs/db/migrations/0*.sql; do
-  echo "적용: $f"
-  docker exec -i workflow-db psql -U postgres -d workflow < "$f"
-done
-```
-
-Supabase 운영 환경에서는 연결된 프로젝트에 CLI 마이그레이션을 먼저 적용한다.
+이력 확인:
 
 ```bash
-supabase db push --linked
-supabase migration list --linked
+docker logs workflow-backend-spring 2>&1 | grep -i flyway
 ```
 
-> 두 디렉터리를 합칠 수 없는 이유: `docker-entrypoint-initdb.d`는 알파벳순으로 실행하는데
-> `001_`이 `01_`보다 앞서서 순서가 뒤집힌다.
+> `V20260701_1`~`V20260713_1`은 구 `docs/db/migrations/001~013`을 이관한 것이다. 운영
+> baseline(`20260721.1`)보다 번호가 낮아 `Below Baseline`으로 무시된다 — 운영에는 이미
+> 전부 적용돼 있으므로 의도된 동작이다. 빈 DB로 새로 구축할 때는 이 14개가 실행되지 않으므로
+> **같은 내용을 `db/init/11_pre_baseline_backfill.sql`이 담는다**(생성물). pgvector 확장,
+> `document_chunks.embedding` → `vector(1024)` 전환, `rag_assignee_sync_failures`가 여기서
+> 만들어진다. 새 V파일을 baseline 아래에 추가하는 일은 없어야 하므로 이 백필 파일도 갱신할
+> 일이 없다 — OCI 이관 시 baseline 재설계와 함께 폐기한다.
 
-> ⚠️ **재실행 위험(001~007 전체 공통):** `SPRING_FLYWAY_ENABLED`는 기본 false이고,
-> 운영 서버만 `.env`에 `true`를 명시해 Flyway 이력 추적을 쓴다. 이 디렉터리
-> (`docs/db/migrations`)는 **Flyway 관리 대상이 아니라서** 어떤 마이그레이션을 이미
-> 적용했는지 DB가 기억하지 못한다. 위 for 루프는 **재배포할 때마다
-> 001~007을 처음부터 다시 실행**하므로, 나머지 마이그레이션은 대부분 `IF NOT EXISTS` 등으로
-> 안전하지만 **007만은 특히 위험하다**: 007은 `document_chunks.embedding`을 전부
-> `NULL`로 초기화하는 파괴적 변경이라, 이미 재임베딩까지 끝난 운영 DB에 실수로
-> 다시 실행하면 재임베딩을 마칠 때까지 RAG 검색이 완전히 빈 결과만 반환한다.
-> 007 자체에는 컬럼이 이미 `vector(1024)`면 건너뛰는 idempotency guard가 있지만,
-> **처음 007을 적용하는 배포에서만** 아래 재임베딩 절차를 실행하고, 이후 재배포에서는
-> for 루프를 다시 돌리더라도 재임베딩을 다시 실행할 필요가 없는지(=007이 이미 스킵됐는지)
-> 로그의 `NOTICE`를 확인할 것.
+### 빈 DB 구축 시 운영과 남는 차이 (2026-07-26 실측)
 
-**007 적용 후 반드시 재임베딩을 실행할 것(최초 1회만).** 007은 컬럼 타입만 바꾸고 기존
-임베딩 값은 NULL로 비운다(차원이 달라 기존 벡터를 그대로 옮길 수 없음) — 재임베딩 없이는
-`document_chunks` 검색이 전부 빈 결과를 반환한다.
+`db/init` + Flyway로 빈 DB를 만들어 운영 Supabase와 객체 단위로 비교한 결과다. 아래는 모두
+이 문서의 변경과 무관한 **기존 divergence**이며, `docs/db/workflow_ai_schema.sql`(2026-07-22
+Supabase 덤프)에만 정의돼 있거나 어디에도 정의가 없다.
+
+| 차이 | 내용 | 영향 |
+|---|---|---|
+| `workload_scores` 테이블 일체 | 테이블·컬럼 5·FK 2·PK | FastAPI가 테이블 없음을 정상 처리한다(`load_workload_scores` 테스트로 보장) |
+| 성능 인덱스 6개 | `idx_tasks_project_id`, `idx_comments_target` 등 | 기능 영향 없음, 대용량에서 성능 차 |
+| `uq_action_items_created_task` | 유니크 제약 | 신규 환경에 중복 방지 없음 — 보강 필요 |
+| 매핑되지 않는 컬럼 5개 | `users.is_admin`·`faculty_id`·`reviewer_rejection_reason`, `tasks.done_date`, `evaluation_scores.total_score` | JPA 엔티티가 쓰지 않음. 운영에만 남은 잔재 |
+| FK 이름 6개 | 운영은 `*_fkey` 자동 이름, 신규는 `fk_*` 명시 이름 | 같은 테이블·컬럼에 존재해 무결성 동등 |
+| varchar 길이 10개 | 운영은 길이 무제한, 신규는 제한 있음 | 운영이 더 느슨한 쪽. 기동 검증에 영향 없음 |
+
+`evaluation_scores.total_score`는 머지되지 않은 `origin/contribution_score` 브랜치의 V파일에
+있다 — 2026-07-26 장애와 같은 경로(머지 안 된 브랜치가 운영 스키마를 바꿈)다.
+
+### 임베딩 차원 전환 이력 (참고)
+
+`db/init`은 `document_chunks.embedding`을 JSONB로 만들고, `V20260701_1`이 `VECTOR(768)`로,
+`V20260707_2`가 `VECTOR(1024)`로 바꿨다(RAG 임베딩 모델이 Ollama/nomic-embed-text 768차원에서
+Hugging Face/BAAI/bge-m3 1024차원으로 전환됨에 따른 변경).
+
+`V20260707_2`는 컬럼 타입만 바꾸고 기존 임베딩 값은 NULL로 비운다(차원이 달라 기존 벡터를
+옮길 수 없음). **운영에서는 2026-07 최초 적용 시 재임베딩을 이미 완료했다.** 빈 DB로 새로
+구축한 경우에만 아래를 1회 실행한다.
 
 ```bash
 cd work-flow/App/backend_fastapi
