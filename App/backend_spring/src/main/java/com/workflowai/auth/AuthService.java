@@ -28,6 +28,9 @@ public class AuthService {
     private static final String ROLE_TYPE_REVIEWER = "REVIEWER";
     private static final int MIN_PASSWORD_LENGTH = 8;
     private static final int AVATAR_SIGNED_URL_EXPIRES_SECONDS = 24 * 60 * 60;
+    private static final int MAX_AFFILIATION_LENGTH = 100;
+    private static final int MAX_FACULTY_ID_LENGTH = 50;
+    private static final Pattern FACULTY_ID_PATTERN = Pattern.compile("^[A-Za-z0-9-]+$");
     private static final Pattern EMAIL_PATTERN = Pattern.compile(
         "^[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}$",
         Pattern.CASE_INSENSITIVE
@@ -98,7 +101,8 @@ public class AuthService {
      */
     @Transactional
     public SignupResponse signup(
-        String email, String password, String name, String roleType, boolean termsAgreed, boolean privacyAgreed
+        String email, String password, String name, String roleType, boolean termsAgreed, boolean privacyAgreed,
+        String affiliation, String facultyId
     ) {
         String normalizedEmail = normalizeEmail(email);
         String normalizedName = normalizeName(name);
@@ -122,13 +126,34 @@ public class AuthService {
             throw new EmailAlreadyExistsException();
         }
 
-        String passwordHash = passwordEncoder.encode(password);
         boolean isReviewerApplication = ROLE_TYPE_REVIEWER.equals(normalizedRoleType);
+        String normalizedAffiliation = null;
+        String normalizedFacultyId = null;
+        if (isReviewerApplication) {
+            normalizedAffiliation = affiliation == null ? "" : affiliation.trim();
+            normalizedFacultyId = facultyId == null ? "" : facultyId.trim();
+            if (normalizedAffiliation.isBlank() || normalizedFacultyId.isBlank()) {
+                throw new InvalidSignupInputException("심사자 신청은 소속과 교수 식별번호를 입력해야 합니다.");
+            }
+            if (normalizedAffiliation.length() > MAX_AFFILIATION_LENGTH) {
+                throw new InvalidSignupInputException("소속은 " + MAX_AFFILIATION_LENGTH + "자 이하로 입력해주세요.");
+            }
+            if (normalizedFacultyId.length() > MAX_FACULTY_ID_LENGTH) {
+                throw new InvalidSignupInputException("교수 식별번호는 " + MAX_FACULTY_ID_LENGTH + "자 이하로 입력해주세요.");
+            }
+            if (!FACULTY_ID_PATTERN.matcher(normalizedFacultyId).matches()) {
+                throw new InvalidSignupInputException("교수 식별번호는 영문, 숫자, 하이픈만 사용할 수 있습니다.");
+            }
+        }
+
+        String passwordHash = passwordEncoder.encode(password);
         User newUser = new User(normalizedEmail, normalizedName, PROVIDER_LOCAL, normalizedEmail, passwordHash);
         LocalDateTime now = LocalDateTime.now();
         newUser.setTermsAgreedAt(now);
         newUser.setPrivacyAgreedAt(now);
         if (isReviewerApplication) {
+            newUser.setAffiliation(normalizedAffiliation);
+            newUser.setFacultyId(normalizedFacultyId);
             newUser.setReviewerStatus(ReviewerStatus.PENDING);
         }
         User user;
@@ -164,6 +189,9 @@ public class AuthService {
         }
         if (user.getReviewerStatus() == ReviewerStatus.PENDING) {
             throw new ReviewerApprovalPendingException();
+        }
+        if (user.getReviewerStatus() == ReviewerStatus.REJECTED) {
+            throw new ReviewerApplicationRejectedException(user.getReviewerRejectionReason());
         }
         return issueTokens(user);
     }

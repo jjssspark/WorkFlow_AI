@@ -231,7 +231,10 @@ public class AuthController {
             boolean termsAgreed = Boolean.TRUE.equals(request.termsAgreed());
             boolean privacyAgreed = Boolean.TRUE.equals(request.privacyAgreed());
             return ResponseEntity.ok(ApiResponse.ok(
-                authService.signup(request.email(), request.password(), request.name(), request.roleType(), termsAgreed, privacyAgreed)
+                authService.signup(
+                    request.email(), request.password(), request.name(), request.roleType(),
+                    termsAgreed, privacyAgreed, request.affiliation(), request.facultyId()
+                )
             ));
         } catch (EmailAlreadyExistsException e) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(ApiResponse.fail("EMAIL_ALREADY_EXISTS", e.getMessage()));
@@ -253,6 +256,8 @@ public class AuthController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ApiResponse.fail("GOOGLE_ACCOUNT_REQUIRED", e.getMessage()));
         } catch (ReviewerApprovalPendingException e) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.fail("REVIEWER_APPROVAL_PENDING", e.getMessage()));
+        } catch (ReviewerApplicationRejectedException e) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.fail("REVIEWER_APPLICATION_REJECTED", e.getMessage()));
         } catch (InvalidCredentialsException e) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ApiResponse.fail("INVALID_CREDENTIALS", e.getMessage()));
         }

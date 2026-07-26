@@ -46,7 +46,7 @@ class AuthServiceTest {
         when(jwtService.issueRefreshToken(any())).thenReturn("refresh-token");
         when(jwtService.accessTokenTtlSeconds()).thenReturn(1800L);
 
-        SignupResponse response = authService.signup(" New@Example.COM ", "12345678", " 홍길동 ", "MEMBER", true, true);
+        SignupResponse response = authService.signup(" New@Example.COM ", "12345678", " 홍길동 ", "MEMBER", true, true, null, null);
 
         ArgumentCaptor<User> savedUser = ArgumentCaptor.forClass(User.class);
         verify(userRepository).saveAndFlush(savedUser.capture());
@@ -68,7 +68,9 @@ class AuthServiceTest {
         when(userRepository.existsByEmail("prof@example.com")).thenReturn(false);
         when(userRepository.saveAndFlush(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        SignupResponse response = authService.signup("prof@example.com", "12345678", "고교수", "REVIEWER", true, true);
+        SignupResponse response = authService.signup(
+            "prof@example.com", "12345678", "고교수", "REVIEWER", true, true, "컴퓨터공학과", "PROF-001"
+        );
 
         assertThat(response.status()).isEqualTo("PENDING_REVIEWER_APPROVAL");
         assertThat(response.tokens()).isNull();
@@ -76,6 +78,54 @@ class AuthServiceTest {
         ArgumentCaptor<User> savedUser = ArgumentCaptor.forClass(User.class);
         verify(userRepository).saveAndFlush(savedUser.capture());
         assertThat(savedUser.getValue().getReviewerStatus()).isEqualTo(ReviewerStatus.PENDING);
+    }
+
+    @Test
+    void signup_reviewer_missingAffiliation_throws() {
+        assertThatThrownBy(() -> authService.signup(
+            "noaff@example.com", "12345678", "고교수", "REVIEWER", true, true, null, "PROF-001"
+        )).isInstanceOf(InvalidSignupInputException.class);
+    }
+
+    @Test
+    void signup_reviewer_missingFacultyId_throws() {
+        assertThatThrownBy(() -> authService.signup(
+            "nofac@example.com", "12345678", "고교수", "REVIEWER", true, true, "컴퓨터공학과", null
+        )).isInstanceOf(InvalidSignupInputException.class);
+    }
+
+    @Test
+    void signup_reviewer_facultyIdInvalidCharacters_throws() {
+        assertThatThrownBy(() -> authService.signup(
+            "badchar@example.com", "12345678", "고교수", "REVIEWER", true, true, "컴퓨터공학과", "교수#001"
+        )).isInstanceOf(InvalidSignupInputException.class);
+    }
+
+    @Test
+    void signup_reviewer_savesAffiliationAndFacultyId() {
+        when(userRepository.existsByEmail("prof2@example.com")).thenReturn(false);
+        when(userRepository.saveAndFlush(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        authService.signup("prof2@example.com", "12345678", "고교수", "REVIEWER", true, true, "컴퓨터공학과", "PROF-2026-001");
+
+        ArgumentCaptor<User> savedUser = ArgumentCaptor.forClass(User.class);
+        verify(userRepository).saveAndFlush(savedUser.capture());
+        assertThat(savedUser.getValue().getAffiliation()).isEqualTo("컴퓨터공학과");
+        assertThat(savedUser.getValue().getFacultyId()).isEqualTo("PROF-2026-001");
+        assertThat(savedUser.getValue().getReviewerStatus()).isEqualTo(ReviewerStatus.PENDING);
+    }
+
+    @Test
+    void loginWithPassword_rejectedReviewer_throwsWithReason() {
+        String hash = passwordEncoder.encode("12345678");
+        User rejected = new User("rejected@example.com", "고교수", "local", "rejected@example.com", hash);
+        rejected.setReviewerStatus(ReviewerStatus.REJECTED);
+        rejected.setReviewerRejectionReason("교수 식별번호를 다시 확인해주세요.");
+        when(userRepository.findByEmail("rejected@example.com")).thenReturn(Optional.of(rejected));
+
+        assertThatThrownBy(() -> authService.loginWithPassword("rejected@example.com", "12345678"))
+            .isInstanceOf(ReviewerApplicationRejectedException.class)
+            .hasMessageContaining("교수 식별번호를 다시 확인해주세요.");
     }
 
     @Test
@@ -108,7 +158,7 @@ class AuthServiceTest {
     void signup_duplicateEmail_throws() {
         when(userRepository.existsByEmail("dup@example.com")).thenReturn(true);
 
-        assertThatThrownBy(() -> authService.signup("dup@example.com", "12345678", "이름", "MEMBER", true, true))
+        assertThatThrownBy(() -> authService.signup("dup@example.com", "12345678", "이름", "MEMBER", true, true, null, null))
             .isInstanceOf(EmailAlreadyExistsException.class);
     }
 
@@ -117,31 +167,31 @@ class AuthServiceTest {
         when(userRepository.existsByEmail("race@example.com")).thenReturn(false, true);
         when(userRepository.saveAndFlush(any(User.class))).thenThrow(new DataIntegrityViolationException("duplicate email"));
 
-        assertThatThrownBy(() -> authService.signup("race@example.com", "12345678", "이름", "MEMBER", true, true))
+        assertThatThrownBy(() -> authService.signup("race@example.com", "12345678", "이름", "MEMBER", true, true, null, null))
             .isInstanceOf(EmailAlreadyExistsException.class);
     }
 
     @Test
     void signup_shortPassword_throws() {
-        assertThatThrownBy(() -> authService.signup("short@example.com", "1234", "이름", "MEMBER", true, true))
+        assertThatThrownBy(() -> authService.signup("short@example.com", "1234", "이름", "MEMBER", true, true, null, null))
             .isInstanceOf(InvalidSignupInputException.class);
     }
 
     @Test
     void signup_invalidEmail_throws() {
-        assertThatThrownBy(() -> authService.signup("not-an-email", "12345678", "이름", "MEMBER", true, true))
+        assertThatThrownBy(() -> authService.signup("not-an-email", "12345678", "이름", "MEMBER", true, true, null, null))
             .isInstanceOf(InvalidSignupInputException.class);
     }
 
     @Test
     void signup_invalidRoleType_throws() {
-        assertThatThrownBy(() -> authService.signup("role@example.com", "12345678", "이름", "ADMIN", true, true))
+        assertThatThrownBy(() -> authService.signup("role@example.com", "12345678", "이름", "ADMIN", true, true, null, null))
             .isInstanceOf(InvalidSignupInputException.class);
     }
 
     @Test
     void signup_termsNotAgreed_throwsAndNeverSaves() {
-        assertThatThrownBy(() -> authService.signup("terms@example.com", "12345678", "이름", "MEMBER", false, true))
+        assertThatThrownBy(() -> authService.signup("terms@example.com", "12345678", "이름", "MEMBER", false, true, null, null))
             .isInstanceOf(InvalidSignupInputException.class);
 
         verify(userRepository, org.mockito.Mockito.never()).saveAndFlush(any());
@@ -149,7 +199,7 @@ class AuthServiceTest {
 
     @Test
     void signup_privacyNotAgreed_throwsAndNeverSaves() {
-        assertThatThrownBy(() -> authService.signup("privacy@example.com", "12345678", "이름", "MEMBER", true, false))
+        assertThatThrownBy(() -> authService.signup("privacy@example.com", "12345678", "이름", "MEMBER", true, false, null, null))
             .isInstanceOf(InvalidSignupInputException.class);
 
         verify(userRepository, org.mockito.Mockito.never()).saveAndFlush(any());
