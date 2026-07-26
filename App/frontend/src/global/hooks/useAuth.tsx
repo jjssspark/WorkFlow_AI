@@ -9,6 +9,7 @@ const HEARTBEAT_INTERVAL_MS = 20000;
 interface AuthState {
   isAuthenticated: boolean;
   loading: boolean;
+  projectContextReady: boolean;
   user: UserSummary | null;
   projectRoles: ProjectRoleSummary[];
   currentProjectId: number | null;
@@ -61,6 +62,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const currentProject = projectRoles.find((pr) => pr.projectId === currentProjectId) ?? null;
+
+  // loading이 꺼진 첫 렌더에서는 아직 currentProjectId 선택 effect(위 projectRoles effect)가 돌기 전이라
+  // null인 채로 한 틱 남아있는다. 이 틈에 화면이 currentProjectId ?? DEMO_PROJECT_ID로 폴백해버리면
+  // (새로고침 직후 데모 프로젝트 데이터가 잠깐 보이거나, 그 프로젝트로 나간 액션이 권한 오류로 실패하는 등)
+  // 실제 프로젝트가 아닌 엉뚱한 프로젝트를 대상으로 동작하게 된다. 같은 종류의 갭이 최초 로딩 때만
+  // 생기는 게 아니다 - projectRoles가 나중에 바뀌어(예: 프로젝트에서 제외됨) currentProjectId가
+  // 더 이상 그 목록에 없는 값으로 한 틱 남는 경우도 있다. 단순히 null 여부만 보면 그 경우를 "준비
+  // 됨"으로 잘못 판단하므로, currentProjectId가 실제로 현재 projectRoles의 멤버인지까지 확인한다.
+  const projectContextReady = !loading && (projectRoles.length === 0 || currentProject !== null);
 
   const loadMe = async (): Promise<MeResponse | undefined> => {
     if (!tokenStore.getAccessToken()) {
@@ -125,6 +135,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       value={{
         isAuthenticated: !!user,
         loading,
+        projectContextReady,
         user,
         projectRoles,
         currentProjectId,
