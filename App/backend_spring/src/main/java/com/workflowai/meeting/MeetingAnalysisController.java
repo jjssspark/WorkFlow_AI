@@ -251,6 +251,30 @@ public class MeetingAnalysisController {
         }
     }
 
+    @Operation(
+        summary = "회의록 수정본(버전) 재분석",
+        description = "이미 저장된 수정본(버전)을 새 버전 생성 없이 그 자리에서 재분석한다. "
+            + "분석 대기(pending) 또는 분석 실패(failed) 상태의 버전에만 허용된다. 팀장/팀원 모두 가능하며 심사자는 접근할 수 없다."
+    )
+    @PostMapping("/{meetingId}/reanalyze")
+    @PreAuthorize("@projectAccess.hasRole(#projectId, 'LEADER') || @projectAccess.hasRole(#projectId, 'MEMBER')")
+    public ResponseEntity<ApiResponse<MeetingVersionResponse>> reanalyzeVersion(
+        @Parameter(description = "프로젝트 ID", example = "demo-project") @PathVariable String projectId,
+        @Parameter(description = "회의록(버전) ID", example = "demo-project-6") @PathVariable String meetingId
+    ) {
+        try {
+            MeetingVersionResponse response = meetingAnalysisService.reanalyzeVersion(projectId, meetingId);
+            if (response == null) {
+                return ResponseEntity.status(404).body(ApiResponse.fail("MEETING_NOT_FOUND", "회의록을 찾을 수 없습니다."));
+            }
+            return ResponseEntity.ok(ApiResponse.ok(response));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(400).body(ApiResponse.fail("NOT_A_VERSION", e.getMessage()));
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(409).body(ApiResponse.fail("MEETING_NOT_REANALYZABLE", "이미 분석 완료되었거나 분석 중인 회의록입니다."));
+        }
+    }
+
     private static String constraintNameOf(Throwable e) {
         for (Throwable cause = e; cause != null; cause = cause.getCause()) {
             if (cause instanceof ConstraintViolationException cve) {
