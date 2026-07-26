@@ -37,6 +37,7 @@ import java.util.Objects;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class DashboardService {
@@ -247,14 +248,15 @@ public class DashboardService {
         return toMilestoneProgressDto(saved, linkedTasks);
     }
 
-    /** 마일스톤을 삭제하고, 삭제 사실을 팀장/팀원 전체(행위자 포함)에게 알린다.
-     * 연결된 업무(task.milestone_id)는 삭제하지 않고 그대로 둔다(마일스톤 연결만 끊어짐). */
+    /** 마일스톤 연결 업무를 일정 미정으로 옮긴 뒤 삭제하고, 팀 전체에 알린다. */
+    @Transactional
     public void deleteMilestone(String projectIdParam, Long milestoneId) {
         Long projectId = demoDataService.resolveProjectId(projectIdParam);
         Milestone milestone = milestoneRepository.findById(milestoneId)
             .filter(m -> m.getProjectId().equals(projectId))
             .orElseThrow(() -> new IllegalArgumentException("마일스톤을 찾을 수 없습니다."));
         String title = milestone.getTitle();
+        taskRepository.clearMilestoneId(projectId, milestoneId);
         milestoneRepository.delete(milestone);
 
         String content = "'" + title + "' 마일스톤이 삭제되었습니다.";

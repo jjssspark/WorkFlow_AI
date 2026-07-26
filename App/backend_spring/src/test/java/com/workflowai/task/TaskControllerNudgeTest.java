@@ -183,7 +183,7 @@ class TaskControllerNudgeTest {
     }
 
     @Test
-    void doesNotNotifyWhenActorIsTheAssignee() throws Exception {
+    void notifiesWhenActorIsTheAssignee() throws Exception {
         authenticateAs(3L);
         when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
         when(taskRepository.findById(anyLong())).thenReturn(Optional.of(existingTask()));
@@ -193,6 +193,8 @@ class TaskControllerNudgeTest {
                 .content("{\"kind\":\"START\"}"))
             .andExpect(status().isOk());
 
-        verify(notificationService, never()).notify(any(), any(), any(), any(), any(), any());
+        verify(notificationService).notify(
+            eq(3L), eq("TASK_NUDGE"), eq("업무 시작 알림"), any(), eq("task"), any()
+        );
     }
 }

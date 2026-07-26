@@ -170,6 +170,11 @@ Flyway가 전담한다. 별도 수동 적용 절차는 없다. 운영 서버는 
 `V<날짜>_<순번>__<설명>.sql` 형식으로 **새 파일을 추가**한다. 이미 적용된 파일은 절대
 수정하지 않는다(`migration-guard` CI가 차단한다).
 
+FS3의 사용자 프로필·필수 동의, 업무 완료일, 마일스톤 시작일과 API 호환성 확인 절차는
+[`FS3 스키마·API 변경 배포 계약`](../docs/decisions/2026-07-26-fs3-schema-api-rollout.md)을
+따른다. 백엔드 CI의 `ProductionSchemaMigrationTest`는 운영 baseline을 실제 PostgreSQL에
+재현해 관련 V파일 적용과 Flyway validate를 병합 전에 검증한다.
+
 이력 확인:
 
 ```bash
@@ -195,12 +200,13 @@ Supabase 덤프)에만 정의돼 있거나 어디에도 정의가 없다.
 | `workload_scores` 테이블 일체 | 테이블·컬럼 5·FK 2·PK | FastAPI가 테이블 없음을 정상 처리한다(`load_workload_scores` 테스트로 보장) |
 | 성능 인덱스 6개 | `idx_tasks_project_id`, `idx_comments_target` 등 | 기능 영향 없음, 대용량에서 성능 차 |
 | `uq_action_items_created_task` | 유니크 제약 | 신규 환경에 중복 방지 없음 — 보강 필요 |
-| 매핑되지 않는 컬럼 5개 | `users.is_admin`·`faculty_id`·`reviewer_rejection_reason`, `tasks.done_date`, `evaluation_scores.total_score` | JPA 엔티티가 쓰지 않음. 운영에만 남은 잔재 |
 | FK 이름 6개 | 운영은 `*_fkey` 자동 이름, 신규는 `fk_*` 명시 이름 | 같은 테이블·컬럼에 존재해 무결성 동등 |
 | varchar 길이 10개 | 운영은 길이 무제한, 신규는 제한 있음 | 운영이 더 느슨한 쪽. 기동 검증에 영향 없음 |
 
-`evaluation_scores.total_score`는 머지되지 않은 `origin/contribution_score` 브랜치의 V파일에
-있다 — 2026-07-26 장애와 같은 경로(머지 안 된 브랜치가 운영 스키마를 바꿈)다.
+> 후속 보강: 실측 당시 "매핑되지 않는 컬럼 5개"로 분류했던 관리자·업무 완료일·평가
+> 총점 컬럼은 각각 `V20260726_1`, `V20260726_2`, `V20260724_10`으로 Flyway 경로에 편입해
+> 위 표에서 제외했다. 사용자 프로필·동의 컬럼은 `V20260726_3`이 운영 baseline 이후 DB에도
+> 추가한다.
 
 ### 임베딩 차원 전환 이력 (참고)
 

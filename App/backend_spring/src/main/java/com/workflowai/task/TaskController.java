@@ -137,10 +137,10 @@ public class TaskController {
 
     @Operation(
         summary = "업무 생성",
-        description = "업무보드에서 새 업무를 직접 생성합니다. 팀장만 생성할 수 있습니다."
+        description = "업무보드에서 새 업무를 직접 생성합니다. 프로젝트 구성원은 생성할 수 있습니다."
     )
     @PostMapping
-    @PreAuthorize("@projectAccess.hasRole(#projectId, 'LEADER')")
+    @PreAuthorize("@projectAccess.isMember(#projectId)")
     @Transactional
     public ResponseEntity<ApiResponse<TaskListItem>> createTask(
         @Parameter(description = "프로젝트 ID", example = "demo-project") @PathVariable String projectId,

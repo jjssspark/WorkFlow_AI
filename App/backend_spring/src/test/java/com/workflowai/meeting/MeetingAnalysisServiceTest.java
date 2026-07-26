@@ -25,6 +25,7 @@ import com.workflowai.task.TaskRepository;
 import com.workflowai.user.User;
 import com.workflowai.user.UserRepository;
 import java.io.ByteArrayOutputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
@@ -134,7 +135,9 @@ class MeetingAnalysisServiceTest {
         MeetingAnalysisService service = newService();
         when(meetingRepository.save(any(Meeting.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        MockMultipartFile file = new MockMultipartFile("file", "notes.txt", "text/plain", "회의 내용 원문".getBytes());
+        MockMultipartFile file = new MockMultipartFile(
+            "file", "notes.txt", "text/plain", "회의 내용 원문".getBytes(StandardCharsets.UTF_8)
+        );
         MeetingAnalysisResponse response = service.analyze(
             "demo-project", file, "7차 정기회의", "2026-07-15", "정기회의", "document", List.of(), null
         );

@@ -2,6 +2,7 @@ package com.workflowai.dashboard.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.any;
 
@@ -32,6 +33,7 @@ import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.InOrder;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -195,6 +197,21 @@ class DashboardServiceTest {
         assertThat(result.dueDate()).isEqualTo("2026-08-15");
         assertThat(result.taskCount()).isEqualTo(0);
         assertThat(result.progressPercent()).isEqualTo(0);
+    }
+
+    @Test
+    void deleteMilestoneUnlinksTasksBeforeDeletingMilestone() {
+        when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
+        Milestone milestone = new Milestone(1L, "MVP 발표", null, LocalDate.of(2026, 8, 15));
+        ReflectionTestUtils.setField(milestone, "id", 42L);
+        when(milestoneRepository.findById(42L)).thenReturn(Optional.of(milestone));
+        when(projectMemberRepository.findAllByProjectId(1L)).thenReturn(List.of());
+
+        newService().deleteMilestone("demo-project", 42L);
+
+        InOrder deletionOrder = inOrder(taskRepository, milestoneRepository);
+        deletionOrder.verify(taskRepository).clearMilestoneId(1L, 42L);
+        deletionOrder.verify(milestoneRepository).delete(milestone);
     }
 
     @Test

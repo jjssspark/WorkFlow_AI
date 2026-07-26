@@ -2,6 +2,7 @@ package com.workflowai.task;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -158,7 +159,7 @@ class TaskCommentControllerFeedbackTest {
     }
 
     @Test
-    void doesNotNotifyWhenAuthorIsTheAssignee() throws Exception {
+    void notifiesAuthorOnceWhenAuthorIsTheAssignee() throws Exception {
         authenticateAs(1L);
         when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
         when(taskRepository.findById(42L)).thenReturn(Optional.of(existingTask()));
@@ -174,7 +175,8 @@ class TaskCommentControllerFeedbackTest {
                     """))
             .andExpect(status().isOk());
 
-        verify(notificationService, org.mockito.Mockito.never())
-            .notify(any(), any(), any(), any(), any(), any());
+        verify(notificationService, times(1)).notify(
+            eq(1L), eq("TASK_COMMENT"), eq("댓글이 등록되었습니다."), any(), eq("task"), any()
+        );
     }
 }
