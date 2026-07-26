@@ -37,6 +37,11 @@ function drag(button: HTMLElement, to: { x: number; y: number }) {
   fireEvent.pointerUp(button, { pointerId: 1, clientX: to.x, clientY: to.y });
 }
 
+// 실제 마우스 클릭은 detail이 1 이상이고, 키보드나 보조기술로 활성화한 click은 0이다.
+// 이 구분이 없으면 두 경우를 같은 이벤트로 보게 되어 테스트가 실제 동작과 어긋난다.
+const pointerClick = (button: HTMLElement) => fireEvent.click(button, { detail: 1 });
+const keyboardClick = (button: HTMLElement) => fireEvent.click(button, { detail: 0 });
+
 describe("useDraggableFab", () => {
   beforeEach(() => {
     window.localStorage.clear();
@@ -58,7 +63,7 @@ describe("useDraggableFab", () => {
     fireEvent.pointerDown(button, { pointerId: 1, clientX: 900, clientY: 700 });
     fireEvent.pointerMove(button, { pointerId: 1, clientX: 902, clientY: 701 });
     fireEvent.pointerUp(button, { pointerId: 1, clientX: 902, clientY: 701 });
-    fireEvent.click(button);
+    pointerClick(button);
 
     expect(onActivate).toHaveBeenCalledTimes(1);
   });
@@ -67,7 +72,7 @@ describe("useDraggableFab", () => {
     const { button, onActivate } = renderFab();
 
     drag(button, { x: 300, y: 400 });
-    fireEvent.click(button);
+    pointerClick(button);
 
     expect(onActivate).not.toHaveBeenCalled();
   });
@@ -76,10 +81,56 @@ describe("useDraggableFab", () => {
     const { button, onActivate } = renderFab();
 
     drag(button, { x: 300, y: 400 });
-    fireEvent.click(button);
+    pointerClick(button);
     fireEvent.pointerDown(button, { pointerId: 2, clientX: 100, clientY: 400 });
     fireEvent.pointerUp(button, { pointerId: 2, clientX: 100, clientY: 400 });
-    fireEvent.click(button);
+    pointerClick(button);
+
+    expect(onActivate).toHaveBeenCalledTimes(1);
+  });
+
+  it("still opens the panel from the keyboard after a drag", () => {
+    const { button, onActivate } = renderFab();
+
+    // 키보드 활성화는 pointerdown을 거치지 않는다. 드래그 흔적을 pointerdown에서만
+    // 지우면 마우스로 한 번 옮긴 뒤로 키보드 사용자가 버튼을 영영 못 누른다.
+    drag(button, { x: 300, y: 400 });
+    keyboardClick(button);
+
+    expect(onActivate).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not swallow the next mouse click when the drag click never arrives", () => {
+    const { button, onActivate } = renderFab();
+
+    // 포인터가 버튼 밖에서 떨어지면 브라우저가 click을 보내지 않는다.
+    drag(button, { x: 300, y: 400 });
+    pointerClick(button);
+    pointerClick(button);
+
+    expect(onActivate).toHaveBeenCalledTimes(1);
+  });
+
+  it("drops the drag transform when the gesture is canceled", () => {
+    const { button } = renderFab();
+
+    fireEvent.pointerDown(button, { pointerId: 1, clientX: 900, clientY: 700 });
+    fireEvent.pointerMove(button, { pointerId: 1, clientX: 800, clientY: 600 });
+    fireEvent.pointerCancel(button, { pointerId: 1, clientX: 800, clientY: 600 });
+
+    // 취소는 이동을 확정하지 않는다. 원래 자리로 돌아가고 transform도 남지 않아야 한다.
+    expect(button.style.transform).toBe("");
+    expect(button.style.right).toBe("24px");
+    expect(button.style.top).toBe("688px");
+  });
+
+  it("accepts a click again after a canceled gesture", () => {
+    const { button, onActivate } = renderFab();
+
+    fireEvent.pointerDown(button, { pointerId: 1, clientX: 900, clientY: 700 });
+    fireEvent.pointerMove(button, { pointerId: 1, clientX: 800, clientY: 600 });
+    fireEvent.pointerCancel(button, { pointerId: 1, clientX: 800, clientY: 600 });
+    keyboardClick(button);
 
     expect(onActivate).toHaveBeenCalledTimes(1);
   });

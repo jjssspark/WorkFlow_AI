@@ -1,4 +1,11 @@
-import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type MouseEvent,
+  type PointerEvent,
+} from "react";
 
 export const FAB_POSITION_KEY = "workflow-ai:assistant-fab-position";
 
@@ -61,7 +68,8 @@ interface DraggableFab {
     onPointerDown: (event: PointerEvent<HTMLElement>) => void;
     onPointerMove: (event: PointerEvent<HTMLElement>) => void;
     onPointerUp: (event: PointerEvent<HTMLElement>) => void;
-    onClick: () => void;
+    onPointerCancel: (event: PointerEvent<HTMLElement>) => void;
+    onClick: (event: MouseEvent<HTMLElement>) => void;
   };
 }
 
@@ -118,10 +126,30 @@ export function useDraggableFab(onActivate: () => void): DraggableFab {
     writeStoredPosition(next);
   };
 
-  const onClick = () => {
-    // 방금 끝난 제스처가 드래그였다면 이 클릭은 이동의 부산물이라 삼킨다.
-    // 다음 pointerdown에서 다시 false로 돌아가므로 클릭이 계속 막히지는 않는다.
-    if (hasDraggedRef.current) return;
+  // 터치 제스처가 취소되면(스크롤로 전환, 통화 수신 등) pointerup이 오지 않는다.
+  // 여기서 정리하지 않으면 transform이 붙은 채로 굳고 드래그 흔적도 남는다.
+  // 취소는 이동을 확정하지 않으므로 position은 건드리지 않는다.
+  const onPointerCancel = () => {
+    startRef.current = null;
+    hasDraggedRef.current = false;
+    setOffset(null);
+  };
+
+  const onClick = (event: MouseEvent<HTMLElement>) => {
+    // 키보드나 보조기술로 활성화한 click은 detail이 0이다. 이 경우를 통과시키지 않으면
+    // 마우스로 버튼을 한 번 옮긴 뒤부터 키보드 사용자가 버튼을 영영 누를 수 없다.
+    if (event.detail === 0) {
+      hasDraggedRef.current = false;
+      onActivate();
+      return;
+    }
+    // 방금 끝난 제스처가 드래그였다면 이 클릭은 이동의 부산물이라 삼킨다. 삼킨 자리에서
+    // 바로 흔적을 지운다 - pointerdown에만 맡기면 포인터가 버튼 밖에서 떨어져 click이
+    // 오지 않았을 때 그 다음 클릭까지 함께 막힌다.
+    if (hasDraggedRef.current) {
+      hasDraggedRef.current = false;
+      return;
+    }
     onActivate();
   };
 
@@ -136,5 +164,9 @@ export function useDraggableFab(onActivate: () => void): DraggableFab {
     touchAction: "none",
   };
 
-  return { style, isDragging, handlers: { onPointerDown, onPointerMove, onPointerUp, onClick } };
+  return {
+    style,
+    isDragging,
+    handlers: { onPointerDown, onPointerMove, onPointerUp, onPointerCancel, onClick },
+  };
 }
