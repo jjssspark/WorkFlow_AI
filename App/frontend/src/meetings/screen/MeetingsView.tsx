@@ -228,6 +228,27 @@ export const buildGeneratedTodos = (result: MeetingAiResult): GenTodo[] =>
     };
   });
 
+// 저장된 회의록 상세(meeting.todos, "이름: 업무내용 (마감일)" 문자열)를 역할 분배 검토 화면의
+// GenTodo 형태로 변환한다 — "업무로 등록"도 검토 화면을 거치게 하기 위해 필요하다.
+export const buildGenTodosFromMeetingLines = (lines: string[], members: MemberResponse[]): GenTodo[] =>
+  lines.map((line, index) => {
+    const parsed = parseMeetingTodoLine(line);
+    const matchedMember = members.find(m => m.name.trim() === parsed.assigneeName.trim());
+    const assignee = matchedMember ? String(matchedMember.userId) : "";
+    return {
+      id: `MTG-${String(index + 1).padStart(2, "0")}`,
+      title: parsed.title,
+      desc: "",
+      category: "other",
+      assignee,
+      dueDate: parsed.dueDate,
+      priority: "medium" as const,
+      basis: matchedMember ? `회의록 후보 담당자: ${parsed.assigneeName}` : "회의록 AI 분석 결과",
+      assigned: Boolean(assignee),
+      source: "MEETING_AI" as const,
+    };
+  });
+
 const buildRiskCards = (risks: string[]) =>
   risks.map((text, index) => ({
     level: index === 0 ? "high" : "medium",
@@ -998,12 +1019,16 @@ export function MeetingsView() {
       setAnalysisPhase("queued");
       setAnalyzeProgressTarget(28);
       pollMeetingStatus(response.meetingId, title, uploadedAt);
-    }).catch(() => {
+    }).catch((error: unknown) => {
       setAnalysisRequestPending(false);
       setAnalysisResult(null);
       setSelTodos([]);
       setAnalysisSource(null);
-      setAnalysisError("분석 서버 연결에 실패했습니다. Spring Boot와 FastAPI 서버가 실행 중인지 확인한 뒤 다시 시도해주세요.");
+      setAnalysisError(
+        error instanceof ApiRequestError
+          ? error.message
+          : "분석 서버 연결에 실패했습니다. Spring Boot와 FastAPI 서버가 실행 중인지 확인한 뒤 다시 시도해주세요."
+      );
       setUploadFlow("results");
     });
   };
@@ -1270,99 +1295,14 @@ export function MeetingsView() {
     await performRegisterSelectedTodos(newTodos, existingKeys);
   };
 
-  type ParsedMeetingTodo = { assigneeName: string; title: string; dueDate: string; assigneeId: string };
-
-  // 이미 등록된 업무는 로컬 보드에 중복 카드를 만들지 않는다(서버도 동일 조건이면 재등록을 무시하므로 안전).
-  const performRegisterMeetingTodos = async (
-    todosToRegister: ParsedMeetingTodo[],
-    existingKeys: Set<string>,
-    unassignedCount: number
-  ) => {
-    const existingTasks = getStoredTasks();
-    setIsRegisteringTasks(true);
-    setRegisterMessage("업무보드에 등록 중입니다...");
-    try {
-      if (todosToRegister.length > 0) {
-        await registerMeetingTasks(projectId, meetingIdentifier, todosToRegister.map(todo => ({
-          title: todo.title,
-          description: "",
-          assignee_candidate: todo.assigneeName,
-          assignee_id: todo.assigneeId,
-          due_date: todo.dueDate || null,
-          priority: "MEDIUM",
-          category: "ETC",
-          needs_leader_review: false,
-        })));
-      }
-
-      const now = Date.now();
-      const createdTasks: Task[] = todosToRegister
-        .filter(todo => !existingKeys.has(buildTodoRegistrationKey(meetingIdentifier, todo.title, todo.assigneeId, todo.dueDate)))
-        .map((todo, index) => ({
-          id: `AI-${now}-${String(index + 1).padStart(2, "0")}`,
-          title: todo.title,
-          status: "todo",
-          priority: "medium",
-          assignee: todo.assigneeId,
-          dueDate: todo.dueDate,
-          category: "other",
-          position: index,
-          labels: ["회의록 AI"],
-          sourceMeetingTitle: meetingIdentifier,
-        }));
-      if (createdTasks.length > 0) {
-        saveStoredTasks([...createdTasks, ...existingTasks]);
-        addActivity(`회의록 AI로 '${meetingIdentifier}'의 업무 ${createdTasks.length}건을 업무보드에 등록했습니다.`, "김민준", "meeting-registered");
-      }
-      setRegisterMessage(
-        unassignedCount > 0
-          ? `업무 보드에 등록되었습니다. (미배정 업무 ${unassignedCount}건 포함, 업무보드에서 담당자를 지정해주세요)`
-          : "업무 보드에 등록되었습니다."
-      );
-      setTimeout(() => setRegisterMessage(null), 2500);
-    } catch {
-      setRegisterMessage("서버에 업무 등록을 실패했습니다. 다시 시도해주세요.");
-      setTimeout(() => setRegisterMessage(null), 2500);
-    } finally {
-      setIsRegisteringTasks(false);
-    }
-  };
-
   // 회의 상세 화면(meeting.todos, 문자열 배열)에서 "업무로 등록" 클릭 시 실행.
-  const handleRegisterMeetingTodos = async () => {
-    if (isRegisteringTasks) return;
+  // 바로 등록하지 않고, "역할분배 검토"와 동일한 화면을 먼저 보여준 뒤 팀장이 최종 등록하게 한다.
+  const handleOpenMeetingTodosReview = () => {
     if (!meeting || !meeting.todos || meeting.todos.length === 0) return;
-    const existingTasks = getStoredTasks();
-    const existingKeys = new Set(
-      existingTasks.map(task => buildTodoRegistrationKey(task.sourceMeetingTitle ?? "", task.title, task.assignee, task.dueDate))
-    );
-
-    const parsedTodos = meeting.todos.map(line => {
-      const parsed = parseMeetingTodoLine(line);
-      const matchedMember = projectMembers.find(m => m.name.trim() === parsed.assigneeName.trim());
-      const assigneeId = matchedMember ? String(matchedMember.userId) : "";
-      return { ...parsed, assigneeId };
-    });
-
-    const unassignedCount = parsedTodos.filter(todo => !todo.assigneeId).length;
-
-    const newTodos = parsedTodos.filter(todo => {
-      const key = buildTodoRegistrationKey(meetingIdentifier, todo.title, todo.assigneeId, todo.dueDate);
-      return !existingKeys.has(key);
-    });
-
-    if (newTodos.length === 0) {
-      if (parsedTodos.length > 0) {
-        setConfirmReregister(() => () => {
-          setConfirmReregister(null);
-          void performRegisterMeetingTodos(parsedTodos, existingKeys, unassignedCount);
-        });
-        return;
-      }
-      return;
-    }
-
-    await performRegisterMeetingTodos(newTodos, existingKeys, unassignedCount);
+    const converted = buildGenTodosFromMeetingLines(meeting.todos, projectMembers);
+    setManualTodos(converted);
+    setSelTodos(converted.map(todo => todo.id));
+    setUploadFlow("review");
   };
 
   const renderRegisteringOverlay = () => isRegisteringTasks ? (
@@ -1896,8 +1836,8 @@ export function MeetingsView() {
         <div className="shrink-0 px-6 pt-5 pb-4 border-b border-border">
           <div className="flex items-start justify-between mb-3">
             <div>
-              <button onClick={() => setUploadFlow("results")} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground mb-2 transition-colors group">
-                <ArrowLeft className="w-3.5 h-3.5 group-hover:-translate-x-0.5 transition-transform" />분석 결과로 돌아가기
+              <button onClick={() => setUploadFlow(analysisResult ? "results" : null)} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground mb-2 transition-colors group">
+                <ArrowLeft className="w-3.5 h-3.5 group-hover:-translate-x-0.5 transition-transform" />{analysisResult ? "분석 결과로 돌아가기" : "회의록으로 돌아가기"}
               </button>
               <h1 className="text-xl font-bold text-foreground">역할 분배 검토</h1>
               <p className="text-sm text-muted-foreground mt-0.5">팀장이 확인하고 승인한 업무만 업무 보드에 등록됩니다.</p>
@@ -2365,7 +2305,7 @@ export function MeetingsView() {
                 회의록 업로드
               </button>
             </div>
-          ) : meetings.map(m => (
+          ) : meetings.filter(m => !m.originalMeetingId || m.status === "processed").map(m => (
             <div key={m.id} onClick={() => setSelected(m.id)}
               role="button"
               tabIndex={0}
@@ -2462,11 +2402,10 @@ export function MeetingsView() {
                     </button>
                   ) : (
                     <button
-                      onClick={handleRegisterMeetingTodos}
-                      disabled={meeting.todos.length === 0 || isRegisteringTasks}
+                      onClick={handleOpenMeetingTodosReview}
+                      disabled={meeting.todos.length === 0}
                       className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-600 hover:text-blue-700 disabled:text-slate-400 disabled:cursor-not-allowed">
-                      {isRegisteringTasks && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                      {isRegisteringTasks ? "등록 중" : "업무로 등록"}
+                      업무로 등록
                     </button>
                   ))}
                 </div>

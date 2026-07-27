@@ -1,7 +1,7 @@
 package com.workflowai.auth;
 
 import com.workflowai.security.JwtService;
-import com.workflowai.task.SupabaseStorageClient;
+import com.workflowai.task.S3StorageClient;
 import com.workflowai.user.ReviewerStatus;
 import com.workflowai.user.User;
 import com.workflowai.user.UserRepository;
@@ -41,7 +41,7 @@ public class AuthService {
     private final UserRepository userRepository;
     private final JwtService jwtService;
     private final PasswordEncoder passwordEncoder;
-    private final SupabaseStorageClient storageClient;
+    private final S3StorageClient storageClient;
 
     @Autowired
     public AuthService(
@@ -49,7 +49,7 @@ public class AuthService {
         UserRepository userRepository,
         JwtService jwtService,
         PasswordEncoder passwordEncoder,
-        SupabaseStorageClient storageClient
+        S3StorageClient storageClient
     ) {
         this.googleOAuthService = googleOAuthService;
         this.userRepository = userRepository;

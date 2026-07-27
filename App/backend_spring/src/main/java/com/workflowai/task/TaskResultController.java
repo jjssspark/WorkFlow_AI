@@ -46,7 +46,7 @@ public class TaskResultController {
     private final TaskResultFileRepository taskResultFileRepository;
     private final TaskRepository taskRepository;
     private final DemoDataService demoDataService;
-    private final SupabaseStorageClient storageClient;
+    private final S3StorageClient storageClient;
     private final ProjectMemberRepository projectMemberRepository;
 
     public TaskResultController(
@@ -55,7 +55,7 @@ public class TaskResultController {
         TaskResultFileRepository taskResultFileRepository,
         TaskRepository taskRepository,
         DemoDataService demoDataService,
-        SupabaseStorageClient storageClient,
+        S3StorageClient storageClient,
         ProjectMemberRepository projectMemberRepository
     ) {
         this.taskResultRepository = taskResultRepository;

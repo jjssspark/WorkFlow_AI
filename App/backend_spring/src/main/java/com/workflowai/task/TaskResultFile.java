@@ -8,7 +8,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.LocalDateTime;
 
-/** storagePath는 Supabase Storage 버킷(workflow.supabase.storage-bucket) 하위 object 경로. */
+/** storagePath는 S3 호환 스토리지 버킷(workflow.storage.bucket) 하위 object 경로. */
 @Entity
 @Table(name = "task_result_files")
 public class TaskResultFile {

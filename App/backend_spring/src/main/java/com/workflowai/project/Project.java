@@ -197,6 +197,10 @@ public class Project {
         return inviteCode;
     }
 
+    public void setInviteCode(String inviteCode) {
+        this.inviteCode = inviteCode;
+    }
+
     public Long getCreatedBy() {
         return createdBy;
     }

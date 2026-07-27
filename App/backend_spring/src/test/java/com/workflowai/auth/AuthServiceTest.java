@@ -7,7 +7,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.workflowai.security.JwtService;
-import com.workflowai.task.SupabaseStorageClient;
+import com.workflowai.task.S3StorageClient;
 import com.workflowai.user.ReviewerStatus;
 import com.workflowai.user.User;
 import com.workflowai.user.UserRepository;
@@ -28,7 +28,7 @@ class AuthServiceTest {
     @Mock private GoogleOAuthService googleOAuthService;
     @Mock private UserRepository userRepository;
     @Mock private JwtService jwtService;
-    @Mock private SupabaseStorageClient storageClient;
+    @Mock private S3StorageClient storageClient;
 
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
     private AuthService authService;

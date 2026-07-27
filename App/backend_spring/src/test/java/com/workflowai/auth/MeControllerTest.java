@@ -15,7 +15,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.workflowai.project.ProjectMemberRepository;
 import com.workflowai.project.ProjectRepository;
 import com.workflowai.security.UserPrincipal;
-import com.workflowai.task.SupabaseStorageClient;
+import com.workflowai.task.S3StorageClient;
 import com.workflowai.user.User;
 import com.workflowai.user.UserRepository;
 import java.util.Base64;
@@ -59,7 +59,7 @@ class MeControllerTest {
     private ProjectRepository projectRepository;
 
     @MockitoBean
-    private SupabaseStorageClient storageClient;
+    private S3StorageClient storageClient;
 
     @AfterEach
     void clearSecurityContext() {

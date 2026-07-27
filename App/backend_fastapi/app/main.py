@@ -62,6 +62,12 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         await preload_embedding_model()
     except Exception:
         logger.exception("RAG 임베딩 모델 사전 로드 실패 - 첫 요청 시 재시도됩니다.")
+    # 첫 음성 회의록 분석 요청이 Whisper 모델 로딩 지연(콜드 스타트, 측정 결과 약 50초)을
+    # 떠안지 않도록 기동 시 미리 로드한다.
+    try:
+        await asyncio.to_thread(get_whisper_model)
+    except Exception:
+        logger.exception("Whisper STT 모델 사전 로드 실패 - 첫 요청 시 재시도됩니다.")
     yield
     # 명령 그래프 체크포인터가 잡은 Redis 연결을 닫는다.
     await close_graph()
