@@ -46,7 +46,7 @@ public class NotificationAsyncSender {
             Notification saved = requiresNewTransaction.execute(status -> {
                 Notification created = notificationRepository.save(
                     new Notification(userId, type, title, content, targetType, targetId));
-                notificationRepository.deleteExcessByUserId(userId);
+                notificationRepository.deleteExcessUnreadByUserId(userId);
                 return created;
             });
             broadcaster.broadcast(userId, NotificationDto.from(saved));
