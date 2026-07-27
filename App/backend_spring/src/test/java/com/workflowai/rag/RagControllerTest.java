@@ -176,6 +176,33 @@ class RagControllerTest {
     }
 
     @Test
+    void queryCountsQuestionLengthInUtf16CodeUnitsNotUserVisibleCharacters() throws Exception {
+        // 상한 단위를 의도적으로 UTF-16 코드 단위로 고정한다. 이모지는 BMP 밖이라 1글자가 2로
+        // 세지므로 500개면 이미 상한에 닿는다. 사용자가 세는 글자 수와 어긋나지만, 이 상한의
+        // 목적이 토큰·페이로드 비용이고 프론트(textarea maxLength)도 같은 단위라 그대로 둔다.
+        // 나중에 code point 기준으로 바꾸면 프론트가 통과시킨 값이 서버에서 막히므로 이 테스트가 깨진다.
+        authenticateAs(5L);
+        when(fastApiRagClient.query(any(RagQueryRequest.class)))
+            .thenReturn(new RagQueryResponse("답변", List.of()));
+
+        RagController controller = new RagController(fastApiRagClient, rateLimiter);
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
+
+        String atLimit = "😀".repeat(500);   // 1000 코드 단위
+        assertThat(atLimit.length()).isEqualTo(1000);
+        assertThat(atLimit.codePointCount(0, atLimit.length())).isEqualTo(500);
+        mockMvc.perform(post("/api/v1/ai/rag/query").contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(new RagQueryRequest(1L, atLimit, null, null))))
+            .andExpect(status().isOk());
+
+        String overLimit = "😀".repeat(501);  // 1002 코드 단위
+        mockMvc.perform(post("/api/v1/ai/rag/query").contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(new RagQueryRequest(1L, overLimit, null, null))))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.code").value("INVALID_QUESTION"));
+    }
+
+    @Test
     void queryRejectsQuestionExceedingMaxLengthWithoutCallingFastApi() throws Exception {
         // 질문 길이에 상한이 없으면 임베딩 정확도에 기여하지도 않는 거대 페이로드가 재작성
         // LLM 호출과 프롬프트로 그대로 흘러간다. history content(1000자)와 같은 기준으로 끊는다.

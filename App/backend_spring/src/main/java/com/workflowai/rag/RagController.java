@@ -28,6 +28,14 @@ public class RagController {
     private static final int MAX_HISTORY_CONTENT_LENGTH = 1000;
     // 질문에도 같은 상한을 둔다. 임베딩 모델이 어차피 512토큰 근처에서 잘라내므로 그보다 긴
     // 질문은 검색 정확도에 기여하지 못하면서, 재작성 LLM 호출 비용과 프롬프트 크기만 키운다.
+    //
+    // 단위는 String.length()가 세는 UTF-16 코드 단위다. 이모지 등 BMP 밖 문자는 1글자가 2로
+    // 계산되므로 사용자가 세는 글자 수와 어긋날 수 있다. 그래도 code point로 바꾸지 않는 이유:
+    // (1) 이 상한의 목적은 글자 수 제한이 아니라 페이로드·토큰 비용 상한이고, 토큰 역시 이모지가
+    //     더 비싸므로 2로 세는 편이 비용에 가깝다.
+    // (2) 프론트(ragApi.ts MAX_QUESTION_LENGTH, textarea maxLength)와 히스토리 상한이 모두
+    //     UTF-16 코드 단위라, 여기만 바꾸면 프론트에서 통과시킨 값이 서버에서 거부된다.
+    // 대신 오류 메시지는 "글자"로 단정하지 않는다.
     private static final int MAX_QUESTION_LENGTH = 1000;
 
     private final FastApiRagClient fastApiRagClient;
@@ -59,7 +67,7 @@ public class RagController {
         if (request.question().length() > MAX_QUESTION_LENGTH) {
             return ResponseEntity.badRequest()
                 .body(ApiResponse.fail(
-                    "INVALID_QUESTION", "질문은 " + MAX_QUESTION_LENGTH + "자 이하여야 합니다."));
+                    "INVALID_QUESTION", "질문이 너무 깁니다. 더 짧게 나눠서 물어봐 주세요."));
         }
 
         // null은 히스토리 없음으로 정규화한다. FastAPI history 필드는 리스트를 기대한다.
