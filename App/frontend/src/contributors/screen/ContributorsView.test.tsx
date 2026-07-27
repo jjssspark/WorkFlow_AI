@@ -451,7 +451,7 @@ describe("ContributorsView 평가 확정 토글", () => {
     expect(screen.queryByRole("button", { name: "평가 확정" })).not.toBeInTheDocument();
   });
 
-  it("'평가 확정 취소' 클릭 시 확인 다이얼로그를 띄우고, 확인하면 unfinalizeEvaluation을 호출해 배지를 '평가 중'으로 되돌린다", async () => {
+  it("'평가 확정 취소' 클릭 시 확인 다이얼로그 없이 바로 unfinalizeEvaluation을 호출해 배지를 '평가 중'으로 되돌린다 (점수 공개 여부와 무관한 진행 상태 전용 토글)", async () => {
     vi.mocked(getProject).mockResolvedValue({
       id: 1, title: "스마트 주차 관리 시스템", type: null, deadline: null, description: null,
       startDate: null, midCheckDate: null, memberLimit: null, deliverables: null, techStack: null,
@@ -464,36 +464,16 @@ describe("ContributorsView 평가 확정 토글", () => {
       goals: null, inviteCode: null, createdBy: null, memberCount: 1, taskProgress: 0,
       evalStatus: "EVALUATING",
     });
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const confirmSpy = vi.spyOn(window, "confirm");
     renderView();
     const user = userEvent.setup();
 
     const cancelButton = await screen.findByRole("button", { name: "평가 확정 취소" });
     await user.click(cancelButton);
 
-    expect(confirmSpy).toHaveBeenCalledWith(
-      "평가 확정을 취소하면 팀원에게 노출된 점수가 다시 비공개 상태로 표시됩니다. 취소할까요?"
-    );
+    expect(confirmSpy).not.toHaveBeenCalled();
     await waitFor(() => expect(unfinalizeEvaluation).toHaveBeenCalledWith(1));
     expect(await screen.findByRole("button", { name: "평가 확정" })).toBeInTheDocument();
-  });
-
-  it("확인 다이얼로그에서 취소하면 unfinalizeEvaluation을 호출하지 않는다", async () => {
-    vi.mocked(getProject).mockResolvedValue({
-      id: 1, title: "스마트 주차 관리 시스템", type: null, deadline: null, description: null,
-      startDate: null, midCheckDate: null, memberLimit: null, deliverables: null, techStack: null,
-      goals: null, inviteCode: null, createdBy: null, memberCount: 1, taskProgress: 0,
-      evalStatus: "PUBLISHED",
-    });
-    vi.spyOn(window, "confirm").mockReturnValue(false);
-    renderView();
-    const user = userEvent.setup();
-
-    const cancelButton = await screen.findByRole("button", { name: "평가 확정 취소" });
-    await user.click(cancelButton);
-
-    expect(unfinalizeEvaluation).not.toHaveBeenCalled();
-    expect(await screen.findByRole("button", { name: "평가 확정 취소" })).toBeInTheDocument();
   });
 
   it("evalStatus가 EVALUATING이면 '평가 확정' 버튼을 보여주고 클릭 시 finalizeEvaluation을 호출한다", async () => {

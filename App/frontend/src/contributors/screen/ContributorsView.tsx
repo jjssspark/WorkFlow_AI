@@ -119,19 +119,15 @@ export function ContributorsView() {
     getProject(currentProjectId).then(setProject).catch(() => setProject(null));
   }, [currentProjectId]);
   // "평가 확정" / "평가 확정 취소" 버튼 상태 — 클릭 시 finalize/unfinalize-evaluation을
-  // 호출하고, 성공하면 project를 갱신해 배지가 즉시 바뀌게 한다. 취소 방향은 팀원에게
-  // 이미 노출된 점수가 있을 수 있어 window.confirm으로 한 번 더 확인한다.
+  // 호출하고, 성공하면 project를 갱신해 배지가 즉시 바뀌게 한다. 이 토글은 심사자 홈의
+  // 진행 상태 표시(평가 중/공개 완료)만 전환하며, 팀원별 점수 공개 여부(공개 배지들)와는
+  // 완전히 독립적이다 — 심사자에 따라 점수를 아예 공개하지 않고 이 상태만 관리용으로
+  // 쓸 수도 있으므로 확인 팝업 없이 즉시 토글한다.
   const [isFinalizing, setIsFinalizing] = useState(false);
   const [finalizeError, setFinalizeError] = useState<string | null>(null);
   const handleToggleFinalize = async () => {
     if (currentProjectId == null) return;
     const isPublishedNow = resolveEvalStatus(project?.evalStatus) === "PUBLISHED";
-    if (isPublishedNow) {
-      const confirmed = window.confirm(
-        "평가 확정을 취소하면 팀원에게 노출된 점수가 다시 비공개 상태로 표시됩니다. 취소할까요?"
-      );
-      if (!confirmed) return;
-    }
     setIsFinalizing(true);
     setFinalizeError(null);
     try {

@@ -24,7 +24,12 @@
 - 팀원별 개별 공개 여부(`finalPublic`/`contributionPublic`/`commentPublic`,
   `evaluation_scores` 테이블)는 이 토글의 영향을 받지 않는다. "평가 확정
   취소"를 눌러도 이미 공개 처리된 개별 팀원 점수는 자동으로 비공개
-  전환되지 않는다 — 상단 상태 배지/버튼만 되돌린다.
+  전환되지 않는다 — 상단 상태 배지/버튼만 되돌린다. 이는 우연한 부작용이
+  아니라 의도된 설계다: 이 토글은 심사자 홈(`/projects`)에서 프로젝트가
+  "평가 중"인지 "공개 완료"인지 진행 상태만 표시/관리하기 위한 것이고,
+  점수 공개 여부는 심사자마다 자유도가 다르다(점수를 전혀 공개하지 않고
+  이 상태만 내부 관리용으로 쓰는 심사자도 있을 수 있음). 그래서 확인
+  팝업 없이 즉시 토글되며, 점수 공개 로직과는 완전히 분리되어 있다.
 - 프로젝트 목록 화면(`ProjectEntryScreen.tsx`, 심사자 홈 `/projects`)의
   "배정"/"평가 중"/"공개 완료" 카운트와 프로젝트 카드의 상태 배지는 이미
   `listProjects()`가 반환하는 실제 `project.evalStatus`에서 파생되어
@@ -100,11 +105,9 @@ export function unfinalizeEvaluation(projectId: number) {
 - `finalizeEvaluation`/`unfinalizeEvaluation`을 모두 import.
 - `handleFinalizeEvaluation`을 `isPublished` 값에 따라 분기하도록 수정(또는
   `handleToggleFinalize`로 이름 변경): `isPublished`가 `true`이면
-  `window.confirm(...)`으로 확인 후 `unfinalizeEvaluation` 호출, `false`이면
-  기존처럼 `finalizeEvaluation` 호출. 기존 `isFinalizing`/`finalizeError`
-  state를 그대로 재사용.
-- 확인 문구: `"평가 확정을 취소하면 팀원에게 노출된 점수가 다시 비공개
-  상태로 표시됩니다. 취소할까요?"`
+  `unfinalizeEvaluation`, `false`이면 `finalizeEvaluation`을 즉시 호출.
+  확인 팝업 없음(진행 상태 전용 토글이고 점수 공개와 무관하므로). 기존
+  `isFinalizing`/`finalizeError` state를 그대로 재사용.
 - 버튼 렌더링을 상태에 따라 분기:
   - `EVALUATING`(미확정): 기존과 동일 — 파란 배경, `CheckCircle2` 아이콘,
     "평가 확정" / "확정 중..." 라벨. `disabled` 조건에서 `isPublished`
@@ -133,10 +136,8 @@ export function unfinalizeEvaluation(projectId: number) {
 - 백엔드: `ProjectServiceTest`, `ProjectControllerSecurityTest`에 대칭
   케이스 추가(위 명시).
 - 프론트: `ContributorsView.test.tsx`에 다음 케이스 추가
-  - `PUBLISHED` 상태일 때 "평가 확정 취소" 버튼이 보이고 클릭 시 확인
-    다이얼로그가 뜬다.
-  - 확인 후 `unfinalizeEvaluation` 호출, 성공 시 배지가 "평가 중"으로
-    바뀐다.
-  - 확인 다이얼로그에서 취소하면 API가 호출되지 않는다.
+  - `PUBLISHED` 상태일 때 "평가 확정 취소" 버튼이 보인다.
+  - 클릭 시 확인 팝업 없이 바로 `unfinalizeEvaluation` 호출, 성공 시
+    배지가 "평가 중"으로 바뀐다(`window.confirm`이 호출되지 않음을 검증).
 - 프로젝트 목록 화면은 별도 테스트 추가 없음(기존 `resolveEvalStatus`
   파생 로직을 그대로 사용하므로 회귀 없음).
