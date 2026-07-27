@@ -50,7 +50,7 @@ class MeetingAnalysisJobPublisherTest {
         MeetingAnalysisJobPublisher publisher = new MeetingAnalysisJobPublisher(redisTemplate, objectMapper);
         UUID jobId = UUID.randomUUID();
 
-        String result = publisher.enqueue(42L, request, jobId);
+        String result = publisher.enqueue(42L, request, jobId, 77L);
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<RedisScript<String>> scriptCaptor = ArgumentCaptor.forClass(RedisScript.class);
@@ -65,6 +65,7 @@ class MeetingAnalysisJobPublisherTest {
         assertThat(job.jobId()).isEqualTo(jobId.toString());
         assertThat(job.meetingId()).isEqualTo(42L);
         assertThat(job.request()).isEqualTo(request);
+        assertThat(job.requestedBy()).isEqualTo(77L);
         assertThat(result).isEqualTo(recordId);
 
         String script = scriptCaptor.getValue().getScriptAsString();
@@ -85,7 +86,7 @@ class MeetingAnalysisJobPublisherTest {
         when(failingObjectMapper.writeValueAsString(any(MeetingAnalysisJob.class))).thenThrow(failure);
         MeetingAnalysisJobPublisher publisher = new MeetingAnalysisJobPublisher(redisTemplate, failingObjectMapper);
 
-        assertThatThrownBy(() -> publisher.enqueue(42L, request))
+        assertThatThrownBy(() -> publisher.enqueue(42L, request, 77L))
             .isInstanceOf(IllegalStateException.class)
             .hasMessage("Failed to enqueue meeting analysis job")
             .hasCause(failure)
@@ -100,7 +101,7 @@ class MeetingAnalysisJobPublisherTest {
             .thenThrow(failure);
         MeetingAnalysisJobPublisher publisher = new MeetingAnalysisJobPublisher(redisTemplate, objectMapper);
 
-        assertThatThrownBy(() -> publisher.enqueue(42L, request))
+        assertThatThrownBy(() -> publisher.enqueue(42L, request, 77L))
             .isInstanceOf(IllegalStateException.class)
             .hasMessage("Failed to enqueue meeting analysis job")
             .hasNoCause()
@@ -122,7 +123,7 @@ class MeetingAnalysisJobPublisherTest {
         );
         MeetingAnalysisJobPublisher publisher = new MeetingAnalysisJobPublisher(redisTemplate, objectMapper);
 
-        assertThatThrownBy(() -> publisher.enqueue(42L, oversizedRequest))
+        assertThatThrownBy(() -> publisher.enqueue(42L, oversizedRequest, 77L))
             .isInstanceOf(IllegalStateException.class)
             .hasMessage("Failed to enqueue meeting analysis job")
             .hasMessageNotContaining("가");
@@ -135,7 +136,7 @@ class MeetingAnalysisJobPublisherTest {
             .thenReturn(MeetingAnalysisJobPublisher.QUEUE_FULL_SENTINEL);
         MeetingAnalysisJobPublisher publisher = new MeetingAnalysisJobPublisher(redisTemplate, objectMapper);
 
-        assertThatThrownBy(() -> publisher.enqueue(42L, request))
+        assertThatThrownBy(() -> publisher.enqueue(42L, request, 77L))
             .isInstanceOf(IllegalStateException.class)
             .hasMessage("Failed to enqueue meeting analysis job")
             .hasNoCause()
@@ -148,7 +149,7 @@ class MeetingAnalysisJobPublisherTest {
             .thenReturn(null);
         MeetingAnalysisJobPublisher publisher = new MeetingAnalysisJobPublisher(redisTemplate, objectMapper);
 
-        assertThatThrownBy(() -> publisher.enqueue(42L, request))
+        assertThatThrownBy(() -> publisher.enqueue(42L, request, 77L))
             .isInstanceOf(IllegalStateException.class)
             .hasMessage("Failed to enqueue meeting analysis job")
             .hasNoCause()

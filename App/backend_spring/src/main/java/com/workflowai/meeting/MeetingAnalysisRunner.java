@@ -31,7 +31,7 @@ public class MeetingAnalysisRunner {
         this.meetingRepository = meetingRepository;
     }
 
-    public void runAnalysis(Long meetingId, AiAnalyzeRequest request, UUID jobId) {
+    public void runAnalysis(Long meetingId, AiAnalyzeRequest request, UUID jobId, Long requestedBy) {
         if (!meetingAnalysisPersistence.claimJob(meetingId, jobId)) {
             log.info("Skipping stale meeting analysis job. meetingId={}", meetingId);
             return;
@@ -76,7 +76,7 @@ public class MeetingAnalysisRunner {
         }
 
         try {
-            meetingAnalysisPersistence.saveAnalysisSuccessForJob(meetingId, result, analysisSource, jobId);
+            meetingAnalysisPersistence.saveAnalysisSuccessForJob(meetingId, result, analysisSource, jobId, requestedBy);
         } catch (Exception e) {
             log.warn("Meeting analysis persistence failed. meetingId={}", meetingId, e);
             meetingAnalysisPersistence.saveAnalysisFailureForJob(

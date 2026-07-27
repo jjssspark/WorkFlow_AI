@@ -7,7 +7,7 @@ export interface PresenceUser {
   role: string;
 }
 
-const POLL_INTERVAL_MS = 20000;
+const POLL_INTERVAL_MS = 5000;
 
 /** 프로젝트 접속자 목록을 폴링한다. 접속자 표시는 부가 기능이므로 실패해도 조용히 무시한다. */
 export function usePresence(projectId: number | null): PresenceUser[] {

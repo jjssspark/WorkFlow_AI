@@ -9,6 +9,12 @@ export const MAX_HISTORY_MESSAGES = 6;
 // 긴 질문/답변이 히스토리로 재전송될 때 400 INVALID_HISTORY로 대화 전체가 끊기지 않는다.
 export const MAX_HISTORY_CONTENT_LENGTH = 1000;
 
+// 질문 길이 상한. Spring RagController.MAX_QUESTION_LENGTH와 같은 값이라야 입력 단계에서 막힌 것만
+// 서버로 나가고, 400 INVALID_QUESTION이 사용자에게 그대로 노출되지 않는다.
+// 여기서 question을 자르지는 않는다 - 히스토리와 달리 질문을 몰래 truncate하면 사용자가 하지 않은
+// 질문에 답이 달린다. 자르는 대신 입력창에서 애초에 초과 입력을 막는다.
+export const MAX_QUESTION_LENGTH = 1000;
+
 // 후속 질문 재작성에 필요한 최소 필드만. sources 등 부가 필드는 서버로 보내지 않는다.
 export interface RagHistoryMessage {
   role: "user" | "assistant";

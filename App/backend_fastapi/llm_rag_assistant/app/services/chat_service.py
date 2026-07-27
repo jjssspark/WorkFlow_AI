@@ -193,7 +193,7 @@ async def answer_question(
         effective_question, enriched_rows, is_personal=assignee_id is not None, stats=stats
     )
 
-    sources = [
+    sources = _dedupe_sources(
         RagSource(
             source_type=row["source_type"],
             source_id=row["source_id"],
@@ -201,13 +201,34 @@ async def answer_question(
             similarity=row["similarity"],
         )
         for row in rows
-    ]
+    )
     response = RagQueryResponse(answer=answer, sources=sources)
     if redis_client is not None and cache_key is not None and cache_epoch is not None:
         latest_epoch = await _read_project_cache_epoch(redis_client, project_id)
         if latest_epoch == cache_epoch:
             await _write_cached_response(redis_client, cache_key, response)
     return response
+
+
+def _dedupe_sources(sources) -> list[RagSource]:
+    """같은 원본에서 나온 청크가 여러 개 검색되면 출처 목록에는 1건만 남긴다.
+
+    긴 회의록은 여러 청크로 쪼개져 있어 상위 5개가 전부 같은 회의록인 경우가 흔하다.
+    그대로 내보내면 사용자에게 같은 문서 링크가 5줄 반복돼 근거의 폭이 넓어 보이지 않는다.
+
+    검색 결과는 유사도 내림차순이므로 첫 등장이 곧 그 원본의 최고 유사도다.
+    LLM 컨텍스트(enriched_rows)는 줄이지 않는다 - 같은 문서라도 청크마다 내용이 달라
+    합치면 답변 근거 자체가 줄어든다. 여기서 줄이는 건 표시용 목록뿐이다.
+    """
+    seen: set[tuple[str, int]] = set()
+    unique: list[RagSource] = []
+    for source in sources:
+        key = (source.source_type, source.source_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(source)
+    return unique
 
 
 def _shorten(value: str, max_len: int) -> str:

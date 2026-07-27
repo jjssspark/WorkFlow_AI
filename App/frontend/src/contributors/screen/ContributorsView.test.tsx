@@ -94,8 +94,8 @@ describe("ContributorsView drilldown panels", () => {
     ]);
     vi.mocked(getEvaluationScores).mockResolvedValue([]);
     vi.mocked(upsertEvaluationScore).mockResolvedValue({
-      projectId: 1, userId: 1, score: 60, contributionPublic: true, finalPublic: false,
-      commentPublic: false, reviewerScore: null, grade: null, comment: null,
+      projectId: 1, userId: 1, score: 60, totalScore: null, contributionPublic: true,
+      finalPublic: false, commentPublic: false, reviewerScore: null, grade: null, comment: null,
     });
     vi.mocked(getEvaluationSettings).mockResolvedValue({ projectId: 1, contributionRatio: 40 });
     vi.mocked(upsertEvaluationSettings).mockResolvedValue({ projectId: 1, contributionRatio: 40 });
@@ -207,8 +207,8 @@ describe("ContributorsView 학점 계산기", () => {
     vi.mocked(fetchTasks).mockResolvedValue([]);
     vi.mocked(getEvaluationScores).mockResolvedValue([]);
     vi.mocked(upsertEvaluationScore).mockResolvedValue({
-      projectId: 1, userId: 1, score: 78, contributionPublic: false, finalPublic: false,
-      commentPublic: false, reviewerScore: 90, grade: "A+", comment: null,
+      projectId: 1, userId: 1, score: 60, totalScore: 78, contributionPublic: false,
+      finalPublic: false, commentPublic: false, reviewerScore: 90, grade: "A+", comment: null,
     });
     vi.mocked(getEvaluationSettings).mockResolvedValue({ projectId: 1, contributionRatio: 40 });
     vi.mocked(upsertEvaluationSettings).mockResolvedValue({ projectId: 1, contributionRatio: 70 });
@@ -248,7 +248,7 @@ describe("ContributorsView 학점 계산기", () => {
     await user.click(saveButton);
 
     await waitFor(() =>
-      expect(upsertEvaluationScore).toHaveBeenCalledWith(1, 1, { score: 78, reviewerScore: 90, grade: "A+" }),
+      expect(upsertEvaluationScore).toHaveBeenCalledWith(1, 1, { totalScore: 78, reviewerScore: 90, grade: "A+" }),
     );
   });
 
@@ -286,7 +286,7 @@ describe("ContributorsView 학점 계산기", () => {
     const saveButton = within(aside).getByRole("button", { name: "저장" });
     await user.click(saveButton);
     await waitFor(() =>
-      expect(upsertEvaluationScore).toHaveBeenCalledWith(1, 1, { score: 78, reviewerScore: 90, grade: undefined }),
+      expect(upsertEvaluationScore).toHaveBeenCalledWith(1, 1, { totalScore: 78, reviewerScore: 90, grade: undefined }),
     );
 
     vi.mocked(upsertEvaluationScore).mockClear();

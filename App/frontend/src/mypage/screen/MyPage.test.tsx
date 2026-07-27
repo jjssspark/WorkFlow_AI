@@ -66,8 +66,8 @@ describe("MyPage member view", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.mocked(getMyEvaluation).mockResolvedValue({
-      contributionRevealed: false, score: null, finalRevealed: false, reviewerScore: null,
-      grade: null, commentRevealed: false, comment: null,
+      contributionRevealed: false, score: null, finalRevealed: false, totalScore: null,
+      reviewerScore: null, grade: null, commentRevealed: false, comment: null,
     });
     vi.mocked(useAuth).mockReturnValue({
       isAuthenticated: true,
@@ -164,8 +164,8 @@ describe("MyPage member view", () => {
   it("does not show the public score section when the reviewer hasn't published anything", async () => {
     vi.mocked(fetchTasks).mockResolvedValue([]);
     vi.mocked(getMyEvaluation).mockResolvedValue({
-      contributionRevealed: false, score: null, finalRevealed: false, reviewerScore: null,
-      grade: null, commentRevealed: false, comment: null,
+      contributionRevealed: false, score: null, finalRevealed: false, totalScore: null,
+      reviewerScore: null, grade: null, commentRevealed: false, comment: null,
     });
 
     renderMyPage();
@@ -177,8 +177,8 @@ describe("MyPage member view", () => {
   it("shows the reviewer-published score once revealed, hidden behind a reveal button first", async () => {
     vi.mocked(fetchTasks).mockResolvedValue([]);
     vi.mocked(getMyEvaluation).mockResolvedValue({
-      contributionRevealed: true, score: 88, finalRevealed: true, reviewerScore: 90,
-      grade: "A+", commentRevealed: false, comment: null,
+      contributionRevealed: true, score: 88, finalRevealed: true, totalScore: 89.2,
+      reviewerScore: 90, grade: "A+", commentRevealed: false, comment: null,
     });
 
     renderMyPage();
@@ -186,17 +186,19 @@ describe("MyPage member view", () => {
     await waitFor(() => expect(screen.getByText("공개된 평가 결과")).toBeInTheDocument());
     expect(screen.queryByText("88.00")).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: /결과 확인하기/ }));
-    // 기여 점수/심사자 점수/학점 세 값이 모두 표시된다.
+    // 기여 점수/심사자 점수/총합/학점 네 값이 모두 표시되고, 총합(89.20)이 기여 점수(88.00)를
+    // 덮어쓰지 않는다(회귀 테스트 — 과거엔 score 필드를 공유해 총합이 기여 점수를 덮어썼다).
     expect(screen.getByText("88.00")).toBeInTheDocument();
     expect(screen.getByText("90.00")).toBeInTheDocument();
+    expect(screen.getByText("89.20")).toBeInTheDocument();
     expect(screen.getByText("A+")).toBeInTheDocument();
   });
 
-  it("기여 점수만 공개되고 총합/학점은 아직 비공개일 때, 기여 점수만 표시하고 총합/학점 칸은 '-'로 숨긴다", async () => {
+  it("기여 점수만 공개되고 총합/학점은 아직 비공개일 때, 기여 점수만 표시하고 총합/심사자점수/학점 칸은 '-'로 숨긴다", async () => {
     vi.mocked(fetchTasks).mockResolvedValue([]);
     vi.mocked(getMyEvaluation).mockResolvedValue({
-      contributionRevealed: true, score: 76.12, finalRevealed: false, reviewerScore: null,
-      grade: null, commentRevealed: false, comment: null,
+      contributionRevealed: true, score: 76.12, finalRevealed: false, totalScore: null,
+      reviewerScore: null, grade: null, commentRevealed: false, comment: null,
     });
 
     renderMyPage();
@@ -204,15 +206,15 @@ describe("MyPage member view", () => {
     await waitFor(() => expect(screen.getByText("공개된 평가 결과")).toBeInTheDocument());
     await userEvent.click(screen.getByRole("button", { name: /결과 확인하기/ }));
     expect(screen.getByText("76.12")).toBeInTheDocument();
-    // 총합/심사자 점수/학점은 아직 공개되지 않아 "-"로 표시된다.
-    expect(screen.getAllByText("-")).toHaveLength(2);
+    // 심사자 점수/총합/학점은 아직 공개되지 않아 "-"로 표시된다.
+    expect(screen.getAllByText("-")).toHaveLength(3);
   });
 
   it("심사 코멘트가 공개되면 개인 코멘트/피드백 목록 맨 앞에 심사자 코멘트가 나타난다", async () => {
     vi.mocked(fetchTasks).mockResolvedValue([]);
     vi.mocked(getMyEvaluation).mockResolvedValue({
-      contributionRevealed: false, score: null, finalRevealed: false, reviewerScore: null,
-      grade: null, commentRevealed: true, comment: "팀장으로서 팀을 잘 이끌어주고 있습니다.",
+      contributionRevealed: false, score: null, finalRevealed: false, totalScore: null,
+      reviewerScore: null, grade: null, commentRevealed: true, comment: "팀장으로서 팀을 잘 이끌어주고 있습니다.",
     });
 
     renderMyPage();
