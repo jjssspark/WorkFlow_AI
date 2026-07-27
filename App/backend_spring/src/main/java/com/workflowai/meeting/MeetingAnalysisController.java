@@ -128,7 +128,8 @@ public class MeetingAnalysisController {
         }
         return ResponseEntity.ok()
             .contentType(MediaType.parseMediaType(contentType == null ? "application/octet-stream" : contentType))
-            // 브라우저 오디오 플레이어가 구간 탐색을 하려면 Range 요청을 지원한다고 알려야 한다.
+            // Range 부분 전송은 Spring MVC가 ResponseEntity<Resource>에 대해 처리한다.
+            // 로컬 실측: Range: bytes=0-99 요청에 206 + Content-Range로 응답하는 것을 확인했다.
             .header(HttpHeaders.ACCEPT_RANGES, "bytes")
             .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.inline()
                 .filename(audio.fileName(), java.nio.charset.StandardCharsets.UTF_8).toString())

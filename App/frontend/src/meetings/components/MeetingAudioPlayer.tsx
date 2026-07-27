@@ -11,8 +11,12 @@ interface MeetingAudioPlayerProps {
 /**
  * 회의록 음성 파일 재생기.
  *
- * 음성 스트리밍 엔드포인트는 Authorization 헤더를 요구하는데 <audio src>로는 헤더를 붙일 수 없다.
+ * 음성 엔드포인트는 Authorization 헤더를 요구하는데 <audio src>로는 헤더를 붙일 수 없다.
  * 토큰을 쿼리스트링에 실으면 URL과 로그에 남으므로, 헤더로 받아 blob URL로 재생한다.
+ *
+ * 한계: 이 방식은 파일 전체를 받은 뒤 재생을 시작하므로 서버가 지원하는 Range 부분 전송의
+ * 이점(즉시 재생·구간만 내려받기)을 활용하지 못한다. 긴 녹음에서 첫 재생이 느릴 수 있다.
+ * 이를 없애려면 헤더 없이 접근 가능한 단기 서명 URL이 필요하다.
  */
 export function MeetingAudioPlayer({ projectId, meetingId }: MeetingAudioPlayerProps) {
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
