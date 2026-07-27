@@ -51,6 +51,21 @@ vi.mock("../libs/utils/meetingAiApi", () => ({
   registerMeetingTasks: (...args: unknown[]) => registerMeetingTasks(...args),
 }));
 
+const mockStartRecording = vi.fn();
+let mockRecordingStatus: "idle" | "requesting-permission" | "recording" | "stopped" | "error" = "idle";
+
+vi.mock("../libs/hooks/RecordingSessionProvider", () => ({
+  useRecordingSession: () => ({
+    status: mockRecordingStatus,
+    elapsedSeconds: 0,
+    error: null,
+    startRecording: mockStartRecording,
+    requestStop: vi.fn(),
+    pendingBlob: null,
+    clearPendingBlob: vi.fn(),
+  }),
+}));
+
 const baseResult = (assignee_id: string | null): MeetingAiResult => ({
   summary: "요약",
   decisions: [],
@@ -128,6 +143,8 @@ describe("MeetingsView 홈 탭", () => {
   beforeEach(() => {
     localStorage.clear();
     vi.clearAllMocks();
+    mockRecordingStatus = "idle";
+    mockStartRecording.mockClear();
     mockUseAuth.mockReturnValue(asLeader());
     fetchMeetings.mockResolvedValue([
       { meetingId: "1", title: "저장된 정기회의", meetingDate: "2026-07-19", meetingType: "정기회의", analysisStatus: "completed", savedAt: "2026-07-19T10:00:00", originalMeetingId: null, tasksRegistered: false },
@@ -352,6 +369,32 @@ describe("MeetingsView 홈 탭", () => {
 
     await waitFor(() => expect(screen.getByRole("button", { name: "저장된 회의록" })).toHaveClass("border-blue-600"));
     expect(screen.getByRole("button", { name: "분석/업로드" })).not.toHaveClass("border-blue-600");
+  });
+
+  it("마이크 버튼을 누르면 startRecording을 호출한다", async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={["/meetings"]}>
+        <MeetingsView />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(fetchMeetings).toHaveBeenCalled());
+    await user.click(screen.getByTitle("회의 녹음 시작"));
+
+    expect(mockStartRecording).toHaveBeenCalledTimes(1);
+  });
+
+  it("녹음 중에는 마이크 버튼이 비활성화된다", async () => {
+    mockRecordingStatus = "recording";
+    render(
+      <MemoryRouter initialEntries={["/meetings"]}>
+        <MeetingsView />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(fetchMeetings).toHaveBeenCalled());
+    expect(screen.getByTitle("회의 녹음 시작")).toBeDisabled();
   });
 });
 
