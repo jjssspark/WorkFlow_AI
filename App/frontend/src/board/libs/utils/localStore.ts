@@ -53,3 +53,11 @@ export const markDeletedMeeting = (meetingId: string, projectId?: string | numbe
   ids.add(meetingId);
   writeStoredArray(scopedKey(DELETED_MEETING_STORAGE_KEY, projectId), MEETINGS_UPDATED_EVENT, [...ids]);
 };
+
+// 낙관적 삭제(서버 응답 전에 화면에서 먼저 제거)가 실패해 되돌릴 때 사용한다.
+// 이 묘비를 지우지 않으면 서버 재조회가 해당 회의록을 다시 내려줘도 계속 걸러진다.
+export const unmarkDeletedMeeting = (meetingId: string, projectId?: string | number) => {
+  const ids = getDeletedMeetingIds(projectId);
+  ids.delete(meetingId);
+  writeStoredArray(scopedKey(DELETED_MEETING_STORAGE_KEY, projectId), MEETINGS_UPDATED_EVENT, [...ids]);
+};

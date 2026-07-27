@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from "react-router";
 import { CatTag } from "../../board/components/CatTag";
 import { PriorityBadge } from "../../board/components/PriorityBadge";
 import { getCat } from "../../board/libs/utils/taskService";
-import { getStoredMeetings, getSavedMeetings, saveSavedMeetings, getStoredTasks, saveStoredTasks, saveStoredMeetings, getDeletedMeetingIds, markDeletedMeeting } from "../../board/libs/utils/localStore";
+import { getStoredMeetings, getSavedMeetings, saveSavedMeetings, getStoredTasks, saveStoredTasks, saveStoredMeetings, getDeletedMeetingIds, markDeletedMeeting, unmarkDeletedMeeting } from "../../board/libs/utils/localStore";
 import { addActivity } from "../../board/libs/utils/activityStore";
 import { CATEGORIES } from "../../board/libs/mock/tasks";
 import type { Meeting, UploadFlow, UploadType, GenTodo, SavedMeetingRecord } from "../libs/types/meeting";
@@ -829,6 +829,15 @@ export function MeetingsView() {
     setTimeout(() => setSaveMeetingMessage(null), 2500);
   };
 
+  const markMeetingSavedLocally = (meetingId: string) => {
+    const savedAt = new Date().toISOString();
+    setMeetings(prev => {
+      const next = prev.map(item => item.id === meetingId ? { ...item, savedAt } : item);
+      saveStoredMeetings(next, projectId);
+      return next;
+    });
+  };
+
   // 서버 저장확정(saved_at 확정 + MEETING_SAVED/_NOTIFY_LEADER 알림)을 먼저 시도하고,
   // 성공했을 때만 로컬 상태 반영(handleSaveMeeting)과 성공 메시지를 보여준다 — 순서를 바꾸면
   // 서버 저장이 실패해도 로컬은 이미 "저장됨"으로 보여 화면과 실제 상태가 어긋난다.
@@ -838,6 +847,11 @@ export function MeetingsView() {
     try {
       await confirmMeetingSave(projectId, selected);
       handleSaveMeeting();
+      // "저장된 회의록" 목록은 meetings의 savedAt으로 걸러진다(savedMeetingsList).
+      // 서버 재조회 결과를 기다리면 저장 직후엔 목록이 비어 보여 새로고침해야 뜨므로,
+      // 서버 저장이 확정된 시점에 로컬 meetings의 savedAt도 즉시 채운다.
+      markMeetingSavedLocally(selected);
+      void refreshMeetingsFromServer();
     } catch (error) {
       const status = error instanceof ApiRequestError ? ` (${error.status})` : "";
       setSaveMeetingError(`서버 저장에 실패했습니다${status}. 잠시 후 다시 시도해주세요.`);
@@ -1105,6 +1119,18 @@ export function MeetingsView() {
     }
   };
 
+  // 낙관적 삭제가 서버에서 실패했을 때 화면과 로컬 캐시를 삭제 이전 상태로 되돌린다.
+  const restoreMeetingToLocalState = (
+    meetingsSnapshot: Meeting[],
+    savedSnapshot: SavedMeetingRecord[]
+  ) => {
+    setMeetings(() => {
+      saveStoredMeetings(meetingsSnapshot, projectId);
+      return meetingsSnapshot;
+    });
+    saveSavedMeetings(savedSnapshot, projectId);
+  };
+
   const removeLinkedLocalTasks = async (target: Meeting) => {
     const matchesMeeting = (task: Task) =>
       task.sourceMeetingTitle === target.id || task.sourceMeetingTitle === target.title;
@@ -1134,6 +1160,16 @@ export function MeetingsView() {
     setDeletingMeetingId(target.id);
     setMeetingListError(null);
     setDeleteMessage(null);
+
+    // 서버 DELETE 응답(최대 10초)을 기다린 뒤에 목록을 갱신하면 그동안 삭제한 항목이 그대로 남아
+    // "삭제가 안 된다, 새로고침해야 사라진다"로 보인다. 먼저 화면에서 지우고, 서버 삭제가
+    // 진짜 실패한 경우(권한/인증/서버 오류)에만 스냅샷으로 되돌린다.
+    const meetingsSnapshot = meetings;
+    const savedSnapshot = getSavedMeetings(projectId);
+    removeMeetingFromLocalState(target.id);
+    setDeleteMessage(deleteLinkedTasks ? "회의록과 연동 업무가 삭제되었습니다." : "회의록이 삭제되었습니다.");
+    setTimeout(() => setDeleteMessage(null), 2500);
+
     try {
       if (isServerMeetingId(target.id)) {
         await deleteMeeting(projectId, target.id, deleteLinkedTasks);
@@ -1141,9 +1177,6 @@ export function MeetingsView() {
       if (deleteLinkedTasks) {
         await removeLinkedLocalTasks(target);
       }
-      removeMeetingFromLocalState(target.id);
-      setDeleteMessage(deleteLinkedTasks ? "회의록과 연동 업무가 삭제되었습니다." : "회의록이 삭제되었습니다.");
-      setTimeout(() => setDeleteMessage(null), 2500);
     } catch (error) {
       const message = error instanceof Error ? error.message : "";
       const isMissingMeeting =
@@ -1151,25 +1184,19 @@ export function MeetingsView() {
           ? error.status === 404 || error.code === "MEETING_NOT_FOUND"
           : message.includes("회의록을 찾을 수 없습니다");
       if (isMissingMeeting) {
+        // 서버에 이미 없으므로 낙관적 제거가 결과적으로 옳다. 되돌리지 않는다.
         if (deleteLinkedTasks) {
           await removeLinkedLocalTasks(target);
         }
-        removeMeetingFromLocalState(target.id);
-        setDeleteMessage("서버에 없는 회의록이라 목록에서 제거했습니다.");
-        setTimeout(() => setDeleteMessage(null), 2500);
       } else if (error instanceof ApiRequestError && error.code === "REQUEST_TIMEOUT") {
-        // 클라이언트가 타임아웃으로 요청을 포기해도 서버는 처리를 계속할 수 있어, 실제로는
-        // 삭제가 이미 끝났을 수 있다. "삭제 안 됐다"고 단정하지 말고 서버 상태를 다시 조회해
-        // 화면을 실제 상태와 맞춘다.
-        // 로컬 캐시(getStoredMeetings)에 이 항목이 그대로 남아있으면 refreshMeetingsFromServer의
-        // 병합 로직이 "서버가 모르는 로컬 전용 항목"으로 오인해 되살려낸다(삭제 확인 후에도
-        // 목록에 그대로 남는 버그의 원인). 삭제된 것으로 먼저 반영해두면, 실제로 서버 삭제가
-        // 안 끝난 경우에도 뒤이은 refresh의 serverMeetings가 그대로 다시 채워준다.
-        removeMeetingFromLocalState(target.id);
-        setMeetingListError("삭제 확인이 지연되고 있습니다. 최신 상태를 다시 불러옵니다.");
-        setTimeout(() => setMeetingListError(null), 6000);
+        // 클라이언트가 타임아웃으로 요청을 포기해도 서버는 처리를 계속해 삭제가 이미 끝났을 수 있다.
+        // 화면에서는 이미 지운 상태이므로 사용자에게 "지연" 문구를 띄우지 않고, 조용히 서버 상태만
+        // 다시 조회해 실제로 삭제되지 않았다면 목록이 스스로 복구되게 한다.
         void refreshMeetingsFromServer();
       } else {
+        setDeleteMessage(null);
+        unmarkDeletedMeeting(target.id, projectId);
+        restoreMeetingToLocalState(meetingsSnapshot, savedSnapshot);
         const statusCode = error instanceof ApiRequestError ? error.status : null;
         const isAuthError = statusCode === 401 || message.includes("인증이 만료") || message.includes("다시 로그인");
         const isPermissionError = statusCode === 403;
@@ -1228,9 +1255,8 @@ export function MeetingsView() {
       const status = statusCode ? ` (${statusCode})` : "";
       if (error instanceof ApiRequestError && error.code === "REQUEST_TIMEOUT") {
         // handleDeleteMeeting과 동일한 이유: 클라이언트 타임아웃 후에도 서버는 삭제를 끝냈을 수 있으므로
-        // 실패로 단정하지 않고 서버 상태를 다시 조회해 화면을 맞춘다.
-        setMeetingListError("삭제 확인이 지연되고 있습니다. 최신 상태를 다시 불러옵니다.");
-        setTimeout(() => setMeetingListError(null), 6000);
+        // 실패로 단정하지 않고 조용히 서버 상태를 다시 조회해 화면을 맞춘다(지연 문구는 띄우지 않는다).
+        updateMeetingAfterAnalysisDelete(target.id);
         void refreshMeetingsFromServer();
         return;
       }
