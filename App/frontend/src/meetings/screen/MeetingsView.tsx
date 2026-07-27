@@ -629,7 +629,10 @@ export function MeetingsView() {
             date: dto.meetingDate ?? "",
             duration: dto.analysisStatus === "completed" ? "분석 완료" : dto.analysisStatus,
             status,
-            savedAt: dto.savedAt,
+            // 저장 직후 재조회 응답이 아직 saved_at을 반영하지 못했더라도(진행 중이던 폴링 응답 등)
+            // 로컬이 이미 아는 저장 시각을 지우지 않는다. savedAt은 null -> 값으로만 바뀌므로
+            // 값이 있는 쪽을 남기는 것이 항상 안전하다. 지우면 방금 저장한 회의록이 목록에서 사라진다.
+            savedAt: dto.savedAt ?? cached.find(item => item.id === dto.meetingId)?.savedAt ?? null,
             originalMeetingId: dto.originalMeetingId,
             tasksRegistered: dto.tasksRegistered,
             hasGeneratedTodos: dto.hasGeneratedTodos,
@@ -840,11 +843,14 @@ export function MeetingsView() {
 
   const markMeetingSavedLocally = (meetingId: string) => {
     const savedAt = new Date().toISOString();
-    setMeetings(prev => {
-      const next = prev.map(item => item.id === meetingId ? { ...item, savedAt } : item);
-      saveStoredMeetings(next, projectId);
-      return next;
-    });
+    // 곧이어 실행되는 refreshMeetingsFromServer()가 localStorage를 동기적으로 읽는다.
+    // 저장소 반영을 setMeetings 업데이터 안에서만 하면 React가 업데이터를 실행하기 전에
+    // 재조회가 옛 값을 읽어, 방금 저장한 회의록이 저장된 회의록 목록에서 사라진다.
+    saveStoredMeetings(
+      getStoredMeetings(projectId).map(item => item.id === meetingId ? { ...item, savedAt } : item),
+      projectId
+    );
+    setMeetings(prev => prev.map(item => item.id === meetingId ? { ...item, savedAt } : item));
   };
 
   // 서버 저장확정(saved_at 확정 + MEETING_SAVED/_NOTIFY_LEADER 알림)을 먼저 시도하고,
@@ -853,6 +859,14 @@ export function MeetingsView() {
   const handleConfirmSave = async () => {
     if (!selected) return;
     setSaveMeetingError(null);
+    // 같은 회의록을 반복 저장하면 저장 시각만 덮어쓰면서 서버 호출과 저장 용량을 낭비한다.
+    // 이미 저장된 회의록이면 알리고 끝낸다.
+    const alreadySaved = meetings.find(item => item.id === selected)?.savedAt;
+    if (alreadySaved) {
+      setSaveMeetingMessage("이미 저장된 회의록입니다. 저장된 회의록 탭에서 확인할 수 있습니다.");
+      setTimeout(() => setSaveMeetingMessage(null), 3000);
+      return;
+    }
     try {
       await confirmMeetingSave(projectId, selected);
       handleSaveMeeting();
