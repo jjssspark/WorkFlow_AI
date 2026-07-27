@@ -66,9 +66,9 @@ export const router = createBrowserRouter([
                 path: "leader",
                 element: <LeaderPage />,
                 children: [
-                  { index: true, element: <Navigate to="completion-approvals" replace /> },
-                  { path: "completion-approvals", element: <CompletionApprovalsView /> },
+                  { index: true, element: <Navigate to="roadmap" replace /> },
                   { path: "roadmap", element: <RoadmapView /> },
+                  { path: "completion-approvals", element: <CompletionApprovalsView /> },
                 ],
               },
             ],

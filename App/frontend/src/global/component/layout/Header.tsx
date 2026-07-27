@@ -37,6 +37,11 @@ const DETAIL_TITLES: Record<string, string> = {
   "workload": "팀원별 업무량", "activity": "최근 활동",
 };
 
+const LEADER_DETAIL_TITLES: Record<string, string> = {
+  roadmap: "로드맵",
+  "completion-approvals": "완료승인 대기",
+};
+
 export function Header({ onOpenMobileMenu }: { onOpenMobileMenu?: () => void }) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -87,6 +92,9 @@ export function Header({ onOpenMobileMenu }: { onOpenMobileMenu?: () => void }) 
   const segments = location.pathname.split("/").filter(Boolean);
   const activeTab = (segments[0] ?? "dashboard") as Tab;
   const detailPage = segments[1] ?? null;
+  const detailTitle = detailPage
+    ? (activeTab === "leader" ? LEADER_DETAIL_TITLES[detailPage] : DETAIL_TITLES[detailPage])
+    : null;
   const handleLogout = () => {
     logout();
     navigate("/login", { replace: true });
@@ -113,9 +121,9 @@ export function Header({ onOpenMobileMenu }: { onOpenMobileMenu?: () => void }) 
         <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
         {detailPage ? (
           <>
-            <button onClick={() => navigate("/dashboard")} className="text-muted-foreground hover:text-foreground transition-colors">{TAB_TITLES[activeTab]}</button>
+            <button onClick={() => navigate(`/${activeTab}`)} className="text-muted-foreground hover:text-foreground transition-colors">{TAB_TITLES[activeTab]}</button>
             <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
-            <span className="font-semibold text-foreground">{DETAIL_TITLES[detailPage]}</span>
+            <span className="font-semibold text-foreground">{detailTitle ?? detailPage}</span>
           </>
         ) : (
           <span className="font-semibold text-foreground">{TAB_TITLES[activeTab]}</span>

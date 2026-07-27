@@ -54,7 +54,7 @@ import org.springframework.web.multipart.MultipartFile;
 @Service
 public class MeetingAnalysisService {
     private static final Logger log = LoggerFactory.getLogger(MeetingAnalysisService.class);
-    private static final Set<String> AUDIO_FILE_EXTENSIONS = Set.of(".mp3", ".wav", ".m4a", ".ogg");
+    private static final Set<String> AUDIO_FILE_EXTENSIONS = Set.of(".mp3", ".wav", ".m4a", ".ogg", ".webm");
     // 스캔본 PDF OCR 설정. 페이지가 많은 회의 자료 전체를 인식하면 분석 요청이 몇 분씩 걸리므로 상한을 둔다.
     private static final int OCR_MAX_PAGES = 30;
     private static final int OCR_DPI = 200;

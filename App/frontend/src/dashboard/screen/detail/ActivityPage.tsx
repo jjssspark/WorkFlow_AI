@@ -103,9 +103,11 @@ export function ActivityPage() {
           <button onClick={manualRefresh} disabled={refreshing} className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-border bg-card text-foreground rounded-lg hover:bg-muted transition-colors disabled:opacity-50">
             <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} /> 새로고침
           </button>
+          {/* "AI 분석 보기" 기능 미사용 처리 (주석 처리)
           <button onClick={() => navigate("/dashboard/dash-progress")} className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-white rounded-lg" style={{ background: "linear-gradient(135deg,#7048E8,#4F6EF7)" }}>
             <Sparkles className="w-3.5 h-3.5" /> AI 분석 보기
           </button>
+          */}
         </div>
       </div>
 
@@ -177,6 +179,7 @@ export function ActivityPage() {
         </div>
 
         <div className="space-y-3">
+          {/* "AI 주간 활동 요약" 기능 미사용 처리 (주석 처리)
           <div className="bg-card rounded-xl border border-border shadow-sm overflow-hidden">
             <div className="flex items-center gap-2 px-4 py-3 border-b border-border" style={{ background: "rgba(112,72,232,0.05)" }}>
               <div className="w-6 h-6 rounded-lg flex items-center justify-center" style={{ background: "linear-gradient(135deg,#7048E8,#4F6EF7)" }}><Sparkles className="w-3 h-3 text-white" /></div>
@@ -197,6 +200,7 @@ export function ActivityPage() {
               </div>
             </div>
           </div>
+          */}
           <div className="bg-card rounded-xl border border-border shadow-sm p-4">
             <div className="text-sm font-semibold text-foreground mb-3">팀원별 활동량</div>
             {!loading && !refreshing && memberOptions.map((name, index) => {

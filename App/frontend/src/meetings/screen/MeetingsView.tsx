@@ -6,13 +6,14 @@ import { getCat } from "../../board/libs/utils/taskService";
 import { getStoredMeetings, getSavedMeetings, saveSavedMeetings, getStoredTasks, saveStoredTasks, saveStoredMeetings, getDeletedMeetingIds, markDeletedMeeting, unmarkDeletedMeeting } from "../../board/libs/utils/localStore";
 import { addActivity } from "../../board/libs/utils/activityStore";
 import { CATEGORIES } from "../../board/libs/mock/tasks";
-import type { Meeting, UploadFlow, UploadType, GenTodo, SavedMeetingRecord } from "../libs/types/meeting";
+import type { Meeting, UploadFlow, UploadType, GenTodo, SavedMeetingRecord, ExportablePdfData } from "../libs/types/meeting";
 import type { CatId, Priority, Task } from "../../board/libs/types/task";
 import { analyzeMeeting, confirmMeetingSave, deleteMeeting, deleteMeetingAnalysis, fetchMeeting, fetchMeetings, reanalyzeMeeting, registerMeetingTasks, retryMeetingAnalysis } from "../libs/utils/meetingAiApi";
 import { MeetingEditPanel } from "../components/MeetingEditPanel";
 import type { MeetingAiResult } from "../libs/types/meetingAiTypes";
 import { deleteTask, DEMO_PROJECT_ID } from "../../board/libs/utils/taskApi";
 import { useAuth } from "../../global/hooks/useAuth";
+import { useRecordingSession } from "../libs/hooks/RecordingSessionProvider";
 import type { ProjectRoleKo } from "../../global/api/authTypes";
 import { ApiRequestError } from "../../global/api/apiClient";
 import { getProjectMembers, type MemberResponse } from "../../global/api/projectsApi";
@@ -389,6 +390,7 @@ const buildMeetingFromAnalysisResponse = (
 
 export function MeetingsView() {
   const { currentProjectId, currentProject } = useAuth();
+  const { status: recordingStatus, startRecording } = useRecordingSession();
   const currentUserRole = deriveCurrentUserRole(currentProject?.role);
   const projectId = String(currentProjectId ?? DEMO_PROJECT_ID);
   const navigate = useNavigate();
@@ -964,16 +966,19 @@ export function MeetingsView() {
     setOriginalPreview({ kind: "unsupported", fileName: selectedFile.name });
   };
 
-  const handleExportPdf = async () => {
-    if (!analysisResult) {
-      setPdfExportMessage("분석 결과가 없어 PDF로 저장할 수 없습니다.");
-      setTimeout(() => setPdfExportMessage(null), 2500);
+  const [pdfExportData, setPdfExportData] = useState<ExportablePdfData | null>(null);
+
+  const handleExportPdf = async (data: ExportablePdfData) => {
+    if (isExportingPdf) return;
+    setIsExportingPdf(true);
+    setPdfExportData(data);
+    await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    const target = pdfCaptureRef.current;
+    if (!target) {
+      setIsExportingPdf(false);
+      setPdfExportData(null);
       return;
     }
-    const target = pdfCaptureRef.current;
-    if (!target || isExportingPdf) return;
-
-    setIsExportingPdf(true);
     try {
       const canvas = await html2canvas(target, { scale: 2, backgroundColor: "#ffffff", useCORS: true });
       const imgData = canvas.toDataURL("image/png");
@@ -994,16 +999,49 @@ export function MeetingsView() {
         heightLeft -= pageHeight;
       }
 
-      const dateForFile = (meetDate || getTodayIsoDate()).replace(/-/g, "");
-      const safeTitle = (meetTitle.trim() || "회의록").replace(/[\\/:*?"<>|]/g, "_");
+      const dateForFile = (data.date || getTodayIsoDate()).replace(/-/g, "");
+      const safeTitle = (data.title.trim() || "회의록").replace(/[\\/:*?"<>|]/g, "_");
       pdf.save(`회의록_${safeTitle}_${dateForFile}.pdf`);
     } catch {
       setPdfExportMessage("PDF 생성 중 오류가 발생했습니다. 다시 시도해주세요.");
       setTimeout(() => setPdfExportMessage(null), 2500);
     } finally {
       setIsExportingPdf(false);
+      setPdfExportData(null);
     }
   };
+
+  const buildExportDataFromAnalysis = (): ExportablePdfData | null => {
+    if (!analysisResult) return null;
+    return {
+      title: meetTitle,
+      date: meetDate,
+      kind: meetKind,
+      participantNames: partIds.map(id => projectMembers.find(m => String(m.userId) === id)?.name ?? id),
+      summary: analysisResult.summary,
+      decisions: analysisResult.decisions,
+      todos: reviewTodos.map(t => ({
+        title: t.title,
+        assigneeName: projectMembers.find(m => String(m.userId) === getAssignee(t))?.name ?? "미배정",
+        dueDate: getDueDate(t) || "",
+      })),
+      risks: analysisResult.risks,
+    };
+  };
+
+  const buildExportDataFromMeeting = (target: Meeting): ExportablePdfData => ({
+    title: target.title,
+    date: target.date,
+    kind: "",
+    participantNames: [],
+    summary: target.summary ?? "",
+    decisions: target.decisions ?? [],
+    todos: (target.todos ?? []).map(line => {
+      const parsed = parseMeetingTodoLine(line);
+      return { title: parsed.title, assigneeName: parsed.assigneeName || "미배정", dueDate: parsed.dueDate };
+    }),
+    risks: target.risks ?? [],
+  });
 
   const handleFileSelect = (file: File | undefined) => {
     if (!file) return;
@@ -1591,6 +1629,52 @@ export function MeetingsView() {
     );
   };
 
+  // PDF 캡처용 숨김 영역: 화면에는 보이지 않고 html2canvas가 이 DOM을 캡처해 PDF로 저장한다.
+  // renderResults() 화면뿐 아니라 사이드바 재조회 상세 화면에서도 PDF 버튼을 쓰므로,
+  // 캡처 대상 DOM이 항상 마운트되도록 별도 함수로 분리해 양쪽에서 렌더링한다.
+  // Tailwind 클래스/CSS 변수 대신 인라인 스타일을 쓰는 이유: html2canvas는 oklch() 같은
+  // 최신 CSS 색상 함수를 파싱하지 못해, Tailwind의 CSS 변수 기반 색상을 쓰면 내보낸 PDF에서
+  // 색이 검게 깨진다. 이 영역에서는 인라인 리터럴 색상값을 유지할 것.
+  const renderPdfCaptureArea = () => (
+    <div style={{ position: "fixed", top: 0, left: "-10000px", width: "760px" }}>
+      <div ref={pdfCaptureRef} style={{ background: "#ffffff", padding: "40px", width: "760px", fontFamily: "'Malgun Gothic','Apple SD Gothic Neo',sans-serif", color: "#1a1a1a" }}>
+        {pdfExportData && (
+          <>
+            <h1 style={{ fontSize: "22px", fontWeight: 700, margin: "0 0 4px" }}>{pdfExportData.title}</h1>
+            <div style={{ fontSize: "12px", color: "#666666", marginBottom: "24px" }}>
+              {pdfExportData.date}{pdfExportData.kind ? ` · ${pdfExportData.kind}` : ""}
+              {pdfExportData.participantNames.length > 0 ? ` · 참석자 ${pdfExportData.participantNames.join(", ")}` : ""}
+            </div>
+
+            <h2 style={{ fontSize: "15px", fontWeight: 700, margin: "20px 0 8px", borderBottom: "1px solid #dddddd", paddingBottom: "4px" }}>회의 요약</h2>
+            <p style={{ fontSize: "13px", lineHeight: 1.7, margin: 0 }}>{pdfExportData.summary}</p>
+
+            <h2 style={{ fontSize: "15px", fontWeight: 700, margin: "20px 0 8px", borderBottom: "1px solid #dddddd", paddingBottom: "4px" }}>핵심 결정사항</h2>
+            <ul style={{ fontSize: "13px", lineHeight: 1.7, margin: 0, paddingLeft: "20px" }}>
+              {pdfExportData.decisions.length
+                ? pdfExportData.decisions.map((d, i) => <li key={i}>{d}</li>)
+                : <li>결정사항이 없습니다.</li>}
+            </ul>
+
+            <h2 style={{ fontSize: "15px", fontWeight: 700, margin: "20px 0 8px", borderBottom: "1px solid #dddddd", paddingBottom: "4px" }}>생성된 To-Do</h2>
+            <ul style={{ fontSize: "13px", lineHeight: 1.7, margin: 0, paddingLeft: "20px" }}>
+              {pdfExportData.todos.length
+                ? pdfExportData.todos.map((t, i) => <li key={i}>{t.title} - {t.assigneeName} ({t.dueDate || "마감일 미정"})</li>)
+                : <li>생성된 업무가 없습니다.</li>}
+            </ul>
+
+            <h2 style={{ fontSize: "15px", fontWeight: 700, margin: "20px 0 8px", borderBottom: "1px solid #dddddd", paddingBottom: "4px" }}>위험 요소</h2>
+            <ul style={{ fontSize: "13px", lineHeight: 1.7, margin: 0, paddingLeft: "20px" }}>
+              {pdfExportData.risks.length
+                ? pdfExportData.risks.map((r, i) => <li key={i}>{r}</li>)
+                : <li>감지된 위험 요소가 없습니다.</li>}
+            </ul>
+          </>
+        )}
+      </div>
+    </div>
+  );
+
   // ── Results screen ───────────────────────────────────────────────────────────
   const renderResults = () => {
     if (!analysisResult) {
@@ -1698,7 +1782,11 @@ export function MeetingsView() {
           <div className="flex flex-col items-end gap-1">
             <div className="flex items-center gap-2">
               <button onClick={handleViewOriginal} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-border bg-card rounded-lg hover:bg-muted transition-colors"><Eye className="w-3.5 h-3.5" />원본 보기</button>
-              <button onClick={handleExportPdf} disabled={!analysisResult || isExportingPdf} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-border bg-card rounded-lg hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-card"><FileText className="w-3.5 h-3.5" />{isExportingPdf ? "PDF 생성 중..." : "PDF 저장"}</button>
+              <button onClick={() => { const data = buildExportDataFromAnalysis(); if (data) handleExportPdf(data); }}
+                disabled={!analysisResult || isExportingPdf}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-border bg-card rounded-lg hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-card">
+                <FileText className="w-3.5 h-3.5" />{isExportingPdf ? "PDF 생성 중..." : "PDF 저장"}
+              </button>
             </div>
             {originalViewMessage && <div className="text-[10px] text-amber-600">{originalViewMessage}</div>}
             {pdfExportMessage && <div className="text-[10px] text-amber-600">{pdfExportMessage}</div>}
@@ -1814,43 +1902,7 @@ export function MeetingsView() {
         )}
       </div>
 
-      {/* PDF 캡처용 숨김 영역: 화면에는 보이지 않고 html2canvas가 이 DOM을 캡처해 PDF로 저장한다.
-          Tailwind 클래스/CSS 변수(oklch 등) 대신 인라인 스타일만 사용 — html2canvas가 최신 CSS 색상 함수를 못 읽는 문제를 피하기 위함. */}
-      <div style={{ position: "fixed", top: 0, left: "-10000px", width: "760px" }}>
-        <div ref={pdfCaptureRef} style={{ background: "#ffffff", padding: "40px", width: "760px", fontFamily: "'Malgun Gothic','Apple SD Gothic Neo',sans-serif", color: "#1a1a1a" }}>
-          <h1 style={{ fontSize: "22px", fontWeight: 700, margin: "0 0 4px" }}>{meetTitle}</h1>
-          <div style={{ fontSize: "12px", color: "#666666", marginBottom: "24px" }}>
-            {meetDate} · {meetKind} · 참석자 {partIds.map(id => projectMembers.find(m => String(m.userId) === id)?.name ?? id).join(", ")}
-          </div>
-
-          <h2 style={{ fontSize: "15px", fontWeight: 700, margin: "20px 0 8px", borderBottom: "1px solid #dddddd", paddingBottom: "4px" }}>회의 요약</h2>
-          <p style={{ fontSize: "13px", lineHeight: 1.7, margin: 0 }}>{analysisResult.summary}</p>
-
-          <h2 style={{ fontSize: "15px", fontWeight: 700, margin: "20px 0 8px", borderBottom: "1px solid #dddddd", paddingBottom: "4px" }}>핵심 결정사항</h2>
-          <ul style={{ fontSize: "13px", lineHeight: 1.7, margin: 0, paddingLeft: "20px" }}>
-            {analysisResult.decisions.length
-              ? analysisResult.decisions.map((d, i) => <li key={i}>{d}</li>)
-              : <li>결정사항이 없습니다.</li>}
-          </ul>
-
-          <h2 style={{ fontSize: "15px", fontWeight: 700, margin: "20px 0 8px", borderBottom: "1px solid #dddddd", paddingBottom: "4px" }}>생성된 To-Do</h2>
-          <ul style={{ fontSize: "13px", lineHeight: 1.7, margin: 0, paddingLeft: "20px" }}>
-            {reviewTodos.length
-              ? reviewTodos.map(t => {
-                  const assigneeName = projectMembers.find(m => String(m.userId) === getAssignee(t))?.name ?? "미배정";
-                  return <li key={t.id}>{t.title} - {assigneeName} ({getDueDate(t) || "마감일 미정"})</li>;
-                })
-              : <li>생성된 업무가 없습니다.</li>}
-          </ul>
-
-          <h2 style={{ fontSize: "15px", fontWeight: 700, margin: "20px 0 8px", borderBottom: "1px solid #dddddd", paddingBottom: "4px" }}>위험 요소</h2>
-          <ul style={{ fontSize: "13px", lineHeight: 1.7, margin: 0, paddingLeft: "20px" }}>
-            {analysisResult.risks.length
-              ? analysisResult.risks.map((r, i) => <li key={i}>{r}</li>)
-              : <li>감지된 위험 요소가 없습니다.</li>}
-          </ul>
-        </div>
-      </div>
+      {renderPdfCaptureArea()}
 
       {/* 원본 보기 모달 */}
       {originalPreview && (
@@ -2127,6 +2179,7 @@ export function MeetingsView() {
       {renderDeleteConfirmModal()}
       {renderReregisterConfirmModal()}
       {renderOriginalTextModal()}
+      {renderPdfCaptureArea()}
 
       <div className="flex gap-2 border-b border-border px-4 shrink-0">
         <button
@@ -2343,8 +2396,13 @@ export function MeetingsView() {
             style={{ background:"linear-gradient(135deg,#7048E8 0%,#4F6EF7 100%)" }}>
             <Upload className="w-4 h-4" />회의록 업로드
           </button>
-          <button className="p-2 rounded-lg border border-border bg-card hover:bg-muted transition-colors">
-            <Mic className="w-4 h-4 text-muted-foreground" />
+          <button
+            type="button"
+            onClick={startRecording}
+            disabled={recordingStatus === "recording" || recordingStatus === "requesting-permission"}
+            title="회의 녹음 시작"
+            className="p-2 rounded-lg border border-border bg-card hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+            <Mic className={`w-4 h-4 ${recordingStatus === "recording" ? "text-red-500" : "text-muted-foreground"}`} />
           </button>
         </div>
         <div className="flex-1 overflow-y-auto p-3 space-y-2">
@@ -2410,10 +2468,18 @@ export function MeetingsView() {
         {meeting && meeting.summary ? (
           <div className="max-w-2xl space-y-5">
             <div>
-              <div className="flex items-center gap-2 mb-1">
-                <Sparkles className="w-4 h-4" style={{ color: "var(--accent)" }} />
-                <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--accent)" }}>AI 회의록 분석</span>
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4" style={{ color: "var(--accent)" }} />
+                  <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--accent)" }}>AI 회의록 분석</span>
+                </div>
+                <button onClick={() => handleExportPdf(buildExportDataFromMeeting(meeting))}
+                  disabled={isExportingPdf}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-border bg-card rounded-lg hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                  <FileText className="w-3.5 h-3.5" />{isExportingPdf ? "PDF 생성 중..." : "PDF로 저장"}
+                </button>
               </div>
+              {pdfExportMessage && <div className="text-[10px] text-amber-600 text-right mb-1">{pdfExportMessage}</div>}
               <h2 className="text-lg font-bold text-foreground">{meeting.title}</h2>
               <div className="text-xs text-muted-foreground mt-0.5">{meeting.date} · {meeting.duration}</div>
               {(meeting.uploadedAt || meeting.analyzedAt) && (

@@ -2,7 +2,10 @@ package com.workflowai.roadmap;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.workflowai.activity.ActivityService;
@@ -56,10 +59,14 @@ class RoadmapServiceTest {
     }
 
     private Task task(Long id, Long milestoneId) {
+        return task(id, milestoneId, "done", 0.0);
+    }
+
+    private Task task(Long id, Long milestoneId, String status, double position) {
         Task task = new Task(
-            1L, milestoneId, "E2E 테스트", "qa", "done", null,
+            1L, milestoneId, "E2E 테스트 " + id, "qa", status, null,
             LocalDate.of(2026, 7, 21), LocalDate.of(2026, 7, 28),
-            "medium", null, "ROADMAP", null, 1L, 0.0
+            "medium", "로그인 성공과 실패 시나리오를 검증합니다.", "ROADMAP", null, 1L, position
         );
         ReflectionTestUtils.setField(task, "id", id);
         return task;
@@ -77,8 +84,27 @@ class RoadmapServiceTest {
         assertThat(response.milestones()).hasSize(1);
         assertThat(response.milestones().get(0).startDate()).isEqualTo("2026-07-17");
         assertThat(response.milestones().get(0).tasks()).extracting(RoadmapTaskDto::id).containsExactly("10");
+        assertThat(response.milestones().get(0).tasks().get(0).description())
+            .isEqualTo("로그인 성공과 실패 시나리오를 검증합니다.");
         assertThat(response.milestones().get(0).progressPercent()).isEqualTo(100);
         assertThat(response.unassignedTasks()).isEmpty();
+    }
+
+    @Test
+    void getRoadmapOrdersTasksInsideMilestoneByPositionAcrossStatuses() {
+        when(demoDataService.resolveProjectId("1")).thenReturn(1L);
+        when(projectRepository.findById(1L)).thenReturn(Optional.of(project()));
+        when(milestoneRepository.findByProjectIdOrderByDueDateAsc(1L)).thenReturn(List.of(milestone(2L, 1L)));
+        when(taskRepository.findByProjectIdOrderByStatusAscPositionAsc(1L)).thenReturn(List.of(
+            task(11L, 2L, "todo", 2.0),
+            task(10L, 2L, "done", 0.0)
+        ));
+
+        RoadmapResponse response = service().getRoadmap("1");
+
+        assertThat(response.milestones().get(0).tasks())
+            .extracting(RoadmapTaskDto::id)
+            .containsExactly("10", "11");
     }
 
     @Test
@@ -112,6 +138,44 @@ class RoadmapServiceTest {
         assertThatThrownBy(() -> service().moveTask("1", 10L, new TaskMilestoneUpdateRequest(99L)))
             .isInstanceOf(RoadmapException.class)
             .hasMessageContaining("마일스톤을 찾을 수 없습니다");
+    }
+
+    @Test
+    void updateTaskLayoutMovesAndReordersTasksInOneTransaction() {
+        when(demoDataService.resolveProjectId("1")).thenReturn(1L);
+        Task first = task(10L, 2L, "todo", 0.0);
+        Task second = task(11L, 2L, "todo", 1.0);
+        when(taskRepository.findAllById(any())).thenReturn(List.of(first, second));
+        when(milestoneRepository.findAllById(any())).thenReturn(List.of(milestone(3L, 1L)));
+
+        List<RoadmapTaskDto> result = service().updateTaskLayout("1", new RoadmapTaskLayoutRequest(List.of(
+            new RoadmapTaskLayoutItem(10L, 3L, 1.0),
+            new RoadmapTaskLayoutItem(11L, 3L, 0.0)
+        )));
+
+        assertThat(first.getMilestoneId()).isEqualTo(3L);
+        assertThat(first.getPosition()).isEqualTo(1.0);
+        assertThat(second.getMilestoneId()).isEqualTo(3L);
+        assertThat(second.getPosition()).isEqualTo(0.0);
+        assertThat(result).extracting(RoadmapTaskDto::id).containsExactly("10", "11");
+        verify(taskRepository).saveAll(List.of(first, second));
+    }
+
+    @Test
+    void updateTaskLayoutValidatesEveryTaskBeforeMutatingAnyTask() {
+        when(demoDataService.resolveProjectId("1")).thenReturn(1L);
+        Task existing = task(10L, 2L, "todo", 0.0);
+        when(taskRepository.findAllById(any())).thenReturn(List.of(existing));
+
+        assertThatThrownBy(() -> service().updateTaskLayout("1", new RoadmapTaskLayoutRequest(List.of(
+            new RoadmapTaskLayoutItem(10L, 3L, 1.0),
+            new RoadmapTaskLayoutItem(99L, 3L, 0.0)
+        )))).isInstanceOf(RoadmapException.class)
+            .hasMessageContaining("업무를 찾을 수 없습니다");
+
+        assertThat(existing.getMilestoneId()).isEqualTo(2L);
+        assertThat(existing.getPosition()).isEqualTo(0.0);
+        verify(taskRepository, never()).saveAll(any());
     }
 
     @Test
