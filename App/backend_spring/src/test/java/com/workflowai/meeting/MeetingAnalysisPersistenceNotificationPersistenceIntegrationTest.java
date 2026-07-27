@@ -7,6 +7,9 @@ import com.workflowai.notification.NotificationAsyncSender;
 import com.workflowai.notification.NotificationBroadcaster;
 import com.workflowai.notification.NotificationRepository;
 import com.workflowai.notification.NotificationService;
+import com.workflowai.project.ProjectMember;
+import com.workflowai.project.ProjectMemberRepository;
+import com.workflowai.project.ProjectRole;
 import com.workflowai.rag.RagIngestService;
 import java.time.LocalDate;
 import java.util.List;
@@ -51,6 +54,9 @@ class MeetingAnalysisPersistenceNotificationPersistenceIntegrationTest {
     private NotificationRepository notificationRepository;
 
     @Autowired
+    private ProjectMemberRepository projectMemberRepository;
+
+    @Autowired
     private PlatformTransactionManager transactionManager;
 
     @MockBean
@@ -67,6 +73,17 @@ class MeetingAnalysisPersistenceNotificationPersistenceIntegrationTest {
         return meetingRepository.save(meeting).getId();
     }
 
+    /**
+     * 분석을 실행한 본인(업로더 10L)에게는 알림이 가지 않으므로, 알림이 실제로 발생하려면
+     * 본인과 다른 팀장이 있어야 한다. 클래스가 NOT_SUPPORTED라 테스트 간 데이터가 남으므로
+     * 중복 저장을 피한다.
+     */
+    private void saveTeamLeaderOnce() {
+        if (!projectMemberRepository.existsByProjectIdAndUserId(1L, 99L)) {
+            projectMemberRepository.save(new ProjectMember(1L, 99L, ProjectRole.LEADER));
+        }
+    }
+
     private MeetingAnalysisResult emptyResult() {
         return new MeetingAnalysisResult(
             "요약", List.of(), List.of(), List.of(), List.of(),
@@ -76,6 +93,7 @@ class MeetingAnalysisPersistenceNotificationPersistenceIntegrationTest {
 
     @Test
     void notificationRowIsDurablyPersistedAfterRealTransactionCommit() {
+        saveTeamLeaderOnce();
         Long meetingId = saveTestMeeting();
 
         persistence.saveAnalysisSuccess(meetingId, emptyResult(), "FASTAPI");
@@ -84,14 +102,17 @@ class MeetingAnalysisPersistenceNotificationPersistenceIntegrationTest {
         // 커밋된 것인지(같은 스레드의 미커밋 상태를 우연히 보는 게 아닌지) 확인한다.
         List<com.workflowai.notification.Notification> notifications =
             new TransactionTemplate(transactionManager).execute(status ->
-                notificationRepository.findTop20ByUserIdOrderByCreatedAtDesc(10L));
+                notificationRepository.findTop20ByUserIdOrderByCreatedAtDesc(99L));
 
         assertThat(notifications).hasSize(1);
-        assertThat(notifications.get(0).getType()).isEqualTo("MEETING_ANALYSIS_COMPLETED");
+        assertThat(notifications.get(0).getType()).isEqualTo("MEETING_ANALYSIS_COMPLETED_NOTIFY_LEADER");
+        // 분석을 실행한 본인(10L)에게는 알림이 남지 않는다.
+        assertThat(notificationRepository.findTop20ByUserIdOrderByCreatedAtDesc(10L)).isEmpty();
     }
 
     @Test
     void notificationRowIsNotPersistedWhenMainTransactionRollsBack() {
+        saveTeamLeaderOnce();
         Long meetingId = saveTestMeeting();
 
         new TransactionTemplate(transactionManager).execute(status -> {
@@ -100,6 +121,6 @@ class MeetingAnalysisPersistenceNotificationPersistenceIntegrationTest {
             return null;
         });
 
-        assertThat(notificationRepository.findTop20ByUserIdOrderByCreatedAtDesc(10L)).isEmpty();
+        assertThat(notificationRepository.findTop20ByUserIdOrderByCreatedAtDesc(99L)).isEmpty();
     }
 }
