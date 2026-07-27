@@ -622,7 +622,7 @@ export function MeetingsView() {
       .then(list => {
         const deletedMeetingIds = getDeletedMeetingIds(projectId);
         const serverMeetings: Meeting[] = list.map(dto => {
-          const status = dto.analysisStatus === "completed" ? "processed" : dto.analysisStatus === "failed" ? "failed" : dto.analysisStatus === "pending" ? "pending" : "processing";
+          const status = dto.analysisStatus === "completed" ? "processed" : dto.analysisStatus === "analysis_deleted" ? "analysisDeleted" : dto.analysisStatus === "failed" ? "failed" : dto.analysisStatus === "pending" ? "pending" : "processing";
           const base: Meeting = {
             id: dto.meetingId,
             title: dto.title,
@@ -1226,7 +1226,7 @@ export function MeetingsView() {
   const updateMeetingAfterAnalysisDelete = (meetingId: string) => {
     setMeetings(prev => {
       const next = prev.map(item => item.id === meetingId
-        ? { ...item, status: "failed" as const, summary: undefined, decisions: undefined, todos: undefined, risks: undefined, analyzedAt: undefined, tasksRegistered: false }
+        ? { ...item, status: "analysisDeleted" as const, summary: undefined, decisions: undefined, todos: undefined, risks: undefined, analyzedAt: undefined, tasksRegistered: false }
         : item);
       saveStoredMeetings(next, projectId);
       return next;
@@ -2363,7 +2363,11 @@ export function MeetingsView() {
                 회의록 업로드
               </button>
             </div>
-          ) : meetings.filter(m => !m.originalMeetingId || m.status === "processed").map(m => (
+          ) : meetings
+            // 분석 결과를 지운 회의록은 이 목록에 남을 이유가 없다. 저장된 회의록 탭에는 그대로 있고
+            // 거기서 다시 분석할 수 있다.
+            .filter(m => m.status !== "analysisDeleted")
+            .filter(m => !m.originalMeetingId || m.status === "processed").map(m => (
             <div key={m.id} onClick={() => setSelected(m.id)}
               role="button"
               tabIndex={0}
@@ -2569,7 +2573,7 @@ export function MeetingsView() {
             <>
             <div className="space-y-2 max-w-2xl">
               {savedMeetingsList.map(m => {
-                const isPendingVersion = Boolean(m.originalMeetingId) && (m.status === "pending" || m.status === "failed");
+                const isPendingVersion = Boolean(m.originalMeetingId) && (m.status === "pending" || m.status === "failed" || m.status === "analysisDeleted");
                 return (
                 <div key={m.id} onClick={() => handleViewSavedMeetingOriginal(m)}
                   role="button"
