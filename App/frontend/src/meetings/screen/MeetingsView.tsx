@@ -8,7 +8,7 @@ import { addActivity } from "../../board/libs/utils/activityStore";
 import { CATEGORIES } from "../../board/libs/mock/tasks";
 import type { Meeting, UploadFlow, UploadType, GenTodo, SavedMeetingRecord } from "../libs/types/meeting";
 import type { CatId, Priority, Task } from "../../board/libs/types/task";
-import { analyzeMeeting, confirmMeetingSave, deleteMeeting, fetchMeeting, fetchMeetings, reanalyzeMeeting, registerMeetingTasks, retryMeetingAnalysis } from "../libs/utils/meetingAiApi";
+import { analyzeMeeting, confirmMeetingSave, deleteMeeting, deleteMeetingAnalysis, fetchMeeting, fetchMeetings, reanalyzeMeeting, registerMeetingTasks, retryMeetingAnalysis } from "../libs/utils/meetingAiApi";
 import { MeetingEditPanel } from "../components/MeetingEditPanel";
 import type { MeetingAiResult } from "../libs/types/meetingAiTypes";
 import { deleteTask, DEMO_PROJECT_ID } from "../../board/libs/utils/taskApi";
@@ -444,6 +444,7 @@ export function MeetingsView() {
   const [deleteMessage, setDeleteMessage] = useState<string | null>(null);
   const [deletingMeetingId, setDeletingMeetingId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Meeting | null>(null);
+  const [deleteMode, setDeleteMode] = useState<"analysis" | "original" | null>(null);
   const [confirmReregister, setConfirmReregister] = useState<(() => void) | null>(null);
   const [editingMeetingId, setEditingMeetingId] = useState<string | null>(null);
   const [editingTranscript, setEditingTranscript] = useState("");
@@ -1164,6 +1165,7 @@ export function MeetingsView() {
     if (deletingMeetingId) return;
 
     setDeleteTarget(null);
+    setDeleteMode(null);
     setDeletingMeetingId(target.id);
     setMeetingListError(null);
     setDeleteMessage(null);
@@ -1216,6 +1218,66 @@ export function MeetingsView() {
         setMeetingListError(errorMessage);
         setTimeout(() => setMeetingListError(null), 6000);
       }
+    } finally {
+      setDeletingMeetingId(null);
+    }
+  };
+
+  const updateMeetingAfterAnalysisDelete = (meetingId: string) => {
+    setMeetings(prev => {
+      const next = prev.map(item => item.id === meetingId
+        ? { ...item, status: "failed" as const, summary: undefined, decisions: undefined, todos: undefined, risks: undefined, analyzedAt: undefined, tasksRegistered: false }
+        : item);
+      saveStoredMeetings(next, projectId);
+      return next;
+    });
+    saveSavedMeetings(
+      getSavedMeetings(projectId).filter(item => item.meetingId !== meetingId),
+      projectId
+    );
+  };
+
+  const handleDeleteAnalysisResult = async (target: Meeting, deleteLinkedTasks: boolean) => {
+    if (deletingMeetingId) return;
+
+    setDeleteTarget(null);
+    setDeleteMode(null);
+    setDeletingMeetingId(target.id);
+    setMeetingListError(null);
+    setDeleteMessage(null);
+    try {
+      if (isServerMeetingId(target.id)) {
+        await deleteMeetingAnalysis(projectId, target.id, deleteLinkedTasks);
+      }
+      if (deleteLinkedTasks) {
+        await removeLinkedLocalTasks(target);
+      }
+      updateMeetingAfterAnalysisDelete(target.id);
+      setDeleteMessage(deleteLinkedTasks ? "분석 결과와 연동 업무가 삭제되었습니다." : "분석 결과가 삭제되었습니다.");
+      setTimeout(() => setDeleteMessage(null), 2500);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      const statusCode = error instanceof ApiRequestError ? error.status : null;
+      const isAuthError = statusCode === 401 || message.includes("인증이 만료") || message.includes("다시 로그인");
+      const isPermissionError = statusCode === 403;
+      const isMissingAnalysis = statusCode === 409;
+      const status = statusCode ? ` (${statusCode})` : "";
+      if (error instanceof ApiRequestError && error.code === "REQUEST_TIMEOUT") {
+        // handleDeleteMeeting과 동일한 이유: 클라이언트 타임아웃 후에도 서버는 삭제를 끝냈을 수 있으므로
+        // 실패로 단정하지 않고 조용히 서버 상태를 다시 조회해 화면을 맞춘다(지연 문구는 띄우지 않는다).
+        updateMeetingAfterAnalysisDelete(target.id);
+        void refreshMeetingsFromServer();
+        return;
+      }
+      const errorMessage = isAuthError
+        ? "로그인이 만료되어 삭제되지 않았습니다. 다시 로그인 후 삭제해주세요."
+        : isPermissionError
+          ? "팀장만 분석 결과를 삭제할 수 있습니다."
+          : isMissingAnalysis
+            ? "삭제할 분석 결과가 없습니다."
+            : `분석 결과 삭제에 실패했습니다${status}. 잠시 후 다시 시도해주세요.`;
+      setMeetingListError(errorMessage);
+      setTimeout(() => setMeetingListError(null), 6000);
     } finally {
       setDeletingMeetingId(null);
     }
@@ -1329,23 +1391,57 @@ export function MeetingsView() {
 
   const renderDeleteConfirmModal = () => deleteTarget ? (
     <div className="fixed inset-0 z-[65] flex items-center justify-center px-4">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => { setDeleteTarget(null); }} />
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => { setDeleteTarget(null); setDeleteMode(null); }} />
       <div className="relative w-full max-w-md rounded-2xl bg-white shadow-2xl border border-border p-6">
         <div className="w-12 h-12 rounded-2xl bg-red-50 border border-red-100 flex items-center justify-center mb-4">
           <Trash2 className="w-6 h-6 text-red-600" />
         </div>
-        <>
-            <h2 className="text-lg font-bold text-foreground">회의록 삭제</h2>
+        {deleteMode === "analysis" ? (
+          <>
+            <h2 className="text-lg font-bold text-foreground">분석 결과 삭제</h2>
             <p className="text-sm text-muted-foreground leading-relaxed mt-2">
-              '{deleteTarget.title}' 회의록을 삭제합니다. 분석 결과가 있다면 함께 삭제되고, 목록에서 바로 사라집니다.
+              '{deleteTarget.title}' 회의록의 분석 결과를 삭제합니다. 원본 회의록은 저장된 회의록 목록에 그대로 남고, 같은 파일로 다시 분석할 수 있습니다.
             </p>
             <div className="mt-5 rounded-xl bg-slate-50 border border-slate-200 px-4 py-3 text-xs text-slate-600 leading-relaxed">
-              <strong className="text-slate-900">회의록만 삭제</strong>를 선택하면 이 회의록에서 등록된 업무는 업무보드에 그대로 남습니다.
+              <strong className="text-slate-900">분석 결과만 삭제</strong>를 선택하면 업무 목록은 그대로 남고, 분석 결과 연결만 해제됩니다.
             </div>
             <div className="mt-6 flex flex-col sm:flex-row gap-2 justify-end">
               <button
                 type="button"
-                onClick={() => { setDeleteTarget(null); }}
+                onClick={() => { setDeleteTarget(null); setDeleteMode(null); }}
+                className="px-4 py-2 text-sm font-medium border border-border rounded-xl hover:bg-muted transition-colors"
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleDeleteAnalysisResult(deleteTarget, false)}
+                className="px-4 py-2 text-sm font-semibold border border-blue-200 text-blue-700 bg-blue-50 rounded-xl hover:bg-blue-100 transition-colors"
+              >
+                분석 결과만 삭제
+              </button>
+              <button
+                type="button"
+                disabled={!deleteTarget.hasGeneratedTodos}
+                onClick={() => void handleDeleteAnalysisResult(deleteTarget, true)}
+                className="px-4 py-2 text-sm font-semibold text-white rounded-xl hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:opacity-40"
+                style={{ background: "linear-gradient(135deg,#EF4444,#DC2626)" }}
+                title={deleteTarget.hasGeneratedTodos ? undefined : "이 분석 결과는 생성된 To-Do가 없습니다."}
+              >
+                분석 결과 + To-Do 삭제
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <h2 className="text-lg font-bold text-foreground">회의록 삭제</h2>
+            <p className="text-sm text-muted-foreground leading-relaxed mt-2">
+              '{deleteTarget.title}' 회의록을 삭제합니다. 분석 결과가 있다면 함께 삭제되며, 등록된 업무는 유지됩니다.
+            </p>
+            <div className="mt-6 flex flex-col sm:flex-row gap-2 justify-end">
+              <button
+                type="button"
+                onClick={() => { setDeleteTarget(null); setDeleteMode(null); }}
                 className="px-4 py-2 text-sm font-medium border border-border rounded-xl hover:bg-muted transition-colors"
               >
                 취소
@@ -1353,26 +1449,17 @@ export function MeetingsView() {
               <button
                 type="button"
                 onClick={() => void handleDeleteMeeting(deleteTarget, false)}
-                className="px-4 py-2 text-sm font-semibold border border-blue-200 text-blue-700 bg-blue-50 rounded-xl hover:bg-blue-100 transition-colors"
-              >
-                회의록만 삭제
-              </button>
-              <button
-                type="button"
-                disabled={!deleteTarget.hasGeneratedTodos}
-                onClick={() => void handleDeleteMeeting(deleteTarget, true)}
-                className="px-4 py-2 text-sm font-semibold text-white rounded-xl hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:opacity-40"
+                className="px-4 py-2 text-sm font-semibold text-white rounded-xl hover:opacity-90 transition-opacity"
                 style={{ background: "linear-gradient(135deg,#EF4444,#DC2626)" }}
-                title={deleteTarget.hasGeneratedTodos ? undefined : "이 회의록에서 생성된 To-Do가 없습니다."}
               >
-                회의록 + To-Do 삭제
+                삭제
               </button>
             </div>
-        </>
+          </>
+        )}
       </div>
     </div>
   ) : null;
-
 
   const renderOriginalTextModal = () => viewingOriginalMeeting ? (
     <div className="fixed inset-0 z-[65] flex items-center justify-center px-4">
@@ -2298,14 +2385,13 @@ export function MeetingsView() {
                       type="button"
                       onClick={event => {
                         event.stopPropagation();
-                        // 분석 완료 항목에 "분석 결과 삭제"를 띄우면 상태만 '분석 실패'로 바뀐 채 목록에 남아,
-                        // 삭제를 두 번 눌러야 사라졌다. 삭제는 한 번에 목록에서 없어져야 한다.
+                        setDeleteMode(m.status === "processed" ? "analysis" : "original");
                         setDeleteTarget(m);
                       }}
                       disabled={Boolean(deletingMeetingId)}
                       className="p-1 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                      title="회의록 삭제"
-                      aria-label={`${m.title} 회의록 삭제`}
+                      title={m.status === "processed" ? "분석 결과 삭제" : "회의록 삭제"}
+                      aria-label={m.status === "processed" ? `${m.title} 분석 결과 삭제` : `${m.title} 회의록 삭제`}
                     >
                       {deletingMeetingId === m.id ? <Loader2 className="w-3.5 h-3.5 animate-spin text-red-600" /> : <Trash2 className="w-3.5 h-3.5" />}
                     </button>
@@ -2525,7 +2611,8 @@ export function MeetingsView() {
                           type="button"
                           onClick={event => {
                             event.stopPropagation();
-                                setDeleteTarget(m);
+                            setDeleteMode("original");
+                            setDeleteTarget(m);
                           }}
                           disabled={Boolean(deletingMeetingId)}
                           className="p-1 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
