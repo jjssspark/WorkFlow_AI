@@ -56,6 +56,12 @@ compose로 띄울 때만 Flyway가 켜졌다.
 - 2층: DB 롤을 분리한다. 앱 롤은 DML만, DDL은 배포 파이프라인이 쓰는 마이그레이션 롤에만.
   **OCI 자체호스팅 Postgres 이관 시점에 함께 수행한다.**
 - 3층: 이미 적용된 V파일을 수정하는 PR을 CI에서 차단한다(`migration-guard`).
+  2026-07-27 추가 — 같은 버전 번호를 가진 V파일이 둘 이상이면 함께 차단한다. 이 충돌은
+  한 PR 안에서는 보이지 않고 두 PR이 합쳐질 때만 드러나므로 PR·push 양쪽에서 보고,
+  배포를 실제로 막는 것은 `deploy-oci`의 `test` 잡이 같은 스크립트를 호출하는 쪽이다
+  (`deploy`가 `test`에 의존한다 — 별도 워크플로인 `migration-guard`는 배포와 병렬로 돌아
+  배포를 멈추지 못한다). 경위는
+  [버전 중복과 preflight pending 오탐](../trouble-shooting/2026-07-27-flyway-duplicate-version-and-pending-preflight.md).
 
 **3. 배포 게이트를 롤백에서 사전 검증으로 옮긴다.**
 컨테이너 교체 전에 `flyway validate`를 돌린다(`Preflight Redis ACL` 옆). 실패하면 배포를
@@ -117,3 +123,14 @@ Postgres로 이관할 때 도구를 다시 갈아야 한다.
 
 현재 운영 baseline은 `20260721.1`, `flyway_schema_history` 9행이다. 장애 당시 장부 백업은
 Supabase의 `flyway_schema_history_bak_20260726`(16행)에 있다.
+
+## 후속 보강
+
+- `V20260726_1`: `users.is_admin`, `faculty_id`, `reviewer_rejection_reason`
+- `V20260727_1`: 중복됐던 RAG 실패 이력 마이그레이션 버전을 이동
+- `V20260727_2`: `tasks.done_date`와 기존 완료 업무 백필
+- `V20260727_3`: 사용자 프로필·약관·개인정보 동의 컬럼
+
+당시 "어디에도 정의 없음"으로 분류했던 관리자·업무 완료일 컬럼과 init 전용이던 사용자
+프로필·동의 컬럼은 위 신규 V파일로 운영 baseline 이후 경로에 편입했다. 적용 검증과 API
+롤아웃 계약은 [FS3 스키마·API 변경 배포 계약](2026-07-26-fs3-schema-api-rollout.md)을 따른다.

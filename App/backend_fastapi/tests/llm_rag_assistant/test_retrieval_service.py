@@ -133,6 +133,88 @@ async def test_search_skips_reservation_when_no_meeting_chunks_exist_at_all() ->
     assert result == general_rows
 
 
+# --- 상위 K개 정렬 보장 (UT-194) -------------------------------------------
+# 일반 검색만 타면 정렬·개수는 SQL의 ORDER BY/LIMIT가 책임진다. 하지만 meeting 슬롯
+# 예약이 걸리면 두 결과를 파이썬에서 잘라 붙이므로, top_k 상한과 내림차순이 그 병합
+# 경로에서도 유지되는지는 SQL이 보장해주지 않는다.
+
+
+@pytest.mark.asyncio
+async def test_merged_results_stay_sorted_by_similarity_desc() -> None:
+    """예약된 meeting 청크가 뒤에 덧붙기만 하면 유사도 높은 근거가 목록 끝으로 밀린다.
+
+    LLM 컨텍스트는 앞쪽 근거에 더 강하게 반응하므로 병합 후 반드시 재정렬돼야 한다.
+    """
+    general_rows = [
+        {"source_type": "task", "source_id": 1, "content": "업무1", "similarity": 0.90},
+        {"source_type": "task", "source_id": 2, "content": "업무2", "similarity": 0.85},
+        {"source_type": "action_item", "source_id": 3, "content": "액션1", "similarity": 0.80},
+        {"source_type": "task", "source_id": 4, "content": "업무3", "similarity": 0.75},
+        {"source_type": "task", "source_id": 5, "content": "업무4", "similarity": 0.70},
+    ]
+    meeting_rows = [
+        {"source_type": "meeting", "source_id": 10, "content": "회의 요약", "similarity": 0.95},
+        {"source_type": "meeting", "source_id": 11, "content": "회의 상세", "similarity": 0.60},
+    ]
+    conn = _FakeSequenceConn([general_rows, meeting_rows])
+
+    result = await search_similar_chunks(_FakeSequencePool(conn), project_id=1, query_embedding=[0.1], top_k=5)
+
+    assert [row["similarity"] for row in result] == [0.95, 0.90, 0.85, 0.80, 0.60]
+    assert result[0]["source_id"] == 10
+
+
+@pytest.mark.asyncio
+async def test_merged_results_never_exceed_top_k() -> None:
+    """일반 결과 top_k개 + 예약 meeting개가 그대로 합쳐지면 상한을 넘는다.
+
+    상한을 넘기면 프롬프트 길이가 예측 불가능해지고 토큰 비용이 조용히 늘어난다.
+    """
+    general_rows = [
+        {"source_type": "task", "source_id": index, "content": f"업무{index}", "similarity": 0.9 - index / 100}
+        for index in range(5)
+    ]
+    meeting_rows = [
+        {"source_type": "meeting", "source_id": 10, "content": "회의1", "similarity": 0.5},
+        {"source_type": "meeting", "source_id": 11, "content": "회의2", "similarity": 0.4},
+    ]
+    conn = _FakeSequenceConn([general_rows, meeting_rows])
+
+    result = await search_similar_chunks(_FakeSequencePool(conn), project_id=1, query_embedding=[0.1], top_k=5)
+
+    assert len(result) == 5
+    assert result == sorted(result, key=lambda row: row["similarity"], reverse=True)
+
+
+@pytest.mark.asyncio
+async def test_merged_results_respect_top_k_of_one() -> None:
+    """top_k가 예약 슬롯 수(2)보다 작은 경계. 상한이 1이면 결과도 1건이어야 한다."""
+    general_rows = [{"source_type": "task", "source_id": 1, "content": "업무1", "similarity": 0.9}]
+    meeting_rows = [{"source_type": "meeting", "source_id": 10, "content": "회의1", "similarity": 0.5}]
+    conn = _FakeSequenceConn([general_rows, meeting_rows])
+
+    result = await search_similar_chunks(_FakeSequencePool(conn), project_id=1, query_embedding=[0.1], top_k=1)
+
+    assert len(result) == 1
+    # 예약 검색에 넘기는 limit도 top_k를 넘지 않아야 한다.
+    _, reserve_args = conn.calls[1]
+    assert reserve_args[3] == 1
+
+
+@pytest.mark.asyncio
+async def test_top_k_is_passed_to_sql_limit_on_general_search() -> None:
+    """병합이 없을 때는 SQL LIMIT이 상한을 책임진다 - top_k가 그대로 전달돼야 한다."""
+    general_rows = [{"source_type": "meeting", "source_id": 1, "content": "회의", "similarity": 0.9}]
+    conn = _FakeSequenceConn([general_rows])
+
+    await search_similar_chunks(_FakeSequencePool(conn), project_id=1, query_embedding=[0.1], top_k=3)
+
+    query, args = conn.calls[0]
+    assert "ORDER BY embedding" in query
+    assert "LIMIT" in query
+    assert args[2] == 3
+
+
 @pytest.mark.asyncio
 async def test_search_filters_by_assignee_id_when_provided() -> None:
     assignee_rows = [{"source_type": "task", "source_id": 1, "content": "내 업무", "similarity": 0.9}]

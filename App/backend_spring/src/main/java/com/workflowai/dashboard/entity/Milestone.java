@@ -71,10 +71,18 @@ public class Milestone {
         return createdAt;
     }
 
+    /** com.workflowai.roadmap.RoadmapService 전용 - 호출부가 이미 title 필수 검증을 거친 뒤 부른다. */
     public void update(String title, LocalDate startDate, LocalDate dueDate) {
         if (title != null) {
             this.title = title;
         }
+        this.startDate = startDate;
+        this.dueDate = dueDate;
+    }
+
+    /** DashboardService 전용 - 대시보드 마일스톤 수정 API가 사용한다. */
+    public void applyUpdate(String title, LocalDate startDate, LocalDate dueDate) {
+        if (title != null && !title.isBlank()) this.title = title;
         this.startDate = startDate;
         this.dueDate = dueDate;
     }

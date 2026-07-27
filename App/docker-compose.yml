@@ -80,7 +80,7 @@ services:
     build: ./backend_spring
     container_name: workflow-backend-spring
     environment:
-      TZ: Asia/Seoul # LocalDateTime.now()가 KST 기준으로 찍히도록(알림 등 타임존 없는 시각 표시 보정)
+      TZ: Asia/Seoul # LocalDateTime.now() 등이 KST(UTC+9) 벽시계 값으로 나오도록 JVM 타임존 고정
       DB_HOST: db # application.properties에서 이 이름으로 참조
       REDIS_HOST: redis
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092 # KafkaConfig.java의 실제 프로퍼티 키에 맞춰 이름 조정
@@ -107,9 +107,13 @@ services:
       WORKFLOW_DEMO_DEV_LOGIN_ENABLED: ${WORKFLOW_DEMO_DEV_LOGIN_ENABLED:-false}
       WORKFLOW_DEMO_SEED_ENABLED: ${WORKFLOW_DEMO_SEED_ENABLED:-true}
       SPRING_DATASOURCE_HIKARI_MAX_POOL_SIZE: ${SPRING_DATASOURCE_HIKARI_MAX_POOL_SIZE:-4}
-      SUPABASE_URL: ${SUPABASE_URL:-}
-      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
-      SUPABASE_STORAGE_BUCKET: ${SUPABASE_STORAGE_BUCKET:-task-results}
+      # S3 호환 오브젝트 스토리지(현재 Supabase Storage, 추후 OCI Object Storage).
+      STORAGE_ENDPOINT: ${STORAGE_ENDPOINT:-}
+      STORAGE_REGION: ${STORAGE_REGION:-us-east-1}
+      STORAGE_ACCESS_KEY: ${STORAGE_ACCESS_KEY:-}
+      STORAGE_SECRET_KEY: ${STORAGE_SECRET_KEY:-}
+      STORAGE_BUCKET: ${STORAGE_BUCKET:-task-results}
+      STORAGE_PATH_STYLE_ACCESS: ${STORAGE_PATH_STYLE_ACCESS:-true}
     ports:
       - '8080:8080'
     depends_on:

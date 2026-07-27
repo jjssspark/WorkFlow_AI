@@ -2,6 +2,7 @@ package com.workflowai.roadmap;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.when;
 
 import com.workflowai.activity.ActivityService;
@@ -19,6 +20,7 @@ import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.InOrder;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -110,5 +112,18 @@ class RoadmapServiceTest {
         assertThatThrownBy(() -> service().moveTask("1", 10L, new TaskMilestoneUpdateRequest(99L)))
             .isInstanceOf(RoadmapException.class)
             .hasMessageContaining("마일스톤을 찾을 수 없습니다");
+    }
+
+    @Test
+    void deleteMilestoneUnlinksTasksBeforeDeletingMilestone() {
+        when(demoDataService.resolveProjectId("1")).thenReturn(1L);
+        Milestone milestone = milestone(2L, 1L);
+        when(milestoneRepository.findById(2L)).thenReturn(Optional.of(milestone));
+
+        service().deleteMilestone("1", 2L);
+
+        InOrder deletionOrder = inOrder(taskRepository, milestoneRepository);
+        deletionOrder.verify(taskRepository).clearMilestoneId(1L, 2L);
+        deletionOrder.verify(milestoneRepository).delete(milestone);
     }
 }

@@ -1,11 +1,13 @@
 package com.workflowai.notification;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -37,6 +39,9 @@ class NotificationControllerTest {
     @MockitoBean
     private NotificationBroadcaster notificationBroadcaster;
 
+    @MockitoBean
+    private NotificationService notificationService;
+
     @AfterEach
     void clearSecurityContext() {
         SecurityContextHolder.clearContext();
@@ -54,7 +59,7 @@ class NotificationControllerTest {
     void listsNotificationsForCurrentUser() throws Exception {
         authenticateAs(5L);
         Notification n = new Notification(5L, "TASK_ASSIGNED", "새 업무 배정", "'로그인 API' 업무가 배정되었습니다.", "task", 42L);
-        when(notificationRepository.findTop50ByUserIdOrderByCreatedAtDesc(5L)).thenReturn(List.of(n));
+        when(notificationRepository.findTop20ByUserIdOrderByCreatedAtDesc(5L)).thenReturn(List.of(n));
 
         mockMvc.perform(get("/api/v1/notifications"))
             .andExpect(status().isOk())
@@ -88,6 +93,9 @@ class NotificationControllerTest {
             .andExpect(jsonPath("$.success").value(true));
 
         verify(notificationRepository).saveAll(List.of(n1, n2));
+        assertThat(n1.isRead()).isTrue();
+        assertThat(n2.isRead()).isTrue();
+        verify(notificationRepository).deleteByUserIdAndReadTrue(5L);
     }
 
     // 목록 조회 시점 이후에 새로 도착한 알림은 이 요청의 ids에 없으므로, 여기서 절대 읽음 처리되지 않는다
@@ -149,10 +157,10 @@ class NotificationControllerTest {
     }
 
     @Test
-    void capsIdsAtFifty() throws Exception {
+    void capsIdsAtTwenty() throws Exception {
         authenticateAs(5L);
         List<Long> tooMany = java.util.stream.LongStream.rangeClosed(1, 60).boxed().toList();
-        List<Long> expectedCapped = tooMany.subList(0, 50);
+        List<Long> expectedCapped = tooMany.subList(0, 20);
         String idsJson = tooMany.toString();
         when(notificationRepository.findByIdInAndUserId(eq(expectedCapped), eq(5L))).thenReturn(List.of());
 
@@ -173,5 +181,25 @@ class NotificationControllerTest {
             .andExpect(request().asyncStarted());
 
         verify(notificationBroadcaster).subscribe(5L);
+    }
+
+    @Test
+    void createsProgressReportReadyNotificationForCurrentUser() throws Exception {
+        authenticateAs(5L);
+
+        mockMvc.perform(post("/api/v1/notifications/progress-report")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"content\":\"보고서 생성 완료\"}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.success").value(true));
+
+        verify(notificationService).notifyAfterCommit(
+            5L,
+            "PROGRESS_REPORT",
+            "진행률 보고서가 생성되었습니다.",
+            "보고서 생성 완료",
+            "project",
+            null
+        );
     }
 }

@@ -63,7 +63,7 @@ class TaskResultControllerTest {
     private DemoDataService demoDataService;
 
     @MockitoBean
-    private SupabaseStorageClient storageClient;
+    private S3StorageClient storageClient;
 
     @MockitoBean
     private ProjectMemberRepository projectMemberRepository;

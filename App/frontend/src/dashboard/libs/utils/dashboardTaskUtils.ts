@@ -64,12 +64,33 @@ export function isDangerDelayRisk(result: string): boolean {
   return result.includes("위험") || normalized.includes("danger") || normalized.includes("high");
 }
 
-export function isDelayRisk(result: string): boolean {
+export function isCautionDelayRisk(result: string): boolean {
   const normalized = result.trim().toLowerCase();
-  return isDangerDelayRisk(result)
-    || result.includes("주의")
-    || normalized.includes("warning")
-    || normalized.includes("caution");
+  return result.includes("주의") || normalized.includes("caution") || normalized.includes("warning");
+}
+
+export function isDelayRisk(result: string): boolean {
+  return isDangerDelayRisk(result) || isCautionDelayRisk(result);
+}
+
+/** 백엔드가 내려주는 LocalDateTime 문자열(예: "2026-07-24T10:15:30")은 오프셋이 없어,
+ * `new Date(...)`로 그대로 파싱하면 보는 사람 브라우저의 로컬 타임존으로 해석돼버린다.
+ * 백엔드 JVM은 Asia/Seoul(KST, UTC+9)로 고정되어 있으므로, 오프셋이 없는 문자열에는
+ * "+09:00"을 명시로 붙여 브라우저 타임존과 무관하게 항상 정확한 시각으로 파싱한다. */
+export function parseKstDateTime(dateStr: string): Date {
+  const hasOffset = /[Zz]|[+-]\d{2}:?\d{2}$/.test(dateStr);
+  return new Date(hasOffset ? dateStr : `${dateStr}+09:00`);
+}
+
+/** 어떤 Date의 "연/월/일"을 (보는 사람의 브라우저 타임존이 아니라) 항상 KST 달력 기준으로 구한다. */
+function kstDateParts(date: Date): { year: number; month: number; day: number } {
+  const [year, month, day] = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date).split("-").map(Number);
+  return { year, month: month - 1, day };
 }
 
 /** ISO 날짜/일시 문자열부터 지금까지 경과한 시간을 "일" 단위로 내림 계산한다.
@@ -77,7 +98,7 @@ export function isDelayRisk(result: string): boolean {
  * hours_in_current_status와 동일한 방식)이라 "3일 이상"류 임계값 판정에 적합하다. */
 export function daysSince(dateStr: string | null | undefined): number | null {
   if (!dateStr) return null;
-  const past = new Date(dateStr);
+  const past = parseKstDateTime(dateStr);
   if (Number.isNaN(past.getTime())) return null;
   return Math.max(0, Math.floor((Date.now() - past.getTime()) / 86400000));
 }
@@ -86,11 +107,12 @@ export function daysSince(dateStr: string | null | undefined): number | null {
  * daysSince와 달리 사람이 읽는 라벨이라 자정 기준으로 날짜를 비교한다. */
 export function formatRelativeDate(dateStr: string | null | undefined): string {
   if (!dateStr) return "미정";
-  const past = new Date(dateStr);
+  const past = parseKstDateTime(dateStr);
   if (Number.isNaN(past.getTime())) return "미정";
-  const pastDay = new Date(past.getFullYear(), past.getMonth(), past.getDate()).getTime();
-  const today = new Date();
-  const todayDay = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  const pastParts = kstDateParts(past);
+  const pastDay = Date.UTC(pastParts.year, pastParts.month, pastParts.day);
+  const todayParts = kstDateParts(new Date());
+  const todayDay = Date.UTC(todayParts.year, todayParts.month, todayParts.day);
   const diffDays = Math.round((todayDay - pastDay) / 86400000);
   if (diffDays <= 0) return "오늘";
   if (diffDays === 1) return "어제";
@@ -117,13 +139,15 @@ export function isOpenTask(task: DashboardTaskDto): boolean {
   return normalizeTaskStatus(task.status) !== "done";
 }
 
+/** 전체 업무 리스트에 실제로 보이는 컬럼 값만 검색 대상으로 삼는다 — description처럼
+ * 화면에 표시되지 않는 필드를 포함하면, 사용자 눈엔 검색어와 전혀 무관해 보이는 업무가
+ * (설명 본문 어딘가에 검색어가 우연히 들어있다는 이유만으로) 결과에 섞여 나온다.
+ * id는 호출부(AllTasksPage)에서 부분일치로 별도 처리한다. */
 export function taskSearchText(task: DashboardTaskDto): string {
   return [
-    task.id,
     task.title,
     task.category ?? "",
     task.assigneeName ?? "",
-    task.description ?? "",
     sourceLabel(task.sourceType),
   ].join(" ").toLowerCase();
 }

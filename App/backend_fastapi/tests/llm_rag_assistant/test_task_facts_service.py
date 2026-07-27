@@ -180,6 +180,58 @@ async def test_does_not_mutate_input_rows() -> None:
 
 
 @pytest.mark.asyncio
+async def test_same_id_in_different_source_types_does_not_swap_facts() -> None:
+    """tasks.id와 meeting_action_items.id는 서로 다른 시퀀스라 같은 숫자가 흔히 겹친다.
+
+    facts를 source_id만으로 키잉하면 업무 7의 마감일이 액션아이템 7에 붙어, 사용자는
+    존재하지 않는 마감일을 통보받는다. 키는 반드시 (source_type, source_id) 쌍이어야 한다.
+    """
+    rows = [
+        {"source_type": "task", "source_id": 7, "content": "업무 7", "similarity": 0.9},
+        {"source_type": "action_item", "source_id": 7, "content": "액션 7", "similarity": 0.8},
+    ]
+    conn = _FakeConn(
+        task_rows=[{"id": 7, "due_date": date(2026, 8, 1), "status": "진행중", "priority": "high"}],
+        action_item_rows=[{"id": 7, "due_date": date(2026, 9, 30), "priority": "low"}],
+    )
+
+    result = await enrich_with_facts(_FakePool(conn), project_id=1, rows=rows)
+
+    assert result[0]["facts"] == {"due_date": date(2026, 8, 1), "status": "진행중", "priority": "high"}
+    assert result[1]["facts"] == {"due_date": date(2026, 9, 30), "status": None, "priority": "low"}
+
+
+@pytest.mark.asyncio
+async def test_preserves_row_order_and_count() -> None:
+    """facts 조회 결과의 순서·개수가 입력 행 목록을 바꾸면 안 된다.
+
+    호출 측(chat_service)은 검색 행 목록과 이 반환값을 위치로 대응시켜 쓰기 때문에,
+    행이 하나라도 빠지거나 순서가 바뀌면 답변 근거와 표시 출처가 어긋난다.
+    """
+    rows = [
+        {"source_type": "meeting", "source_id": 3, "content": "회의 3", "similarity": 0.95},
+        {"source_type": "task", "source_id": 7, "content": "업무 7", "similarity": 0.9},
+        {"source_type": "task", "source_id": 999, "content": "조회 안 되는 업무", "similarity": 0.85},
+        {"source_type": "action_item", "source_id": 7, "content": "액션 7", "similarity": 0.8},
+    ]
+    conn = _FakeConn(
+        task_rows=[{"id": 7, "due_date": date(2026, 8, 1), "status": "진행중", "priority": "high"}],
+        action_item_rows=[{"id": 7, "due_date": date(2026, 9, 30), "priority": "low"}],
+    )
+
+    result = await enrich_with_facts(_FakePool(conn), project_id=1, rows=rows)
+
+    assert [(row["source_type"], row["source_id"]) for row in result] == [
+        ("meeting", 3),
+        ("task", 7),
+        ("task", 999),
+        ("action_item", 7),
+    ]
+    # facts가 없는 행도 자리를 지킨다 - 빠뜨리면 뒤 행들이 한 칸씩 밀린다.
+    assert result[2]["facts"] is None
+
+
+@pytest.mark.asyncio
 async def test_empty_rows_returns_empty_without_query() -> None:
     conn = _FakeConn(task_rows=[], action_item_rows=[])
     pool = _FakePool(conn)
