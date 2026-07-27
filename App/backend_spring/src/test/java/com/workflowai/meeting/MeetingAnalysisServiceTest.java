@@ -227,6 +227,24 @@ class MeetingAnalysisServiceTest {
     }
 
     @Test
+    void analyzeNormalizesSourceTypeToAudioForWebmRecording() {
+        // 브라우저 MediaRecorder는 보통 .webm 파일을 만든다. 녹음 버튼 기능이 이 확장자를
+        // 오디오로 인식하지 못하면 STT 없이 빈 텍스트로 분석이 진행되는 버그가 생긴다.
+        mockMember(1L);
+        MeetingAnalysisService service = newService();
+        when(meetingRepository.save(any(Meeting.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        MockMultipartFile file = new MockMultipartFile("file", "recording.webm", "audio/webm", "fake-audio-bytes".getBytes());
+
+        service.analyze(
+            "demo-project", file, "녹음 회의록", "2026-07-27", "정기회의", "document", List.of("김민준"), null
+        );
+
+        ArgumentCaptor<AiAnalyzeRequest> requestCaptor = ArgumentCaptor.forClass(AiAnalyzeRequest.class);
+        verify(meetingAnalysisJobPublisher).enqueue(any(), requestCaptor.capture(), any(UUID.class));
+        assertThat(requestCaptor.getValue().source_type()).isEqualTo("audio");
+    }
+
+    @Test
     void analyzeRejectsAudioFileExceedingSizeLimit() {
         mockMember(1L);
         MeetingAnalysisService service = newService();
