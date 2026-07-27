@@ -867,6 +867,35 @@ _TITLE_MAX_LEN = 25
 _EVIDENCE_MAX_LEN = 160
 
 
+# 업무명은 "~한다"가 아니라 "~ 진행"처럼 명사형으로 끝나야 보드 카드에서 읽기 좋다.
+# 프롬프트로 명사형을 요구해도 LLM이 서술형으로 돌려주는 경우가 있어 마지막에 규칙으로 보정한다.
+_VERB_ENDING_RE = re.compile(
+    r"(?P<stem>[가-힣A-Za-z0-9)\]]+?)\s*"
+    r"(?:하기로\s*(?:함|했다|하였다)|하기로\s*하다|"
+    r"한다|합니다|하였다|했다|하겠다|하겠습니다|하기|할\s*것|해야\s*(?:한다|함)|하자|하시죠)$"
+)
+
+
+def _to_noun_style_title(title: str) -> str:
+    """서술형 어미를 명사형으로 바꾼다. 예: "로그인 API를 구현한다" -> "로그인 API 구현"."""
+    stripped = title.strip()
+    if not stripped:
+        return title
+    match = _VERB_ENDING_RE.search(stripped)
+    if not match:
+        return title
+    stem = match.group("stem").strip()
+    if not stem:
+        return title
+    head = stripped[: match.start()].strip()
+    # 목적격 조사가 남으면 "API를 구현"처럼 어색해지므로 떼어낸다.
+    if head and head[-1] in "을를":
+        head = head[:-1].strip()
+    rebuilt = f"{head} {stem}".strip() if head else stem
+    # 어간만 남아 의미가 사라지는 경우(예: "진행")는 원본을 유지한다.
+    return rebuilt if len(rebuilt) >= 2 else title
+
+
 def clean_todo_title(raw_title: str) -> str:
     """LLM/규칙 기반 추출이 회의록 발언을 그대로 title로 반환하는 것을 막는 최소 보정.
     발언체 표현(저는/제가/~하겠습니다 등)을 제거하고 명사형 업무명에 가깝게 다듬는다."""
@@ -889,6 +918,7 @@ def clean_todo_title(raw_title: str) -> str:
             break
     if title and title[-1] in "을를":
         title = title[:-1].strip()
+    title = _to_noun_style_title(title)
     title = title.rstrip(".!?~ ")
     if len(title) > _TITLE_MAX_LEN:
         title = shorten(title, _TITLE_MAX_LEN)

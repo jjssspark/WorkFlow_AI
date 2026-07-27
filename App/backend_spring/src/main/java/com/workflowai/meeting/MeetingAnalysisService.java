@@ -760,8 +760,10 @@ public class MeetingAnalysisService {
             projectRepository.findById(taskProjectId)
                 .ifPresent(project -> ProjectSchedulePolicy.validate(project, null, dueDate, "업무"));
         }
-        double position = taskRepository.findTopByProjectIdAndStatusOrderByPositionDesc(taskProjectId, "todo")
-            .map(t -> t.getPosition() + 1)
+        // 보드는 position 오름차순으로 그리므로, 최댓값+1을 주면 새 업무가 맨 아래에 쌓인다.
+        // 최근에 등록한 업무일수록 위에 보여야 하므로 현재 최솟값보다 작은 값을 준다.
+        double position = taskRepository.findTopByProjectIdAndStatusOrderByPositionAsc(taskProjectId, "todo")
+            .map(t -> t.getPosition() - 1)
             .orElse(0.0);
         Task task = taskRepository.save(new Task(
             taskProjectId,

@@ -393,10 +393,13 @@ export function MeetingsView() {
   const { status: recordingStatus, startRecording } = useRecordingSession();
   const currentUserRole = deriveCurrentUserRole(currentProject?.role);
   const projectId = String(currentProjectId ?? DEMO_PROJECT_ID);
+  // 새로고침 직후에는 인증이 아직 풀리지 않아 currentProjectId가 비어 있다. 이때 DEMO 폴백으로
+  // 데이터를 읽으면 다른 프로젝트 정보가 잠깐 보였다가 인증 완료 후 바뀐다. 확정 전에는 읽지 않는다.
+  const isProjectResolved = currentProjectId != null;
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [meetings, setMeetings] = useState<Meeting[]>(() => getStoredMeetings(projectId));
-  const [selected, setSelected] = useState<string|null>(() => getStoredMeetings(projectId)[0]?.id ?? null);
+  const [meetings, setMeetings] = useState<Meeting[]>(() => currentProjectId == null ? [] : getStoredMeetings(String(currentProjectId)));
+  const [selected, setSelected] = useState<string|null>(() => currentProjectId == null ? null : getStoredMeetings(String(currentProjectId))[0]?.id ?? null);
   const [homeTab, setHomeTab] = useState<"analyze" | "saved">("analyze");
   const [uploadFlow, setUploadFlow] = useState<UploadFlow>(null);
   const [uploadType, setUploadType] = useState<UploadType>(null);
@@ -657,12 +660,13 @@ export function MeetingsView() {
   };
 
   useEffect(() => {
+    if (!isProjectResolved) return;
     const cached = getStoredMeetings(projectId);
     setMeetings(cached);
     setSelected(cached[0]?.id ?? null);
     refreshMeetingsFromServer();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId]);
+  }, [projectId, isProjectResolved]);
 
   // 알림의 "바로가기"를 통해 특정 회의록으로 딥링크된 경우, 원본 회의록은 저장 여부와
   // 무관하게 "분석/업로드" 탭에서 분석 상세(요약/결정사항/To-Do)를 바로 보여준다.
@@ -1765,9 +1769,14 @@ export function MeetingsView() {
               <ListChecks className="w-4 h-4" />역할 분배 검토 →
             </button>
           )}
+          {currentUserRole === "leader" && (
+            <button onClick={handleConfirmSave} className="w-full py-2 text-xs font-medium text-muted-foreground border border-border rounded-xl hover:bg-muted transition-colors flex items-center justify-center gap-1.5">
+              <FileText className="w-3.5 h-3.5" />회의록 분석결과 저장
+            </button>
+          )}
           {currentUserRole !== "reviewer" && (
             <button onClick={handleConfirmSave} className="w-full py-2 text-xs font-medium text-muted-foreground border border-border rounded-xl hover:bg-muted transition-colors flex items-center justify-center gap-1.5">
-              <FileText className="w-3.5 h-3.5" />{currentUserRole === "leader" ? "회의록 분석결과 저장" : "회의록 저장"}
+              <FileText className="w-3.5 h-3.5" />회의록 저장
             </button>
           )}
           {saveMeetingMessage && <div className="text-[10px] text-emerald-600 text-center">{saveMeetingMessage}</div>}

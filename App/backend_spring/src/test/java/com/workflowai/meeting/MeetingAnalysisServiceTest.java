@@ -1023,7 +1023,7 @@ class MeetingAnalysisServiceTest {
         Meeting meeting = new Meeting(1L, "정기회의", "document", null, "completed", LocalDate.now(), "정기회의", "a.txt", 10L, 10L);
         when(meetingRepository.findByIdAndProjectId(5L, 1L)).thenReturn(Optional.of(meeting));
         when(taskRepository.save(any(Task.class))).thenAnswer(inv -> inv.getArgument(0));
-        when(taskRepository.findTopByProjectIdAndStatusOrderByPositionDesc(any(), any())).thenReturn(Optional.empty());
+        when(taskRepository.findTopByProjectIdAndStatusOrderByPositionAsc(any(), any())).thenReturn(Optional.empty());
         MeetingAnalysisService service = newService();
 
         TaskRegisterRequest request = new TaskRegisterRequest(List.of(
@@ -1047,7 +1047,7 @@ class MeetingAnalysisServiceTest {
         Meeting meeting = new Meeting(1L, "정기회의", "document", null, "completed", LocalDate.now(), "정기회의", "a.txt", 10L, 10L);
         when(meetingRepository.findByIdAndProjectId(5L, 1L)).thenReturn(Optional.of(meeting));
         when(taskRepository.save(any(Task.class))).thenAnswer(inv -> inv.getArgument(0));
-        when(taskRepository.findTopByProjectIdAndStatusOrderByPositionDesc(any(), any())).thenReturn(Optional.empty());
+        when(taskRepository.findTopByProjectIdAndStatusOrderByPositionAsc(any(), any())).thenReturn(Optional.empty());
         MeetingAnalysisService service = newService();
 
         TaskRegisterRequest request = new TaskRegisterRequest(List.of(
