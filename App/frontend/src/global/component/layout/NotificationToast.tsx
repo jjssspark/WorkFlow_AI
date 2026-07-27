@@ -14,14 +14,18 @@ type Props = {
 export function NotificationToast({ notification, toastId }: Props) {
   const navigate = useNavigate();
   const isActionRequired = ACTION_REQUIRED_NOTIFICATION_TYPES.has(notification.type);
-  const hasTarget = notification.targetType === "meeting" && !!notification.targetId;
+  const hasTarget =
+    (notification.targetType === "meeting" || notification.targetType === "evaluation") &&
+    !!notification.targetId;
 
   const handleActivate = () => {
     markNotificationsRead([notification.id]).catch((err) => {
       console.error("알림 읽음 처리에 실패했습니다.", err);
     });
-    if (hasTarget) {
+    if (notification.targetType === "meeting" && notification.targetId) {
       navigate(`/meetings?meetingId=${notification.targetId}`);
+    } else if (notification.targetType === "evaluation" && notification.targetId) {
+      navigate("/mypage");
     }
     toast.dismiss(toastId);
   };
