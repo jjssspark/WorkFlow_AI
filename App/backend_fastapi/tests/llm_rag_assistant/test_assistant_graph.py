@@ -24,7 +24,9 @@ def use_memory_checkpointer(monkeypatch: pytest.MonkeyPatch) -> None:
     assistant_graph._pending_threads.clear()
 
 
-def _state(question: str, role: str = "MEMBER") -> dict:
+# 모든 도구가 팀장 전용이라, 권한이 관심사가 아닌 테스트는 LEADER로 돌려야 본론에 도달한다
+# (권한 검사가 prepare 노드 맨 앞이라 MEMBER면 대상 업무 해소 전에 먼저 막힌다).
+def _state(question: str, role: str = "LEADER") -> dict:
     return {
         "question": question,
         "history": [],
@@ -35,7 +37,7 @@ def _state(question: str, role: str = "MEMBER") -> dict:
 
 
 @pytest.mark.asyncio
-async def test_member_command_produces_confirm_card() -> None:
+async def test_leader_command_produces_confirm_card() -> None:
     from llm_rag_assistant.app.graph.assistant_graph import start_command
 
     plan = [Action(tool="change_status", task_ref="WF-250", args={"to": "done"})]
@@ -45,13 +47,32 @@ async def test_member_command_produces_confirm_card() -> None:
         "llm_rag_assistant.app.graph.assistant_graph.resolve_task_ref",
         new=AsyncMock(return_value=TaskMatch(task_id=37, title="업무 생성 모달 구현")),
     ):
-        outcome = await start_command(object(), _state("WF-250 완료로 바꿔줘"))
+        outcome = await start_command(object(), _state("WF-250 완료로 바꿔줘", role="LEADER"))
 
     assert outcome.type == "confirm"
     assert outcome.card is not None
     assert outcome.card.tool == "change_status"
     assert outcome.card.task_id == 37
     assert outcome.thread_id
+
+
+@pytest.mark.asyncio
+async def test_member_is_blocked_for_status_change() -> None:
+    """상태 변경은 보드 화면에서는 멤버도 할 수 있지만 어시스턴트 경로는 팀장 전용이다."""
+    from llm_rag_assistant.app.graph.assistant_graph import start_command
+
+    plan = [Action(tool="change_status", task_ref="WF-250", args={"to": "done"})]
+    with patch(
+        "llm_rag_assistant.app.graph.assistant_graph.plan_actions", new=AsyncMock(return_value=plan)
+    ), patch(
+        "llm_rag_assistant.app.graph.assistant_graph.resolve_task_ref",
+        new=AsyncMock(return_value=TaskMatch(task_id=37, title="업무 생성 모달 구현")),
+    ):
+        outcome = await start_command(object(), _state("WF-250 완료로 바꿔줘", role="MEMBER"))
+
+    assert outcome.type == "done"
+    assert outcome.card is None
+    assert "팀장" in outcome.message
 
 
 @pytest.mark.asyncio
