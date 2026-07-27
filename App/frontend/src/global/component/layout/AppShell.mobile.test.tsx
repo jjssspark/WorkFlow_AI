@@ -13,6 +13,13 @@ vi.mock("../../api/notificationApi", () => ({
   subscribeNotificationStream: vi.fn(),
 }));
 
+vi.mock("../../../meetings/libs/hooks/RecordingSessionProvider", () => ({
+  useRecordingSession: () => ({
+    status: "idle", elapsedSeconds: 0, error: null,
+    startRecording: vi.fn(), requestStop: vi.fn(), pendingBlob: null, clearPendingBlob: vi.fn(),
+  }),
+}));
+
 describe("AppShell (mobile)", () => {
   beforeEach(() => {
     localStorage.clear();
