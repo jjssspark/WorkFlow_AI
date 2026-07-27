@@ -31,9 +31,12 @@ export function RecordingSessionProvider({ children }: { children: ReactNode }) 
 
   const requestStop = useCallback(() => {
     if (status !== "recording") return;
-    stop().then(result => {
-      if (result) setPendingBlob(result);
-    });
+    stop()
+      .then(result => {
+        if (result) setPendingBlob(result);
+      })
+      // stop()은 내부에서 오류를 status/error로 바꿔 알리므로 여기선 미처리 rejection만 막는다.
+      .catch(() => {});
   }, [status, stop]);
 
   const clearPendingBlob = useCallback(() => setPendingBlob(null), []);

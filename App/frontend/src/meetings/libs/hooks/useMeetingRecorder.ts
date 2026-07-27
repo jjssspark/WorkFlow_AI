@@ -22,6 +22,11 @@ export interface UseMeetingRecorderOptions {
 }
 
 const TIMER_INTERVAL_MS = 1000;
+// MediaRecorder.start()를 timeslice 없이 호출하면 dataavailable이 stop() 시점에 단 한 번만
+// 발생한다. 그러면 정상 종료 전에 오류가 났을 때 살릴 청크가 하나도 없어 긴 녹음이 통째로
+// 사라진다. 주기적으로 청크를 받아 두면 중단되더라도 직전까지는 복구할 수 있다.
+// 값이 클수록 잃는 구간이 길어지고, 작을수록 청크 수가 늘어난다.
+const CHUNK_INTERVAL_MS = 5000;
 
 export function useMeetingRecorder(options: UseMeetingRecorderOptions = {}): UseMeetingRecorder {
   const onSalvagedRef = useRef(options.onSalvaged);
@@ -133,7 +138,7 @@ export function useMeetingRecorder(options: UseMeetingRecorderOptions = {}): Use
         failWithError("녹음 중 오류가 발생했습니다. 다시 시도해주세요.");
       };
       mediaRecorderRef.current = recorder;
-      recorder.start();
+      recorder.start(CHUNK_INTERVAL_MS);
       // 백그라운드 탭 throttle로 tick이 밀려도 표시 시간이 어긋나지 않도록
       // 카운터 증가 대신 시작 시각과의 차이로 계산한다.
       startedAtRef.current = Date.now();
@@ -192,13 +197,19 @@ export function useMeetingRecorder(options: UseMeetingRecorderOptions = {}): Use
       isBusyRef.current = false;
       setStatus("stopped");
       return result;
+    } catch {
+      // recorder.stop()이 동기적으로 던지면(InvalidStateError 등) 마이크와 busy 가드가
+      // 남아 세션이 잠기고 다시 녹음할 수 없게 된다. 오류 경로와 동일하게 전부 정리한다.
+      // 대기 중이던 stop()은 이미 무효이므로 참조를 먼저 비워, 살려낸 원본이 콜백으로 가게 한다.
+      pendingStopResolveRef.current = null;
+      failWithError("녹음을 종료하지 못했습니다. 다시 시도해주세요.");
+      return null;
     } finally {
-      // 정상 경로는 settlePendingStop이 이미 해제했지만, recorder.stop()이 동기적으로
-      // 던지는 경우까지 대비해 안전망으로 한 번 더 해제한다.
+      // 정상 경로는 settlePendingStop이 이미 해제했지만 안전망으로 한 번 더 해제한다.
       pendingStopResolveRef.current = null;
       isStoppingRef.current = false;
     }
-  }, [stopTimer, stopStreamTracks, buildRecordedAudio, settlePendingStop]);
+  }, [stopTimer, stopStreamTracks, buildRecordedAudio, settlePendingStop, failWithError]);
 
   return { status, elapsedSeconds, error, start, stop };
 }

@@ -14,8 +14,12 @@ class MockMediaRecorder {
     MockMediaRecorder.instances.push(this);
   }
 
-  start() {
+  // 실제 MediaRecorder는 timeslice를 주지 않으면 stop() 시점에만 dataavailable을 발생시킨다.
+  timeslice: number | undefined;
+
+  start(timeslice?: number) {
     this.state = "recording";
+    this.timeslice = timeslice;
   }
 
   stop() {
@@ -295,6 +299,56 @@ describe("useMeetingRecorder", () => {
     });
     expect(second).not.toBeNull();
     expect(result.current.status).toBe("stopped");
+  });
+
+  it("주기적으로 청크를 받도록 timeslice를 지정해 시작한다", async () => {
+    // timeslice 없이 시작하면 dataavailable이 stop() 시점에 한 번만 발생해, 정상 종료 전
+    // 오류가 나면 살릴 청크가 하나도 없다. 복구 경로가 실제로 동작하려면 이 인자가 필수다.
+    const { result } = renderHook(() => useMeetingRecorder());
+    await act(async () => {
+      await result.current.start();
+    });
+
+    const recorder = MockMediaRecorder.instances[MockMediaRecorder.instances.length - 1];
+    expect(recorder.timeslice).toBeGreaterThan(0);
+  });
+
+  it("stop()이 동기적으로 예외를 던져도 마이크를 정리하고 세션이 잠기지 않는다", async () => {
+    // recorder.stop()이 InvalidStateError 등을 던지면 정리 없이 빠져나가 마이크가 남고
+    // busy 가드가 잠긴 채 남아 다시 녹음할 수 없게 된다.
+    class ThrowingStopRecorder extends MockMediaRecorder {
+      stop(): void {
+        throw new Error("InvalidStateError");
+      }
+    }
+    vi.stubGlobal("MediaRecorder", ThrowingStopRecorder);
+
+    const mockTrack = { stop: vi.fn() };
+    const getUserMedia = vi
+      .fn()
+      .mockResolvedValue({ getTracks: () => [mockTrack] } as unknown as MediaStream);
+    vi.stubGlobal("navigator", { ...globalThis.navigator, mediaDevices: { getUserMedia } });
+
+    const { result } = renderHook(() => useMeetingRecorder());
+    await act(async () => {
+      await result.current.start();
+    });
+
+    let stopped: Awaited<ReturnType<typeof result.current.stop>> = null;
+    await act(async () => {
+      stopped = await result.current.stop();
+    });
+
+    expect(stopped).toBeNull();
+    expect(result.current.status).toBe("error");
+    expect(mockTrack.stop).toHaveBeenCalled();
+
+    // 세션이 잠기지 않아 다시 녹음을 시작할 수 있어야 한다
+    vi.stubGlobal("MediaRecorder", MockMediaRecorder);
+    await act(async () => {
+      await result.current.start();
+    });
+    expect(result.current.status).toBe("recording");
   });
 
   it("녹음 중 오류로 중단되면 대기 중인 stop()이 없어도 살려낸 원본을 콜백으로 넘긴다", async () => {
