@@ -257,6 +257,75 @@ describe("useMeetingRecorder", () => {
     expect(first!.blob.size).toBeGreaterThan(0);
   });
 
+  it("stop() 대기 중 오류가 나도 종료 요청이 매듭지어지고 이후 녹음도 종료할 수 있다", async () => {
+    // stop()이 onstop을 기다리는 사이에 onerror가 발화하면(장치 분리 등) 대기 중인
+    // Promise가 영영 resolve되지 않아 종료 요청이 멈추고, 종료 가드가 잠긴 채 남아
+    // 다음 녹음마저 종료할 수 없게 된다.
+    class ErrorWhileStoppingRecorder extends MockMediaRecorder {
+      stop() {
+        this.state = "inactive";
+        this.ondataavailable?.({ data: new Blob(["chunk"], { type: this.mimeType }) });
+        void Promise.resolve().then(() => this.onerror?.());
+      }
+    }
+    vi.stubGlobal("MediaRecorder", ErrorWhileStoppingRecorder);
+
+    const { result } = renderHook(() => useMeetingRecorder());
+    await act(async () => {
+      await result.current.start();
+    });
+
+    let stopped: Awaited<ReturnType<typeof result.current.stop>> = null;
+    await act(async () => {
+      stopped = await result.current.stop();
+    });
+
+    expect(result.current.status).toBe("error");
+    // 오류 시점까지 모인 청크는 살려서 돌려준다
+    expect(stopped).not.toBeNull();
+
+    // 종료 가드가 잠기지 않아 다음 녹음은 정상적으로 종료돼야 한다
+    vi.stubGlobal("MediaRecorder", MockMediaRecorder);
+    await act(async () => {
+      await result.current.start();
+    });
+    let second: Awaited<ReturnType<typeof result.current.stop>> = null;
+    await act(async () => {
+      second = await result.current.stop();
+    });
+    expect(second).not.toBeNull();
+    expect(result.current.status).toBe("stopped");
+  });
+
+  it("마이크 권한 대기 중 언마운트되면 뒤늦게 받은 스트림을 즉시 반납한다", async () => {
+    const mockTrack = { stop: vi.fn() };
+    let resolveStream: (stream: MediaStream) => void = () => {};
+    const getUserMedia = vi.fn().mockReturnValue(
+      new Promise<MediaStream>(resolve => {
+        resolveStream = resolve;
+      }),
+    );
+    vi.stubGlobal("navigator", { ...globalThis.navigator, mediaDevices: { getUserMedia } });
+
+    const { result, unmount } = renderHook(() => useMeetingRecorder());
+    let startPromise!: Promise<void>;
+    act(() => {
+      startPromise = result.current.start();
+    });
+
+    unmount();
+
+    await act(async () => {
+      resolveStream({ getTracks: () => [mockTrack] } as unknown as MediaStream);
+      await startPromise;
+    });
+
+    // 언마운트 뒤 도착한 스트림이 방치되면 마이크가 계속 켜진 채로 남는다
+    expect(mockTrack.stop).toHaveBeenCalled();
+    // 정리 주체가 사라진 뒤에는 MediaRecorder를 만들지도, 녹음을 시작하지도 않아야 한다
+    expect(MockMediaRecorder.instances).toHaveLength(0);
+  });
+
   it("녹음 중 MediaRecorder 오류가 나면 마이크 트랙을 정리하고 다시 녹음할 수 있다", async () => {
     const mockTrack = { stop: vi.fn() };
     const getUserMedia = vi
