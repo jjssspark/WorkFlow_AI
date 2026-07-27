@@ -240,7 +240,7 @@ class MeetingAnalysisServiceTest {
         );
 
         ArgumentCaptor<AiAnalyzeRequest> requestCaptor = ArgumentCaptor.forClass(AiAnalyzeRequest.class);
-        verify(meetingAnalysisJobPublisher).enqueue(any(), requestCaptor.capture(), any(UUID.class));
+        verify(meetingAnalysisJobPublisher).enqueue(any(), requestCaptor.capture(), any(UUID.class), any());
         assertThat(requestCaptor.getValue().source_type()).isEqualTo("audio");
     }
 
