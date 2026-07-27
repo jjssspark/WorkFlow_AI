@@ -4,20 +4,12 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.workflowai.support.PostgresRedisIntegrationTest;
 import com.workflowai.support.ProductionSchemaFixture;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
-import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.utility.DockerImageName;
 
 /**
  * IT-001 준비 상태~의존성 연계.
@@ -31,49 +23,10 @@ import org.testcontainers.utility.DockerImageName;
  * <p>스키마를 Hibernate ddl-auto로 만들지 않고 {@link ProductionSchemaFixture}를 쓰는 이유는
  * 그 클래스 주석에 있다. 요약하면 운영은 init 스크립트 + Flyway 경로로 스키마를 만들기 때문이다.
  */
-@Testcontainers(disabledWithoutDocker = true)
-@SpringBootTest
-@AutoConfigureMockMvc
-class HealthReadinessIntegrationTest {
+class HealthReadinessIntegrationTest extends PostgresRedisIntegrationTest {
 
     private static final String READINESS_PATH = "/api/v1/health/ready";
     private static final String SCHEMA_MARKER_TABLE = "rag_assignee_sync_failures";
-
-    @Container
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>(
-        DockerImageName.parse("pgvector/pgvector:pg17").asCompatibleSubstituteFor("postgres")
-    );
-
-    @Container
-    static final GenericContainer<?> REDIS = new GenericContainer<>(DockerImageName.parse("redis:7-alpine"))
-        .withExposedPorts(6379);
-
-    @DynamicPropertySource
-    static void properties(DynamicPropertyRegistry registry) {
-        // 컨텍스트가 뜨기 전에 스키마가 완성돼 있어야 한다. 큐 워커가 ApplicationRunner라
-        // 기동 도중 DB·Redis에 접근하기 때문이다.
-        ProductionSchemaFixture.apply(POSTGRES);
-
-        registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
-        registry.add("spring.datasource.username", POSTGRES::getUsername);
-        registry.add("spring.datasource.password", POSTGRES::getPassword);
-        registry.add("spring.data.redis.host", REDIS::getHost);
-        registry.add("spring.data.redis.port", () -> REDIS.getMappedPort(6379));
-
-        // 스키마는 fixture가 운영과 같은 경로로 이미 만들었다. Hibernate가 여기에 손대면
-        // 검증 대상이 "운영 스키마"가 아니라 "엔티티에서 생성된 스키마"가 된다.
-        registry.add("spring.jpa.hibernate.ddl-auto", () -> "none");
-
-        // application.yml의 기본값도 false지만 ${SPRING_FLYWAY_ENABLED:false}라 환경변수로 뒤집힌다.
-        // 여기서 고정해 셸·CI 환경에 따라 테스트 동작이 달라지지 않게 한다.
-        // (켜지더라도 fixture가 남긴 flyway_schema_history 때문에 실제로는 no-op이다. 스키마가
-        //  다시 만들어지지는 않는다.)
-        registry.add("spring.flyway.enabled", () -> "false");
-
-        // 기본값이 없는 필수 프로퍼티. 없으면 플레이스홀더 해석 단계에서 기동이 실패한다.
-        registry.add("workflow.jwt.secret", () -> "test-secret-key-for-readiness-integration-test-32bytes-min");
-        registry.add("workflow.ai.internal-key", () -> "test-internal-key");
-    }
 
     @Autowired
     private MockMvc mockMvc;
