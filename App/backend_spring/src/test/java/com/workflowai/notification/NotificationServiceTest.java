@@ -2,6 +2,7 @@ package com.workflowai.notification;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -59,35 +60,33 @@ class NotificationServiceTest {
     }
 
     @Test
-    void notifyActorAndCounterpartSendsOnlyOnceWhenActorEqualsCounterpart() {
+    void notifyCounterpartSendsNothingWhenActorEqualsCounterpart() {
         NotificationService service = newService();
-        when(notificationRepository.save(any(Notification.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        service.notifyActorAndCounterpart(
-            10L, "MEETING_SAVED", "저장 완료", "회의록이 저장되었습니다.",
-            10L, "MEETING_SAVED_NOTIFY_LEADER", "저장 완료(팀장)", "역할분배를 진행해주세요.",
+        service.notifyCounterpart(
+            10L, 10L, "MEETING_SAVED_NOTIFY_LEADER", "저장 완료(팀장)", "역할분배를 진행해주세요.",
             "meeting", 1L
         );
 
-        verify(notificationRepository, times(1)).save(any(Notification.class));
+        // 본인이 한 일이므로 알림이 하나도 나가지 않는다.
+        verify(notificationRepository, never()).save(any(Notification.class));
     }
 
     @Test
-    void notifyActorAndCounterpartSendsBothWhenDifferentUsers() {
+    void notifyCounterpartNotifiesOnlyTheCounterpartNotTheActor() {
         NotificationService service = newService();
         when(notificationRepository.save(any(Notification.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        service.notifyActorAndCounterpart(
-            10L, "MEETING_SAVED", "저장 완료", "회의록이 저장되었습니다.",
-            20L, "MEETING_SAVED_NOTIFY_LEADER", "저장 완료(팀장)", "역할분배를 진행해주세요.",
+        service.notifyCounterpart(
+            10L, 20L, "MEETING_SAVED_NOTIFY_LEADER", "저장 완료(팀장)", "역할분배를 진행해주세요.",
             "meeting", 1L
         );
 
         ArgumentCaptor<Notification> captor = ArgumentCaptor.forClass(Notification.class);
-        verify(notificationRepository, times(2)).save(captor.capture());
+        verify(notificationRepository, times(1)).save(captor.capture());
         List<Notification> saved = captor.getAllValues();
-        assertThat(saved).extracting(Notification::getUserId).containsExactlyInAnyOrder(10L, 20L);
-        assertThat(saved).extracting(Notification::getType)
-            .containsExactlyInAnyOrder("MEETING_SAVED", "MEETING_SAVED_NOTIFY_LEADER");
+        // 행위자(10L)는 빠지고 반대편(20L)에게만 간다.
+        assertThat(saved).extracting(Notification::getUserId).containsExactly(20L);
+        assertThat(saved).extracting(Notification::getType).containsExactly("MEETING_SAVED_NOTIFY_LEADER");
     }
 }
