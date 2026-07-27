@@ -177,19 +177,15 @@ public class MeetingAnalysisPersistence {
     }
 
     /**
-     * 이 분석을 실제로 트리거한 사용자(requestedBy)에게 항상 알리고, 그 사람이 팀장이 아니면
-     * 팀장에게도 "역할분배를 진행해달라"는 별도 알림을 보낸다. requestedBy==팀장이면 중복이므로
-     * 알림 1건만 나간다. requestedBy가 없는 레거시 경로는 원본 업로더를 기준으로 대체한다.
+     * 분석을 실제로 트리거한 사용자(requestedBy) 본인에게는 알리지 않는다 — 본인은 분석 화면에서
+     * 결과를 바로 확인하고 있기 때문이다. 그 사람이 팀장이 아닐 때만 팀장에게 "역할분배를
+     * 진행해달라"고 알린다. requestedBy가 없는 레거시 경로는 원본 업로더를 행위자로 간주한다.
      */
     private void notifyAnalysisCompleted(Meeting meeting, Long meetingId, Long requestedBy) {
         Long actorId = requestedBy != null ? requestedBy : meeting.getUploadedBy();
         if (actorId == null) {
             return;
         }
-        notifyBestEffort(
-            actorId, "MEETING_ANALYSIS_COMPLETED", "회의 분석이 완료되었습니다.",
-            "'" + meeting.getTitle() + "' 회의록 분석이 완료되었습니다.", meetingId
-        );
         String actorName = userRepository.findById(actorId).map(User::getName).orElse("누군가");
         projectMemberRepository.findByProjectIdAndRole(meeting.getProjectId(), com.workflowai.project.ProjectRole.LEADER)
             .map(com.workflowai.project.ProjectMember::getUserId)

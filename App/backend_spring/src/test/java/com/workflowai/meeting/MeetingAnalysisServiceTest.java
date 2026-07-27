@@ -525,9 +525,8 @@ class MeetingAnalysisServiceTest {
 
         service.delete("demo-project", "12", false);
 
-        verify(notificationService).notifyActorAndCounterpart(
-            eq(CURRENT_USER_ID), eq("MEETING_DELETED"), any(), any(),
-            eq(uploaderId), eq("MEETING_DELETED"), any(), any(),
+        verify(notificationService).notifyCounterpart(
+            eq(CURRENT_USER_ID), eq(uploaderId), eq("MEETING_DELETED"), any(), any(),
             eq("meeting"), eq(12L)
         );
     }
@@ -717,9 +716,8 @@ class MeetingAnalysisServiceTest {
 
         service.deleteAnalysis("demo-project", "12", false);
 
-        verify(notificationService).notifyActorAndCounterpart(
-            eq(CURRENT_USER_ID), eq("MEETING_ANALYSIS_DELETED"), any(), any(),
-            eq(uploaderId), eq("MEETING_ANALYSIS_DELETED"), any(), any(),
+        verify(notificationService).notifyCounterpart(
+            eq(CURRENT_USER_ID), eq(uploaderId), eq("MEETING_ANALYSIS_DELETED"), any(), any(),
             eq("meeting"), eq(12L)
         );
     }
@@ -1019,9 +1017,8 @@ class MeetingAnalysisServiceTest {
         ));
         service.registerTasks("demo-project", "5", request);
 
-        verify(notificationService).notifyActorAndCounterpart(
-            eq(99L), eq("MEETING_TASKS_REGISTERED"), any(), any(),
-            eq(10L), eq("MEETING_TASKS_REGISTERED_NOTIFY_MEMBER"), any(), any(),
+        verify(notificationService).notifyCounterpart(
+            eq(99L), eq(10L), eq("MEETING_TASKS_REGISTERED_NOTIFY_MEMBER"), any(), any(),
             eq("meeting"), eq(5L)
         );
     }
@@ -1045,8 +1042,8 @@ class MeetingAnalysisServiceTest {
 
         assertThat(response.status()).isEqualTo("SAVED");
         assertThat(meeting.getSavedAt()).isNotNull();
-        verify(notificationService, never()).notifyActorAndCounterpart(
-            any(), any(), any(), any(), any(), any(), any(), any(), any(), any()
+        verify(notificationService, never()).notifyCounterpart(
+            any(), any(), any(), any(), any(), any(), any()
         );
     }
 

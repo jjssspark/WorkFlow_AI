@@ -54,19 +54,18 @@ public class NotificationService {
     }
 
     /**
-     * 행위자 본인 + 반대편(주로 프로젝트 팀장, 또는 팀장이 행위자일 때는 관련 팀원)에게 각각 다른
-     * 타입/문구로 알림을 보낸다. 두 사용자가 동일인이면 중복 발송을 피하기 위해 행위자 알림 1건만 보낸다.
+     * 반대편(주로 프로젝트 팀장, 또는 팀장이 행위자일 때는 관련 팀원)에게만 알린다. 행위자 본인은
+     * 방금 자기가 한 일의 결과를 화면에서 이미 보고 있으므로 알림을 따로 보내지 않는다.
+     * 반대편이 행위자와 동일인이면(예: 팀장이 본인 회의록을 처리) 아무 알림도 나가지 않는다.
      */
-    public void notifyActorAndCounterpart(
-        Long actorUserId, String actorType, String actorTitle, String actorContent,
-        Long counterpartUserId, String counterpartType, String counterpartTitle, String counterpartContent,
+    public void notifyCounterpart(
+        Long actorUserId, Long counterpartUserId,
+        String type, String title, String content,
         String targetType, Long targetId
     ) {
-        if (actorUserId != null) {
-            notifyAfterCommit(actorUserId, actorType, actorTitle, actorContent, targetType, targetId);
+        if (counterpartUserId == null || counterpartUserId.equals(actorUserId)) {
+            return;
         }
-        if (counterpartUserId != null && !counterpartUserId.equals(actorUserId)) {
-            notifyAfterCommit(counterpartUserId, counterpartType, counterpartTitle, counterpartContent, targetType, targetId);
-        }
+        notifyAfterCommit(counterpartUserId, type, title, content, targetType, targetId);
     }
 }
