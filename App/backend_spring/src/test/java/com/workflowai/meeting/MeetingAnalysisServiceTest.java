@@ -1090,6 +1090,76 @@ class MeetingAnalysisServiceTest {
         assertThat(captor.getValue().getDueDate()).isEqualTo(LocalDate.of(2026, 7, 31));
     }
 
+    // 음성 회의록이 아니면 파일을 내려주지 않는다.
+    @Test
+    void findAudioRejectsNonAudioMeeting() {
+        mockMember(1L);
+        Meeting meeting = new Meeting(1L, "정기회의", "document", "/tmp/x.txt", "completed", LocalDate.now(), "정기회의", "x.txt", null, 5L);
+        when(meetingRepository.findByIdAndProjectId(5L, 1L)).thenReturn(Optional.of(meeting));
+        MeetingAnalysisService service = newService();
+
+        assertThat(service.findAudio("demo-project", "5")).isNull();
+    }
+
+    // uploads 밖 파일을 file_path에 심어도 내려주면 안 된다(경로 탈출).
+    @Test
+    void findAudioRejectsPathOutsideUploadsDir() throws Exception {
+        mockMember(1L);
+        Path outside = Files.createTempFile("outside-audio", ".mp3");
+        Meeting meeting = new Meeting(1L, "정기회의", "audio", outside.toString(), "completed", LocalDate.now(), "정기회의", "x.mp3", null, 5L);
+        when(meetingRepository.findByIdAndProjectId(5L, 1L)).thenReturn(Optional.of(meeting));
+        MeetingAnalysisService service = newService();
+
+        assertThat(service.findAudio("demo-project", "5")).isNull();
+        Files.deleteIfExists(outside);
+    }
+
+    // uploads 안에 바깥을 가리키는 심볼릭 링크를 만들어도 막아야 한다.
+    // normalize()+startsWith()만으로는 통과해버리므로 toRealPath()로 링크를 해소한다.
+    @Test
+    void findAudioRejectsSymlinkEscapingUploadsDir() throws Exception {
+        mockMember(1L);
+        Path outside = Files.createTempFile("outside-audio", ".mp3");
+        Path linkDir = Files.createDirectories(Path.of("/tmp/workflow-uploads", "77"));
+        Path link = linkDir.resolve("leak.mp3");
+        Files.deleteIfExists(link);
+        Files.createSymbolicLink(link, outside);
+
+        Meeting meeting = new Meeting(1L, "정기회의", "audio", link.toString(), "completed", LocalDate.now(), "정기회의", "leak.mp3", null, 5L);
+        when(meetingRepository.findByIdAndProjectId(5L, 1L)).thenReturn(Optional.of(meeting));
+        MeetingAnalysisService service = newService();
+
+        assertThat(service.findAudio("demo-project", "5")).isNull();
+        Files.deleteIfExists(link);
+        Files.deleteIfExists(outside);
+    }
+
+    // 회의록에서 등록한 업무는 보드 맨 위에 와야 하므로 기존 최솟값보다 작은 position을 받는다.
+    @Test
+    void registerTasksPlacesNewTaskAboveExistingOnes() {
+        UserPrincipal leader = new UserPrincipal(25L, "leader@example.com", "박지수");
+        SecurityContextHolder.getContext().setAuthentication(
+            new UsernamePasswordAuthenticationToken(leader, null, List.of())
+        );
+        when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
+        when(projectMemberRepository.existsByProjectIdAndUserId(1L, 25L)).thenReturn(true);
+        Meeting meeting = new Meeting(1L, "정기회의", "document", null, "completed", LocalDate.of(2026, 7, 19), "정기회의", "a.txt", 10L, 10L);
+        when(meetingRepository.findByIdAndProjectId(5L, 1L)).thenReturn(Optional.of(meeting));
+        when(meetingRepository.findById(5L)).thenReturn(Optional.of(meeting));
+        when(taskRepository.save(any(Task.class))).thenAnswer(inv -> inv.getArgument(0));
+        Task existingTop = new Task(1L, "기존 업무", "ETC", "todo", null, null, "MEDIUM", null, "MANUAL", null, 1L, 3.0);
+        when(taskRepository.findTopByProjectIdAndStatusOrderByPositionAsc(any(), any())).thenReturn(Optional.of(existingTop));
+        MeetingAnalysisService service = newService();
+
+        service.registerTasks("demo-project", "5", new TaskRegisterRequest(List.of(
+            new MeetingTodo("업무1", "설명", null, null, null, "MEDIUM", "ETC", true, "")
+        )));
+
+        ArgumentCaptor<Task> captor = ArgumentCaptor.forClass(Task.class);
+        verify(taskRepository).save(captor.capture());
+        assertThat(captor.getValue().getPosition()).isLessThan(existingTop.getPosition());
+    }
+
     @Test
     void registerTasksNotifiesLeaderAndUploaderWhenDifferent() {
         UserPrincipal leader = new UserPrincipal(99L, "leader@example.com", "김팀장");

@@ -928,7 +928,10 @@ public class MeetingAnalysisService {
      * 저장된 회의록 음성 파일을 재생용으로 읽는다.
      *
      * <p>filePath는 업로드 시 uploadsDir 아래로만 기록되지만, DB 값이 조작되는 경우까지 막기 위해
-     * 실제 경로가 uploadsDir 안에 있는지 다시 확인한다(경로 탈출 방지).
+     * 실제 경로가 uploadsDir 안에 있는지 다시 확인한다.
+     *
+     * <p>normalize()+startsWith()만으로는 uploads 안에 심볼릭 링크를 만들어 바깥 파일을 가리키는
+     * 우회를 막지 못한다. 양쪽 모두 toRealPath()로 링크를 해소한 뒤 비교한다.
      */
     public MeetingAudio findAudio(String projectId, String meetingId) {
         Meeting meeting = requireProjectMeeting(projectId, meetingId);
@@ -937,13 +940,19 @@ public class MeetingAnalysisService {
         String storedPath = meeting.getFilePath();
         if (storedPath == null || storedPath.isBlank()) return null;
 
-        Path root = Path.of(uploadsDir).toAbsolutePath().normalize();
-        Path target = Path.of(storedPath).toAbsolutePath().normalize();
-        if (!target.startsWith(root) || !Files.isReadable(target)) {
-            log.warn("회의록 음성 파일을 읽을 수 없습니다: meetingId={}, path={}", meetingId, storedPath);
+        try {
+            Path root = Path.of(uploadsDir).toRealPath();
+            Path target = Path.of(storedPath).toRealPath();
+            if (!target.startsWith(root) || !Files.isRegularFile(target) || !Files.isReadable(target)) {
+                log.warn("회의록 음성 파일 접근을 거부했습니다: meetingId={}, path={}", meetingId, storedPath);
+                return null;
+            }
+            return new MeetingAudio(target, defaultString(meeting.getOriginalFileName(), target.getFileName().toString()));
+        } catch (IOException e) {
+            // 파일이 없거나 링크가 끊긴 경우 등 — 존재 여부를 노출하지 않고 404로 처리한다.
+            log.warn("회의록 음성 파일을 읽을 수 없습니다: meetingId={}", meetingId);
             return null;
         }
-        return new MeetingAudio(target, defaultString(meeting.getOriginalFileName(), target.getFileName().toString()));
     }
 
     private String storeUploadedFile(Long meetingId, MultipartFile file) {
