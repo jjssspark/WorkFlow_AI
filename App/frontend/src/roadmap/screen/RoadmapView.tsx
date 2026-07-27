@@ -5,7 +5,7 @@ import { useAuth } from "../../global/hooks/useAuth";
 import type { ChecklistItem } from "../../board/libs/types/task";
 import { fetchChecklist } from "../../board/libs/utils/checklistApi";
 import type { RoadmapMilestone, RoadmapResponse, RoadmapTask, RoadmapZoom } from "../libs/types/roadmap";
-import { createMilestone, deleteMilestone, fetchRoadmap, moveRoadmapTask, updateRoadmapTaskPosition, type MilestoneInput } from "../libs/utils/roadmapApi";
+import { createMilestone, deleteMilestone, fetchRoadmap, updateRoadmapTaskLayout, type MilestoneInput } from "../libs/utils/roadmapApi";
 import { buildCapstoneMilestones } from "../libs/utils/roadmapRecommendations";
 import { moveTasksToMilestone, reorderTasksAtTarget, sortRoadmapBySchedule } from "../libs/utils/roadmapState";
 import { barStyle, intervalOverlapsRange, isDateWithinRange, positionPercent, resolveTimelineRange, timelineSegments } from "../libs/utils/timeline";
@@ -322,9 +322,11 @@ export function RoadmapView() {
     setRoadmap(movedRoadmap);
     setDropTarget(null);
     try {
-      await Promise.all(taskIds.map((taskId) => moveRoadmapTask(projectId, taskId, targetMilestoneId)));
-      await Promise.all(targetTasks.map((task) =>
-        updateRoadmapTaskPosition(projectId, task.id, task.status, task.position)));
+      await updateRoadmapTaskLayout(projectId, targetTasks.map((task) => ({
+        taskId: task.id,
+        milestoneId: targetMilestoneId,
+        position: task.position,
+      })));
       setSelectedTaskIds(new Set());
     } catch (cause) {
       setRoadmap(previous);
@@ -350,21 +352,15 @@ export function RoadmapView() {
     }
 
     const previous = roadmap;
-    const movedTasks = [
-      ...roadmap.milestones.flatMap((milestone) => milestone.tasks),
-      ...roadmap.unassignedTasks,
-    ].filter((task) => dragTaskIds.includes(task.id));
     setRoadmap(result.roadmap);
     setDropTarget(null);
     setDragRowTarget(null);
     try {
-      for (const task of movedTasks) {
-        if (task.milestoneId !== targetTask.milestoneId) {
-          await moveRoadmapTask(projectId, task.id, targetTask.milestoneId);
-        }
-      }
-      await Promise.all(result.orderedTargetTasks.map((task) =>
-        updateRoadmapTaskPosition(projectId, task.id, task.status, task.position)));
+      await updateRoadmapTaskLayout(projectId, result.orderedTargetTasks.map((task) => ({
+        taskId: task.id,
+        milestoneId: targetTask.milestoneId,
+        position: task.position,
+      })));
       setSelectedTaskIds(new Set());
     } catch (cause) {
       setRoadmap(previous);

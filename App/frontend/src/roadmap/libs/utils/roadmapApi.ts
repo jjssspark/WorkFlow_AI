@@ -66,3 +66,25 @@ export function updateRoadmapTaskPosition(
     body: JSON.stringify({ status, position }),
   });
 }
+
+export interface RoadmapTaskLayoutInput {
+  taskId: string;
+  milestoneId: string | null;
+  position: number;
+}
+
+export function updateRoadmapTaskLayout(
+  projectId: string | number,
+  items: RoadmapTaskLayoutInput[],
+): Promise<RoadmapTask[]> {
+  return apiFetch<RoadmapTask[]>(`/projects/${projectId}/roadmap/tasks/layout`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      items: items.map((item) => ({
+        taskId: Number(item.taskId),
+        milestoneId: item.milestoneId === null ? null : Number(item.milestoneId),
+        position: item.position,
+      })),
+    }),
+  });
+}
