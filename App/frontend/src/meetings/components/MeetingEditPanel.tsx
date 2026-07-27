@@ -1,6 +1,5 @@
 import { useState } from "react";
-import { createMeetingVersion } from "../libs/utils/meetingAiApi";
-import { ApiRequestError } from "../../global/api/apiClient";
+import { createMeetingVersion, fetchMeeting } from "../libs/utils/meetingAiApi";
 
 type MeetingEditPanelProps = {
   projectId: string;
@@ -10,18 +9,37 @@ type MeetingEditPanelProps = {
   onAnalyzed: () => void;
 };
 
+const ANALYSIS_POLL_INTERVAL_MS = 2000;
+const ANALYSIS_MAX_POLL_ATTEMPTS = 60;
+
 function toErrorMessage(error: unknown): string {
-  const status = error instanceof ApiRequestError ? ` (${error.status})` : "";
-  return `저장에 실패했습니다${status}. 잠시 후 다시 시도해주세요.`;
+  if (error instanceof Error && error.message) return error.message;
+  return "저장에 실패했습니다. 잠시 후 다시 시도해주세요.";
+}
+
+// createMeetingVersion(triggerAnalysis: true)는 분석을 비동기로 큐에 넣고 즉시
+// PROCESSING 상태로 응답한다. 완료를 기다리지 않고 바로 onAnalyzed()를 호출하면
+// 실제로는 백그라운드에서 분석이 진행 중인데도 사용자에게는 "재분석이 안 되는 것"처럼 보인다.
+async function waitForAnalysisCompletion(projectId: string, versionMeetingId: string): Promise<void> {
+  for (let attempt = 0; attempt < ANALYSIS_MAX_POLL_ATTEMPTS; attempt++) {
+    await new Promise(resolve => setTimeout(resolve, ANALYSIS_POLL_INTERVAL_MS));
+    const response = await fetchMeeting(projectId, versionMeetingId);
+    if (response.status === "COMPLETED") return;
+    if (response.status === "FAILED") {
+      throw new Error(response.errorMessage ?? "재분석에 실패했습니다.");
+    }
+  }
+  throw new Error("분석 시간이 초과되었습니다. 잠시 후 다시 확인해주세요.");
 }
 
 export function MeetingEditPanel({ projectId, meetingId, initialTranscript, onSaved, onAnalyzed }: MeetingEditPanelProps) {
   const [transcript, setTranscript] = useState(initialTranscript);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submittingAction, setSubmittingAction] = useState<"save" | "analyze" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const isSubmitting = submittingAction !== null;
 
   const handleSave = async () => {
-    setIsSubmitting(true);
+    setSubmittingAction("save");
     setError(null);
     try {
       await createMeetingVersion(projectId, meetingId, transcript, false);
@@ -29,20 +47,23 @@ export function MeetingEditPanel({ projectId, meetingId, initialTranscript, onSa
     } catch (err) {
       setError(toErrorMessage(err));
     } finally {
-      setIsSubmitting(false);
+      setSubmittingAction(null);
     }
   };
 
   const handleAnalyze = async () => {
-    setIsSubmitting(true);
+    setSubmittingAction("analyze");
     setError(null);
     try {
-      await createMeetingVersion(projectId, meetingId, transcript, true);
+      const version = await createMeetingVersion(projectId, meetingId, transcript, true);
+      if (version.status === "PROCESSING") {
+        await waitForAnalysisCompletion(projectId, version.meetingId);
+      }
       onAnalyzed();
     } catch (err) {
       setError(toErrorMessage(err));
     } finally {
-      setIsSubmitting(false);
+      setSubmittingAction(null);
     }
   };
 
@@ -69,7 +90,7 @@ export function MeetingEditPanel({ projectId, meetingId, initialTranscript, onSa
           onClick={handleAnalyze}
           className="px-4 py-2 rounded-lg bg-blue-600 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
         >
-          분석하기
+          {submittingAction === "analyze" ? "분석 중..." : "분석하기"}
         </button>
       </div>
     </div>
