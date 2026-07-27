@@ -39,9 +39,10 @@ const deleteMeeting = vi.fn();
 const deleteMeetingAnalysis = vi.fn();
 const retryMeetingAnalysis = vi.fn();
 const registerMeetingTasks = vi.fn();
+const analyzeMeeting = vi.fn();
 
 vi.mock("../libs/utils/meetingAiApi", () => ({
-  analyzeMeeting: vi.fn(),
+  analyzeMeeting: (...args: unknown[]) => analyzeMeeting(...args),
   confirmMeetingSave: vi.fn(),
   fetchMeeting: (...args: unknown[]) => fetchMeeting(...args),
   fetchMeetings: (...args: unknown[]) => fetchMeetings(...args),
@@ -712,5 +713,66 @@ describe("MeetingsView 분석 결과 삭제 후 재분석", () => {
     await user.click(await screen.findByText("실패한 회의"));
 
     expect(screen.queryByRole("button", { name: "재분석하기" })).not.toBeInTheDocument();
+  });
+});
+
+describe("MeetingsView PDF 내보내기", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.clearAllMocks();
+    mockRecordingStatus = "idle";
+    mockStartRecording.mockClear();
+    mockUseAuth.mockReturnValue(asLeader());
+    fetchMeetings.mockResolvedValue([]);
+    analyzeMeeting.mockResolvedValue({
+      meetingId: "M1",
+      projectId: "1",
+      status: "PROCESSING",
+      sourceType: "document",
+      fileName: "meeting.txt",
+      analysisSource: null,
+      analysis: null,
+      errorMessage: null,
+      attendees: [],
+    });
+    fetchMeeting.mockResolvedValue({
+      meetingId: "M1",
+      projectId: "1",
+      status: "COMPLETED",
+      sourceType: "document",
+      fileName: "meeting.txt",
+      analysisSource: "FASTAPI",
+      analysis: baseResult("1"),
+      errorMessage: null,
+      attendees: [],
+    });
+  });
+
+  // 시그니처 변경(ExportablePdfData 인자 도입) 후에도 PDF 버튼의 disabled 조건
+  // (!analysisResult || isExportingPdf)은 리팩터 전후 동일하게 유지되어야 한다 — 회귀 방지용 특성화 테스트.
+  it("기존 분석 직후 화면의 PDF 버튼은 여전히 activeResult 기준으로 활성화된다", async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={["/meetings"]}>
+        <MeetingsView />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(fetchMeetings).toHaveBeenCalled());
+
+    await user.click(screen.getAllByRole("button", { name: "회의록 업로드" })[0]);
+    await user.click(screen.getByText("문서 업로드"));
+    await user.click(screen.getByRole("button", { name: /다음/ }));
+
+    const file = new File(["dummy"], "meeting.txt", { type: "text/plain" });
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+    await user.upload(fileInput, file);
+
+    await user.click(await screen.findByRole("button", { name: /김민준/ }));
+    await user.click(screen.getByRole("button", { name: "AI 분석 시작" }));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: /PDF 저장/ })).toBeInTheDocument(), { timeout: 5000 });
+
+    expect(screen.getByRole("button", { name: /PDF 저장/ })).not.toBeDisabled();
   });
 });
