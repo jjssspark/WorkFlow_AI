@@ -140,8 +140,9 @@ class DashboardServiceTest {
         List<DashboardTaskDto> result = newService().getTasks("demo-project");
 
         assertThat(result).hasSize(1);
-        assertThat(result.get(0).createdAt()).isEqualTo("2026-07-01T09:00:00");
-        assertThat(result.get(0).updatedAt()).isEqualTo("2026-07-19T15:30:00");
+        // UtcTimeFormat이 서버 시각(UTC)임을 명시하기 위해 "Z"를 붙인다 - new Date(iso)가 브라우저 로컬시간으로 오해석하는 것을 막는다.
+        assertThat(result.get(0).createdAt()).isEqualTo("2026-07-01T09:00:00.000Z");
+        assertThat(result.get(0).updatedAt()).isEqualTo("2026-07-19T15:30:00.000Z");
     }
 
     @Test

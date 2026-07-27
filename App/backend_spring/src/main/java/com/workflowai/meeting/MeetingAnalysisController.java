@@ -166,6 +166,33 @@ public class MeetingAnalysisController {
     }
 
     @Operation(
+        summary = "회의록 분석 결과 삭제",
+        description = "회의록 원본(파일, 참석자 정보, transcript)은 남기고 AI 분석 결과(meeting_analysis, To-Do 후보)만 삭제합니다. "
+            + "삭제 후 회의록은 분석 실패(failed) 상태로 전환되어 POST /{meetingId}/retry로 같은 파일을 재분석할 수 있습니다. "
+            + "팀장만 삭제할 수 있습니다. deleteLinkedTasks=true이면 업무보드에 등록된 연동 업무도 함께 삭제하고, "
+            + "false(기본값)이면 업무는 유지한 채 회의록 연결만 해제합니다. "
+            + "meetingId가 이 프로젝트 소속이 아니면 404를, 팀장이 아니면 403을, 분석 결과가 없으면 409를 반환합니다."
+    )
+    @DeleteMapping("/{meetingId}/analysis")
+    @PreAuthorize("@projectAccess.hasRole(#projectId, 'LEADER')")
+    public ResponseEntity<ApiResponse<MeetingDeleteResponse>> deleteMeetingAnalysis(
+        @Parameter(description = "프로젝트 ID", example = "demo-project") @PathVariable String projectId,
+        @Parameter(description = "회의록 ID", example = "42") @PathVariable String meetingId,
+        @Parameter(description = "업무보드에 등록된 연동 업무도 함께 삭제할지 여부", example = "false")
+        @RequestParam(value = "deleteLinkedTasks", defaultValue = "false") boolean deleteLinkedTasks
+    ) {
+        try {
+            MeetingDeleteResponse response = meetingAnalysisService.deleteAnalysis(projectId, meetingId, deleteLinkedTasks);
+            if (response == null) {
+                return ResponseEntity.status(404).body(ApiResponse.fail("MEETING_NOT_FOUND", "회의록을 찾을 수 없습니다."));
+            }
+            return ResponseEntity.ok(ApiResponse.ok(response));
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(409).body(ApiResponse.fail("MEETING_ANALYSIS_NOT_FOUND", "삭제할 분석 결과가 없습니다."));
+        }
+    }
+
+    @Operation(
         summary = "회의록 재분석 요청",
         description = "분석에 실패한(failed) 회의록을 processing 상태로 전환하고 백그라운드 분석을 재실행합니다."
     )
@@ -248,6 +275,33 @@ public class MeetingAnalysisController {
                 return ResponseEntity.status(409).body(ApiResponse.fail("VERSION_TITLE_CONFLICT", "동시 수정 요청으로 버전 제목이 충돌했습니다. 다시 시도해주세요."));
             }
             throw e;
+        }
+    }
+
+    @Operation(
+        summary = "회의록 수정본(버전) 재분석",
+        description = "이미 저장된 수정본(버전)을 새 버전 생성 없이 그 자리에서 재분석한다. "
+            + "분석 대기(pending) 또는 분석 실패(failed) 상태의 버전에만 허용된다. 팀장/팀원 모두 가능하며 심사자는 접근할 수 없다."
+    )
+    @PostMapping("/{meetingId}/reanalyze")
+    @PreAuthorize("@projectAccess.hasRole(#projectId, 'LEADER') || @projectAccess.hasRole(#projectId, 'MEMBER')")
+    public ResponseEntity<ApiResponse<MeetingVersionResponse>> reanalyzeVersion(
+        @Parameter(description = "프로젝트 ID", example = "demo-project") @PathVariable String projectId,
+        @Parameter(description = "회의록(버전) ID", example = "demo-project-6") @PathVariable String meetingId
+    ) {
+        try {
+            MeetingVersionResponse response = meetingAnalysisService.reanalyzeVersion(projectId, meetingId);
+            if (response == null) {
+                return ResponseEntity.status(404).body(ApiResponse.fail("MEETING_NOT_FOUND", "회의록을 찾을 수 없습니다."));
+            }
+            return ResponseEntity.ok(ApiResponse.ok(response));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(400).body(ApiResponse.fail("NOT_A_VERSION", e.getMessage()));
+        } catch (IllegalStateException e) {
+            if (MeetingAnalysisService.MISSING_TRANSCRIPT_MESSAGE.equals(e.getMessage())) {
+                return ResponseEntity.status(400).body(ApiResponse.fail("MISSING_TRANSCRIPT", e.getMessage()));
+            }
+            return ResponseEntity.status(409).body(ApiResponse.fail("MEETING_NOT_REANALYZABLE", "이미 분석 완료되었거나 분석 중인 회의록입니다."));
         }
     }
 

@@ -17,6 +17,9 @@ export interface ProjectResponse {
   createdBy: number | null;
   memberCount: number;
   taskProgress: number;
+  // 평가 진행 상태(PENDING/EVALUATING/PUBLISHED). 심사자가 기여도 분석 화면에서
+  // "평가 확정"을 누르면 PUBLISHED로 전이한다 - App/global/lib/evalStatus.ts 참고.
+  evalStatus: string;
 }
 
 export interface CreateProjectRequest {
@@ -63,6 +66,14 @@ export function joinProjectByCode(code: string) {
   });
 }
 
+// 심사자가 기여도 분석 화면의 "평가 확정" 버튼을 누를 때 호출한다.
+// 프로젝트의 eval_status를 PUBLISHED로 전이한다(REVIEWER 권한 필요).
+export function finalizeEvaluation(projectId: number) {
+  return apiFetch<ProjectResponse>(`/projects/${projectId}/finalize-evaluation`, {
+    method: "POST",
+  });
+}
+
 export interface MemberResponse {
   userId: number;
   name: string;
@@ -87,5 +98,11 @@ export function createInvitation(projectId: number, email: string, role: Project
   return apiFetch<InvitationResponse>(`/projects/${projectId}/invitations`, {
     method: "POST",
     body: JSON.stringify({ email, role }),
+  });
+}
+
+export function acceptInvitation(token: string) {
+  return apiFetch<void>(`/invitations/${token}/accept`, {
+    method: "POST",
   });
 }

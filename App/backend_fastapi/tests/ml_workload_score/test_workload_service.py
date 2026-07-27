@@ -40,7 +40,7 @@ async def test_get_workload_score_passes_embedding_adjustments_to_build_features
         mock_build_features.return_value = pd.DataFrame([
             {"assignee_id": "1", "task_count_total": 1, "completion_rate": 0.0,
              "overload_score_0_100": 10.0, "is_anomaly": False, "anomaly_type": "정상",
-             "task_count_active_rel": 1.0, "difficulty_avg_rel": 1.0, "overdue_count": 0},
+             "task_count_active_rel": 1.0, "task_count_total_rel": 1.0, "difficulty_avg_rel": 1.0, "overdue_count": 0},
         ])
         with patch(
             "ml_workload_score.app.services.workload_service.detect_overload_anomalies_auto",
@@ -88,12 +88,12 @@ def test_summarize_get_workload_score_outputs_with_anomalies():
             WorkloadMemberResult(
                 assignee_id="1", task_count_total=5, completion_rate=0.4,
                 overload_score=92.5, is_anomaly=True, anomaly_type="과부하 의심",
-                task_count_active_rel=1.5, difficulty_avg_rel=1.2, overdue_count=1,
+                task_count_active_rel=1.5, task_count_total_rel=1.5, difficulty_avg_rel=1.2, overdue_count=1,
             ),
             WorkloadMemberResult(
                 assignee_id="2", task_count_total=2, completion_rate=0.9,
                 overload_score=10.0, is_anomaly=False, anomaly_type="정상",
-                task_count_active_rel=0.8, difficulty_avg_rel=0.9, overdue_count=0,
+                task_count_active_rel=0.8, task_count_total_rel=0.8, difficulty_avg_rel=0.9, overdue_count=0,
             ),
         ],
         note=None,
@@ -149,6 +149,7 @@ async def test_get_workload_score_includes_workload_evidence_fields():
                 "is_anomaly": True,
                 "anomaly_type": "과부하 의심",
                 "task_count_active_rel": 1.8,
+                "task_count_total_rel": 1.8,
                 "difficulty_avg_rel": 1.4,
                 "overdue_count": 2,
             },
@@ -183,7 +184,7 @@ async def test_get_workload_score_passes_team_mean_completion_from_attrs():
         mock_build_features.return_value = pd.DataFrame([
             {"assignee_id": "1", "task_count_total": 4, "completion_rate": 0.5,
              "overload_score_0_100": 82.5, "is_anomaly": True, "anomaly_type": "과부하 의심",
-             "task_count_active_rel": 1.8, "difficulty_avg_rel": 1.4, "overdue_count": 2},
+             "task_count_active_rel": 1.8, "task_count_total_rel": 1.8, "difficulty_avg_rel": 1.4, "overdue_count": 2},
         ])
         with patch(
             "ml_workload_score.app.services.workload_service.detect_overload_anomalies_auto",
@@ -211,7 +212,7 @@ async def test_get_workload_score_team_mean_completion_defaults_to_none_when_mis
         mock_build_features.return_value = pd.DataFrame([
             {"assignee_id": "1", "task_count_total": 4, "completion_rate": 0.5,
              "overload_score_0_100": 82.5, "is_anomaly": True, "anomaly_type": "과부하 의심",
-             "task_count_active_rel": 1.8, "difficulty_avg_rel": 1.4, "overdue_count": 2},
+             "task_count_active_rel": 1.8, "task_count_total_rel": 1.8, "difficulty_avg_rel": 1.4, "overdue_count": 2},
         ])
         with patch(
             "ml_workload_score.app.services.workload_service.detect_overload_anomalies_auto",

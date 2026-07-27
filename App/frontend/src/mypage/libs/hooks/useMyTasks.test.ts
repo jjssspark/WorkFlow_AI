@@ -9,7 +9,7 @@ vi.mock("../../../board/libs/utils/taskApi", () => ({
 }));
 
 function makeTask(id: string, assignee: string): Task {
-  return { id, title: `Task ${id}`, status: "todo", priority: "medium", assignee, dueDate: "", labels: [], category: "other", position: 0 };
+  return { id, title: `Task ${id}`, status: "todo", priority: "medium", assignee, dueDate: "", labels: [], category: "other", position: 0, pendingApproval: false, startDate: "", extraFields: {} };
 }
 
 describe("useMyTasks", () => {

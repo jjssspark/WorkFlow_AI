@@ -85,6 +85,7 @@ async def get_workload_score(project_id: int, use_synthetic_fallback: bool = Fal
             is_anomaly=bool(row["is_anomaly"]),
             anomaly_type=row["anomaly_type"],
             task_count_active_rel=round(float(row["task_count_active_rel"]), 3),
+            task_count_total_rel=round(float(row["task_count_total_rel"]), 3),
             difficulty_avg_rel=round(float(row["difficulty_avg_rel"]), 3),
             overdue_count=int(row["overdue_count"]),
         )

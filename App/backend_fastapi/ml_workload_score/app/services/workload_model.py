@@ -214,12 +214,13 @@ def build_features(
 ) -> pd.DataFrame:
     """
     팀원별(assignee_id) 피처 테이블 생성.
-    - task_count_active: 미완료 업무 수
+    - task_count_active: 미완료 업무 수 (과부하 판정용 - "지금 처리 중인 업무가 많은가")
+    - task_count_total: 전체 배정 업무 수 (저활동 판정용 - "애초에 배정량 자체가 적은가")
     - completion_rate: 완료 업무 / 전체 업무
     - difficulty_avg: priority+category 가중치 평균
     - overdue_count: 마감 지났는데 미완료
     - upcoming_due_count: 마감 3일 이내 미완료
-    모두 '팀 평균 대비 상대값'으로도 같이 계산한다 (과부하는 상대 개념이므로).
+    모두 '팀 평균 대비 상대값'으로도 같이 계산한다 (과부하/저활동은 상대 개념이므로).
 
     embedding_adjustments: {task_id: 보정치} — embedding_difficulty.compute_embedding_adjustments()의
     반환값을 그대로 넘긴다. None이면(기본값) 기존 동작과 완전히 동일.
@@ -254,8 +255,13 @@ def build_features(
     grouped["completion_rate"] = grouped["task_count_done"] / grouped["task_count_total"]
     grouped["overdue_ratio"] = grouped["overdue_count"] / grouped["task_count_total"]
 
-    # 팀 평균 대비 상대값 (정규화) - 과부하는 "팀 평균보다 얼마나 많은가"가 핵심
-    for col in ["task_count_active", "difficulty_avg"]:
+    # 팀 평균 대비 상대값 (정규화) - 과부하는 "팀 평균보다 얼마나 많은가"가 핵심.
+    # task_count_total_rel(전체 배정량)은 "배정량 불균형" 판정 전용 근거다: task_count_active
+    # (미완료 개수)만으로 판단하면, 배정된 업무를 전부 끝낸 사람도 진행중 업무가 0이 되어
+    # "애초에 배정량 자체가 적은 사람"과 "일을 다 끝낸 사람"이 구분되지 않는 문제가 있었다
+    # (실사용 중 발견: 12/12 완료한 팀원이 "저활동 의심"으로 오판됨 - 완료 여부와 무관하게
+    # 순수히 배정량만으로 판단하도록 라벨/근거를 분리했다).
+    for col in ["task_count_active", "task_count_total", "difficulty_avg"]:
         team_avg = grouped[col].mean()
         grouped[f"{col}_rel"] = grouped[col] / team_avg if team_avg > 0 else 0
 
@@ -310,8 +316,14 @@ def detect_overload_anomalies_robust(feature_df: pd.DataFrame, z_threshold: floa
             return "정상"
         if row["task_count_active_rel"] > 1.0 and row["completion_rate"] < team_mean_completion:
             return "과부하 의심"
-        elif row["task_count_active_rel"] < 1.0 and row["completion_rate"] > team_mean_completion:
-            return "저활동 의심"
+        # "배정량 불균형"은 "진행중 업무가 적음"(task_count_active_rel)이 아니라 "애초에
+        # 배정받은 업무 자체가 팀 평균보다 적음"(task_count_total_rel)으로 판단한다. 전자로
+        # 판단하면 배정된 일을 전부 끝낸 사람(진행중 업무=0)도 무조건 걸리는 문제가 있었다.
+        # "저활동 의심"이 아니라 이 라벨을 쓰는 이유: 배정량이 팀 평균보다 적다는 사실 자체는
+        # 참이더라도, 그 사람이 태만하다는 뜻은 아니다(완료율이 높으면 오히려 반대 신호일 수
+        # 있음) - 판단은 사람(심사자)에게 맡기고 관찰된 사실만 중립적으로 전달한다.
+        elif row["task_count_total_rel"] < 1.0 and row["completion_rate"] > team_mean_completion:
+            return "배정량 불균형"
         return "이상 패턴(방향 불명확)"
 
     result["anomaly_type"] = result.apply(tag_direction, axis=1)
@@ -415,8 +427,14 @@ def detect_overload_anomalies(feature_df: pd.DataFrame, contamination: float = N
             return "정상"
         if row["task_count_active_rel"] > 1.0 and row["completion_rate"] < team_mean_completion:
             return "과부하 의심"
-        elif row["task_count_active_rel"] < 1.0 and row["completion_rate"] > team_mean_completion:
-            return "저활동 의심"
+        # "배정량 불균형"은 "진행중 업무가 적음"(task_count_active_rel)이 아니라 "애초에
+        # 배정받은 업무 자체가 팀 평균보다 적음"(task_count_total_rel)으로 판단한다. 전자로
+        # 판단하면 배정된 일을 전부 끝낸 사람(진행중 업무=0)도 무조건 걸리는 문제가 있었다.
+        # "저활동 의심"이 아니라 이 라벨을 쓰는 이유: 배정량이 팀 평균보다 적다는 사실 자체는
+        # 참이더라도, 그 사람이 태만하다는 뜻은 아니다(완료율이 높으면 오히려 반대 신호일 수
+        # 있음) - 판단은 사람(심사자)에게 맡기고 관찰된 사실만 중립적으로 전달한다.
+        elif row["task_count_total_rel"] < 1.0 and row["completion_rate"] > team_mean_completion:
+            return "배정량 불균형"
         return "이상 패턴(방향 불명확)"
 
     result["anomaly_type"] = result.apply(tag_direction, axis=1)

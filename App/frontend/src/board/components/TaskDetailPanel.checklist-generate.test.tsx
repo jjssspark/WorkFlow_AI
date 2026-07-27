@@ -32,7 +32,7 @@ vi.mock("../libs/utils/activityApi", () => ({
 function makeTask(): Task {
   return {
     id: "TF-01", title: "테스트 업무", status: "todo", priority: "medium",
-    assignee: "1", dueDate: "2026-07-20", labels: [], category: "backend", position: 0,
+    assignee: "1", dueDate: "2026-07-20", labels: [], category: "backend", position: 0, pendingApproval: false, startDate: "", extraFields: {},
   };
 }
 
@@ -49,6 +49,7 @@ describe("TaskDetailPanel 체크리스트 자동 생성", () => {
         onDeleteTask={vi.fn()}
         onEditTask={vi.fn()}
         onOpenWorkResult={vi.fn()}
+        onCancelCompletionRequest={vi.fn()}
       />
     );
 

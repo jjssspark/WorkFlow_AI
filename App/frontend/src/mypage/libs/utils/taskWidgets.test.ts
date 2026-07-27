@@ -13,6 +13,9 @@ function makeTask(id: string, dueDate: string): Task {
     labels: [],
     category: "other",
     position: 0,
+    pendingApproval: false,
+    startDate: "",
+    extraFields: {},
   };
 }
 

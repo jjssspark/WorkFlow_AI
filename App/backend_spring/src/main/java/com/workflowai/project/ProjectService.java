@@ -238,8 +238,23 @@ public class ProjectService {
         }
     }
 
+    /**
+     * 심사자가 기여도 분석 화면에서 "평가 확정"을 누를 때 호출한다. eval_status를
+     * PUBLISHED로 전이한다. 확정 후에도 팀원별 점수/공개 여부(evaluation_scores)는
+     * 계속 수정 가능하다 — 이 필드는 단순 진행 상태 표시용이며 잠금 기능은 아니다.
+     */
+    @Transactional
+    public ProjectResponse finalizeEvaluation(Long projectId) {
+        Project project = getProjectOrThrow(projectId);
+        project.setEvalStatus(EvalStatus.PUBLISHED);
+        return toResponse(project);
+    }
+
+    /** 팀원 목록(담당자 배정, 기여도 평가 등)이므로 심사자는 제외한다 — 심사자 본인은 평가 대상이 아니다. */
     public List<MemberResponse> members(Long projectId) {
-        List<ProjectMember> members = projectMemberRepository.findAllByProjectId(projectId);
+        List<ProjectMember> members = projectMemberRepository.findAllByProjectId(projectId).stream()
+            .filter(member -> member.getRole() != ProjectRole.REVIEWER)
+            .toList();
         Map<Long, User> usersById = userRepository
             .findAllById(members.stream().map(ProjectMember::getUserId).toList())
             .stream()
@@ -274,7 +289,9 @@ public class ProjectService {
     }
 
     private ProjectResponse toResponse(Project project) {
-        int memberCount = Math.toIntExact(projectMemberRepository.countByProjectId(project.getId()));
+        int memberCount = Math.toIntExact(
+            projectMemberRepository.countByProjectIdAndRoleNot(project.getId(), ProjectRole.REVIEWER)
+        );
         int taskProgress = computeTaskProgress(project.getId());
         return toResponse(project, memberCount, taskProgress);
     }
@@ -295,7 +312,8 @@ public class ProjectService {
             project.getInviteCode(),
             project.getCreatedBy(),
             memberCount,
-            taskProgress
+            taskProgress,
+            project.getEvalStatus().name()
         );
     }
 

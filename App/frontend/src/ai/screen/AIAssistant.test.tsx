@@ -111,4 +111,61 @@ describe("AIAssistant", () => {
     expect(screen.getByText("로그인 API 구현 업무가 있습니다")).toBeInTheDocument();
     expect(screen.getByText(/출처: 액션아이템 #7/)).toBeInTheDocument();
   });
+
+  describe("답변 생성 중 창을 닫았을 때", () => {
+    function deferredAnswer() {
+      let resolve!: (value: unknown) => void;
+      const pending = new Promise(r => { resolve = r; });
+      vi.mocked(apiFetch).mockReturnValue(pending as Promise<never>);
+      return () => resolve({ type: "answer", message: "닫은 뒤 도착한 답변", sources: [] });
+    }
+
+    async function askThenClose(props: Partial<Parameters<typeof AIAssistant>[0]> = {}) {
+      const deliver = deferredAnswer();
+      const view = render(<AIAssistant onClose={() => {}} isOpen {...props} />);
+      await userEvent.type(screen.getByPlaceholderText("프로젝트에 대해 무엇이든 물어보세요..."), "질문{enter}");
+      view.rerender(<AIAssistant onClose={() => {}} isOpen={false} {...props} />);
+      return { view, deliver };
+    }
+
+    it("keeps generating the answer instead of aborting the request", async () => {
+      // 닫을 때 요청을 끊으면 다시 열어도 질문만 남고 답변이 영영 오지 않는다.
+      const { view, deliver } = await askThenClose();
+
+      deliver();
+      view.rerender(<AIAssistant onClose={() => {}} isOpen />);
+
+      await waitFor(() => expect(screen.getByText("닫은 뒤 도착한 답변")).toBeInTheDocument());
+    });
+
+    it("hides the panel without unmounting it", async () => {
+      const { view } = await askThenClose();
+
+      // 언마운트하면 진행 중인 요청과 대화 상태가 함께 사라진다. 숨기기만 해야 한다.
+      const panel = view.container.querySelector("div");
+      expect(panel).toHaveStyle({ display: "none" });
+      expect(panel).toHaveAttribute("aria-hidden", "true");
+    });
+
+    it("reports the answer that landed while the panel was closed", async () => {
+      const onAnswerWhileClosed = vi.fn();
+      const { deliver } = await askThenClose({ onAnswerWhileClosed });
+
+      deliver();
+
+      await waitFor(() => expect(onAnswerWhileClosed).toHaveBeenCalledTimes(1));
+    });
+
+    it("stays quiet when the answer lands while the panel is open", async () => {
+      const onAnswerWhileClosed = vi.fn();
+      const deliver = deferredAnswer();
+      render(<AIAssistant onClose={() => {}} isOpen onAnswerWhileClosed={onAnswerWhileClosed} />);
+      await userEvent.type(screen.getByPlaceholderText("프로젝트에 대해 무엇이든 물어보세요..."), "질문{enter}");
+
+      deliver();
+
+      await waitFor(() => expect(screen.getByText("닫은 뒤 도착한 답변")).toBeInTheDocument());
+      expect(onAnswerWhileClosed).not.toHaveBeenCalled();
+    });
+  });
 });

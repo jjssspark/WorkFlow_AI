@@ -5,7 +5,7 @@ import { TaskStatusPill } from "./TaskStatusPill";
 import { PriorityBadge } from "./PriorityBadge";
 import { LabelBadge } from "../../global/component/LabelBadge";
 import { getCat, formatDueDate } from "../libs/utils/taskService";
-import { getCatDetailFields } from "../libs/utils/catFields";
+import { getCatFieldValues } from "../libs/utils/catFields";
 import { STATUS_ACTIONS, visibleSecondaryActions } from "../libs/utils/taskActions";
 import { PARTICIPANT_COLORS } from "../../global/lib/mock/members";
 import type { MemberResponse } from "../../global/api/projectsApi";
@@ -35,10 +35,16 @@ const ACTIVITY_TYPE_TO_FEED_TYPE: Record<string, FeedType> = {
   ASSIGNEE_CHANGED: "system",
   CHECKLIST_CREATED: "system",
   CHECKLIST_COMPLETED: "system",
+  COMPLETION_REQUESTED: "status",
+  COMPLETION_APPROVED: "status",
+  COMPLETION_REJECTED: "status",
+  COMPLETION_CANCELLED: "status",
 };
 
+// timeZone을 명시하지 않으면 뷰어의 OS/브라우저 타임존 기준으로 표시되어, 한국 밖에서 보면 시각이 어긋난다.
+// 이 앱은 한국 팀 전용이라 항상 KST로 고정해서 보여준다.
 function formatTimestamp(iso: string): string {
-  return new Date(iso).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" });
+  return new Date(iso).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "Asia/Seoul" });
 }
 
 // 마감일까지 남은/지난 일수를 실제로 계산한다(예전엔 모든 업무에 "D-8"이 고정으로 찍혀 있었음).
@@ -69,7 +75,7 @@ const NUDGE_KINDS: Record<string, NudgeKind> = {
 };
 
 const IMPLEMENTED_ACTION_LABELS = new Set([
-  "다시 열기", "팀장 피드백", "블로커 등록",
+  "팀장 피드백", "블로커 등록",
   ...ASSIGNEE_ACTION_LABELS,
   ...Object.keys(NUDGE_KINDS),
 ]);
@@ -83,11 +89,18 @@ interface TaskDetailPanelProps {
   onDeleteTask: (taskId: string) => void;
   onEditTask: () => void;
   onOpenWorkResult: () => void;
+  onCancelCompletionRequest: () => void;
+  /** 완료 승인 화면 등 작업 내용 작성 버튼이 의미가 없는 곳에서 숨긴다. 기본값은 표시(true). */
+  showWorkResultButton?: boolean;
 }
 
-export function TaskDetailPanel({ task, projectMembers, onClose, onQuickAction, onShowToast, onDeleteTask, onEditTask, onOpenWorkResult }: TaskDetailPanelProps) {
-  const { currentProjectId, currentProject } = useAuth();
+export function TaskDetailPanel({ task, projectMembers, onClose, onQuickAction, onShowToast, onDeleteTask, onEditTask, onOpenWorkResult, onCancelCompletionRequest, showWorkResultButton = true }: TaskDetailPanelProps) {
+  const { currentProjectId, currentProject, user } = useAuth();
   const projectId = currentProjectId ?? DEMO_PROJECT_ID;
+  const isLeader = currentProject?.role === "팀장";
+  const isAssignee = user != null && task.assignee === String(user.id);
+  // 팀장이거나 담당자 본인만 이 업무의 체크리스트/작업내용/첨부파일 등을 수정할 수 있다.
+  const canEditChecklist = isLeader || isAssignee;
   const [devInfoOpen, setDevInfoOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -178,9 +191,14 @@ export function TaskDetailPanel({ task, projectMembers, onClose, onQuickAction, 
     const target = checklist.find((c) => c.id === itemId);
     if (!target) return;
     const prev = checklist;
-    setChecklist((cur) => cur.map((c) => (c.id === itemId ? { ...c, done: !c.done } : c)));
+    const willBeDone = !target.done;
+    setChecklist((cur) => cur.map((c) => (c.id === itemId ? { ...c, done: willBeDone } : c)));
     try {
-      await updateChecklistItem(task.id, itemId, { done: !target.done }, projectId);
+      await updateChecklistItem(task.id, itemId, { done: willBeDone }, projectId);
+      // 담당자가 체크리스트를 하나라도 체크하면, 아직 시작 전(할 일)이던 업무를 자동으로 진행 중으로 옮긴다.
+      if (willBeDone && isAssignee && task.status === "todo") {
+        onQuickAction("진행 중으로 이동", true);
+      }
     } catch {
       setChecklist(prev);
       onShowToast("체크리스트 변경에 실패했습니다.");
@@ -255,35 +273,36 @@ export function TaskDetailPanel({ task, projectMembers, onClose, onQuickAction, 
   const progressPct = checklist.length ? Math.round((doneCount / checklist.length) * 100) : 0;
   const m = projectMembers.find((me) => String(me.userId) === task.assignee);
   const actions = STATUS_ACTIONS[task.status] ?? [];
-  const isLeader = currentProject?.role === "팀장";
   // done 상태는 "다음 상태"가 없으므로 큰 primary CTA를 아예 보여주지 않는다("검수 완료"가
-  // 실제로는 다시 열기와 동일한 동작을 하던 버그를 없애기 위함 — "다시 열기" 보조 액션만 남긴다).
-  const primaryAction = task.status === "done" ? undefined : actions.find((a) => a.primary);
-  const secondaryActions = visibleSecondaryActions(actions.filter((a) => !a.primary), isLeader);
-  const catFields = getCatDetailFields(task.id, taskCat);
+  // 실제로는 재오픈과 동일한 동작을 하던 버그가 있었는데, 재오픈 기능 자체를 없앴다).
+  // 팀장이 아니면 본인이 담당자인 업무에서만 상태 이동 버튼을 보여준다(백엔드 FORBIDDEN_NOT_OWNER와 동일 규칙).
+  const primaryAction = task.status === "done" || (!isLeader && !isAssignee) ? undefined : actions.find((a) => a.primary);
+  // 팀원이 "완료로 이동"을 누르면 실제로는 팀장 승인을 요청하는 것이므로 버튼 문구를 다르게 보여준다.
+  const primaryActionLabel = !isLeader && primaryAction?.label === "완료로 이동" ? "승인 신청" : primaryAction?.label;
+  const secondaryActions = visibleSecondaryActions(actions.filter((a) => !a.primary), isLeader, isAssignee);
+  const catFields = getCatFieldValues(taskCat, task.extraFields);
 
-  // 실제로 저장된 코멘트 + 이 업무에서 실제로 일어난 활동 로그만 보여준다(더미 항목 없음).
+  // 코멘트 영역과 상태변경/수정 이력 영역을 분리해서 보여준다(더미 항목 없이 실제 기록만).
   // 코멘트 작성 자체는 taskComments가 이미 기록이라, 백엔드는 별도로 "코멘트 작성" 활동을 남기지 않는다(중복 방지).
-  const feedItems: FeedItem[] = [
-    ...taskComments.map((c): FeedItem => ({
-      id: `comment-${c.id}`,
-      commentId: c.id,
-      type: "comment",
-      who: c.authorName,
-      when: formatTimestamp(c.createdAt),
-      msg: c.content,
-      at: new Date(c.createdAt).getTime(),
-      isFeedback: c.type === "FEEDBACK",
-    })),
-    ...activity.map((a): FeedItem => ({
-      id: a.id,
-      type: ACTIVITY_TYPE_TO_FEED_TYPE[a.type] ?? "system",
-      who: a.actorName,
-      when: formatTimestamp(a.createdAt),
-      msg: a.message,
-      at: new Date(a.createdAt).getTime(),
-    })),
-  ].sort((x, y) => y.at - x.at);
+  const commentFeedItems: FeedItem[] = taskComments.map((c): FeedItem => ({
+    id: `comment-${c.id}`,
+    commentId: c.id,
+    type: "comment",
+    who: c.authorName,
+    when: formatTimestamp(c.createdAt),
+    msg: c.content,
+    at: new Date(c.createdAt).getTime(),
+    isFeedback: c.type === "FEEDBACK",
+  })).sort((x, y) => y.at - x.at);
+
+  const historyFeedItems: FeedItem[] = activity.map((a): FeedItem => ({
+    id: a.id,
+    type: ACTIVITY_TYPE_TO_FEED_TYPE[a.type] ?? "system",
+    who: a.actorName,
+    when: formatTimestamp(a.createdAt),
+    msg: a.message,
+    at: new Date(a.createdAt).getTime(),
+  })).sort((x, y) => y.at - x.at);
 
   const handleSendComment = async () => {
     const text = newComment.trim();
@@ -357,16 +376,20 @@ export function TaskDetailPanel({ task, projectMembers, onClose, onQuickAction, 
                 <Pencil className="w-4 h-4 text-muted-foreground" />
               </button>
             )}
-            <button onClick={onOpenWorkResult} className="p-1.5 hover:bg-muted rounded-lg transition-colors" title="작업 내용 작성">
-              <Plus className="w-4 h-4 text-muted-foreground" />
-            </button>
-            <button onClick={() => setMenuOpen((o) => !o)} className="p-1.5 hover:bg-muted rounded-lg transition-colors" title="더보기">
-              <MoreHorizontal className="w-4 h-4 text-muted-foreground" />
-            </button>
+            {showWorkResultButton && (
+              <button onClick={onOpenWorkResult} className="p-1.5 hover:bg-muted rounded-lg transition-colors" title="작업 내용 작성">
+                <Plus className="w-4 h-4 text-muted-foreground" />
+              </button>
+            )}
+            {(isLeader || isAssignee) && (
+              <button onClick={() => setMenuOpen((o) => !o)} className="p-1.5 hover:bg-muted rounded-lg transition-colors" title="더보기">
+                <MoreHorizontal className="w-4 h-4 text-muted-foreground" />
+              </button>
+            )}
             <button onClick={onClose} className="p-1.5 hover:bg-muted rounded-lg transition-colors">
               <X className="w-4 h-4 text-muted-foreground" />
             </button>
-            {menuOpen && (
+            {(isLeader || isAssignee) && menuOpen && (
               <>
                 <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
                 <div className="absolute right-0 top-9 z-20 w-52 bg-card border border-border rounded-xl shadow-lg py-1.5">
@@ -403,15 +426,19 @@ export function TaskDetailPanel({ task, projectMembers, onClose, onQuickAction, 
                       </button>
                     );
                   })}
-                  <div className="my-1 border-t border-border" />
-                  <button
-                    onClick={() => { setMenuOpen(false); setGenerateModalOpen(true); }}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium hover:bg-muted text-left transition-colors"
-                    style={{ color: "#7048E8" }}
-                  >
-                    <Sparkles className="w-3.5 h-3.5" />
-                    체크리스트 자동 생성
-                  </button>
+                  {canEditChecklist && (
+                    <>
+                      <div className="my-1 border-t border-border" />
+                      <button
+                        onClick={() => { setMenuOpen(false); setGenerateModalOpen(true); }}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium hover:bg-muted text-left transition-colors"
+                        style={{ color: "#7048E8" }}
+                      >
+                        <Sparkles className="w-3.5 h-3.5" />
+                        체크리스트 자동 생성
+                      </button>
+                    </>
+                  )}
                   {isLeader && (
                     <>
                       <div className="my-1 border-t border-border" />
@@ -471,8 +498,8 @@ export function TaskDetailPanel({ task, projectMembers, onClose, onQuickAction, 
       />
 
       <div className="flex-1 overflow-y-auto scrollbar-thin">
-        {/* 담당자 / 마감일 */}
-        <div className="p-4 border-b border-border grid grid-cols-2 gap-3">
+        {/* 담당자 / 시작일 / 마감일 */}
+        <div className="p-4 border-b border-border grid grid-cols-3 gap-3">
           <div>
             <div className="text-[9.5px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">담당자</div>
             <div className="flex items-center gap-1.5">
@@ -487,6 +514,10 @@ export function TaskDetailPanel({ task, projectMembers, onClose, onQuickAction, 
                 <span className="text-xs font-medium text-amber-600">미배정</span>
               )}
             </div>
+          </div>
+          <div>
+            <div className="text-[9.5px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">시작일</div>
+            <div className="text-xs font-semibold text-foreground">{formatDueDate(task.startDate)}</div>
           </div>
           <div>
             <div className="text-[9.5px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">마감일</div>
@@ -514,12 +545,12 @@ export function TaskDetailPanel({ task, projectMembers, onClose, onQuickAction, 
           {checklistState === "ready" && checklist.map((item) => (
             <div key={item.id} className="group flex items-center gap-2 py-1">
               <div
-                onClick={() => handleToggleChecklistItem(item.id)}
-                className={`shrink-0 w-4 h-4 rounded border flex items-center justify-center cursor-pointer transition-colors ${item.done ? "bg-emerald-500 border-emerald-500" : "border-border hover:border-blue-400"}`}
+                onClick={canEditChecklist ? () => handleToggleChecklistItem(item.id) : undefined}
+                className={`shrink-0 w-4 h-4 rounded border flex items-center justify-center transition-colors ${canEditChecklist ? "cursor-pointer" : "cursor-default"} ${item.done ? "bg-emerald-500 border-emerald-500" : "border-border hover:border-blue-400"}`}
               >
                 {item.done && <Check className="w-2.5 h-2.5 text-white" />}
               </div>
-              {editingItemId === item.id ? (
+              {canEditChecklist && editingItemId === item.id ? (
                 <input
                   autoFocus
                   value={editingText}
@@ -533,21 +564,23 @@ export function TaskDetailPanel({ task, projectMembers, onClose, onQuickAction, 
                 />
               ) : (
                 <span
-                  onClick={() => handleStartEditChecklistItem(item)}
-                  className={`flex-1 text-xs cursor-text ${item.done ? "line-through text-muted-foreground" : "text-foreground"}`}
+                  onClick={canEditChecklist ? () => handleStartEditChecklistItem(item) : undefined}
+                  className={`flex-1 text-xs ${canEditChecklist ? "cursor-text" : "cursor-default"} ${item.done ? "line-through text-muted-foreground" : "text-foreground"}`}
                 >
                   {item.label}
                 </span>
               )}
-              <button
-                onClick={() => handleDeleteChecklistItem(item.id)}
-                className="shrink-0 opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-muted transition-opacity"
-              >
-                <Trash2 className="w-3 h-3 text-muted-foreground" />
-              </button>
+              {canEditChecklist && (
+                <button
+                  onClick={() => handleDeleteChecklistItem(item.id)}
+                  className="shrink-0 opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-muted transition-opacity"
+                >
+                  <Trash2 className="w-3 h-3 text-muted-foreground" />
+                </button>
+              )}
             </div>
           ))}
-          {checklistState === "ready" && (
+          {checklistState === "ready" && canEditChecklist && (
             <div className="flex items-center gap-1.5 mt-2">
               <input
                 value={newItemTitle}
@@ -566,13 +599,25 @@ export function TaskDetailPanel({ task, projectMembers, onClose, onQuickAction, 
               </button>
             </div>
           )}
-          {primaryAction && (
+          {task.pendingApproval ? (
+            <div className="mt-3 px-3 py-2.5 rounded-xl bg-amber-50 border border-amber-200">
+              <div className="text-xs font-semibold text-amber-700">승인 대기중 · 팀장 확인을 기다리고 있어요</div>
+              {isAssignee && (
+                <button
+                  onClick={onCancelCompletionRequest}
+                  className="mt-2 w-full py-2 text-xs font-semibold rounded-lg border border-amber-300 text-amber-700 hover:bg-amber-100 transition-colors"
+                >
+                  신청 취소
+                </button>
+              )}
+            </div>
+          ) : primaryAction && (
             <button
               onClick={() => onQuickAction(primaryAction.label, true)}
               className="w-full flex items-center justify-center gap-1.5 mt-3 py-2.5 text-xs font-semibold rounded-xl text-white hover:opacity-90 transition-opacity"
               style={{ background: "linear-gradient(135deg,#3B5BDB,#4F6EF7)" }}
             >
-              {primaryAction.label}<primaryAction.icon className="w-3.5 h-3.5" />
+              {primaryActionLabel}<primaryAction.icon className="w-3.5 h-3.5" />
             </button>
           )}
         </div>
@@ -602,26 +647,19 @@ export function TaskDetailPanel({ task, projectMembers, onClose, onQuickAction, 
           )}
         </div>
 
-        {/* Activity Feed */}
-        <div className="p-4">
+        {/* 코멘트 */}
+        <div className="p-4 border-b border-border">
           <div className="flex items-center justify-between mb-1">
-            <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Activity Feed</span>
+            <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">코멘트</span>
           </div>
-          <div className="text-[9.5px] text-muted-foreground mb-3">이 업무에서 실제로 일어난 코멘트·상태변경·수정 기록입니다.</div>
+          <div className="text-[9.5px] text-muted-foreground mb-3">팀원과 주고받은 코멘트·피드백입니다.</div>
 
-          {(commentsState === "loading" || activityState === "loading") && (
-            <div className="text-xs text-muted-foreground py-2">불러오는 중...</div>
+          {commentsState === "loading" && <div className="text-xs text-muted-foreground py-2">불러오는 중...</div>}
+          {commentsState === "error" && <div className="text-xs text-red-600 py-2">코멘트를 불러오지 못했습니다.</div>}
+          {commentsState === "ready" && commentFeedItems.length === 0 && (
+            <div className="text-xs text-muted-foreground py-2">아직 코멘트가 없습니다.</div>
           )}
-          {commentsState === "error" && activityState !== "loading" && (
-            <div className="text-xs text-red-600 py-2">코멘트를 불러오지 못했습니다.</div>
-          )}
-          {activityState === "error" && commentsState !== "loading" && (
-            <div className="text-xs text-red-600 py-2">활동 기록을 불러오지 못했습니다.</div>
-          )}
-          {commentsState !== "loading" && activityState !== "loading" && feedItems.length === 0 && (
-            <div className="text-xs text-muted-foreground py-2">아직 활동 내역이 없습니다.</div>
-          )}
-          {commentsState !== "loading" && activityState !== "loading" && feedItems.map((item) => (
+          {commentsState === "ready" && commentFeedItems.map((item) => (
             <div key={item.id} className="group flex gap-2.5 mb-3 last:mb-0">
               <div className="pt-1.5 shrink-0">
                 <span className="block w-1.5 h-1.5 rounded-full" style={{ background: DOT_COLOR[item.type] }} />
@@ -661,6 +699,34 @@ export function TaskDetailPanel({ task, projectMembers, onClose, onQuickAction, 
                 ) : (
                   <div className="text-xs text-muted-foreground mt-0.5 whitespace-pre-wrap">{item.msg}</div>
                 )}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* 상태변경/수정 이력 */}
+        <div className="p-4">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">상태변경 및 수정 이력</span>
+          </div>
+          <div className="text-[9.5px] text-muted-foreground mb-3">이 업무에서 실제로 일어난 상태변경·수정 기록입니다(읽기 전용).</div>
+
+          {activityState === "loading" && <div className="text-xs text-muted-foreground py-2">불러오는 중...</div>}
+          {activityState === "error" && <div className="text-xs text-red-600 py-2">활동 기록을 불러오지 못했습니다.</div>}
+          {activityState === "ready" && historyFeedItems.length === 0 && (
+            <div className="text-xs text-muted-foreground py-2">아직 활동 내역이 없습니다.</div>
+          )}
+          {activityState === "ready" && historyFeedItems.map((item) => (
+            <div key={item.id} className="flex gap-2.5 mb-3 last:mb-0">
+              <div className="pt-1.5 shrink-0">
+                <span className="block w-1.5 h-1.5 rounded-full" style={{ background: DOT_COLOR[item.type] }} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-bold text-foreground">{item.who}</span>
+                  <span className="text-[10px] text-muted-foreground">{item.when}</span>
+                </div>
+                <div className="text-xs text-muted-foreground mt-0.5 whitespace-pre-wrap">{item.msg}</div>
               </div>
             </div>
           ))}

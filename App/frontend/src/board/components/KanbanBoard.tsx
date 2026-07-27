@@ -9,12 +9,11 @@ interface KanbanBoardProps {
   compact?: boolean;
   selectedId: string | null;
   onSelectTask: (id: string) => void;
-  onAddTask: (status: TaskStatus) => void;
   onDropTask: (taskId: string, status: TaskStatus) => void;
   onReorderTask: (draggedId: string, targetId: string, position: "before" | "after") => void;
 }
 
-export function KanbanBoard({ tasks, projectMembers, compact, selectedId, onSelectTask, onAddTask, onDropTask, onReorderTask }: KanbanBoardProps) {
+export function KanbanBoard({ tasks, projectMembers, compact, selectedId, onSelectTask, onDropTask, onReorderTask }: KanbanBoardProps) {
   return (
     <div className={`grid grid-cols-4 h-full min-w-0 ${compact ? "gap-2 p-3" : "gap-4 p-5"}`}>
       {BOARD_COLS.map((col) => (
@@ -26,7 +25,6 @@ export function KanbanBoard({ tasks, projectMembers, compact, selectedId, onSele
           compact={compact}
           selectedId={selectedId}
           onSelectTask={onSelectTask}
-          onAddTask={onAddTask}
           onDropTask={onDropTask}
           onReorderTask={onReorderTask}
         />

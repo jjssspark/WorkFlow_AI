@@ -20,7 +20,7 @@ def _fake_workload_data() -> WorkloadScoreData:
             WorkloadMemberResult(
                 assignee_id="3", task_count_total=10, completion_rate=0.8,
                 overload_score=10.0, is_anomaly=False, anomaly_type="정상",
-                task_count_active_rel=1.0, difficulty_avg_rel=1.0, overdue_count=0,
+                task_count_active_rel=1.0, task_count_total_rel=1.0, difficulty_avg_rel=1.0, overdue_count=0,
             )
         ],
         team_mean_completion=0.65,

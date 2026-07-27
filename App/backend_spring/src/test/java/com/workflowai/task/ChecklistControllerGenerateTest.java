@@ -10,14 +10,22 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.workflowai.activity.ActivityService;
 import com.workflowai.common.DemoDataService;
+import com.workflowai.project.ProjectMember;
+import com.workflowai.project.ProjectMemberRepository;
+import com.workflowai.project.ProjectRole;
+import com.workflowai.security.UserPrincipal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.http.MediaType;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -32,6 +40,21 @@ class ChecklistControllerGenerateTest {
     @MockitoBean private ActivityService activityService;
     @MockitoBean private ChecklistAiService checklistAiService;
     @MockitoBean private ChecklistApplyService checklistApplyService;
+    @MockitoBean private ProjectMemberRepository projectMemberRepository;
+
+    @BeforeEach
+    void setUp() {
+        SecurityContextHolder.getContext().setAuthentication(
+            new UsernamePasswordAuthenticationToken(
+                new UserPrincipal(1L, "user1@workflow.ai", "테스트유저"), null, List.of()
+            )
+        );
+    }
+
+    @AfterEach
+    void clearSecurityContext() {
+        SecurityContextHolder.clearContext();
+    }
 
     private Task taskWithProject(Long projectId) {
         return new Task(projectId, "로그인 API", "backend", "todo", null,
@@ -67,7 +90,8 @@ class ChecklistControllerGenerateTest {
     @Test
     void applyGeneratedSavesNormalizedTitles() throws Exception {
         when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
-        when(demoDataService.resolveUserId("1")).thenReturn(1L);
+        when(projectMemberRepository.findByProjectIdAndUserId(1L, 1L))
+            .thenReturn(Optional.of(new ProjectMember(1L, 1L, ProjectRole.LEADER)));
         when(taskRepository.findById(5L)).thenReturn(Optional.of(taskWithProject(1L)));
         when(checklistApplyService.saveGenerated(any(), any())).thenReturn(List.of(new Checklist(5L, "API 설계")));
 
@@ -83,6 +107,8 @@ class ChecklistControllerGenerateTest {
     @Test
     void applyGeneratedReturns400WhenNoValidTitles() throws Exception {
         when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
+        when(projectMemberRepository.findByProjectIdAndUserId(1L, 1L))
+            .thenReturn(Optional.of(new ProjectMember(1L, 1L, ProjectRole.LEADER)));
         when(taskRepository.findById(5L)).thenReturn(Optional.of(taskWithProject(1L)));
         when(checklistApplyService.saveGenerated(any(), any())).thenReturn(List.of());
 

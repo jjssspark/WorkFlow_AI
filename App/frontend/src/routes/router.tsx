@@ -1,5 +1,5 @@
 import { createBrowserRouter, Navigate } from "react-router";
-import { RequireAuth, RequireRole } from "../global/hooks/useAuthGuard";
+import { RequireAuth, RequireRole, RequireAdmin } from "../global/hooks/useAuthGuard";
 import { AppShell } from "../global/component/layout/AppShell";
 import { LoginScreen } from "../auth/screen/LoginScreen";
 import { SignupScreen } from "../auth/screen/SignupScreen";
@@ -7,6 +7,8 @@ import { TermsScreen } from "../auth/screen/TermsScreen";
 import { OnboardingScreen } from "../auth/screen/OnboardingScreen";
 import { ProjectEntryScreen } from "../auth/screen/ProjectEntryScreen";
 import { GoogleCallbackScreen } from "../auth/screen/GoogleCallbackScreen";
+import { InviteAcceptScreen } from "../auth/screen/InviteAcceptScreen";
+import { AdminReviewerApprovalScreen } from "../admin/screen/AdminReviewerApprovalScreen";
 import { DashboardView } from "../dashboard/screen/DashboardView";
 import { AllTasksPage } from "../dashboard/screen/detail/AllTasksPage";
 import { ProgressPage } from "../dashboard/screen/detail/ProgressPage";
@@ -17,6 +19,9 @@ import { UrgentTasksPage } from "../dashboard/screen/detail/UrgentTasksPage";
 import { WorkloadPage } from "../dashboard/screen/detail/WorkloadPage";
 import { ActivityPage } from "../dashboard/screen/detail/ActivityPage";
 import { BoardView } from "../board/screen/BoardView";
+import { CompletionApprovalsView } from "../board/screen/CompletionApprovalsView";
+import { LeaderPage } from "../leader/screen/LeaderPage";
+import { RoadmapView } from "../roadmap/screen/RoadmapView";
 import { MeetingsView } from "../meetings/screen/MeetingsView";
 import { DeliverablesView } from "../deliverables/screen/DeliverablesView";
 import { ContributorsView } from "../contributors/screen/ContributorsView";
@@ -33,6 +38,13 @@ export const router = createBrowserRouter([
     children: [
       { path: "/onboarding", element: <OnboardingScreen /> },
       { path: "/projects", element: <ProjectEntryScreen /> },
+      { path: "/invite/:token", element: <InviteAcceptScreen /> },
+      {
+        element: <RequireAdmin />,
+        children: [
+          { path: "/admin/reviewers", element: <AdminReviewerApprovalScreen /> },
+        ],
+      },
       {
         element: <AppShell />,
         children: [
@@ -47,7 +59,22 @@ export const router = createBrowserRouter([
           { path: "dashboard/workload", element: <WorkloadPage /> },
           { path: "dashboard/activity", element: <ActivityPage /> },
           { path: "board", element: <BoardView /> },
-          { path: "roadmap", element: <Navigate to="/dashboard" replace /> },
+          {
+            element: <RequireRole allow={["팀장"]} />,
+            children: [
+              {
+                path: "leader",
+                element: <LeaderPage />,
+                children: [
+                  { index: true, element: <Navigate to="completion-approvals" replace /> },
+                  { path: "completion-approvals", element: <CompletionApprovalsView /> },
+                  { path: "roadmap", element: <RoadmapView /> },
+                ],
+              },
+            ],
+          },
+          { path: "completion-approvals", element: <Navigate to="/leader/completion-approvals" replace /> },
+          { path: "roadmap", element: <Navigate to="/leader/roadmap" replace /> },
           { path: "meetings", element: <MeetingsView /> },
           { path: "deliverables", element: <DeliverablesView /> },
           {

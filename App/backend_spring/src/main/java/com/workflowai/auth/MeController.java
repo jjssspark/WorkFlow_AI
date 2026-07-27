@@ -86,7 +86,8 @@ public class MeController {
     private UserSummary toSummary(User user) {
         return new UserSummary(
             user.getId(), user.getEmail(), user.getName(),
-            user.getAffiliation(), user.getFieldTags(), user.getGithubUsername(), avatarUrlOrNull(user)
+            user.getAffiliation(), user.getFieldTags(), user.getGithubUsername(), avatarUrlOrNull(user),
+            user.isAdmin()
         );
     }
 

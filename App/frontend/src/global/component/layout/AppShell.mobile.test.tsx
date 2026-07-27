@@ -3,9 +3,15 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthProvider } from "../../hooks/useAuth";
+import { NotificationProvider } from "../../hooks/useNotifications";
 import { AppShell } from "./AppShell";
 
 vi.mock("../ui/use-mobile", () => ({ useIsMobile: () => true }));
+
+vi.mock("../../api/notificationApi", () => ({
+  fetchUnreadNotificationCount: vi.fn().mockResolvedValue(0),
+  subscribeNotificationStream: vi.fn(),
+}));
 
 describe("AppShell (mobile)", () => {
   beforeEach(() => {
@@ -16,7 +22,9 @@ describe("AppShell (mobile)", () => {
     render(
       <MemoryRouter initialEntries={["/board"]}>
         <AuthProvider>
-          <AppShell />
+          <NotificationProvider>
+            <AppShell />
+          </NotificationProvider>
         </AuthProvider>
       </MemoryRouter>
     );
@@ -35,7 +43,9 @@ describe("AppShell (mobile)", () => {
     render(
       <MemoryRouter initialEntries={["/board"]}>
         <AuthProvider>
-          <AppShell />
+          <NotificationProvider>
+            <AppShell />
+          </NotificationProvider>
         </AuthProvider>
       </MemoryRouter>
     );

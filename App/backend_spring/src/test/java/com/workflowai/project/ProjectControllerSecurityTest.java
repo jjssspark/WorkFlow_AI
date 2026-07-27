@@ -4,6 +4,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -53,6 +54,18 @@ class ProjectControllerSecurityTest {
                     .with(user("member"))
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(body)
+            )
+            .andExpect(status().isForbidden())
+            .andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
+    }
+
+    @Test
+    void finalizeEvaluationReturns403WhenCallerIsNotReviewer() throws Exception {
+        when(projectAccess.hasRole(eq(1L), eq("REVIEWER"))).thenReturn(false);
+
+        mockMvc.perform(
+                post("/api/v1/projects/1/finalize-evaluation")
+                    .with(user("member"))
             )
             .andExpect(status().isForbidden())
             .andExpect(jsonPath("$.error.code").value("FORBIDDEN"));

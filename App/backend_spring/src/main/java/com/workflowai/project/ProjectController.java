@@ -90,6 +90,17 @@ public class ProjectController {
         return ApiResponse.ok(null);
     }
 
+    @Operation(
+        summary = "평가 확정",
+        description = "프로젝트 평가 진행 상태(eval_status)를 PUBLISHED로 전이한다. 심사자만 가능하다. "
+            + "확정 후에도 팀원별 평가 점수/공개 여부는 계속 수정할 수 있다(단순 상태 표시용, 잠금 아님)."
+    )
+    @PostMapping("/{projectId}/finalize-evaluation")
+    @PreAuthorize("@projectAccess.hasRole(#projectId, 'REVIEWER')")
+    public ApiResponse<ProjectResponse> finalizeEvaluation(@PathVariable Long projectId) {
+        return ApiResponse.ok(projectService.finalizeEvaluation(projectId));
+    }
+
     @Operation(summary = "프로젝트 멤버 목록 조회")
     @GetMapping("/{projectId}/members")
     @PreAuthorize("@projectAccess.isMember(#projectId)")

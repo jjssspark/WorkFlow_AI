@@ -25,6 +25,9 @@ public interface TaskRepository extends JpaRepository<Task, Long> {
     /** 새 업무를 컬럼 맨 끝에 추가할 때 쓸 기준값(해당 프로젝트+상태에서 가장 큰 position). */
     Optional<Task> findTopByProjectIdAndStatusOrderByPositionDesc(Long projectId, String status);
 
+    /** 완료 승인 대기 목록 화면용 — 팀원이 완료를 요청했고 아직 팀장이 승인/반려하지 않은 업무. */
+    List<Task> findByProjectIdAndPendingApprovalTrueOrderByUpdatedAtAsc(Long projectId);
+
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("update Task t set t.sourceMeetingId = null where t.sourceMeetingId = :meetingId")
     int clearSourceMeetingId(@Param("meetingId") Long meetingId);

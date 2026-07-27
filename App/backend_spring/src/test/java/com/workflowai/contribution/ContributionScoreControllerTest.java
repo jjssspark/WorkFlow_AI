@@ -30,7 +30,7 @@ class ContributionScoreControllerTest {
         ContributionScoreResponseDto fastApiResponse = new ContributionScoreResponseDto(
             "1.0",
             1L,
-            List.of(new ContributionMemberScoreDto("3", 100.0, 80.0, 80.0, 86.7, "정상", 1.0, 1.0, 0)),
+            List.of(new ContributionMemberScoreDto("3", 100.0, 80.0, 80.0, 86.7, "정상", 1.0, 1.0, 1.0, 0)),
             null,
             0.65
         );

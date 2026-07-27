@@ -1,6 +1,7 @@
 package com.workflowai.task;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import java.util.Map;
 
 @Schema(description = "업무 생성 요청")
 public record TaskCreateRequest(
@@ -11,5 +12,6 @@ public record TaskCreateRequest(
     @Schema(description = "시작일 (YYYY-MM-DD)", example = "2026-07-10") String startDate,
     @Schema(description = "마감일 (YYYY-MM-DD)", example = "2026-07-20") String dueDate,
     @Schema(description = "우선순위", example = "medium") String priority,
-    @Schema(description = "업무 설명") String description
+    @Schema(description = "업무 설명") String description,
+    @Schema(description = "카테고리별 추가 정보(자유 키-값)") Map<String, String> extraFields
 ) {}

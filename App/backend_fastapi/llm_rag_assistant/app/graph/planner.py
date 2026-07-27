@@ -23,6 +23,8 @@ _SYSTEM_PROMPT = (
     "\n"
     "사용 가능한 도구와 args:\n"
     '  change_status    args: {"to":"todo"|"inprogress"|"blocked"|"done"}\n'
+    "                   한국어 상태 매핑: 할 일/대기→todo, 진행중→inprogress, "
+    "블로커/막힘→blocked, 완료→done\n"
     '  add_comment      args: {"content":"<코멘트 내용>"}\n'
     '  toggle_checklist args: {"item":"<항목 내용>","done":true|false}\n'
     '  rename_task      args: {"title":"<새 제목>"}\n'

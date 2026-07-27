@@ -18,5 +18,3 @@ export const MY_FEEDBACKS = [
   { from: "김민준 (팀장)", date: "12.10", content: "모바일 화면 UI 퀄리티가 좋습니다. 예약 플로우가 직관적으로 잘 구현되었어요.", isPublic: true, type: "leader" },
   { from: "AI 활동 분석", date: "12.09", content: "이번 주 PR 2건을 머지하고 회의록 To-Do를 90% 이상 완수했습니다.", isPublic: true, type: "ai" },
 ];
-
-export const PUBLIC_SCORE = { revealed: true, score: 88, grade: "B+", from: "박현수 교수", date: "12.12", comment: "프론트엔드 구현 퀄리티가 우수하며 팀 내 협업 기여도가 높습니다." };

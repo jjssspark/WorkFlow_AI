@@ -22,7 +22,7 @@ vi.mock("../../board/libs/utils/taskResultApi", () => ({
 }));
 
 function makeTask(id: string, title: string, status: Task["status"]): Task {
-  return { id, title, status, priority: "medium", assignee: "1", dueDate: "", labels: [], category: "backend", position: 0 };
+  return { id, title, status, priority: "medium", assignee: "1", dueDate: "", labels: [], category: "backend", position: 0, pendingApproval: false, startDate: "", extraFields: {} };
 }
 
 describe("MemberDrilldownPanel", () => {
@@ -244,7 +244,7 @@ describe("MemberDrilldownPanel workload mode", () => {
   function makeEvidence(overrides: Partial<ContributionMemberScoreDto> = {}): ContributionMemberScoreDto {
     return {
       assigneeId: "1", workloadComponent: 17.5, taskComponent: 80.0, meetingComponent: 80.0,
-      contributionScore: 60.0, anomalyType: "저활동 의심", taskCountActiveRel: 0.3,
+      contributionScore: 60.0, anomalyType: "배정량 불균형", taskCountActiveRel: 0.3, taskCountTotalRel: 0.3,
       difficultyAvgRel: 0.9, overdueCount: 0, ...overrides,
     };
   }
@@ -257,8 +257,8 @@ describe("MemberDrilldownPanel workload mode", () => {
       />
     );
 
-    expect(screen.getByText("저활동 의심")).toBeInTheDocument();
-    expect(screen.getByText("진행 중인 업무가 팀 평균 대비 0.3배 적습니다.")).toBeInTheDocument();
+    expect(screen.getByText("배정량 불균형")).toBeInTheDocument();
+    expect(screen.getByText("배정된 업무 자체가 팀 평균 대비 0.3배 적습니다.")).toBeInTheDocument();
     expect(fetchAttendanceDetail).not.toHaveBeenCalled();
   });
 
@@ -315,6 +315,7 @@ describe("buildWorkloadEvidenceSentences", () => {
     const sentences = buildWorkloadEvidenceSentences({
       anomalyType: "과부하 의심",
       taskCountActiveRel: 1.8,
+      taskCountTotalRel: 1.5,
       difficultyAvgRel: 1.4,
       overdueCount: 2,
       completionRate: 0.4,
@@ -333,6 +334,7 @@ describe("buildWorkloadEvidenceSentences", () => {
     const sentences = buildWorkloadEvidenceSentences({
       anomalyType: "과부하 의심",
       taskCountActiveRel: 1.0,
+      taskCountTotalRel: 1.0,
       difficultyAvgRel: 1.0,
       overdueCount: 0,
       completionRate: 0.3,
@@ -342,10 +344,11 @@ describe("buildWorkloadEvidenceSentences", () => {
     expect(sentences).toEqual(["업무 완료율은 30%로 팀 평균(50%)보다 낮습니다."]);
   });
 
-  it("저활동 의심: 업무량 감소와 완료율 문장을 생성한다", () => {
+  it("배정량 불균형: 배정량 감소와 완료율 문장을 생성한다(진행중 업무 개수가 아니라 전체 배정량 기준)", () => {
     const sentences = buildWorkloadEvidenceSentences({
-      anomalyType: "저활동 의심",
-      taskCountActiveRel: 0.3,
+      anomalyType: "배정량 불균형",
+      taskCountActiveRel: 0.0,
+      taskCountTotalRel: 0.3,
       difficultyAvgRel: 0.9,
       overdueCount: 0,
       completionRate: 0.95,
@@ -353,15 +356,33 @@ describe("buildWorkloadEvidenceSentences", () => {
     });
 
     expect(sentences).toEqual([
-      "진행 중인 업무가 팀 평균 대비 0.3배 적습니다.",
+      "배정된 업무 자체가 팀 평균 대비 0.3배 적습니다.",
       "업무 완료율은 95%로 팀 평균(70%)보다 높습니다.",
     ]);
+  });
+
+  it("진행중 업무가 0이어도(배정 업무 완료) 문구는 taskCountTotalRel(배정량 기준)로 생성된다(회귀 테스트)", () => {
+    // 백엔드 anomaly_type이 "배정량 불균형"으로 내려오는 경우, 문장 생성기 레벨에서도
+    // taskCountActiveRel(진행중 업무 비율)이 아니라 taskCountTotalRel(배정량 기준)을
+    // 쓴다는 걸 명확히 하기 위해 activeRel=0인 케이스를 별도로 검증한다.
+    const sentences = buildWorkloadEvidenceSentences({
+      anomalyType: "배정량 불균형",
+      taskCountActiveRel: 0.0,
+      taskCountTotalRel: 1.0,
+      difficultyAvgRel: 1.0,
+      overdueCount: 0,
+      completionRate: 1.0,
+      teamMeanCompletionRate: 0.26,
+    });
+
+    expect(sentences[0]).toBe("배정된 업무 자체가 팀 평균 대비 1.0배 적습니다.");
   });
 
   it("정상: 편중이 없다는 문장 하나만 생성한다", () => {
     const sentences = buildWorkloadEvidenceSentences({
       anomalyType: "정상",
       taskCountActiveRel: 1.0,
+      taskCountTotalRel: 1.0,
       difficultyAvgRel: 1.0,
       overdueCount: 0,
       completionRate: 0.8,
@@ -375,6 +396,7 @@ describe("buildWorkloadEvidenceSentences", () => {
     const sentences = buildWorkloadEvidenceSentences({
       anomalyType: "과부하 의심",
       taskCountActiveRel: 1.0,
+      taskCountTotalRel: 1.0,
       difficultyAvgRel: 1.0,
       overdueCount: 0,
       completionRate: 0.3,

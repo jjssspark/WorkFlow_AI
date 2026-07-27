@@ -19,13 +19,14 @@ def _member(assignee_id="1", completion_rate=0.5, overload_score=0.0, anomaly_ty
         is_anomaly=anomaly_type != "정상",
         anomaly_type=anomaly_type,
         task_count_active_rel=1.2,
+        task_count_total_rel=1.2,
         difficulty_avg_rel=1.1,
         overdue_count=1,
     )
 
 
-def test_workload_component_penalizes_low_activity():
-    member = _member(overload_score=82.5, anomaly_type="저활동 의심")
+def test_workload_component_penalizes_workload_imbalance():
+    member = _member(overload_score=82.5, anomaly_type="배정량 불균형")
     assert workload_component_of(member) == pytest.approx(17.5)
 
 
@@ -40,7 +41,7 @@ def test_workload_component_normal_is_full_score():
 
 
 def test_workload_component_clamps_at_zero_for_extreme_outlier():
-    member = _member(overload_score=150.0, anomaly_type="저활동 의심")
+    member = _member(overload_score=150.0, anomaly_type="배정량 불균형")
     assert workload_component_of(member) == 0.0
 
 
@@ -73,6 +74,7 @@ def test_compute_contribution_scores_missing_attendance_defaults_to_zero():
     assert result.contribution_score == pytest.approx(expected, abs=0.1)
     assert result.anomaly_type == "정상"
     assert result.task_count_active_rel == pytest.approx(1.2)
+    assert result.task_count_total_rel == pytest.approx(1.2)
     assert result.difficulty_avg_rel == pytest.approx(1.1)
     assert result.overdue_count == 1
 

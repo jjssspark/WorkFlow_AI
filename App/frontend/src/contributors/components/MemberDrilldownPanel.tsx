@@ -18,6 +18,10 @@ const STATUS_ORDER: TaskStatus[] = ["todo", "inprogress", "blocked", "done"];
 export interface WorkloadEvidenceInput {
   anomalyType: string;
   taskCountActiveRel: number;
+  // "배정량 불균형" 문구 전용: 애초에 배정받은 전체 업무 수의 팀 평균 대비 비율.
+  // taskCountActiveRel(진행중 업무 비율)은 배정된 업무를 전부 끝낸 사람도 0이 되므로
+  // 이 근거 문구에는 이 필드를 쓴다(백엔드 anomaly_type 판정과 동일한 기준).
+  taskCountTotalRel: number;
   difficultyAvgRel: number;
   overdueCount: number;
   completionRate: number;
@@ -31,6 +35,7 @@ export interface WorkloadEvidenceInput {
 export function buildWorkloadEvidenceSentences(input: WorkloadEvidenceInput): string[] {
   const sentences: string[] = [];
   const activeMultiple = input.taskCountActiveRel.toFixed(1);
+  const totalMultiple = input.taskCountTotalRel.toFixed(1);
   const difficultyMultiple = input.difficultyAvgRel.toFixed(1);
   const completionPct = Math.round(input.completionRate * 100);
   // 팀 평균값이 있을 때만 "팀 평균 N%보다 낮음/높음"처럼 실측 비교를 보여준다.
@@ -52,8 +57,8 @@ export function buildWorkloadEvidenceSentences(input: WorkloadEvidenceInput): st
       sentences.push(`마감이 지난 업무가 ${input.overdueCount}건 있습니다.`);
     }
     sentences.push(completionVsTeam("낮습니다"));
-  } else if (input.anomalyType === "저활동 의심") {
-    sentences.push(`진행 중인 업무가 팀 평균 대비 ${activeMultiple}배 적습니다.`);
+  } else if (input.anomalyType === "배정량 불균형") {
+    sentences.push(`배정된 업무 자체가 팀 평균 대비 ${totalMultiple}배 적습니다.`);
     sentences.push(completionVsTeam("높습니다"));
   } else {
     sentences.push("팀 평균과 비교했을 때 업무량·난이도·완료율 모두 특별한 편중이 없습니다.");
@@ -219,7 +224,10 @@ function MeetingEvidenceDetails({ projectId, meetingId }: MeetingEvidenceDetails
 
 const ANOMALY_BADGE_STYLE: Record<string, { label: string; color: string; bg: string }> = {
   "과부하 의심": { label: "과부하 의심", color: "#DC2626", bg: "#FEF2F2" },
-  "저활동 의심": { label: "저활동 의심", color: "#D97706", bg: "#FFFBEB" },
+  // "저활동 의심"이 아니라 중립적 라벨을 쓴다: 배정량이 팀 평균보다 적다는 관찰 사실은
+  // 맞지만, 완료율이 높은 사람에게도 뜨므로(예: 배정받은 일을 전부 끝낸 경우) 태만을
+  // 단정하는 표현은 피하고 심사자가 직접 판단하도록 한다.
+  "배정량 불균형": { label: "배정량 불균형", color: "#D97706", bg: "#FFFBEB" },
 };
 const DEFAULT_ANOMALY_BADGE = { label: "정상", color: "#64748B", bg: "#F1F5F9" };
 
@@ -243,6 +251,7 @@ function WorkloadEvidenceDetails({ workloadEvidence, teamMeanCompletion }: Workl
   // toFixed() 등에서 크래시하지 않도록 수치 필드가 전부 유효한 숫자인지 먼저 확인한다.
   const numericFields = [
     workloadEvidence.taskCountActiveRel,
+    workloadEvidence.taskCountTotalRel,
     workloadEvidence.difficultyAvgRel,
     workloadEvidence.overdueCount,
     workloadEvidence.taskComponent,
@@ -255,6 +264,7 @@ function WorkloadEvidenceDetails({ workloadEvidence, teamMeanCompletion }: Workl
   const sentences = buildWorkloadEvidenceSentences({
     anomalyType: workloadEvidence.anomalyType,
     taskCountActiveRel: workloadEvidence.taskCountActiveRel,
+    taskCountTotalRel: workloadEvidence.taskCountTotalRel,
     difficultyAvgRel: workloadEvidence.difficultyAvgRel,
     overdueCount: workloadEvidence.overdueCount,
     completionRate: workloadEvidence.taskComponent / 100,

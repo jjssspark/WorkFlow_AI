@@ -228,4 +228,8 @@ public class Project {
     public LocalDateTime getUpdatedAt() {
         return updatedAt;
     }
+
+    public void setEvalStatus(EvalStatus evalStatus) {
+        this.evalStatus = evalStatus;
+    }
 }

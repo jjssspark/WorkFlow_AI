@@ -20,6 +20,8 @@ def use_memory_checkpointer(monkeypatch: pytest.MonkeyPatch) -> None:
         return compiled
 
     monkeypatch.setattr(assistant_graph, "get_graph", _get_graph)
+    # 대기 스레드 추적은 모듈 전역이라 테스트 간 누수를 막기 위해 매 테스트 초기화한다.
+    assistant_graph._pending_threads.clear()
 
 
 def _state(question: str, role: str = "MEMBER") -> dict:
@@ -189,6 +191,43 @@ async def test_resume_with_success_completes_command() -> None:
 
 
 @pytest.mark.asyncio
+async def test_multi_action_plan_resumes_each_step_sequentially() -> None:
+    """액션이 여러 개인 계획은 승인마다 다음 카드를 돌려주고, 마지막에 완료한다.
+
+    회귀 방어: 재개 후 다음 단계가 또 confirm이면 체크포인트를 지우면 안 된다.
+    지우면 후속 승인이 aget_state에서 스레드를 못 찾아 만료 처리된다.
+    """
+    from llm_rag_assistant.app.graph import assistant_graph
+    from llm_rag_assistant.app.graph.assistant_graph import resume_command, start_command
+
+    plan = [
+        Action(tool="change_status", task_ref="WF-250", args={"to": "inprogress"}),
+        Action(tool="change_status", task_ref="WF-251", args={"to": "done"}),
+    ]
+    with patch(
+        "llm_rag_assistant.app.graph.assistant_graph.plan_actions", new=AsyncMock(return_value=plan)
+    ), patch(
+        "llm_rag_assistant.app.graph.assistant_graph.resolve_task_ref",
+        new=AsyncMock(return_value=TaskMatch(task_id=37, title="업무")),
+    ):
+        first = await start_command(object(), _state("두 업무 상태 바꿔줘"))
+        assert first.type == "confirm"
+
+        second = await resume_command(first.thread_id, {"step_id": first.card.step_id, "ok": True})
+        # 첫 승인 후 두 번째 단계가 또 승인을 기다린다. 체크포인트는 유지돼야 한다.
+        assert second.type == "confirm"
+        assert second.card is not None
+        assert second.card.step_id != first.card.step_id
+        assert first.thread_id in assistant_graph._pending_threads
+
+        final = await resume_command(first.thread_id, {"step_id": second.card.step_id, "ok": True})
+
+    assert final.type == "done"
+    assert "2개 작업을 완료했습니다" in final.message
+    assert first.thread_id not in assistant_graph._pending_threads
+
+
+@pytest.mark.asyncio
 async def test_resume_with_failure_reports_it() -> None:
     from llm_rag_assistant.app.graph.assistant_graph import resume_command, start_command
 
@@ -265,3 +304,73 @@ async def test_expired_thread_is_reported() -> None:
     outcome = await resume_command("nonexistent-thread-id", {"step_id": "x", "ok": True})
     assert outcome.type == "done"
     assert "만료" in outcome.message
+
+
+@pytest.mark.asyncio
+async def test_resume_discards_checkpoint_to_reclaim_memory() -> None:
+    """재개가 끝나면 스레드 체크포인트를 지워 InMemorySaver 메모리가 쌓이지 않게 한다."""
+    from llm_rag_assistant.app.graph import assistant_graph
+    from llm_rag_assistant.app.graph.assistant_graph import resume_command, start_command
+
+    plan = [Action(tool="change_status", task_ref="WF-250", args={"to": "done"})]
+    with patch(
+        "llm_rag_assistant.app.graph.assistant_graph.plan_actions", new=AsyncMock(return_value=plan)
+    ), patch(
+        "llm_rag_assistant.app.graph.assistant_graph.resolve_task_ref",
+        new=AsyncMock(return_value=TaskMatch(task_id=37, title="업무")),
+    ):
+        started = await start_command(object(), _state("WF-250 완료로 바꿔줘"))
+        # 승인 대기 스레드는 추적되고 체크포인트가 남아 있다.
+        assert started.thread_id in assistant_graph._pending_threads
+        await resume_command(started.thread_id, {"step_id": started.card.step_id, "ok": True})
+
+    graph = await assistant_graph.get_graph()
+    config = {"configurable": {"thread_id": started.thread_id}}
+    snapshot = await graph.aget_state(config)
+    assert started.thread_id not in assistant_graph._pending_threads
+    assert not snapshot.values  # 체크포인트가 삭제돼 남은 상태가 없다.
+
+
+@pytest.mark.asyncio
+async def test_start_command_discards_thread_for_terminal_outcome() -> None:
+    """즉시 끝난 발화(빈 계획 등)는 재개될 일이 없으니 체크포인트를 바로 버린다."""
+    from llm_rag_assistant.app.graph import assistant_graph
+    from llm_rag_assistant.app.graph.assistant_graph import start_command
+
+    with patch(
+        "llm_rag_assistant.app.graph.assistant_graph.plan_actions", new=AsyncMock(return_value=[])
+    ):
+        outcome = await start_command(object(), _state("어쩌구 저쩌구 해줘"))
+
+    assert outcome.type == "done"
+    assert outcome.thread_id not in assistant_graph._pending_threads
+    graph = await assistant_graph.get_graph()
+    snapshot = await graph.aget_state({"configurable": {"thread_id": outcome.thread_id}})
+    assert not snapshot.values
+
+
+@pytest.mark.asyncio
+async def test_sweep_removes_only_expired_pending_threads(monkeypatch: pytest.MonkeyPatch) -> None:
+    """재개 없이 만료(30분 초과)된 대기 스레드만 sweep이 삭제한다(취소·무시된 카드)."""
+    import time
+    from types import SimpleNamespace
+
+    from llm_rag_assistant.app.graph import assistant_graph
+
+    deleted: list[str] = []
+
+    async def _adelete(thread_id: str) -> None:
+        deleted.append(thread_id)
+
+    graph = SimpleNamespace(checkpointer=SimpleNamespace(adelete_thread=_adelete))
+
+    now = time.monotonic()
+    assistant_graph._pending_threads.clear()
+    assistant_graph._pending_threads["old"] = now - assistant_graph._CHECKPOINT_TTL_SECONDS - 1
+    assistant_graph._pending_threads["fresh"] = now
+
+    await assistant_graph._sweep_expired_threads(graph)
+
+    assert deleted == ["old"]
+    assert "old" not in assistant_graph._pending_threads
+    assert "fresh" in assistant_graph._pending_threads

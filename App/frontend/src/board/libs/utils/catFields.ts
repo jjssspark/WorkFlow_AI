@@ -1,4 +1,3 @@
-import { CAT_EXTRA } from "../mock/tasks";
 import { getCat } from "./taskService";
 
 export const CAT_MODAL_FIELDS: Record<string, [string, string][]> = {
@@ -22,19 +21,16 @@ export const CAT_MODAL_FIELDS: Record<string, [string, string][]> = {
   other:        [["결과물","이 업무에서 생성할 파일이나 결과물"],["완료 기준 보완","추가 완료 기준"],["참고 자료","관련 링크 또는 파일"]],
 };
 
-export const getCatDetailFields = (taskId: string, cat: string): [string, string][] => {
-  const e = CAT_EXTRA[taskId] ?? {};
-  switch (cat) {
-    case "frontend":     return [["화면",e.screen??"—"],["컴포넌트",e.components??"—"],["API",e.api??"—"],["Figma",e.figma??"—"],["반응형",e.responsive??"—"],["PR",e.pr??"—"]];
-    case "backend":      return [["Method",e.method??"—"],["Endpoint",e.endpoint??"—"],["인증",e.auth??"—"],["연결 DB",e.db??"—"],["테스트",e.test??"—"]];
-    case "ai-ml":        return [["목적",e.purpose??"—"],["데이터",e.data??"—"],["모델",e.model??"—"],["지표",e.metric??"—"],["현재 성능",e.result??"—"],["추론 API",e.inferenceAPI??"—"]];
-    case "qa":           return [["대상",e.target??"—"],["케이스",e.cases??"—"],["기대",e.expected??"—"],["실제",e.actual??"—"],["버그",e.bug??"—"]];
-    case "docs":         return [["종류",e.docType??"—"],["범위",e.scope??"—"],["포함",e.includes??"—"],["참고",e.ref??"—"]];
-    case "presentation": return [["주제",e.topic??"—"],["페이지",e.pages??"—"],["시연",e.demo??"—"],["초안",e.draft??"—"],["대본",e.script??"—"]];
-    case "db":           return [["테이블",e.table??"—"],["ERD",e.erd??"—"],["이슈",e.issue??"—"],["인덱스",e.index??"—"],["목표",e.goal??"—"]];
-    case "security":     return [["대상",e.target??"—"],["위험",e.risk??"—"],["취약점",e.findings??"—"],["인증",e.auth??"—"],["조치",e.remediation??"—"]];
-    default:             return [["카테고리",getCat(cat).label],["정보","업무 상세 참고"]];
+/**
+ * 업무 생성/수정 시 입력한 카테고리별 추가 정보(extraFields)를 상세 패널에 보여줄 [라벨, 값] 목록으로 바꾼다.
+ * 라벨은 CAT_MODAL_FIELDS의 라벨을 그대로 key로 써서, 입력 화면과 표시 화면이 같은 항목을 가리키게 한다.
+ */
+export const getCatFieldValues = (cat: string, extraFields: Record<string, string> | undefined): [string, string][] => {
+  const fields = CAT_MODAL_FIELDS[cat] ?? CAT_MODAL_FIELDS.other;
+  if (!fields || fields.length === 0) {
+    return [["카테고리", getCat(cat).label]];
   }
+  return fields.map(([label]) => [label, extraFields?.[label] || "—"]);
 };
 
 export const CAT_AI_BTN: Record<string, string> = {

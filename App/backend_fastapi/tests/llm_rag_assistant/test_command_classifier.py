@@ -30,6 +30,8 @@ def test_plain_questions_are_not_command_candidates(question: str) -> None:
         "체크리스트 첫 번째 항목 체크해줘",
         "WF-246 마감일 8월 10일로 지정해주세요",
         "그 업무 삭제해줘",
+        "WF-174 할 일로 되돌려줘",
+        "WF-189 진행중으로 되돌려주세요",
     ],
 )
 def test_imperative_requests_are_command_candidates(question: str) -> None:

@@ -20,6 +20,7 @@ public record ProjectResponse(
     String inviteCode,
     Long createdBy,
     @Schema(description = "project_members 실제 인원 수") int memberCount,
-    @Schema(description = "tasks 완료율(%). 업무가 하나도 없으면 0") int taskProgress
+    @Schema(description = "tasks 완료율(%). 업무가 하나도 없으면 0") int taskProgress,
+    @Schema(description = "평가 진행 상태(PENDING/EVALUATING/PUBLISHED)") String evalStatus
 ) {
 }

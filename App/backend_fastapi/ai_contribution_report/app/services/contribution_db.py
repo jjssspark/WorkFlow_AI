@@ -15,7 +15,11 @@ _TASK_QUERY = text("""
         pm.user_id AS user_id,
         u.name AS name,
         COUNT(t.id) AS todo_total,
-        COUNT(t.id) FILTER (WHERE t.status = '완료') AS todo_done
+        -- tasks.status는 한글이 아니라 프론트(task.ts의 TaskStatus)가 정의한 영문 슬러그로
+        -- 저장된다("todo"|"inprogress"|"blocked"|"done"). 과거 '완료'(한글) 비교로 인해
+        -- 완료 업무가 있어도 todo_done이 항상 0으로 집계되던 버그를 수정
+        -- (ml_workload_score/app/services/workload_model.py의 normalize_status와 동일한 문제).
+        COUNT(t.id) FILTER (WHERE t.status = 'done') AS todo_done
     FROM project_members pm
     JOIN users u ON u.id = pm.user_id
     LEFT JOIN tasks t ON t.project_id = pm.project_id AND t.assignee_id = pm.user_id

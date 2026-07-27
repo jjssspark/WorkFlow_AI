@@ -24,7 +24,7 @@ export function TaskCard({ task, catId, projectMembers, compact, selected, onSel
   const m = projectMembers.find(me => String(me.userId) === task.assignee);
   const ref = useRef<HTMLDivElement>(null);
   const { user, currentProject } = useAuth();
-  const canMove = canMoveTask(currentProject?.role === "팀장", task, user?.id);
+  const canMove = canMoveTask(currentProject?.role === "팀장", task, user?.id) && !task.pendingApproval;
 
   const [{ isDragging }, dragRef] = useDrag(
     () => ({
@@ -75,14 +75,18 @@ export function TaskCard({ task, catId, projectMembers, compact, selected, onSel
       <div
         ref={setRefs}
         onClick={onSelect}
-        className={`bg-card rounded-xl border transition-all hover:shadow-md ${canMove ? "cursor-grab active:cursor-grabbing" : "cursor-default"} ${compact ? "p-2.5" : "p-3"} ${
+        className={`rounded-xl border transition-all hover:shadow-md ${canMove ? "cursor-grab active:cursor-grabbing" : "cursor-default"} ${compact ? "p-2.5" : "p-3"} ${
+          task.pendingApproval ? "bg-muted/60 grayscale-[40%]" : "bg-card"
+        } ${
           selected ? "border-blue-400 shadow-md ring-1 ring-blue-200" : "border-border shadow-sm hover:border-slate-300"
         }`}
-        style={{ opacity: isDragging ? 0.4 : 1 }}
+        style={{ opacity: isDragging ? 0.4 : task.pendingApproval ? 0.75 : 1 }}
       >
         <div className="flex items-center justify-between gap-1 mb-1.5">
           <CatTag catId={catId} />
-          {task.status === "blocked" && (
+          {task.pendingApproval ? (
+            <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-amber-100 text-amber-700 shrink-0">승인 대기중</span>
+          ) : task.status === "blocked" && (
             <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-red-100 text-red-600 shrink-0">블로커</span>
           )}
         </div>
@@ -92,7 +96,9 @@ export function TaskCard({ task, catId, projectMembers, compact, selected, onSel
         <div className="flex items-center justify-between gap-1.5">
           <PriorityBadge priority={task.priority} />
           <div className="flex items-center gap-1.5 shrink-0">
-            <span className="text-[10px] text-muted-foreground">{formatDueDate(task.dueDate)}</span>
+            <span className="text-[10px] text-muted-foreground">
+              {task.startDate ? `${formatDueDate(task.startDate)} → ${formatDueDate(task.dueDate)}` : formatDueDate(task.dueDate)}
+            </span>
             {m && (
               <div
                 className="w-5 h-5 rounded-full flex items-center justify-center text-white text-[9px] font-bold shrink-0"

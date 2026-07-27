@@ -87,3 +87,36 @@ describe("apiFetch 오류 메시지", () => {
     expect(error.message).toBe("요청한 항목을 찾을 수 없습니다.");
   });
 });
+
+describe("apiFetch timeoutMs", () => {
+  beforeEach(() => {
+    tokenStore.clear();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("응답이 timeoutMs 내에 오지 않으면 요청을 중단하고 타임아웃 오류를 던진다", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((_url: string, init: RequestInit) => {
+        const signal = init.signal as AbortSignal;
+        return new Promise((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+        });
+      }),
+    );
+
+    const error = await apiFetch("/projects/1/meetings/1", { method: "DELETE" }, true, 20).catch((e) => e);
+
+    expect(error).toBeInstanceOf(ApiRequestError);
+    expect(error.code).toBe("REQUEST_TIMEOUT");
+  });
+
+  it("timeoutMs를 지정하지 않으면 요청을 중단하지 않는다", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonEnvelopeResponse(200, { success: true, data: null })));
+
+    await expect(apiFetch("/me")).resolves.toBeNull();
+  });
+});

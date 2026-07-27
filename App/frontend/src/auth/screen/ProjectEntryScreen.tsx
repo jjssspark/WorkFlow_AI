@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import {
   ArrowLeft,
@@ -15,8 +15,9 @@ import {
 import { AuthBrandPanel } from "../components/AuthBrandPanel";
 import { useAuth } from "../../global/hooks/useAuth";
 import type { ProjectRoleKo, ProjectRoleSummary } from "../../global/api/authTypes";
-import { joinProjectByCode } from "../../global/api/projectsApi";
-import { REVIEWER_ACTIVITIES, REVIEWER_TEAMS } from "../../global/lib/mock/reviewer";
+import { joinProjectByCode, listProjects, type ProjectResponse } from "../../global/api/projectsApi";
+import { REVIEWER_ACTIVITIES } from "../../global/lib/mock/reviewer";
+import { EVAL_STATUS_META, resolveEvalStatus } from "../../global/lib/evalStatus";
 
 const PROJECT_META: Record<number, { type: string; deadline: string; progress: number }> = {};
 
@@ -26,14 +27,12 @@ const ROLE_META: Record<ProjectRoleKo, { label: string; color: string; bg: strin
   "심사자": { label: "심사자", color: "#7048E8", bg: "rgba(112,72,232,0.1)", icon: KeyRound },
 };
 
-type JudgeProject = (typeof REVIEWER_TEAMS)[number];
-type EvalStatus = JudgeProject["evalStatus"];
-
-const JUDGE_STATUS_META: Record<EvalStatus, { label: string; color: string; bg: string; border: string }> = {
-  pending: { label: "평가 전", color: "#64748B", bg: "#F8FAFC", border: "#CBD5E1" },
-  evaluating: { label: "평가 중", color: "#D97706", bg: "#FFFBEB", border: "#FCD34D" },
-  published: { label: "공개 완료", color: "#059669", bg: "#ECFDF5", border: "#A7F3D0" },
-};
+// "심사 프로젝트 추가" 입력창으로 임시 등록한 항목 — 배정 코드로 심사자를 실제 프로젝트에
+// 연결하는 백엔드 API가 아직 없어, 실제 배정된 프로젝트 목록과 분리해 로컬에서만 표시한다.
+interface LocalJudgeProject {
+  id: string;
+  name: string;
+}
 
 export function ProjectEntryScreen() {
   const navigate = useNavigate();
@@ -41,7 +40,9 @@ export function ProjectEntryScreen() {
   const [inviteCode, setInviteCode] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [joining, setJoining] = useState(false);
-  const [judgeProjects, setJudgeProjects] = useState<JudgeProject[]>([...REVIEWER_TEAMS]);
+  // 배정 코드로 실제 심사자 권한을 붙이는 백엔드 API가 아직 없어, "심사 프로젝트 추가"로
+  // 입력한 항목은 실제 배정 목록과 별도로 로컬에만 보관한다.
+  const [localJudgeProjects, setLocalJudgeProjects] = useState<LocalJudgeProject[]>([]);
   const [judgeProjectCode, setJudgeProjectCode] = useState("");
   const [judgeMessage, setJudgeMessage] = useState<string | null>(null);
 
@@ -49,6 +50,20 @@ export function ProjectEntryScreen() {
     currentProject?.role === "심사자" ||
     (projectRoles.length > 0 && projectRoles.every((project) => project.role === "심사자"));
   const projects = projectRoles;
+
+  // 심사자에게 실제로 배정된 프로젝트 목록 — GET /api/v1/projects는 REVIEWER 역할로
+  // 속한 프로젝트도 그대로 포함해서 내려준다(로그인 직후에도 새로고침 없이 뜨도록).
+  const [assignedProjects, setAssignedProjects] = useState<ProjectResponse[]>([]);
+  const [assignedProjectsError, setAssignedProjectsError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!isJudgeHome) return;
+    listProjects()
+      .then((result) => {
+        setAssignedProjects(result);
+        setAssignedProjectsError(null);
+      })
+      .catch(() => setAssignedProjectsError("배정된 프로젝트를 불러오지 못했습니다."));
+  }, [isJudgeHome]);
 
   const handleBackToLogin = () => {
     logout();
@@ -87,10 +102,19 @@ export function ProjectEntryScreen() {
     }
   };
 
-  const enterJudgeProject = (project: JudgeProject) => {
+  // 실제로 배정된 프로젝트 진입 — currentProjectId를 진짜 projectId로 설정하므로
+  // ContributorsView가 처음부터 실제 데이터를 불러온다(새로고침 불필요).
+  const enterAssignedProject = (project: ProjectResponse) => {
+    selectProject(project.id);
+    navigate("/contributors");
+  };
+
+  // "심사 프로젝트 추가"로 입력한 항목 — 배정 코드로 심사자를 실제 프로젝트에 연결하는
+  // 백엔드 API가 아직 없어, 로컬 표시용 가짜 프로젝트로만 등록한다(기여도 데이터는 비어 보임).
+  const enterLocalJudgeProject = (project: LocalJudgeProject) => {
     const projectId = addLocalProjectRole(project.name, "심사자");
     selectProject(projectId);
-    navigate(`/contributors?team=${project.id}`);
+    navigate("/contributors");
   };
 
   const handleAddJudgeProject = () => {
@@ -100,27 +124,22 @@ export function ProjectEntryScreen() {
       return;
     }
 
-    const newProject: JudgeProject = {
+    const newProject: LocalJudgeProject = {
       id: `J-${Date.now()}`,
       name: value.includes("http") || value.length <= 12 ? "신규 심사 배정 프로젝트" : value,
-      leader: "미정",
-      members: 0,
-      progress: 0,
-      evalStatus: "pending",
-      deliverables: 0,
-      github: false,
-      submitted: 0,
-      type: "캡스톤",
     };
-    setJudgeProjects((prev) => [newProject, ...prev]);
-    addLocalProjectRole(newProject.name, "심사자");
+    setLocalJudgeProjects((prev) => [newProject, ...prev]);
     setJudgeMessage("심사 프로젝트가 추가되었습니다. 목록에서 선택하면 기여도 분석으로 이동합니다.");
     setJudgeProjectCode("");
   };
 
   if (isJudgeHome) {
-    const evaluatingCount = judgeProjects.filter((project) => project.evalStatus === "evaluating").length;
-    const publishedCount = judgeProjects.filter((project) => project.evalStatus === "published").length;
+    const evaluatingCount = assignedProjects.filter(
+      (project) => resolveEvalStatus(project.evalStatus) === "EVALUATING",
+    ).length;
+    const publishedCount = assignedProjects.filter(
+      (project) => resolveEvalStatus(project.evalStatus) === "PUBLISHED",
+    ).length;
 
     return (
       <div className="flex min-h-screen flex-col lg:flex-row" style={{ fontFamily: "'Inter', 'Noto Sans KR', sans-serif" }}>
@@ -145,7 +164,7 @@ export function ProjectEntryScreen() {
 
               <div className="grid grid-cols-3 gap-2 sm:w-[430px]">
                 {[
-                  { label: "배정", value: judgeProjects.length, color: "#7048E8" },
+                  { label: "배정", value: assignedProjects.length, color: "#7048E8" },
                   { label: "평가 중", value: evaluatingCount, color: "#D97706" },
                   { label: "공개 완료", value: publishedCount, color: "#059669" },
                 ].map((item) => (
@@ -164,20 +183,30 @@ export function ProjectEntryScreen() {
                   <div className="text-xs text-muted-foreground mt-1">담당 팀을 선택해 기여도를 검토합니다.</div>
                 </div>
 
+                {assignedProjectsError && (
+                  <p className="px-5 py-3 text-xs font-semibold text-red-600">{assignedProjectsError}</p>
+                )}
+
+                {assignedProjects.length === 0 && localJudgeProjects.length === 0 && !assignedProjectsError && (
+                  <div className="px-5 py-10 text-center text-sm text-muted-foreground">
+                    아직 배정된 프로젝트가 없습니다.
+                  </div>
+                )}
+
                 <div className="divide-y divide-border">
-                  {judgeProjects.map((project) => {
-                    const meta = JUDGE_STATUS_META[project.evalStatus];
+                  {assignedProjects.map((project) => {
+                    const meta = EVAL_STATUS_META[resolveEvalStatus(project.evalStatus)];
                     return (
                       <button
                         key={project.id}
                         type="button"
-                        onClick={() => enterJudgeProject(project)}
+                        onClick={() => enterAssignedProject(project)}
                         className="w-full text-left px-5 py-5 hover:bg-blue-50 transition-colors"
                       >
                         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                           <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-2 mb-1">
-                              <h2 className="text-lg font-bold text-foreground leading-snug">{project.name}</h2>
+                              <h2 className="text-lg font-bold text-foreground leading-snug">{project.title}</h2>
                               <span
                                 className="inline-flex items-center px-2.5 py-1 rounded-full border text-xs font-bold"
                                 style={{ color: meta.color, background: meta.bg, borderColor: meta.border }}
@@ -185,9 +214,7 @@ export function ProjectEntryScreen() {
                                 {meta.label}
                               </span>
                             </div>
-                            <div className="text-sm text-muted-foreground">
-                              {project.leader} 팀장 · {project.members}명 · 산출물 {project.submitted}/{project.deliverables}개
-                            </div>
+                            <div className="text-sm text-muted-foreground">{project.memberCount}명</div>
                           </div>
                           <ArrowRight className="w-5 h-5 text-muted-foreground shrink-0 hidden sm:block" />
                         </div>
@@ -195,15 +222,29 @@ export function ProjectEntryScreen() {
                         <div className="mt-4">
                           <div className="flex items-center justify-between text-xs mb-1.5">
                             <span className="text-muted-foreground">프로젝트 진행률</span>
-                            <span className="font-bold text-foreground">{project.progress}%</span>
+                            <span className="font-bold text-foreground">{project.taskProgress}%</span>
                           </div>
                           <div className="h-2.5 rounded-full bg-muted overflow-hidden">
-                            <div className="h-full rounded-full bg-blue-600" style={{ width: `${project.progress}%` }} />
+                            <div className="h-full rounded-full bg-blue-600" style={{ width: `${project.taskProgress}%` }} />
                           </div>
                         </div>
                       </button>
                     );
                   })}
+
+                  {localJudgeProjects.map((project) => (
+                    <button
+                      key={project.id}
+                      type="button"
+                      onClick={() => enterLocalJudgeProject(project)}
+                      className="w-full text-left px-5 py-5 hover:bg-blue-50 transition-colors"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <h2 className="text-lg font-bold text-foreground leading-snug">{project.name}</h2>
+                        <ArrowRight className="w-5 h-5 text-muted-foreground shrink-0 hidden sm:block" />
+                      </div>
+                    </button>
+                  ))}
                 </div>
               </section>
 

@@ -135,7 +135,7 @@ export function OnboardingScreen() {
           <p className="text-sm text-muted-foreground mt-1">
             {step === 0 && "프로젝트 이름과 유형에 따라 AI 기능이 최적화됩니다."}
             {step === 1 && "최종 마감일은 필수이며, 본인 포함 전체 팀원 수를 선택해주세요."}
-            {step === 2 && "목표 산출물, 기술 스택, 진행 목표는 나중에 프로젝트 설정에서 수정할 수 있습니다."}
+            {step === 2 && "목표 산출물, 기술 스택, 진행 목표는 마이페이지의 프로젝트 정보에서 나중에 수정할 수 있습니다."}
             {step === 3 && "이메일로 초대하면 팀원과 심사자는 서로 다른 접근 권한을 가집니다."}
           </p>
         </div>
@@ -361,7 +361,7 @@ export function OnboardingScreen() {
                 onRemove={i => removeEmailRow(reviewerEmails, setReviewerEmails, i)}
               />
 
-              <p className="text-[11px] text-muted-foreground">지금 초대하지 않아도 나중에 프로젝트 설정에서 초대할 수 있습니다.</p>
+              <p className="text-[11px] text-muted-foreground">지금 초대하지 않아도 나중에 사이드바의 프로젝트 메뉴에서 초대 코드로 팀원을 초대할 수 있습니다.</p>
             </div>
           )}
         </div>

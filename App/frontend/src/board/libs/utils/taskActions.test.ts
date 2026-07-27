@@ -6,19 +6,19 @@ describe("visibleSecondaryActions", () => {
   const doneSecondary = STATUS_ACTIONS.done.filter((a) => !a.primary);
 
   it("hides 결과물 보기 and AI 완료 요약 regardless of role", () => {
-    const labels = visibleSecondaryActions(doneSecondary, true).map((a) => a.label);
+    const labels = visibleSecondaryActions(doneSecondary, true, false).map((a) => a.label);
     expect(labels).not.toContain("결과물 보기");
     expect(labels).not.toContain("AI 완료 요약");
   });
 
-  it("shows 팀장 피드백 for leaders", () => {
-    const labels = visibleSecondaryActions(doneSecondary, true).map((a) => a.label);
-    expect(labels).toEqual(["팀장 피드백", "다시 열기"]);
+  it("shows 팀장 피드백 for leaders regardless of assignee", () => {
+    const labels = visibleSecondaryActions(doneSecondary, true, false).map((a) => a.label);
+    expect(labels).toEqual(["팀장 피드백"]);
   });
 
   it("hides 팀장 피드백 for non-leaders", () => {
-    const labels = visibleSecondaryActions(doneSecondary, false).map((a) => a.label);
-    expect(labels).toEqual(["다시 열기"]);
+    expect(visibleSecondaryActions(doneSecondary, false, false).map((a) => a.label)).toEqual([]);
+    expect(visibleSecondaryActions(doneSecondary, false, true).map((a) => a.label)).toEqual([]);
   });
 
   it("hides AI/PR/의존관계/중복 항목 that need out-of-scope integrations", () => {
@@ -26,27 +26,28 @@ describe("visibleSecondaryActions", () => {
     const inprogressSecondary = STATUS_ACTIONS.inprogress.filter((a) => !a.primary);
     const blockedSecondary = STATUS_ACTIONS.blocked.filter((a) => !a.primary);
 
-    expect(visibleSecondaryActions(todoSecondary, true).map((a) => a.label)).toEqual(["담당자 변경", "시작 알림"]);
-    expect(visibleSecondaryActions(inprogressSecondary, true).map((a) => a.label)).toEqual(["블로커 등록", "진행상황 요청"]);
-    expect(visibleSecondaryActions(blockedSecondary, true).map((a) => a.label)).toEqual(["긴급 알림", "담당자 재배정"]);
+    expect(visibleSecondaryActions(todoSecondary, true, false).map((a) => a.label)).toEqual(["담당자 변경", "시작 알림"]);
+    expect(visibleSecondaryActions(inprogressSecondary, true, false).map((a) => a.label)).toEqual(["블로커 등록", "진행상황 요청"]);
+    expect(visibleSecondaryActions(blockedSecondary, true, false).map((a) => a.label)).toEqual(["긴급 알림", "담당자 재배정"]);
   });
 
-  it("hides 넛지(시작 알림/진행상황 요청/긴급 알림) for non-leaders", () => {
+  it("hides 넛지(시작 알림/진행상황 요청/긴급 알림)와 담당자 변경/재배정을 non-leaders에게는 숨긴다", () => {
     const todoSecondary = STATUS_ACTIONS.todo.filter((a) => !a.primary);
-    const inprogressSecondary = STATUS_ACTIONS.inprogress.filter((a) => !a.primary);
     const blockedSecondary = STATUS_ACTIONS.blocked.filter((a) => !a.primary);
 
-    expect(visibleSecondaryActions(todoSecondary, false).map((a) => a.label)).toEqual(["담당자 변경"]);
-    expect(visibleSecondaryActions(inprogressSecondary, false).map((a) => a.label)).toEqual(["블로커 등록"]);
-    expect(visibleSecondaryActions(blockedSecondary, false).map((a) => a.label)).toEqual(["담당자 재배정"]);
+    expect(visibleSecondaryActions(todoSecondary, false, false).map((a) => a.label)).toEqual([]);
+    expect(visibleSecondaryActions(todoSecondary, false, true).map((a) => a.label)).toEqual([]);
+    expect(visibleSecondaryActions(blockedSecondary, false, false).map((a) => a.label)).toEqual([]);
+  });
+
+  it("hides 상태 이동 보조 액션(블로커 등록)을 담당자가 아닌 팀원에게는 숨긴다", () => {
+    const inprogressSecondary = STATUS_ACTIONS.inprogress.filter((a) => !a.primary);
+    expect(visibleSecondaryActions(inprogressSecondary, false, false).map((a) => a.label)).toEqual([]);
+    expect(visibleSecondaryActions(inprogressSecondary, false, true).map((a) => a.label)).toEqual(["블로커 등록"]);
   });
 });
 
 describe("quickMoveTargetStatus", () => {
-  it("returns inprogress when label is 다시 열기 and status is done", () => {
-    expect(quickMoveTargetStatus("다시 열기", "done")).toBe("inprogress");
-  });
-
   it("returns blocked when label is 블로커 등록 and status is inprogress", () => {
     expect(quickMoveTargetStatus("블로커 등록", "inprogress")).toBe("blocked");
   });
@@ -56,7 +57,6 @@ describe("quickMoveTargetStatus", () => {
   });
 
   it("returns null when status doesn't match the label's expected origin", () => {
-    expect(quickMoveTargetStatus("다시 열기", "inprogress")).toBeNull();
     expect(quickMoveTargetStatus("블로커 등록", "done")).toBeNull();
   });
 });
@@ -64,7 +64,7 @@ describe("quickMoveTargetStatus", () => {
 describe("canMoveTask", () => {
   const task: Task = {
     id: "1", title: "제목", status: "todo", priority: "medium",
-    assignee: "3", dueDate: "", labels: [], category: "other", position: 0,
+    assignee: "3", dueDate: "", labels: [], category: "other", position: 0, pendingApproval: false, startDate: "", extraFields: {},
   };
 
   it("allows leaders to move any task", () => {

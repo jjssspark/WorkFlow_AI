@@ -26,6 +26,10 @@ class Settings(BaseSettings):
         default="Qwen/Qwen3-4B-Instruct-2507",
         validation_alias="HF_MEETING_ANALYSIS_MODEL",
     )
+    # RAG 답변을 로컬(ollama)로 생성할 때 쓸 모델. generation_model을 같이 쓰면 안 된다 -
+    # 그 값은 ai_contribution_report가 이미 쓰고 있어서, 한쪽 모델을 바꾸면 다른 쪽이 조용히
+    # 끌려간다(compose 기본값도 gemma2로 서로 다르다).
+    rag_ollama_model: str = "gemma4:e2b"
 
     # Spring(RagController)만 RAG 라우터를 호출할 수 있도록 검증하는 서비스 간 공유 시크릿.
     # 미설정 시 llm_rag_assistant/app/security.py가 모든 요청을 거부한다(fail-closed).

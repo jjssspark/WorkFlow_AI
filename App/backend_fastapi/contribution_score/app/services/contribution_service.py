@@ -11,11 +11,12 @@ WEIGHT_MEETING = 0.3073
 
 def workload_component_of(member: WorkloadMemberResult) -> float:
     """
-    overload_score는 과부하든 저활동이든 이상치면 값이 커진다(방향을 구분하지 않음).
-    기여도 관점에서는 저활동만 감점 대상이어야 하므로, 저활동 의심일 때만
-    100에서 빼서 반영하고 그 외(정상/과부하/불명확)는 만점 처리한다.
+    overload_score는 과부하든 배정량 불균형이든 이상치면 값이 커진다(방향을 구분하지 않음).
+    기여도 관점에서는 배정량 불균형(애초에 배정받은 업무 자체가 팀 평균보다 적음)만
+    감점 대상이어야 하므로, 그 경우에만 100에서 빼서 반영하고 그 외(정상/과부하/불명확)는
+    만점 처리한다.
     """
-    if member.anomaly_type == "저활동 의심":
+    if member.anomaly_type == "배정량 불균형":
         return max(0.0, 100.0 - member.overload_score)
     return 100.0
 
@@ -57,6 +58,7 @@ def compute_contribution_scores(
                 contribution_score=score,
                 anomaly_type=member.anomaly_type,
                 task_count_active_rel=member.task_count_active_rel,
+                task_count_total_rel=member.task_count_total_rel,
                 difficulty_avg_rel=member.difficulty_avg_rel,
                 overdue_count=member.overdue_count,
             )

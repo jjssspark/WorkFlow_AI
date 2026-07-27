@@ -1,5 +1,6 @@
 package com.workflowai.notification;
 
+import com.workflowai.common.UtcTimeFormat;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 @Schema(description = "알림 항목")
@@ -22,7 +23,7 @@ public record NotificationDto(
             notification.getTargetType(),
             notification.getTargetId() == null ? null : String.valueOf(notification.getTargetId()),
             notification.isRead(),
-            notification.getCreatedAt().toString()
+            UtcTimeFormat.toIsoUtc(notification.getCreatedAt())
         );
     }
 }

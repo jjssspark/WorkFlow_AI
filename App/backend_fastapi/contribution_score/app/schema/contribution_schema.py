@@ -14,6 +14,7 @@ class ContributionMemberResult(BaseModel):
     # --- 편중도 근거 패널용 신규 필드 (WorkloadMemberResult에서 그대로 복사) ---
     anomaly_type: str
     task_count_active_rel: float
+    task_count_total_rel: float
     difficulty_avg_rel: float
     overdue_count: int
 

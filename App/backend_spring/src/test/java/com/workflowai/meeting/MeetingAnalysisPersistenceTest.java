@@ -123,7 +123,7 @@ class MeetingAnalysisPersistenceTest {
         when(meetingAttendeeRepository.findByMeetingId(5L)).thenReturn(List.of());
         when(meetingAnalysisRepository.save(any(MeetingAnalysis.class))).thenAnswer(invocation -> invocation.getArgument(0));
         doThrow(new RuntimeException("notification service down"))
-            .when(notificationService).notify(any(), any(), any(), any(), any(), any());
+            .when(notificationService).notifyAfterCommit(any(), any(), any(), any(), any(), any());
 
         MeetingAnalysisResult result = new MeetingAnalysisResult(
             "요약", List.of(), List.of(), List.of(), List.of(),
@@ -155,7 +155,7 @@ class MeetingAnalysisPersistenceTest {
         try {
             persistence.saveAnalysisSuccess(5L, result, "FASTAPI");
 
-            verify(notificationService, never()).notify(any(), any(), any(), any(), any(), any());
+            verify(notificationService, never()).notifyAfterCommit(any(), any(), any(), any(), any(), any());
             verify(ragIngestService, never()).ingestBestEffort(any(), any(), any(), any());
 
             List<TransactionSynchronization> synchronizations = TransactionSynchronizationManager.getSynchronizations();
@@ -163,7 +163,7 @@ class MeetingAnalysisPersistenceTest {
             synchronizations.forEach(TransactionSynchronization::afterCommit);
 
             verify(ragIngestService).ingestBestEffort(1L, "meeting", 5L, "요약");
-            verify(notificationService).notify(10L, "MEETING_ANALYSIS_COMPLETED", "회의 분석이 완료되었습니다.",
+            verify(notificationService).notifyAfterCommit(10L, "MEETING_ANALYSIS_COMPLETED", "회의 분석이 완료되었습니다.",
                 "'정기회의' 회의록 분석이 완료되었습니다.", "meeting", 5L);
         } finally {
             TransactionSynchronizationManager.clearSynchronization();
@@ -191,7 +191,7 @@ class MeetingAnalysisPersistenceTest {
             TransactionSynchronizationManager.clearSynchronization();
         }
 
-        verify(notificationService, never()).notify(any(), any(), any(), any(), any(), any());
+        verify(notificationService, never()).notifyAfterCommit(any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -212,8 +212,8 @@ class MeetingAnalysisPersistenceTest {
 
         persistence.saveAnalysisSuccess(5L, result, "FASTAPI");
 
-        verify(notificationService).notify(eq(10L), eq("MEETING_ANALYSIS_COMPLETED"), any(), any(), eq("meeting"), eq(5L));
-        verify(notificationService).notify(eq(99L), eq("MEETING_ANALYSIS_COMPLETED_NOTIFY_LEADER"), any(), any(), eq("meeting"), eq(5L));
+        verify(notificationService).notifyAfterCommit(eq(10L), eq("MEETING_ANALYSIS_COMPLETED"), any(), any(), eq("meeting"), eq(5L));
+        verify(notificationService).notifyAfterCommit(eq(99L), eq("MEETING_ANALYSIS_COMPLETED_NOTIFY_LEADER"), any(), any(), eq("meeting"), eq(5L));
     }
 
     @Test
@@ -234,8 +234,8 @@ class MeetingAnalysisPersistenceTest {
 
         persistence.saveAnalysisSuccess(5L, result, "FASTAPI");
 
-        verify(notificationService, times(1)).notify(any(), any(), any(), any(), any(), any());
-        verify(notificationService).notify(eq(99L), eq("MEETING_ANALYSIS_COMPLETED"), any(), any(), eq("meeting"), eq(5L));
+        verify(notificationService, times(1)).notifyAfterCommit(any(), any(), any(), any(), any(), any());
+        verify(notificationService).notifyAfterCommit(eq(99L), eq("MEETING_ANALYSIS_COMPLETED"), any(), any(), eq("meeting"), eq(5L));
     }
 
     @Test
@@ -257,6 +257,36 @@ class MeetingAnalysisPersistenceTest {
         );
 
         persistence.saveAnalysisSuccess(5L, result, "FASTAPI");
+
+        ArgumentCaptor<MeetingActionItem> actionItemCaptor = ArgumentCaptor.forClass(MeetingActionItem.class);
+        verify(meetingActionItemRepository).save(actionItemCaptor.capture());
+        assertThat(actionItemCaptor.getValue().getFinalAssigneeId()).isEqualTo(3L);
+    }
+
+    @Test
+    void assignsTodoUsingRootMeetingAttendeesWhenMeetingIsAVersion() {
+        MeetingAnalysisPersistence persistence = newPersistence();
+        Meeting version = newMeeting();
+        // 버전(수정본)은 원본 회의록(id=5)을 가리킨다. 버전 자신(id=6)에는 참석자 행이 없다는 것이
+        // 이 테스트의 핵심 전제 — meetingAttendeeRepository.findByMeetingId(6L)은 스텁하지 않으므로
+        // Mockito 기본값(빈 리스트)을 반환하며, 이것이 실제 운영 데이터 상태를 그대로 재현한다.
+        org.springframework.test.util.ReflectionTestUtils.setField(version, "originalMeetingId", 5L);
+        when(meetingRepository.findByIdForUpdate(6L)).thenReturn(Optional.of(version));
+        stubSaves();
+        stubMember("박지수", 3L);
+        // 원본 회의록(id=5)에는 참석자가 등록되어 있다.
+        when(meetingAttendeeRepository.findByMeetingId(5L)).thenReturn(List.of(new MeetingAttendee(5L, 3L)));
+
+        MeetingAnalysisResult result = new MeetingAnalysisResult(
+            "요약",
+            List.of("결정1"),
+            List.of(new MeetingTodo("업무1", "설명", "박지수", null, "2026-07-20", "HIGH", "ETC", true)),
+            List.of("위험1"),
+            List.of("키워드1"),
+            new MeetingMeta("정기회의_수정본", "2026-07-15", List.of("박지수"))
+        );
+
+        persistence.saveAnalysisSuccess(6L, result, "FASTAPI");
 
         ArgumentCaptor<MeetingActionItem> actionItemCaptor = ArgumentCaptor.forClass(MeetingActionItem.class);
         verify(meetingActionItemRepository).save(actionItemCaptor.capture());
@@ -561,13 +591,13 @@ class MeetingAnalysisPersistenceTest {
         try {
             persistence.saveAnalysisFailure(7L, "FastAPI 연결 실패");
 
-            verify(notificationService, never()).notify(any(), any(), any(), any(), any(), any());
+            verify(notificationService, never()).notifyAfterCommit(any(), any(), any(), any(), any(), any());
 
             List<TransactionSynchronization> synchronizations = TransactionSynchronizationManager.getSynchronizations();
             assertThat(synchronizations).hasSize(1);
             synchronizations.forEach(TransactionSynchronization::afterCommit);
 
-            verify(notificationService).notify(10L, "MEETING_ANALYSIS_FAILED", "회의 분석에 실패했습니다.",
+            verify(notificationService).notifyAfterCommit(10L, "MEETING_ANALYSIS_FAILED", "회의 분석에 실패했습니다.",
                 "'정기회의' 회의록 분석에 실패했습니다. 다시 시도해주세요.", "meeting", 7L);
         } finally {
             TransactionSynchronizationManager.clearSynchronization();
@@ -587,6 +617,6 @@ class MeetingAnalysisPersistenceTest {
             TransactionSynchronizationManager.clearSynchronization();
         }
 
-        verify(notificationService, never()).notify(any(), any(), any(), any(), any(), any());
+        verify(notificationService, never()).notifyAfterCommit(any(), any(), any(), any(), any(), any());
     }
 }

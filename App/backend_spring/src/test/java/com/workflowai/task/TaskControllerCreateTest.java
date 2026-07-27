@@ -12,13 +12,16 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.workflowai.activity.ActivityService;
 import com.workflowai.common.DemoDataService;
+import com.workflowai.common.GlobalExceptionHandler;
 import com.workflowai.notification.NotificationService;
+import com.workflowai.project.Project;
 import com.workflowai.project.ProjectMemberRepository;
 import com.workflowai.project.ProjectRepository;
 import com.workflowai.rag.RagIngestService;
 import com.workflowai.security.UserPrincipal;
 import com.workflowai.user.UserRepository;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -67,6 +70,7 @@ class TaskControllerCreateTest {
                 taskRepository, userRepository, demoDataService, activityService,
                 notificationService, projectMemberRepository, projectRepository, ragIngestService
             ))
+            .setControllerAdvice(new GlobalExceptionHandler())
             .build();
         SecurityContextHolder.getContext().setAuthentication(
             new UsernamePasswordAuthenticationToken(
@@ -95,10 +99,44 @@ class TaskControllerCreateTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.success").value(true));
 
-        verify(notificationService).notify(
+        verify(notificationService).notifyAfterCommit(
             eq(5L), eq("TASK_ASSIGNED"), any(), any(), eq("task"), any()
         );
         verify(ragIngestService).ingestBestEffort(1L, "task", null, "새 업무", 5L);
+    }
+
+    @Test
+    void createsTaskWithStartDate() throws Exception {
+        when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
+        when(taskRepository.findTopByProjectIdAndStatusOrderByPositionDesc(anyLong(), any()))
+            .thenReturn(java.util.Optional.empty());
+        when(taskRepository.save(any(Task.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(projectRepository.findById(1L)).thenReturn(Optional.of(new Project("데모", "team", "설명")));
+
+        mockMvc.perform(post("/api/v1/projects/demo-project/tasks")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"title":"새 업무","category":"backend","startDate":"2026-07-01","dueDate":"2026-07-10"}
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.startDate").value("2026-07-01"))
+            .andExpect(jsonPath("$.data.dueDate").value("2026-07-10"));
+    }
+
+    @Test
+    void rejectsStartDateAfterDueDate() throws Exception {
+        when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
+        when(projectRepository.findById(1L)).thenReturn(Optional.of(new Project("데모", "team", "설명")));
+
+        mockMvc.perform(post("/api/v1/projects/demo-project/tasks")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"title":"새 업무","category":"backend","startDate":"2026-07-10","dueDate":"2026-07-01"}
+                    """))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.code").value("INVALID_DATE_RANGE"));
+
+        verify(taskRepository, never()).save(any());
     }
 
     @Test
@@ -113,7 +151,7 @@ class TaskControllerCreateTest {
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.error.code").value("INVALID_ASSIGNEE_ID"));
 
-        verify(notificationService, never()).notify(any(), any(), any(), any(), any(), any());
+        verify(notificationService, never()).notifyAfterCommit(any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -130,6 +168,6 @@ class TaskControllerCreateTest {
                     """))
             .andExpect(status().isOk());
 
-        verify(notificationService, never()).notify(any(), any(), any(), any(), any(), any());
+        verify(notificationService, never()).notifyAfterCommit(any(), any(), any(), any(), any(), any());
     }
 }

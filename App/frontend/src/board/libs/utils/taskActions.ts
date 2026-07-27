@@ -1,6 +1,6 @@
 import {
   ArrowRight, User, CheckSquare, Bell, Sparkles, CheckCircle2, AlertTriangle,
-  GitPullRequest, AlertCircle, CheckCheck, MessageSquare, Eye, RefreshCw,
+  GitPullRequest, AlertCircle, CheckCheck, MessageSquare, Eye,
 } from "lucide-react";
 import type { Task, TaskStatus } from "../types/task";
 
@@ -39,7 +39,6 @@ export const STATUS_ACTIONS: Record<TaskStatus, StatusAction[]> = {
     { label:"팀장 피드백", icon:MessageSquare },
     { label:"결과물 보기", icon:Eye },
     { label:"AI 완료 요약", icon:Sparkles },
-    { label:"다시 열기", icon:RefreshCw },
   ],
 };
 
@@ -51,13 +50,19 @@ const HIDDEN_ACTION_LABELS = new Set([
   "체크리스트 생성", // "체크리스트 자동 생성"과 기능 중복
 ]);
 // 백엔드(TaskController.sendNudge)가 넛지류를 팀장 전용(@PreAuthorize hasRole LEADER)으로 막아서 프론트도 맞춘다.
-const LEADER_ONLY_LABELS = new Set(["팀장 피드백", "시작 알림", "진행상황 요청", "긴급 알림"]);
+// 담당자 변경/재배정도 담당자 본인의 카드에서는 의미가 없으므로(자기 자신을 재배정할 일이 없음) 팀장 전용으로 둔다.
+const LEADER_ONLY_LABELS = new Set(["팀장 피드백", "시작 알림", "진행상황 요청", "긴급 알림", "담당자 변경", "담당자 재배정"]);
 
-/** 점세개 메뉴에 실제로 보여줄 보조 액션만 남긴다(범위 밖 기능 숨김 + 팀장 전용 항목 권한 필터링). */
-export function visibleSecondaryActions(actions: StatusAction[], isLeader: boolean): StatusAction[] {
+// 보조 액션 중 상태를 실제로 옮기는 것들(QUICK_MOVE 키와 동일) — 백엔드 updatePosition의
+// FORBIDDEN_NOT_OWNER 규칙과 맞춰, 팀장이 아니면 본인이 담당자인 업무에서만 보여준다.
+const STATUS_CHANGE_SECONDARY_LABELS = new Set(["블로커 등록"]);
+
+/** 점세개 메뉴에 실제로 보여줄 보조 액션만 남긴다(범위 밖 기능 숨김 + 팀장 전용/담당자 전용 항목 권한 필터링). */
+export function visibleSecondaryActions(actions: StatusAction[], isLeader: boolean, isAssignee: boolean): StatusAction[] {
   return actions.filter((a) => {
     if (HIDDEN_ACTION_LABELS.has(a.label)) return false;
     if (LEADER_ONLY_LABELS.has(a.label) && !isLeader) return false;
+    if (STATUS_CHANGE_SECONDARY_LABELS.has(a.label) && !isLeader && !isAssignee) return false;
     return true;
   });
 }
@@ -73,7 +78,6 @@ export function canMoveTask(isLeader: boolean, task: Task, userId: number | null
 }
 
 const QUICK_MOVE: Partial<Record<string, Partial<Record<TaskStatus, TaskStatus>>>> = {
-  "다시 열기": { done: "inprogress" },
   "블로커 등록": { inprogress: "blocked" },
 };
 
