@@ -137,6 +137,47 @@ async def test_leader_can_set_due_date() -> None:
 
 
 @pytest.mark.asyncio
+async def test_leader_can_rename_task() -> None:
+    """rename_task는 팀장 전용이고 실행기가 지원한다. 팀장은 확인 카드를 받는다."""
+    from llm_rag_assistant.app.graph.assistant_graph import start_command
+
+    plan = [Action(tool="rename_task", task_ref="WF-250", args={"title": "로그인 API 리팩터링"})]
+    with patch(
+        "llm_rag_assistant.app.graph.assistant_graph.plan_actions", new=AsyncMock(return_value=plan)
+    ), patch(
+        "llm_rag_assistant.app.graph.assistant_graph.resolve_task_ref",
+        new=AsyncMock(return_value=TaskMatch(task_id=61, title="로그인 개선")),
+    ):
+        outcome = await start_command(object(), _state("WF-250 이름 바꿔줘", role="LEADER"))
+
+    assert outcome.type == "confirm"
+    assert outcome.card is not None
+    assert outcome.card.tool == "rename_task"
+    assert outcome.card.task_id == 61
+    assert outcome.card.args["title"] == "로그인 API 리팩터링"
+    # 카드 요약에 바뀔 이름이 보여야 사용자가 승인 전에 확인할 수 있다.
+    assert "로그인 API 리팩터링" in outcome.card.summary
+
+
+@pytest.mark.asyncio
+async def test_member_is_blocked_for_rename_task() -> None:
+    from llm_rag_assistant.app.graph.assistant_graph import start_command
+
+    plan = [Action(tool="rename_task", task_ref="WF-250", args={"title": "새 이름"})]
+    with patch(
+        "llm_rag_assistant.app.graph.assistant_graph.plan_actions", new=AsyncMock(return_value=plan)
+    ), patch(
+        "llm_rag_assistant.app.graph.assistant_graph.resolve_task_ref",
+        new=AsyncMock(return_value=TaskMatch(task_id=61, title="로그인 개선")),
+    ):
+        outcome = await start_command(object(), _state("이름 바꿔줘", role="MEMBER"))
+
+    assert outcome.type == "done"
+    assert outcome.card is None
+    assert "팀장" in outcome.message
+
+
+@pytest.mark.asyncio
 async def test_empty_plan_asks_again() -> None:
     from llm_rag_assistant.app.graph.assistant_graph import start_command
 

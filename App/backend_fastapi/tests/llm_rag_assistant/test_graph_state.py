@@ -45,6 +45,27 @@ def test_supported_tools_are_a_subset_of_all_tools() -> None:
     assert SUPPORTED_TOOLS <= ALL_TOOLS
 
 
+def test_rename_task_is_supported_and_leader_only() -> None:
+    assert "rename_task" in SUPPORTED_TOOLS
+    assert requires_leader("rename_task") is True
+
+
+def test_rename_task_rejects_empty_title() -> None:
+    with pytest.raises(ValidationError):
+        Action(tool="rename_task", task_ref="WF-1", args={"title": "   "})
+
+
+def test_rename_task_rejects_title_over_column_limit() -> None:
+    # tasks.title은 VARCHAR(200)이라 더 긴 제목은 DB가 거절해 원인 모를 500이 된다.
+    with pytest.raises(ValidationError):
+        Action(tool="rename_task", task_ref="WF-1", args={"title": "가" * 201})
+
+
+def test_rename_task_accepts_title_at_column_limit() -> None:
+    action = Action(tool="rename_task", task_ref="WF-1", args={"title": "가" * 200})
+    assert len(action.args["title"]) == 200
+
+
 def test_supported_tools_survive_permission_changes() -> None:
     # SUPPORTED_TOOLS를 권한 집합에서 파생시키면 권한 재배치만으로 카드가 통째로 사라진다.
     # 권한이 전부 팀장으로 옮겨간 뒤에도 실행 가능 목록은 그대로여야 한다.
