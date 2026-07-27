@@ -237,11 +237,21 @@ export function RoadmapView() {
 
   const fixScheduleSort = () => {
     if (projectId === null) return;
-    localStorage.setItem(`roadmap:schedule-sort:${projectId}`, "true");
-    setScheduleSortEnabled(true);
+    const nextEnabled = !scheduleSortEnabled;
+    localStorage.setItem(`roadmap:schedule-sort:${projectId}`, String(nextEnabled));
+    setScheduleSortEnabled(nextEnabled);
     setRecommendationMessage("");
     setError("");
-    setRecommendationMessage("날짜순 정렬을 이 프로젝트의 고정 보기로 저장했습니다.");
+    setRecommendationMessage(nextEnabled
+      ? "날짜순 정렬을 이 프로젝트의 고정 보기로 저장했습니다."
+      : "날짜순 고정 정렬을 해제했습니다.");
+  };
+
+  const disableScheduleSortAfterManualMove = () => {
+    if (!scheduleSortEnabled || projectId === null) return;
+    localStorage.setItem(`roadmap:schedule-sort:${projectId}`, "false");
+    setScheduleSortEnabled(false);
+    setRecommendationMessage("업무를 직접 이동해 날짜순 고정 정렬을 해제했습니다.");
   };
 
   const loadTaskChecklist = async (taskId: string) => {
@@ -327,6 +337,7 @@ export function RoadmapView() {
         milestoneId: targetMilestoneId,
         position: task.position,
       })));
+      disableScheduleSortAfterManualMove();
       setSelectedTaskIds(new Set());
     } catch (cause) {
       setRoadmap(previous);
@@ -361,6 +372,7 @@ export function RoadmapView() {
         milestoneId: targetTask.milestoneId,
         position: task.position,
       })));
+      disableScheduleSortAfterManualMove();
       setSelectedTaskIds(new Set());
     } catch (cause) {
       setRoadmap(previous);
@@ -415,6 +427,8 @@ export function RoadmapView() {
     const checklistState = checklistLoadState[task.id];
     const completedChecklistCount = checklist.filter((item) => item.done).length;
     const alignHoverCardRight = Number.parseFloat(String(style?.left ?? "0")) > 60;
+    const alignAssigneeRight = Number.parseFloat(String(style?.left ?? "0"))
+      + Number.parseFloat(String(style?.width ?? "0")) > 80;
     return (
       <button
         key={task.id}
@@ -467,7 +481,7 @@ export function RoadmapView() {
             setSelectedTaskIds(new Set());
           }
         }}
-        className={`relative w-full grid grid-cols-[300px_minmax(520px,1fr)] min-h-[52px] border-b border-border text-left hover:bg-accent/40 transition-colors ${hoveredTaskId === task.id ? "z-30" : ""} ${dragRowTarget === beforeDropKey ? "border-t-2 border-t-primary" : ""} ${dragRowTarget === afterDropKey ? "border-b-2 border-b-primary" : ""} ${isMultiSelected ? "bg-primary/10 ring-1 ring-inset ring-primary/40" : selectedTask?.id === task.id ? "bg-accent/60" : ""}`}
+        className={`relative w-full grid grid-cols-[300px_minmax(520px,1fr)] min-h-[52px] border-b border-border text-left hover:bg-accent/40 transition-colors ${hoveredTaskId === task.id ? "z-20" : ""} ${dragRowTarget === beforeDropKey ? "border-t-2 border-t-primary" : ""} ${dragRowTarget === afterDropKey ? "border-b-2 border-b-primary" : ""} ${isMultiSelected ? "bg-primary/10 ring-1 ring-inset ring-primary/40" : selectedTask?.id === task.id ? "bg-accent/60" : ""}`}
       >
         <span className="sticky left-0 z-10 px-4 py-2 flex items-center gap-2 border-r border-border min-w-0 bg-background">
           {canManageMilestones && <GripVertical className="w-3.5 h-3.5 text-muted-foreground shrink-0 cursor-grab" />}
@@ -495,10 +509,20 @@ export function RoadmapView() {
                 void loadTaskChecklist(task.id);
               }}
               onMouseLeave={() => setHoveredTaskId((current) => current === task.id ? null : current)}
-              className={`absolute top-3.5 h-6 rounded-md px-2 flex items-center text-[10px] font-semibold ${STATUS_COLORS[task.status] ?? STATUS_COLORS.todo}`}
+              className="absolute top-2.5 h-9 overflow-visible"
               style={style}
             >
-              <span className="min-w-0 truncate">{task.assigneeName ?? "미배정"}</span>
+              <span
+                data-task-schedule-line
+                className={`block h-2 w-full rounded-full ${STATUS_COLORS[task.status] ?? STATUS_COLORS.todo}`}
+              />
+              <span
+                data-task-assignee-label
+                title={task.assigneeName ?? "미배정"}
+                className={`absolute top-3 max-w-40 whitespace-normal break-keep rounded-md px-2 py-1 text-[10px] font-semibold leading-tight shadow-sm ${alignAssigneeRight ? "right-0" : "left-0"} ${STATUS_COLORS[task.status] ?? STATUS_COLORS.todo}`}
+              >
+                {task.assigneeName ?? "미배정"}
+              </span>
               {hoveredTaskId === task.id && (
                 <span
                   id={`roadmap-task-tooltip-${task.id}`}
@@ -617,9 +641,9 @@ export function RoadmapView() {
         <div className="w-full relative" style={{ minWidth: `${roadmapMinWidth}px` }}>
           <div
             data-roadmap-column-header
-            className="sticky top-0 z-50 w-full grid grid-cols-[300px_minmax(520px,1fr)] h-11 bg-muted border-b border-border shadow-sm"
+            className="sticky top-0 z-30 w-full grid grid-cols-[300px_minmax(520px,1fr)] h-11 bg-muted border-b border-border shadow-sm"
           >
-            <div className="sticky left-0 z-[60] px-4 flex items-center border-r border-border bg-muted text-xs font-semibold">단계 / 업무</div>
+            <div className="sticky left-0 z-40 px-4 flex items-center border-r border-border bg-muted text-xs font-semibold">단계 / 업무</div>
             <div className="relative">
               {segments.map((segment) => <div key={segment.key} className="absolute inset-y-0 border-r border-border flex items-center justify-center text-[10px] text-muted-foreground" style={{ left: `${segment.left}%`, width: `${segment.width}%` }}>{segment.label}</div>)}
             </div>

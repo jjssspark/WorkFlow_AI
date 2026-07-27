@@ -101,7 +101,10 @@ export function Header({ onOpenMobileMenu }: { onOpenMobileMenu?: () => void }) 
   };
 
   return (
-    <header className="h-14 bg-card border-b border-border flex items-center justify-between px-6 shrink-0 shadow-sm">
+    <header
+      data-global-header
+      className="relative z-40 h-14 bg-card border-b border-border flex items-center justify-between px-6 shrink-0 shadow-sm"
+    >
       <div className="flex items-center gap-2 text-sm min-w-0">
         {isMobile && (
           <button
@@ -167,9 +170,12 @@ export function Header({ onOpenMobileMenu }: { onOpenMobileMenu?: () => void }) 
           {notifOpen && (
             <>
               <div className="fixed inset-0 z-40" onClick={() => setNotifOpen(false)} />
-              <div className="absolute right-0 top-full mt-2 w-80 bg-card border border-border rounded-xl shadow-lg z-50 overflow-hidden">
+              <div
+                data-notification-popover
+                className="absolute right-0 top-full z-50 mt-2 flex w-80 max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-xl border border-border bg-card shadow-xl"
+              >
                 <div className="px-4 py-2.5 border-b border-border text-xs font-semibold text-foreground">알림</div>
-                <div className="max-h-80 overflow-y-auto">
+                <div data-notification-list className="min-h-0 max-h-[calc(100vh-10rem)] overflow-y-auto overscroll-contain">
                   {notifError ? (
                     <div className="px-4 py-6 text-xs text-red-600 text-center">알림을 불러오지 못했습니다. 다시 시도해주세요.</div>
                   ) : notifications.length === 0 ? (

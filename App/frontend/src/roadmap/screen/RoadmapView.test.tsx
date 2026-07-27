@@ -86,7 +86,7 @@ describe("RoadmapView", () => {
     expect(milestoneBar).toHaveClass("rounded-full");
     expect(milestoneBar.firstElementChild).toHaveClass("rounded-full");
     expect(screen.getByRole("button", { name: /1단계.*통합 테스트/ }).parentElement).toHaveClass("sticky", "left-0");
-    expect(document.querySelector("[data-roadmap-column-header]")).toHaveClass("z-50");
+    expect(document.querySelector("[data-roadmap-column-header]")).toHaveClass("z-30");
 
     fireEvent.click(screen.getByRole("button", { name: "주" }));
     expect(screen.getByText("1주차")).toBeInTheDocument();
@@ -98,7 +98,13 @@ describe("RoadmapView", () => {
     const firstView = renderRoadmap();
 
     await screen.findByText("통합 테스트");
-    expect(screen.getByLabelText("E2E 테스트 일정 막대")).toHaveTextContent("미배정");
+    const taskBar = screen.getByLabelText("E2E 테스트 일정 막대");
+    expect(taskBar).toHaveTextContent("미배정");
+    expect(taskBar.querySelector("[data-task-schedule-line]")).toHaveClass("rounded-full");
+    const assigneeLabel = taskBar.querySelector("[data-task-assignee-label]");
+    expect(assigneeLabel).not.toHaveClass("truncate");
+    expect(assigneeLabel).toHaveClass("whitespace-normal", "break-keep", "right-0");
+    expect(assigneeLabel).toHaveAttribute("title", "미배정");
     expect(screen.getByLabelText("상태 색상 안내")).toHaveTextContent("할 일진행 중막힘완료");
 
     const sortButton = screen.getByRole("button", { name: /날짜순 정렬/ });
@@ -265,6 +271,55 @@ describe("RoadmapView", () => {
         expect.objectContaining({ taskId: "11", milestoneId: "2", position: 0 }),
         expect.objectContaining({ taskId: "10", milestoneId: "2", position: 1 }),
       ]);
+    });
+  });
+
+  it("disables pinned date sorting after a manual reorder so the moved order stays visible", async () => {
+    localStorage.setItem("roadmap:schedule-sort:1", "true");
+    fetchRoadmap.mockResolvedValue({
+      ...structuredClone(response),
+      milestones: [{
+        ...structuredClone(response.milestones[0]),
+        tasks: [
+          {
+            ...structuredClone(response.milestones[0].tasks[0]),
+            startDate: "2026-07-21",
+            dueDate: "2026-07-28",
+          },
+          {
+            ...structuredClone(response.milestones[0].tasks[0]),
+            id: "11",
+            title: "접근성 테스트",
+            startDate: "2026-07-01",
+            dueDate: "2026-07-02",
+            position: 1,
+          },
+        ],
+      }],
+    });
+    renderRoadmap();
+
+    const firstTask = await screen.findByRole("button", { name: /E2E 테스트/ });
+    const secondTask = screen.getByRole("button", { name: /접근성 테스트/ });
+    const dataTransfer = {
+      effectAllowed: "",
+      dropEffect: "",
+      setData: vi.fn(),
+      getData: vi.fn(),
+    };
+    fireEvent.dragStart(firstTask, { dataTransfer });
+    vi.spyOn(secondTask, "getBoundingClientRect").mockReturnValue({
+      x: 0, y: 0, top: 0, left: 0, right: 100, bottom: 40, width: 100, height: 40,
+      toJSON: () => ({}),
+    });
+    fireEvent.dragOver(secondTask, { dataTransfer, clientY: 39 });
+    fireEvent.drop(secondTask, { dataTransfer, clientY: 39 });
+
+    await waitFor(() => {
+      expect(updateRoadmapTaskLayout).toHaveBeenCalledTimes(1);
+      expect(localStorage.getItem("roadmap:schedule-sort:1")).toBe("false");
+      expect(screen.getByRole("button", { name: /날짜순 정렬/ })).toHaveAttribute("aria-pressed", "false");
+      expect(screen.getByText("업무를 직접 이동해 날짜순 고정 정렬을 해제했습니다.")).toBeInTheDocument();
     });
   });
 
