@@ -1,4 +1,4 @@
-import { useState, type ChangeEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { useNavigate } from "react-router";
 import {
   AlertTriangle,
@@ -14,55 +14,71 @@ import {
   Mail,
   ShieldCheck,
   User,
+  X,
 } from "lucide-react";
 import { AuthBrandPanel } from "../components/AuthBrandPanel";
 import { AuthInput } from "../components/AuthInput";
 import { useAuth } from "../../global/hooks/useAuth";
-import { API_BASE_URL, apiFetch, ApiRequestError, type ApiEnvelope } from "../../global/api/apiClient";
-import type { AuthTokenResponse, SignupResponse } from "../../global/api/authTypes";
+import { apiFetch, ApiRequestError } from "../../global/api/apiClient";
+import type { SignupResponse } from "../../global/api/authTypes";
 import { tokenStore } from "../../global/api/tokenStore";
 
-const demoAuthEnabled = import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO_AUTH === "true";
+// 회원가입 폼은 순수 useState라 /terms로 이동했다 돌아오면 초기화된다 — sessionStorage에 임시 저장해 왕복 시 값을 유지한다.
+// 비밀번호는 절대 포함하지 않는다 — sessionStorage는 평문으로 남고 XSS/공유 PC 등에서 읽힐 수 있어,
+// 약관 페이지를 다녀오면 비밀번호 두 필드는 사용자가 다시 입력해야 한다.
+export const SIGNUP_DRAFT_KEY = "workflow-ai:signup-draft";
+
+interface SignupDraft {
+  name: string;
+  email: string;
+  isProfessor: boolean;
+  termsAgreed: boolean;
+  privacyAgreed: boolean;
+}
+
+function loadSignupDraft(): SignupDraft | null {
+  try {
+    const raw = sessionStorage.getItem(SIGNUP_DRAFT_KEY);
+    return raw ? (JSON.parse(raw) as SignupDraft) : null;
+  } catch {
+    return null;
+  }
+}
 
 export function SignupScreen() {
   const navigate = useNavigate();
   const { loginWithGoogle, refreshMe } = useAuth();
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
+  const draft = loadSignupDraft();
+  const [name, setName] = useState(draft?.name ?? "");
+  const [email, setEmail] = useState(draft?.email ?? "");
   const [pw, setPw] = useState("");
   const [pwConfirm, setPwConfirm] = useState("");
   const [showPw, setShowPw] = useState(false);
-  const [agreed, setAgreed] = useState(false);
+  const [termsAgreed, setTermsAgreed] = useState(draft?.termsAgreed ?? false);
+  const [privacyAgreed, setPrivacyAgreed] = useState(draft?.privacyAgreed ?? false);
   const [loading, setLoading] = useState(false);
-  const [isProfessor, setIsProfessor] = useState(false);
+  const [isProfessor, setIsProfessor] = useState(draft?.isProfessor ?? false);
   const [professorNo, setProfessorNo] = useState("");
+  const [affiliation, setAffiliation] = useState("");
   const [certificateName, setCertificateName] = useState("");
   const [approvalSubmitted, setApprovalSubmitted] = useState(false);
   const [signupError, setSignupError] = useState<string | null>(null);
+  const [showPrivacyModal, setShowPrivacyModal] = useState(false);
+
+  useEffect(() => {
+    const nextDraft: SignupDraft = { name, email, isProfessor, termsAgreed, privacyAgreed };
+    sessionStorage.setItem(SIGNUP_DRAFT_KEY, JSON.stringify(nextDraft));
+  }, [name, email, isProfessor, termsAgreed, privacyAgreed]);
+
+  const goToTerms = () => navigate("/terms");
 
   const pwMatch = Boolean(pw && pwConfirm && pw === pwConfirm);
   const pwMismatch = Boolean(pw && pwConfirm && pw !== pwConfirm);
-  const professorValid = !isProfessor || Boolean(professorNo.trim() || certificateName);
-  const valid = Boolean(name.trim() && email.trim() && pw && pwMatch && agreed && professorValid);
+  const professorValid = !isProfessor || Boolean(professorNo.trim() && affiliation.trim());
+  const valid = Boolean(name.trim() && email.trim() && pw && pwMatch && termsAgreed && privacyAgreed && professorValid);
 
   const handleCertificateChange = (event: ChangeEvent<HTMLInputElement>) => {
     setCertificateName(event.target.files?.[0]?.name ?? "");
-  };
-
-  // 데모 전용: "승인 완료 시연하기" 버튼(demoAuthEnabled일 때만 노출)에서만 사용 — 실제 회원가입 흐름과는 무관.
-  const loginWithDevAccount = async (demoUserId: string) => {
-    const response = await fetch(`${API_BASE_URL}/auth/dev-login-token/${demoUserId}`);
-    const contentType = response.headers.get("Content-Type") ?? "";
-    if (!contentType.toLowerCase().includes("application/json")) {
-      throw new Error("인증 서버가 아직 준비되지 않았습니다. 잠시 후 다시 시도해주세요.");
-    }
-    const body = await response.json() as ApiEnvelope<AuthTokenResponse>;
-    if (!response.ok || !body.success || !body.data?.accessToken || !body.data?.refreshToken) {
-      throw new Error(body.error?.message ?? "회원가입 처리에 실패했습니다.");
-    }
-    tokenStore.clear();
-    tokenStore.setTokens(body.data.accessToken, body.data.refreshToken, null);
-    await refreshMe();
   };
 
   const handleSubmit = async () => {
@@ -77,6 +93,10 @@ export function SignupScreen() {
           password: pw,
           name: name.trim(),
           roleType: isProfessor ? "REVIEWER" : "MEMBER",
+          termsAgreed,
+          privacyAgreed,
+          affiliation: isProfessor ? affiliation.trim() : undefined,
+          facultyId: isProfessor ? professorNo.trim() : undefined,
         }),
       });
 
@@ -90,26 +110,10 @@ export function SignupScreen() {
         tokenStore.setTokens(response.tokens.accessToken, response.tokens.refreshToken, null);
         await refreshMe();
       }
+      sessionStorage.removeItem(SIGNUP_DRAFT_KEY);
       navigate("/projects", { replace: true });
     } catch (error) {
       setSignupError(error instanceof ApiRequestError ? error.message : "회원가입 처리에 실패했습니다.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleApproveDemo = async () => {
-    if (!demoAuthEnabled || loading) {
-      navigate("/login");
-      return;
-    }
-    setSignupError(null);
-    setLoading(true);
-    try {
-      await loginWithDevAccount("6");
-      navigate("/projects", { replace: true });
-    } catch (error) {
-      setSignupError(error instanceof Error ? error.message : "심사자 승인 시연에 실패했습니다.");
     } finally {
       setLoading(false);
     }
@@ -150,17 +154,6 @@ export function SignupScreen() {
                 </div>
               )}
 
-              {demoAuthEnabled && (
-                <button
-                  onClick={() => void handleApproveDemo()}
-                  disabled={loading}
-                  className="mt-5 w-full py-3 rounded-xl text-white text-sm font-semibold transition-opacity hover:opacity-90 disabled:opacity-60 flex items-center justify-center gap-2"
-                  style={{ background: "linear-gradient(135deg, #7048E8 0%, #4F6EF7 100%)" }}
-                >
-                  <ShieldCheck className="w-4 h-4" />
-                  {loading ? "승인 처리 중..." : "승인 완료 시연하기"}
-                </button>
-              )}
               <button onClick={() => navigate("/login")} className="w-full mt-3 text-sm font-semibold text-blue-600 hover:text-blue-700">
                 로그인 화면으로 이동
               </button>
@@ -235,6 +228,15 @@ export function SignupScreen() {
                 {isProfessor && (
                   <div className="mt-4 space-y-3">
                     <div>
+                      <label className="text-xs font-semibold text-foreground">소속기관 또는 학과</label>
+                      <input
+                        value={affiliation}
+                        onChange={e => setAffiliation(e.target.value)}
+                        className="mt-1.5 w-full rounded-xl border border-border bg-input-background px-3 py-2.5 text-sm outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
+                        placeholder="예: 컴퓨터공학과"
+                      />
+                    </div>
+                    <div>
                       <label className="text-xs font-semibold text-foreground">교수 일련번호 또는 교직원 번호</label>
                       <input
                         value={professorNo}
@@ -259,18 +261,37 @@ export function SignupScreen() {
                 )}
               </div>
 
-              <label className="flex items-start gap-2 mt-5 mb-6 cursor-pointer select-none">
-                <div
-                  onClick={() => setAgreed(v => !v)}
-                  className={`w-4 h-4 rounded border flex items-center justify-center transition-all mt-0.5 cursor-pointer shrink-0 ${agreed ? "border-blue-500 bg-blue-500" : "border-border"}`}
-                >
-                  {agreed && <Check className="w-3 h-3 text-white" />}
+              <div className="mt-5 mb-6 space-y-2.5">
+                <div className="flex items-start gap-2 select-none">
+                  <button
+                    type="button"
+                    aria-label={termsAgreed ? "이용약관 동의 해제" : "이용약관 보기"}
+                    onClick={() => (termsAgreed ? setTermsAgreed(false) : goToTerms())}
+                    className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-all mt-0.5 cursor-pointer shrink-0 ${termsAgreed ? "border-blue-500 bg-blue-500" : "border-slate-400 bg-input-background"}`}
+                  >
+                    {termsAgreed && <Check className="w-3 h-3 text-white" />}
+                  </button>
+                  <span className="text-xs text-muted-foreground leading-relaxed">
+                    (필수) <button type="button" onClick={goToTerms} className="font-semibold text-blue-600 hover:text-blue-700">이용약관</button>에 동의합니다.
+                    {!termsAgreed && <span className="block mt-1 text-[11px] text-muted-foreground">이용약관을 끝까지 확인해야 동의할 수 있습니다.</span>}
+                  </span>
                 </div>
-                <span className="text-xs text-muted-foreground leading-relaxed">
-                  <button className="font-semibold text-blue-600 hover:text-blue-700">이용약관</button> 및{" "}
-                  <button className="font-semibold text-blue-600 hover:text-blue-700">개인정보처리방침</button>에 동의합니다.
-                </span>
-              </label>
+
+                <div className="flex items-start gap-2 select-none">
+                  <button
+                    type="button"
+                    aria-label={privacyAgreed ? "개인정보처리방침 동의 해제" : "개인정보처리방침 보기"}
+                    onClick={() => (privacyAgreed ? setPrivacyAgreed(false) : setShowPrivacyModal(true))}
+                    className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-all mt-0.5 cursor-pointer shrink-0 ${privacyAgreed ? "border-blue-500 bg-blue-500" : "border-slate-400 bg-input-background"}`}
+                  >
+                    {privacyAgreed && <Check className="w-3 h-3 text-white" />}
+                  </button>
+                  <span className="text-xs text-muted-foreground leading-relaxed">
+                    (필수) <button type="button" onClick={() => setShowPrivacyModal(true)} className="font-semibold text-blue-600 hover:text-blue-700">개인정보처리방침</button>에 동의합니다.
+                    {!privacyAgreed && <span className="block mt-1 text-[11px] text-muted-foreground">개인정보처리방침을 끝까지 확인해야 동의할 수 있습니다.</span>}
+                  </span>
+                </div>
+              </div>
 
               {signupError && (
                 <div className="mb-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-600">
@@ -313,6 +334,80 @@ export function SignupScreen() {
               </p>
             </>
           )}
+        </div>
+      </div>
+
+      {showPrivacyModal && (
+        <PrivacyPolicyModal
+          onClose={() => setShowPrivacyModal(false)}
+          onAgree={() => { setPrivacyAgreed(true); setShowPrivacyModal(false); }}
+        />
+      )}
+    </div>
+  );
+}
+
+const PRIVACY_SECTIONS = [
+  { title: "1. 수집하는 개인정보 항목", body: "회원가입 시 이름, 이메일, 비밀번호(암호화 저장)를 수집합니다. 서비스 이용 과정에서 소속, 관심 분야, GitHub 아이디, 프로필 사진을 선택적으로 추가 수집할 수 있습니다." },
+  { title: "2. 개인정보의 수집 및 이용 목적", body: "회원 식별 및 로그인, 팀 프로젝트 협업 기능 제공, 고지사항 전달, 서비스 부정이용 방지를 위해 이용합니다." },
+  { title: "3. 개인정보의 보유 및 이용 기간", body: "회원 탈퇴 시 지체 없이 파기하며, 관계 법령에 따라 보존이 필요한 경우 해당 기간 동안 별도 보관합니다." },
+  { title: "4. 개인정보의 제3자 제공", body: "회사는 이용자의 개인정보를 원칙적으로 외부에 제공하지 않으며, 법령에 근거가 있거나 이용자가 사전에 동의한 경우에만 제공합니다." },
+  { title: "5. 이용자의 권리", body: "이용자는 언제든지 자신의 개인정보를 조회, 수정, 삭제, 처리정지를 요청할 수 있으며, 이는 개인정보 수정 화면 또는 고객센터를 통해 처리할 수 있습니다." },
+];
+
+// 끝까지 스크롤했다고 판정하는 여유값(px) — TermsScreen과 동일한 기준.
+const PRIVACY_SCROLL_END_THRESHOLD_PX = 8;
+
+function PrivacyPolicyModal({ onClose, onAgree }: { onClose: () => void; onAgree: () => void }) {
+  const [scrolledToEnd, setScrolledToEnd] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  const checkScrolledToEnd = (el: HTMLDivElement) => {
+    const reachedEnd = el.scrollHeight - el.scrollTop - el.clientHeight <= PRIVACY_SCROLL_END_THRESHOLD_PX;
+    if (reachedEnd) setScrolledToEnd(true);
+  };
+
+  useEffect(() => {
+    if (scrollRef.current) checkScrolledToEnd(scrollRef.current);
+  }, []);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4" onClick={onClose}>
+      <div
+        className="w-full max-w-lg bg-card border border-border rounded-2xl shadow-lg overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+          <h2 className="text-base font-bold text-foreground">개인정보처리방침</h2>
+          <button type="button" onClick={onClose} aria-label="닫기" className="text-muted-foreground hover:text-foreground">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <div
+          ref={scrollRef}
+          onScroll={(e) => checkScrolledToEnd(e.currentTarget)}
+          className="px-6 py-4 max-h-[60vh] overflow-y-auto space-y-4"
+        >
+          {PRIVACY_SECTIONS.map((section) => (
+            <div key={section.title}>
+              <h3 className="text-xs font-bold text-foreground mb-1">{section.title}</h3>
+              <p className="text-xs text-muted-foreground leading-relaxed">{section.body}</p>
+            </div>
+          ))}
+        </div>
+        <div className="px-6 py-4 border-t border-border">
+          {!scrolledToEnd && (
+            <p className="text-center text-[11px] text-muted-foreground mb-2">끝까지 스크롤해야 동의할 수 있습니다.</p>
+          )}
+          <button
+            type="button"
+            onClick={onAgree}
+            disabled={!scrolledToEnd}
+            className="w-full py-2.5 rounded-xl text-white text-sm font-semibold hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:opacity-50"
+            style={{ background: scrolledToEnd ? "linear-gradient(135deg, #3B5BDB 0%, #4F6EF7 100%)" : "#C1C9D9" }}
+          >
+            동의합니다
+          </button>
         </div>
       </div>
     </div>

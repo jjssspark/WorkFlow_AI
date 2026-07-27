@@ -27,8 +27,9 @@ export function GoogleCallbackScreen() {
 
     tokenStore.setTokens(accessToken, refreshToken, null);
     refreshMe()
-      // 로그인 직후에는 프로젝트 선택/생성/초대 코드 입력이 먼저 필요하므로 /dashboard가 아닌 /projects로 진입한다.
-      .then(() => navigate("/projects", { replace: true }))
+      // 관리자는 심사자 승인 화면으로, 그 외에는 프로젝트 선택/생성/초대 코드 입력이 먼저 필요하므로
+      // /dashboard가 아닌 /projects로 진입한다.
+      .then((me) => navigate(me?.user.isAdmin ? "/admin/reviewers" : "/projects", { replace: true }))
       .catch(() => navigate("/login?error=oauth_failed", { replace: true }));
   }, [navigate, refreshMe]);
 

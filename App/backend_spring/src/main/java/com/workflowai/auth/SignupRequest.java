@@ -25,6 +25,20 @@ public record SignupRequest(
 
     @Pattern(regexp = "(?i)^(MEMBER|REVIEWER)$", message = "가입 유형은 MEMBER 또는 REVIEWER만 선택할 수 있습니다.")
     @Schema(description = "가입 유형: MEMBER(일반 회원) 또는 REVIEWER(심사자, 승인 대기)", example = "MEMBER")
-    String roleType
+    String roleType,
+
+    @Schema(description = "이용약관 동의 여부 (true가 아니면 가입 거부)", example = "true")
+    Boolean termsAgreed,
+
+    @Schema(description = "개인정보처리방침 동의 여부 (true가 아니면 가입 거부)", example = "true")
+    Boolean privacyAgreed,
+
+    @Size(max = 100, message = "소속은 100자 이하로 입력해주세요.")
+    @Schema(description = "소속기관 또는 학과 (REVIEWER 신청 시 필수)", example = "컴퓨터공학과")
+    String affiliation,
+
+    @Size(max = 50, message = "교수 식별번호는 50자 이하로 입력해주세요.")
+    @Schema(description = "교수/교직원 식별번호 (REVIEWER 신청 시 필수)", example = "PROF-2026-001")
+    String facultyId
 ) {
 }

@@ -4,6 +4,11 @@ export interface UserSummary {
   id: number;
   email: string;
   name: string;
+  affiliation: string | null;
+  field: string[] | null;
+  githubUsername: string | null;
+  avatarUrl: string | null;
+  isAdmin: boolean;
 }
 
 export interface ProjectRoleSummary {

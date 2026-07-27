@@ -222,14 +222,20 @@ public class AuthController {
     @Operation(
         summary = "실제 회원가입 (이메일/비밀번호)",
         description = "이메일/비밀번호로 실제 계정을 생성한다. roleType=REVIEWER면 토큰을 발급하지 않고 "
-            + "PENDING_REVIEWER_APPROVAL 상태로만 계정을 만든다(관리자 승인 절차는 아직 없음 — 최소 구현). "
+            + "PENDING_REVIEWER_APPROVAL 상태로만 계정을 만들며, 관리자가 관리자 API(/api/v1/admin/reviewers)에서 "
+            + "승인/거부하기 전까지 로그인할 수 없다. "
             + "이메일 중복이면 409, 입력값이 유효하지 않으면 400을 반환한다."
     )
     @PostMapping("/signup")
     public ResponseEntity<ApiResponse<SignupResponse>> signup(@Valid @RequestBody SignupRequest request) {
         try {
+            boolean termsAgreed = Boolean.TRUE.equals(request.termsAgreed());
+            boolean privacyAgreed = Boolean.TRUE.equals(request.privacyAgreed());
             return ResponseEntity.ok(ApiResponse.ok(
-                authService.signup(request.email(), request.password(), request.name(), request.roleType())
+                authService.signup(
+                    request.email(), request.password(), request.name(), request.roleType(),
+                    termsAgreed, privacyAgreed, request.affiliation(), request.facultyId()
+                )
             ));
         } catch (EmailAlreadyExistsException e) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(ApiResponse.fail("EMAIL_ALREADY_EXISTS", e.getMessage()));
@@ -251,8 +257,32 @@ public class AuthController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ApiResponse.fail("GOOGLE_ACCOUNT_REQUIRED", e.getMessage()));
         } catch (ReviewerApprovalPendingException e) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.fail("REVIEWER_APPROVAL_PENDING", e.getMessage()));
+        } catch (ReviewerApplicationRejectedException e) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.fail("REVIEWER_APPLICATION_REJECTED", e.getMessage()));
         } catch (InvalidCredentialsException e) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ApiResponse.fail("INVALID_CREDENTIALS", e.getMessage()));
+        }
+    }
+
+    @Operation(
+        summary = "거부된 심사자 재신청",
+        description = "REJECTED 상태 계정만 가능. 이메일/비밀번호로 본인을 확인하고 소속·교수 식별번호를 "
+            + "다시 제출하면 PENDING으로 바뀌어 관리자가 재검토한다. 토큰은 발급하지 않는다."
+    )
+    @PostMapping("/reviewer-reapply")
+    public ResponseEntity<ApiResponse<SignupResponse>> reviewerReapply(@Valid @RequestBody ReviewerReapplyRequest request) {
+        try {
+            return ResponseEntity.ok(ApiResponse.ok(
+                authService.reapplyAsReviewer(request.email(), request.password(), request.affiliation(), request.facultyId())
+            ));
+        } catch (GoogleAccountRequiredException e) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ApiResponse.fail("GOOGLE_ACCOUNT_REQUIRED", e.getMessage()));
+        } catch (InvalidCredentialsException e) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ApiResponse.fail("INVALID_CREDENTIALS", e.getMessage()));
+        } catch (ReapplyNotAllowedException e) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(ApiResponse.fail("REAPPLY_NOT_ALLOWED", e.getMessage()));
+        } catch (InvalidSignupInputException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ApiResponse.fail("INVALID_SIGNUP_INPUT", e.getMessage()));
         }
     }
 

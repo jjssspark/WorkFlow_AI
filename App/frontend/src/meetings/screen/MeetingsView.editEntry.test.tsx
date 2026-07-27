@@ -18,6 +18,7 @@ vi.mock("../../global/api/projectsApi", () => ({
 const fetchMeetings = vi.fn();
 const fetchMeeting = vi.fn();
 const createMeetingVersion = vi.fn();
+const reanalyzeMeeting = vi.fn();
 
 vi.mock("../libs/utils/meetingAiApi", () => ({
   analyzeMeeting: vi.fn(),
@@ -28,6 +29,7 @@ vi.mock("../libs/utils/meetingAiApi", () => ({
   retryMeetingAnalysis: vi.fn(),
   registerMeetingTasks: vi.fn(),
   createMeetingVersion: (...args: unknown[]) => createMeetingVersion(...args),
+  reanalyzeMeeting: (...args: unknown[]) => reanalyzeMeeting(...args),
 }));
 
 const asLeader = () => ({
@@ -160,5 +162,50 @@ describe("MeetingsView 저장된 회의록 수정 진입점", () => {
 
     expect(await screen.findByRole("button", { name: "AI 재분석하기" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "수정" })).not.toBeInTheDocument();
+  });
+
+  it("pending 버전에서 'AI 재분석하기' 클릭 시 편집 화면을 열지 않고 바로 재분석을 요청한다", async () => {
+    fetchMeetings.mockResolvedValue([
+      {
+        meetingId: "6",
+        title: "저장된 정기회의_수정본",
+        meetingDate: "2026-07-23",
+        meetingType: "정기회의",
+        analysisStatus: "pending",
+        savedAt: "2026-07-23T10:00:00",
+        originalMeetingId: "1",
+        tasksRegistered: false,
+      },
+    ]);
+    reanalyzeMeeting.mockResolvedValue({ meetingId: "6", status: "PROCESSING" });
+    const user = userEvent.setup();
+    renderView();
+    await openSavedTab(user);
+
+    await user.click(await screen.findByRole("button", { name: "AI 재분석하기" }));
+
+    expect(reanalyzeMeeting).toHaveBeenCalledWith("1", "6");
+    expect(fetchMeeting).not.toHaveBeenCalled();
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+  });
+
+  it("failed 상태인 버전에도 'AI 재분석하기' 버튼이 보인다", async () => {
+    fetchMeetings.mockResolvedValue([
+      {
+        meetingId: "6",
+        title: "저장된 정기회의_수정본",
+        meetingDate: "2026-07-23",
+        meetingType: "정기회의",
+        analysisStatus: "failed",
+        savedAt: "2026-07-23T10:00:00",
+        originalMeetingId: "1",
+        tasksRegistered: false,
+      },
+    ]);
+    const user = userEvent.setup();
+    renderView();
+    await openSavedTab(user);
+
+    expect(await screen.findByRole("button", { name: "AI 재분석하기" })).toBeInTheDocument();
   });
 });

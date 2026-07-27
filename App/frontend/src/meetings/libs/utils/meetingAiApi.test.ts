@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { apiFetch } from "../../../global/api/apiClient";
-import { confirmMeetingSave, createMeetingVersion, fetchAttendanceDetail } from "./meetingAiApi";
+import { confirmMeetingSave, createMeetingVersion, deleteMeetingAnalysis, fetchAttendanceDetail, reanalyzeMeeting } from "./meetingAiApi";
 
 vi.mock("../../../global/api/apiClient", () => ({
   apiFetch: vi.fn(),
@@ -57,5 +57,53 @@ describe("createMeetingVersion", () => {
       body: JSON.stringify({ transcript: "수정된 본문", triggerAnalysis: true }),
     });
     expect(result.status).toBe("PROCESSING");
+  });
+});
+
+describe("reanalyzeMeeting", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("바디 없이 POST /reanalyze 엔드포인트를 호출한다", async () => {
+    vi.mocked(apiFetch).mockResolvedValue({ meetingId: "6", status: "PROCESSING" });
+
+    const result = await reanalyzeMeeting("demo-project", "6");
+
+    expect(apiFetch).toHaveBeenCalledWith("/projects/demo-project/meetings/6/reanalyze", { method: "POST" });
+    expect(result.status).toBe("PROCESSING");
+  });
+});
+
+describe("deleteMeetingAnalysis", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("DELETE /analysis 엔드포인트를 deleteLinkedTasks 쿼리와 함께 호출한다", async () => {
+    vi.mocked(apiFetch).mockResolvedValue({ meetingId: "8", status: "DELETED" });
+
+    const result = await deleteMeetingAnalysis("demo-project", "8", true);
+
+    expect(apiFetch).toHaveBeenCalledWith(
+      "/projects/demo-project/meetings/8/analysis?deleteLinkedTasks=true",
+      { method: "DELETE" },
+      true,
+      10000
+    );
+    expect(result.status).toBe("DELETED");
+  });
+
+  it("deleteLinkedTasks 기본값은 false다", async () => {
+    vi.mocked(apiFetch).mockResolvedValue({ meetingId: "8", status: "DELETED" });
+
+    await deleteMeetingAnalysis("demo-project", "8");
+
+    expect(apiFetch).toHaveBeenCalledWith(
+      "/projects/demo-project/meetings/8/analysis?deleteLinkedTasks=false",
+      { method: "DELETE" },
+      true,
+      10000
+    );
   });
 });

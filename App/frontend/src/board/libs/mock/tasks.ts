@@ -6,20 +6,20 @@ import {
 import type { Task, TaskStatus, CategoryDef } from "../types/task";
 
 export const TASKS: Task[] = [
-  { id: "TF-01", title: "주차 감지 센서 모듈 연동", status: "done", priority: "high", assignee: "1", dueDate: "2025-12-05", category: "backend", labels: ["개발"], position: 0 },
-  { id: "TF-02", title: "사용자 인증 API 구현", status: "done", priority: "high", assignee: "3", dueDate: "2025-12-06", category: "backend", labels: ["백엔드"], position: 1 },
-  { id: "TF-03", title: "실시간 주차 현황 대시보드 UI", status: "done", priority: "medium", assignee: "3", dueDate: "2025-12-08", category: "frontend", labels: ["프론트"], position: 2 },
-  { id: "TF-04", title: "모바일 예약 화면 구현", status: "done", priority: "medium", assignee: "2", dueDate: "2025-12-10", category: "frontend", labels: ["프론트"], position: 3 },
-  { id: "TF-05", title: "결제 시스템 연동 (카카오페이)", status: "inprogress", priority: "high", assignee: "4", dueDate: "2025-12-18", category: "backend", labels: ["백엔드"], position: 0 },
-  { id: "TF-06", title: "AI 빈자리 예측 모델 학습", status: "inprogress", priority: "high", assignee: "1", dueDate: "2025-12-20", category: "ai-ml", labels: ["AI"], position: 1 },
-  { id: "TF-07", title: "관리자 대시보드 통계 모듈", status: "inprogress", priority: "medium", assignee: "2", dueDate: "2025-12-19", category: "frontend", labels: ["프론트"], position: 2 },
-  { id: "TF-08", title: "푸시 알림 서비스 구현", status: "inprogress", priority: "low", assignee: "4", dueDate: "2025-12-21", category: "backend", labels: ["백엔드"], position: 3 },
-  { id: "TF-09", title: "최종 발표 자료 작성", status: "todo", priority: "high", assignee: "1", dueDate: "2025-12-28", category: "presentation", labels: ["산출물"], position: 0 },
-  { id: "TF-10", title: "시스템 부하 테스트", status: "todo", priority: "medium", assignee: "2", dueDate: "2025-12-23", category: "qa", labels: ["QA"], position: 1 },
-  { id: "TF-11", title: "README 및 배포 문서 작성", status: "todo", priority: "medium", assignee: "3", dueDate: "2025-12-25", category: "docs", labels: ["문서"], position: 2 },
-  { id: "TF-12", title: "보안 취약점 점검 보고서", status: "todo", priority: "low", assignee: "4", dueDate: "2025-12-26", category: "security", labels: ["문서"], position: 3 },
-  { id: "TF-13", title: "DB 인덱싱 최적화", status: "blocked", priority: "high", assignee: "1", dueDate: "2025-12-15", category: "db", labels: ["백엔드"], position: 0 },
-  { id: "TF-14", title: "결제 오류 예외 처리", status: "blocked", priority: "high", assignee: "4", dueDate: "2025-12-16", category: "backend", labels: ["백엔드"], position: 1 },
+  { id: "TF-01", title: "주차 감지 센서 모듈 연동", status: "done", priority: "high", assignee: "1", dueDate: "2025-12-05", category: "backend", labels: ["개발"], position: 0, pendingApproval: false, startDate: "", extraFields: {} },
+  { id: "TF-02", title: "사용자 인증 API 구현", status: "done", priority: "high", assignee: "3", dueDate: "2025-12-06", category: "backend", labels: ["백엔드"], position: 1, pendingApproval: false, startDate: "", extraFields: {} },
+  { id: "TF-03", title: "실시간 주차 현황 대시보드 UI", status: "done", priority: "medium", assignee: "3", dueDate: "2025-12-08", category: "frontend", labels: ["프론트"], position: 2, pendingApproval: false, startDate: "", extraFields: {} },
+  { id: "TF-04", title: "모바일 예약 화면 구현", status: "done", priority: "medium", assignee: "2", dueDate: "2025-12-10", category: "frontend", labels: ["프론트"], position: 3, pendingApproval: false, startDate: "", extraFields: {} },
+  { id: "TF-05", title: "결제 시스템 연동 (카카오페이)", status: "inprogress", priority: "high", assignee: "4", dueDate: "2025-12-18", category: "backend", labels: ["백엔드"], position: 0, pendingApproval: false, startDate: "", extraFields: {} },
+  { id: "TF-06", title: "AI 빈자리 예측 모델 학습", status: "inprogress", priority: "high", assignee: "1", dueDate: "2025-12-20", category: "ai-ml", labels: ["AI"], position: 1, pendingApproval: false, startDate: "", extraFields: {} },
+  { id: "TF-07", title: "관리자 대시보드 통계 모듈", status: "inprogress", priority: "medium", assignee: "2", dueDate: "2025-12-19", category: "frontend", labels: ["프론트"], position: 2, pendingApproval: false, startDate: "", extraFields: {} },
+  { id: "TF-08", title: "푸시 알림 서비스 구현", status: "inprogress", priority: "low", assignee: "4", dueDate: "2025-12-21", category: "backend", labels: ["백엔드"], position: 3, pendingApproval: false, startDate: "", extraFields: {} },
+  { id: "TF-09", title: "최종 발표 자료 작성", status: "todo", priority: "high", assignee: "1", dueDate: "2025-12-28", category: "presentation", labels: ["산출물"], position: 0, pendingApproval: false, startDate: "", extraFields: {} },
+  { id: "TF-10", title: "시스템 부하 테스트", status: "todo", priority: "medium", assignee: "2", dueDate: "2025-12-23", category: "qa", labels: ["QA"], position: 1, pendingApproval: false, startDate: "", extraFields: {} },
+  { id: "TF-11", title: "README 및 배포 문서 작성", status: "todo", priority: "medium", assignee: "3", dueDate: "2025-12-25", category: "docs", labels: ["문서"], position: 2, pendingApproval: false, startDate: "", extraFields: {} },
+  { id: "TF-12", title: "보안 취약점 점검 보고서", status: "todo", priority: "low", assignee: "4", dueDate: "2025-12-26", category: "security", labels: ["문서"], position: 3, pendingApproval: false, startDate: "", extraFields: {} },
+  { id: "TF-13", title: "DB 인덱싱 최적화", status: "blocked", priority: "high", assignee: "1", dueDate: "2025-12-15", category: "db", labels: ["백엔드"], position: 0, pendingApproval: false, startDate: "", extraFields: {} },
+  { id: "TF-14", title: "결제 오류 예외 처리", status: "blocked", priority: "high", assignee: "4", dueDate: "2025-12-16", category: "backend", labels: ["백엔드"], position: 1, pendingApproval: false, startDate: "", extraFields: {} },
 ];
 
 export const TASK_SOURCES: Record<string, string> = {
@@ -70,23 +70,6 @@ export const CATEGORIES: CategoryDef[] = [
   { id:"operation",    label:"운영/제출",  desc:"공모전 제출, 교수 제출, 마감 체크",  icon:CheckCheck,     color:"#059669", bg:"rgba(5,150,105,0.12)"   },
   { id:"other",        label:"기타",       desc:"직접 카테고리명 입력",               icon:MoreHorizontal, color:"#9CA3AF", bg:"rgba(156,163,175,0.12)" },
 ];
-
-export const CAT_EXTRA: Record<string, Record<string, string>> = {
-  "TF-01":{ method:"POST", endpoint:"/api/sensors/register", auth:"필요", db:"sensors, spaces", test:"완료" },
-  "TF-02":{ method:"POST", endpoint:"/api/auth/login",       auth:"불필요", db:"users, tokens",  test:"완료" },
-  "TF-03":{ screen:"실시간 주차 현황 대시보드", components:"StatusCard, MapView, RefreshTimer", api:"/api/spaces/status", figma:"설계 완료", responsive:"적용", pr:"PR #12" },
-  "TF-04":{ screen:"모바일 예약 화면",          components:"ReservationForm, TimePicker",      api:"/api/reservations",  figma:"설계 완료", responsive:"적용", pr:"PR #17 완료" },
-  "TF-05":{ method:"POST", endpoint:"/api/payments",         auth:"필요", db:"payments",        test:"블로커 — SDK 충돌 미해결" },
-  "TF-06":{ purpose:"주차 빈자리 예측", data:"CCTV 센서 90일 데이터", model:"Random Forest + LSTM", metric:"Accuracy / MAE", result:"87% — 목표 90%", inferenceAPI:"미연결" },
-  "TF-07":{ screen:"관리자 통계 대시보드",       components:"StatChart, UserTable",             api:"/api/admin/stats",   figma:"설계 중",   responsive:"미적용", pr:"진행 중" },
-  "TF-08":{ method:"POST", endpoint:"/api/notifications/send", auth:"필요", db:"notification_queue", test:"미완료" },
-  "TF-09":{ topic:"스마트 주차 관리 시스템", pages:"20슬라이드 (예정)", demo:"포함", draft:"초안 20% 완성", script:"미작성" },
-  "TF-10":{ target:"예약 API 전체", cases:"동시 1000건, 응답시간, 오류율", expected:"응답 2초 이내", actual:"미측정", bug:"미발견" },
-  "TF-11":{ docType:"README + API 명세", scope:"프로젝트 전체", includes:"설치 가이드, API 명세, 아키텍처", ref:"팀 위키" },
-  "TF-12":{ target:"인증/인가 시스템", risk:"높음", findings:"미발견", auth:"관련", remediation:"점검 후 결정" },
-  "TF-13":{ table:"spaces, reservations, users", erd:"ERD v2.0 작성됨", issue:"복합 인덱스 미적용 — 풀스캔 2.3초", index:"미적용", goal:"조회 200ms 이내" },
-  "TF-14":{ method:"POST", endpoint:"/api/payments/errors", auth:"필요", db:"payment_errors", test:"블로커 — SDK 충돌" },
-};
 
 export const BOARD_COLS = [
   { id:"todo"       as TaskStatus, label:"할 일",       color:"#8892A4", bg:"#F4F6FA" },

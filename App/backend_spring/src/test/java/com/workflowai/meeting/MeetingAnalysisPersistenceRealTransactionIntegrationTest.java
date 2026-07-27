@@ -79,7 +79,7 @@ class MeetingAnalysisPersistenceRealTransactionIntegrationTest {
 
         persistence.saveAnalysisSuccess(meetingId, emptyResult(), "FASTAPI");
 
-        verify(notificationService).notify(
+        verify(notificationService).notifyAfterCommit(
             10L, "MEETING_ANALYSIS_COMPLETED", "회의 분석이 완료되었습니다.",
             "'정기회의' 회의록 분석이 완료되었습니다.", "meeting", meetingId
         );
@@ -96,7 +96,7 @@ class MeetingAnalysisPersistenceRealTransactionIntegrationTest {
             return null;
         });
 
-        verify(notificationService, never()).notify(any(), any(), any(), any(), any(), any());
+        verify(notificationService, never()).notifyAfterCommit(any(), any(), any(), any(), any(), any());
         verify(ragIngestService, never()).ingestBestEffort(any(), any(), any(), any());
         verify(ragIngestService, never()).ingestBestEffort(any(), any(), any(), any(), any());
         assertThat(meetingRepository.findById(meetingId).orElseThrow().getAnalysisStatus()).isEqualTo("processing");
@@ -108,7 +108,7 @@ class MeetingAnalysisPersistenceRealTransactionIntegrationTest {
 
         persistence.saveAnalysisFailure(meetingId, "FastAPI 연결 실패");
 
-        verify(notificationService).notify(
+        verify(notificationService).notifyAfterCommit(
             10L, "MEETING_ANALYSIS_FAILED", "회의 분석에 실패했습니다.",
             "'정기회의' 회의록 분석에 실패했습니다. 다시 시도해주세요.", "meeting", meetingId
         );
@@ -125,7 +125,7 @@ class MeetingAnalysisPersistenceRealTransactionIntegrationTest {
             return null;
         });
 
-        verify(notificationService, never()).notify(any(), any(), any(), any(), any(), any());
+        verify(notificationService, never()).notifyAfterCommit(any(), any(), any(), any(), any(), any());
         assertThat(meetingRepository.findById(meetingId).orElseThrow().getAnalysisStatus()).isEqualTo("processing");
     }
 }

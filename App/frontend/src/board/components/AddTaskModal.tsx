@@ -34,6 +34,7 @@ export function AddTaskModal({ open, initialStatus, projectMembers, onClose, onC
   const [fPriority, setFPriority] = useState<Priority>("medium");
   const [fStatus, setFStatus] = useState<TaskStatus>("todo");
   const [fCriteria, setFCriteria] = useState("");
+  const [fExtraFields, setFExtraFields] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
@@ -49,6 +50,7 @@ export function AddTaskModal({ open, initialStatus, projectMembers, onClose, onC
       setFDue("");
       setFPriority("medium");
       setFCriteria("");
+      setFExtraFields({});
       setSubmitError(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -58,6 +60,10 @@ export function AddTaskModal({ open, initialStatus, projectMembers, onClose, onC
 
   const handleNext = async () => {
     if (step === 2) {
+      if (fStart && fDue && fStart > fDue) {
+        setSubmitError("시작일은 마감일보다 늦을 수 없습니다.");
+        return;
+      }
       const cat = selCat === "other" ? (customCat.trim() || "other") : selCat;
       setSubmitting(true);
       setSubmitError(null);
@@ -71,6 +77,7 @@ export function AddTaskModal({ open, initialStatus, projectMembers, onClose, onC
           dueDate: fDue || null,
           priority: fPriority,
           description: fDesc.trim() || undefined,
+          extraFields: fExtraFields,
         }, currentProjectId ?? DEMO_PROJECT_ID);
         onCreated(created);
         setStep(step + 1);
@@ -234,7 +241,12 @@ export function AddTaskModal({ open, initialStatus, projectMembers, onClose, onC
                   {(CAT_MODAL_FIELDS[selCat] ?? CAT_MODAL_FIELDS["other"]).map(([label, placeholder]) => (
                     <div key={label}>
                       <label className="text-xs font-semibold text-foreground block mb-1.5">{label}</label>
-                      <input placeholder={placeholder} className="w-full rounded-xl border border-border bg-input-background px-4 py-2.5 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100" />
+                      <input
+                        value={fExtraFields[label] ?? ""}
+                        onChange={(e) => setFExtraFields((cur) => ({ ...cur, [label]: e.target.value }))}
+                        placeholder={placeholder}
+                        className="w-full rounded-xl border border-border bg-input-background px-4 py-2.5 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                      />
                     </div>
                   ))}
                 </div>

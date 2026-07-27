@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 import uuid
 
-from langgraph.checkpoint.redis.aio import AsyncRedisSaver
+from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 from pydantic import BaseModel
 
-from core.config import get_settings
 from llm_rag_assistant.app.graph.planner import plan_actions
 from llm_rag_assistant.app.graph.state import (
     SUPPORTED_TOOLS,
@@ -186,47 +186,39 @@ def _build() -> StateGraph:
     return builder
 
 
-# 체크포인트는 승인 대기 중인 임시 상태다. 내구성이 필요 없고 TTL이 필요해 Redis를 쓴다
-# (유실되면 "요청이 만료되었습니다"로 안내하고 사용자가 다시 말하면 된다).
-_CHECKPOINT_TTL_MINUTES = 30
-
+# 체크포인트는 승인 대기 중인 임시 상태다. 내구성이 필요 없어(유실 시 "요청이 만료되었습니다"로
+# 안내하고 사용자가 다시 말하면 된다) 프로세스 메모리에 보관한다. 재개·만료 시 스레드를 삭제해
+# InMemorySaver 메모리가 무한히 늘지 않게 한다(아래 _discard_thread/_sweep_expired_threads).
+# 다중 워커로 확장하면 재개가 다른 워커로 가 체크포인트를 못 찾으므로, 그때는 공유 백엔드
+# (Postgres 등) 체크포인터로 옮겨야 한다. 현재 uvicorn은 단일 워커로 뜬다.
 _compiled = None
-_checkpointer_cm = None
-# 최초 동시 요청이 각자 체크포인터를 만들어 Redis 연결이 새는 것을 막는다(이중 검사 잠금).
+# get_graph의 임계구역에는 await가 없어(compile은 동기) 단일 스레드 asyncio에서 원자적이지만,
+# 향후 비동기 초기화가 추가돼도 중복 컴파일이 없도록 이중 검사 잠금을 둔다.
 _graph_lock = asyncio.Lock()
+
+# 승인 대기(confirm) 스레드의 생성 시각(monotonic). 재개되면 즉시 삭제하고, 재개 없이(취소·무시)
+# 만료되면 다음 command의 sweep이 삭제한다. 만료 기준은 Spring 스레드 소유권 TTL과 같은 30분.
+_CHECKPOINT_TTL_SECONDS = 30 * 60
+_pending_threads: dict[str, float] = {}
 
 
 async def get_graph():
-    """그래프를 지연 생성한다. Redis 연결이 앱 기동을 막지 않도록 첫 요청에서 만든다."""
-    global _compiled, _checkpointer_cm
+    """그래프를 지연 생성한다. 첫 요청에서 체크포인터와 함께 한 번만 컴파일한다."""
+    global _compiled
     if _compiled is not None:
         return _compiled
     async with _graph_lock:
         # 잠금 대기 중 다른 요청이 이미 만들었을 수 있으므로 다시 확인한다.
         if _compiled is not None:
             return _compiled
-        settings = get_settings()
-        checkpointer_cm = AsyncRedisSaver.from_conn_string(
-            settings.redis_url,
-            ttl={"default_ttl": _CHECKPOINT_TTL_MINUTES, "refresh_on_read": False},
-        )
-        checkpointer = await checkpointer_cm.__aenter__()
-        await checkpointer.asetup()
-        _checkpointer_cm = checkpointer_cm
-        _compiled = _build().compile(checkpointer=checkpointer)
+        _compiled = _build().compile(checkpointer=InMemorySaver())
     return _compiled
 
 
 async def close_graph() -> None:
-    """앱 종료 시 체크포인터가 잡고 있는 Redis 연결을 닫는다(자원 누수 방지)."""
-    global _compiled, _checkpointer_cm
+    """앱 종료 시 그래프 상태를 초기화한다(InMemorySaver는 닫을 외부 자원이 없다)."""
+    global _compiled
     async with _graph_lock:
-        if _checkpointer_cm is not None:
-            try:
-                await _checkpointer_cm.__aexit__(None, None, None)
-            except Exception:
-                logger.warning("체크포인터 종료 실패", exc_info=True)
-        _checkpointer_cm = None
         _compiled = None
 
 
@@ -247,13 +239,38 @@ def _to_outcome(result: dict, thread_id: str) -> GraphOutcome:
     )
 
 
+async def _discard_thread(graph, thread_id: str) -> None:
+    """스레드 체크포인트와 추적 항목을 지운다(InMemorySaver 메모리 누적 방지)."""
+    _pending_threads.pop(thread_id, None)
+    try:
+        await graph.checkpointer.adelete_thread(thread_id)
+    except Exception:
+        logger.warning("체크포인트 정리 실패: thread_id=%s", thread_id, exc_info=True)
+
+
+async def _sweep_expired_threads(graph) -> None:
+    """재개되지 않고 만료된 승인 대기 스레드의 체크포인트를 정리한다(취소·무시된 카드 등)."""
+    now = time.monotonic()
+    expired = [tid for tid, ts in _pending_threads.items() if now - ts > _CHECKPOINT_TTL_SECONDS]
+    for thread_id in expired:
+        await _discard_thread(graph, thread_id)
+
+
 async def start_command(pool, state: dict) -> GraphOutcome:
     _pool_holder["pool"] = pool
     graph = await get_graph()
+    await _sweep_expired_threads(graph)
     thread_id = uuid.uuid4().hex
     config = {"configurable": {"thread_id": thread_id}}
     result = await graph.ainvoke(state, config=config)
-    return _to_outcome(result, thread_id)
+    outcome = _to_outcome(result, thread_id)
+    if outcome.type == "confirm":
+        # 승인 대기 스레드만 체크포인트가 의미 있다. 재개 또는 만료 sweep 때 정리한다.
+        _pending_threads[thread_id] = time.monotonic()
+    else:
+        # 즉시 끝난 발화는 재개될 일이 없으니 체크포인트를 바로 버린다.
+        await _discard_thread(graph, thread_id)
+    return outcome
 
 
 def _pending_step_id(snapshot) -> str | None:
@@ -271,14 +288,25 @@ async def resume_command(thread_id: str, execution_result: dict) -> GraphOutcome
     config = {"configurable": {"thread_id": thread_id}}
     snapshot = await graph.aget_state(config)
     if not snapshot or not snapshot.next:
+        # 이미 만료·소비된 스레드다. 남은 체크포인트가 있으면 정리한다.
+        await _discard_thread(graph, thread_id)
         return GraphOutcome(type="done", message=_THREAD_EXPIRED_MESSAGE, thread_id=thread_id)
 
     # 넘어온 실행 결과가 지금 대기 중인 바로 그 단계의 것인지 확인한다. step_id가 다르거나
     # 대기 단계를 특정하지 못하면(fail-closed) 잘못됐거나 재전송된 결과이므로 진행시키지 않는다.
     # 이 그래프의 유일한 정지점은 step_id를 실은 interrupt라 정상 상황에서 expected는 항상 있다.
+    # 여기선 스레드를 지우지 않는다(정상 재시도로 올바른 결과가 다시 올 수 있음. 방치되면 sweep이 처리).
     expected = _pending_step_id(snapshot)
     if expected is None or execution_result.get("step_id") != expected:
         return GraphOutcome(type="done", message=_STEP_MISMATCH_MESSAGE, thread_id=thread_id)
 
     result = await graph.ainvoke(Command(resume=execution_result), config=config)
-    return _to_outcome(result, thread_id)
+    outcome = _to_outcome(result, thread_id)
+    if outcome.type == "confirm":
+        # 멀티액션 계획의 다음 단계가 또 승인을 기다린다. 체크포인트를 유지하고 타이머를 갱신한다.
+        # (여기서 지우면 후속 승인이 aget_state에서 스레드를 못 찾아 만료 처리된다.)
+        _pending_threads[thread_id] = time.monotonic()
+    else:
+        # 종료 상태. 체크포인트를 지워 메모리를 회수한다.
+        await _discard_thread(graph, thread_id)
+    return outcome

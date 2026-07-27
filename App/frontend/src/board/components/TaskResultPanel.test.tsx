@@ -24,15 +24,17 @@ vi.mock("../libs/utils/taskResultApi", () => ({
 
 const emptyResult = { content: "", updatedAt: null, links: [], files: [] };
 
-function makeTask(): Task {
+// mockUseAuth의 user.id(5)와 담당자를 일치시켜, 기본적으로 "본인 업무를 보는 담당자" 시나리오로 렌더링한다.
+function makeTask(overrides: Partial<Task> = {}): Task {
   return {
     id: "TF-01", title: "테스트 업무", status: "todo", priority: "medium",
-    assignee: "1", dueDate: "2026-07-20", labels: [], category: "backend", position: 0,
+    assignee: "5", dueDate: "2026-07-20", labels: [], category: "backend", position: 0, pendingApproval: false, startDate: "", extraFields: {},
+    ...overrides,
   };
 }
 
-function renderPanel(onShowToast = vi.fn()) {
-  render(<TaskResultPanel task={makeTask()} onClose={vi.fn()} onShowToast={onShowToast} />);
+function renderPanel(onShowToast = vi.fn(), taskOverrides: Partial<Task> = {}) {
+  render(<TaskResultPanel task={makeTask(taskOverrides)} onClose={vi.fn()} onShowToast={onShowToast} />);
   return { onShowToast };
 }
 
@@ -82,15 +84,25 @@ describe("TaskResultPanel", () => {
     expect(await screen.findByText("수정")).toBeInTheDocument();
   });
 
-  it("저장 실패(담당자 아님) 시 백엔드 에러 메시지를 그대로 토스트로 보여준다", async () => {
-    vi.mocked(saveTaskResult).mockRejectedValue(new Error("담당자만 작업 내용을 작성할 수 있습니다."));
-    const { onShowToast } = renderPanel();
-    const textarea = await screen.findByPlaceholderText("이번 작업에서 무엇을 했는지 작성해주세요.");
+  it("담당자도 팀장도 아니면 작성/업로드/링크추가 컨트롤이 아예 보이지 않는다", async () => {
+    vi.mocked(fetchTaskResult).mockResolvedValue({
+      content: "이미 작성된 내용", updatedAt: "2026-07-21T00:00:00",
+      links: [{ id: "1", url: "https://github.com/x/y", title: "PR #1" }],
+      files: [{ id: "9", fileName: "meeting_result.pdf", size: 2048, contentType: "application/pdf" }],
+    });
+    renderPanel(vi.fn(), { assignee: "999" });
 
-    await userEvent.type(textarea, "제가 대신 씁니다");
-    await userEvent.click(screen.getByText("생성"));
-
-    await waitFor(() => expect(onShowToast).toHaveBeenCalledWith("담당자만 작업 내용을 작성할 수 있습니다."));
+    const textarea = await screen.findByDisplayValue("이미 작성된 내용");
+    expect(textarea).toHaveAttribute("readonly");
+    expect(screen.queryByText("생성")).not.toBeInTheDocument();
+    expect(screen.queryByText("초기화")).not.toBeInTheDocument();
+    expect(screen.queryByText("파일 업로드")).not.toBeInTheDocument();
+    expect(screen.queryByText("링크 추가")).not.toBeInTheDocument();
+    // 기존 파일/링크는 그대로 보이되, 삭제 버튼만 없다(row에 열기 버튼 하나만 남음).
+    const fileRow = (await screen.findByText("meeting_result.pdf")).closest("div.group") as HTMLElement;
+    expect(fileRow.querySelectorAll("button")).toHaveLength(1);
+    const linkRow = (await screen.findByText("PR #1")).closest("div.group") as HTMLElement;
+    expect(linkRow.querySelectorAll("button")).toHaveLength(1);
   });
 
   it("초기화 버튼은 서버를 호출하지 않고 입력창만 비운다", async () => {

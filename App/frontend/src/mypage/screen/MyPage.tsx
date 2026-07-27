@@ -19,6 +19,8 @@ import {
 import { CONTRIB_REPORTS } from "../../global/lib/mock/reviewer";
 import { useMyTasks } from "../libs/hooks/useMyTasks";
 import { useReviewerProjects } from "../libs/hooks/useReviewerProjects";
+import { useReviewerContribution } from "../libs/hooks/useReviewerContribution";
+import { resolveMemberDisplay } from "../../dashboard/libs/utils/memberDisplay";
 import { getDueToday, getDueThisWeek } from "../libs/utils/taskWidgets";
 import { getDoneCount, getInProgressCount, getBlockedCount, getTasksByStatus, formatDueDate } from "../../board/libs/utils/taskService";
 import { getMyEvaluation, type MyEvaluationDto } from "../../global/api/evaluationApi";
@@ -35,8 +37,13 @@ const EVAL_STATUS_META: Record<EvalStatus, { label: string; cls: string }> = {
 };
 
 // ─── Member My Page ───────────────────────────────────────────────────────────
-function MemberMyPage({ name, email, onLogout, projectId, userId }: { name: string; email: string; onLogout: () => void; projectId: number | null; userId: number | null }) {
+function MemberMyPage({ name, email, onLogout, projectId, userId, avatarUrl, affiliation, field, githubUsername }: {
+  name: string; email: string; onLogout: () => void; projectId: number | null; userId: number | null;
+  avatarUrl: string | null; affiliation: string | null; field: string[] | null; githubUsername: string | null;
+}) {
+  const navigate = useNavigate();
   const [taskView, setTaskView] = useState<"all"|"today"|"week">("all");
+  const [statusFilter, setStatusFilter] = useState<"all"|"done"|"inprogress"|"blocked"|"todo">("all");
   const [showScore, setShowScore] = useState(false);
   const initials = name ? name[0] : MEMBER_USER.initials;
 
@@ -53,7 +60,8 @@ function MemberMyPage({ name, email, onLogout, projectId, userId }: { name: stri
   const { tasks: myTasks, loadState, reload } = useMyTasks(projectId, userId);
   const dueToday = getDueToday(myTasks);
   const dueThisWeek = getDueThisWeek(myTasks);
-  const visibleTasks = taskView === "today" ? dueToday : taskView === "week" ? dueThisWeek : myTasks;
+  const timeFilteredTasks = taskView === "today" ? dueToday : taskView === "week" ? dueThisWeek : myTasks;
+  const visibleTasks = statusFilter === "all" ? timeFilteredTasks : timeFilteredTasks.filter(t => t.status === statusFilter);
   const todayNotDone = dueToday.filter(t => t.status !== "done");
   const thisWeekNotDone = dueThisWeek.filter(t => t.status !== "done");
 
@@ -64,6 +72,8 @@ function MemberMyPage({ name, email, onLogout, projectId, userId }: { name: stri
     todo: getTasksByStatus("todo", myTasks).length,
   };
 
+  const goToTaskOnBoard = (taskId: string) => navigate(`/board?taskId=${taskId}`);
+
   return (
     <div className="h-full overflow-y-auto p-6 space-y-5" style={{ fontFamily:"'Inter','Noto Sans KR',sans-serif" }}>
 
@@ -72,11 +82,15 @@ function MemberMyPage({ name, email, onLogout, projectId, userId }: { name: stri
         <div className="h-16" style={{ background:"linear-gradient(135deg,#7048E8,#4F6EF7)" }} />
         <div className="px-6 pb-5">
           <div className="flex items-end justify-between -mt-8 mb-4">
-            <div className="w-16 h-16 rounded-2xl border-4 border-white flex items-center justify-center text-white font-bold text-xl" style={{ background: MEMBER_USER.color }}>
-              {initials}
-            </div>
+            {avatarUrl ? (
+              <img src={avatarUrl} alt="" className="w-16 h-16 rounded-2xl border-4 border-white object-cover" />
+            ) : (
+              <div className="w-16 h-16 rounded-2xl border-4 border-white flex items-center justify-center text-white font-bold text-xl" style={{ background: MEMBER_USER.color }}>
+                {initials}
+              </div>
+            )}
             <div className="flex items-center gap-2">
-              <button className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-border bg-card text-foreground rounded-lg hover:bg-muted transition-colors"><Settings className="w-3.5 h-3.5" />설정</button>
+              <button onClick={() => navigate("/mypage/settings")} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-border bg-card text-foreground rounded-lg hover:bg-muted transition-colors"><Settings className="w-3.5 h-3.5" />설정</button>
               <button onClick={onLogout} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 border border-red-200 bg-red-50 rounded-lg hover:bg-red-100 transition-colors"><LogOut className="w-3.5 h-3.5" />로그아웃</button>
             </div>
           </div>
@@ -88,19 +102,31 @@ function MemberMyPage({ name, email, onLogout, projectId, userId }: { name: stri
               </div>
               <div className="text-xs text-muted-foreground">{email}</div>
               <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
-                <span>{MEMBER_USER.affiliation}</span>
+                <span>{affiliation ?? "소속 미설정"}</span>
                 <span className="text-border">·</span>
-                <span className="font-medium text-blue-600">{MEMBER_USER.field}</span>
+                <span className="font-medium text-blue-600">{field && field.length > 0 ? field.join(" · ") : "분야 미설정"}</span>
               </div>
             </div>
             <div className="text-right">
               <div className="text-xs text-muted-foreground mb-1">참여 프로젝트</div>
               <div className="text-sm font-semibold text-foreground">{MEMBER_USER.project}</div>
-              <div className="flex items-center gap-1.5 mt-1.5 justify-end">
-                <div className="w-2 h-2 rounded-full bg-emerald-500" />
-                <span className="text-[10px] text-emerald-600 font-medium">GitHub 연결됨</span>
-                <span className="text-[10px] text-muted-foreground">({MEMBER_USER.github})</span>
-              </div>
+              {githubUsername ? (
+                <a
+                  href={`https://github.com/${githubUsername}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 mt-1.5 justify-end hover:opacity-80 transition-opacity"
+                >
+                  <div className="w-2 h-2 rounded-full bg-emerald-500" />
+                  <span className="text-[10px] text-emerald-600 font-medium">GitHub 연결됨</span>
+                  <span className="text-[10px] text-muted-foreground">({githubUsername})</span>
+                </a>
+              ) : (
+                <div className="flex items-center gap-1.5 mt-1.5 justify-end">
+                  <div className="w-2 h-2 rounded-full bg-muted-foreground" />
+                  <span className="text-[10px] text-muted-foreground font-medium">GitHub 미연결</span>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -144,20 +170,26 @@ function MemberMyPage({ name, email, onLogout, projectId, userId }: { name: stri
             {/* Left: task status (2/3) */}
             <div className="col-span-2 space-y-4">
               {/* Stat cards */}
-              <div className="grid grid-cols-4 gap-3">
+              <div className="grid grid-cols-5 gap-3">
                 {[
-                  { label:"완료", value: taskCounts.done,      color:"#10B981", Icon: CheckCircle2 },
-                  { label:"진행 중", value: taskCounts.inprogress, color:"#3B5BDB", Icon: Clock },
-                  { label:"블로커", value: taskCounts.blocked,    color:"#EF4444", Icon: AlertTriangle },
-                  { label:"대기",   value: taskCounts.todo,       color:"#8892A4", Icon: Layers },
+                  { key:"all" as const,        label:"전체", value: myTasks.length,      color:"#3B5BDB", Icon: Star },
+                  { key:"done" as const,       label:"완료", value: taskCounts.done,      color:"#10B981", Icon: CheckCircle2 },
+                  { key:"inprogress" as const, label:"진행 중", value: taskCounts.inprogress, color:"#3B5BDB", Icon: Clock },
+                  { key:"blocked" as const,    label:"블로커", value: taskCounts.blocked,    color:"#EF4444", Icon: AlertTriangle },
+                  { key:"todo" as const,       label:"대기",   value: taskCounts.todo,       color:"#8892A4", Icon: Layers },
                 ].map(s => (
-                  <div key={s.label} className="bg-card rounded-xl p-4 border border-border shadow-sm text-center">
+                  <button
+                    key={s.label}
+                    type="button"
+                    onClick={() => setStatusFilter(s.key)}
+                    className={`bg-card rounded-xl p-4 border shadow-sm text-center transition-colors ${statusFilter===s.key ? "border-blue-400 ring-2 ring-blue-100" : "border-border hover:border-slate-300"}`}
+                  >
                     <div className="w-8 h-8 rounded-lg flex items-center justify-center mx-auto mb-2" style={{ background:`${s.color}15` }}>
                       <s.Icon className="w-4 h-4" style={{ color: s.color }} />
                     </div>
                     <div className="text-xl font-bold text-foreground">{s.value}</div>
                     <div className="text-[10px] text-muted-foreground">{s.label}</div>
-                  </div>
+                  </button>
                 ))}
               </div>
 
@@ -201,12 +233,17 @@ function MemberMyPage({ name, email, onLogout, projectId, userId }: { name: stri
                     <div className="text-xs text-muted-foreground text-center py-3">오늘 마감인 업무가 없습니다.</div>
                   ) : (
                     todayNotDone.map(task => (
-                      <div key={task.id} className="flex items-center gap-2 p-2.5 rounded-lg bg-muted/50">
+                      <button
+                        key={task.id}
+                        type="button"
+                        onClick={() => goToTaskOnBoard(task.id)}
+                        className="w-full flex items-center gap-2 p-2.5 rounded-lg bg-muted/50 hover:bg-muted transition-colors text-left"
+                      >
                         <div className="w-4 h-4 rounded border border-border flex items-center justify-center shrink-0">
                           {task.status==="done" && <Check className="w-2.5 h-2.5 text-emerald-500" />}
                         </div>
                         <span className="text-xs text-foreground flex-1 truncate">{task.title}</span>
-                      </div>
+                      </button>
                     ))
                   )}
                 </div>
@@ -220,10 +257,15 @@ function MemberMyPage({ name, email, onLogout, projectId, userId }: { name: stri
                     thisWeekNotDone.map(task => {
                       const isDueToday = todayNotDone.some(t => t.id === task.id);
                       return (
-                        <div key={task.id} className="flex items-center justify-between text-xs">
+                        <button
+                          key={task.id}
+                          type="button"
+                          onClick={() => goToTaskOnBoard(task.id)}
+                          className="w-full flex items-center justify-between text-xs hover:bg-muted/50 rounded-lg px-1 py-0.5 -mx-1 transition-colors text-left"
+                        >
                           <span className="text-foreground truncate flex-1">{task.title}</span>
                           <span className={`font-bold ml-2 shrink-0 ${isDueToday?"text-amber-600":"text-muted-foreground"}`}>{formatDueDate(task.dueDate)}</span>
-                        </div>
+                        </button>
                       );
                     })
                   )}
@@ -333,7 +375,8 @@ type ReviewerPanelTab = "summary" | "deliverables" | "contrib" | "ai-evidence" |
 
 const REVIEWER_AVATAR_COLOR = "#3B5BDB";
 
-function ReviewerMyPage({ name, email, onLogout }: { name: string; email: string; onLogout: () => void }) {
+function ReviewerMyPage({ name, email, onLogout, avatarUrl }: { name: string; email: string; onLogout: () => void; avatarUrl: string | null }) {
+  const navigate = useNavigate();
   const initials = name ? name[0] : "심";
   const { projects, loadState, reload } = useReviewerProjects();
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
@@ -348,6 +391,8 @@ function ReviewerMyPage({ name, email, onLogout }: { name: string; email: string
   }, [projects, selectedProjectId]);
 
   const team = projects.find(p => p.projectId === selectedProjectId) ?? null;
+  const contribProjectId = panelTab === "contrib" || panelTab === "ai-evidence" ? (team?.projectId ?? null) : null;
+  const { rows: contribRows, loadState: contribLoadState, reload: reloadContrib } = useReviewerContribution(contribProjectId);
   const evalCounts = {
     pending: projects.filter(p => p.evalStatus === "pending").length,
     evaluating: projects.filter(p => p.evalStatus === "evaluating").length,
@@ -369,9 +414,13 @@ function ReviewerMyPage({ name, email, onLogout }: { name: string; email: string
       {/* ── Reviewer Profile ── */}
       <div className="shrink-0 px-6 pt-5 pb-4 border-b border-border">
         <div className="flex items-center gap-4">
-          <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-white font-bold text-xl shrink-0" style={{ background: REVIEWER_AVATAR_COLOR }}>
-            {initials}
-          </div>
+          {avatarUrl ? (
+            <img src={avatarUrl} alt="" className="w-14 h-14 rounded-2xl object-cover shrink-0" />
+          ) : (
+            <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-white font-bold text-xl shrink-0" style={{ background: REVIEWER_AVATAR_COLOR }}>
+              {initials}
+            </div>
+          )}
           <div className="flex-1">
             <div className="flex items-center gap-2 mb-0.5">
               <span className="text-lg font-bold text-foreground">{name}</span>
@@ -380,7 +429,7 @@ function ReviewerMyPage({ name, email, onLogout }: { name: string; email: string
             <div className="text-xs text-muted-foreground">{email}</div>
           </div>
           <div className="flex items-center gap-2">
-            <button className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-border bg-card text-foreground rounded-lg hover:bg-muted transition-colors"><Settings className="w-3.5 h-3.5" />설정</button>
+            <button onClick={() => navigate("/mypage/settings")} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-border bg-card text-foreground rounded-lg hover:bg-muted transition-colors"><Settings className="w-3.5 h-3.5" />설정</button>
             <button onClick={onLogout} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 border border-red-200 bg-red-50 rounded-lg"><LogOut className="w-3.5 h-3.5" />로그아웃</button>
           </div>
         </div>
@@ -544,30 +593,47 @@ function ReviewerMyPage({ name, email, onLogout }: { name: string; email: string
                   <Shield className="w-3.5 h-3.5 text-blue-500 shrink-0" />
                   <span className="text-xs text-blue-700 font-medium">심사자 전용 기능입니다. 팀원에게 노출되지 않습니다.</span>
                 </div>
-                {CONTRIB_REPORTS.map(r => (
-                  <div key={r.memberId} className="bg-card rounded-xl border border-border shadow-sm overflow-hidden">
-                    <div className="flex items-center gap-3 px-5 py-3 border-b border-border">
-                      <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold" style={{ background: r.color }}>{r.name[0]}</div>
-                      <div><div className="text-sm font-bold text-foreground">{r.name}</div><div className="text-[10px] text-muted-foreground">{r.role}</div></div>
-                      <div className="ml-auto flex items-center gap-2">
-                        <span className="text-xs text-muted-foreground">To-Do {r.todoDone}/{r.todoTotal} · 회의 {r.meetings}회 · 커밋 {r.commits}건 · PR {r.prs}건</span>
-                      </div>
-                    </div>
-                    <div className="px-5 py-3 space-y-2">
-                      {Object.entries({ "업무 수행":r.categories.task, "회의 참여":r.categories.meeting, "업무 편중도":r.categories.workload }).map(([label, val]) => (
-                        <div key={label} className="flex items-center gap-3">
-                          <span className="text-[10px] text-muted-foreground w-16 shrink-0">{label}</span>
-                          <div className="flex-1 h-1.5 bg-muted rounded-full"><div className="h-1.5 rounded-full" style={{ width:`${val}%`, background: r.color }} /></div>
-                          <span className="text-[10px] font-semibold text-foreground w-6 text-right">{val}</span>
-                        </div>
-                      ))}
-                      <div className="mt-2 p-2.5 rounded-lg text-xs text-muted-foreground leading-relaxed" style={{ background:"rgba(0,0,0,0.03)" }}>
-                        <strong className="text-foreground">AI 요약:</strong> {r.aiSummary}
-                      </div>
-                      <div className="text-[10px] text-muted-foreground">근거: {r.evidence.join(" / ")}</div>
-                    </div>
+                {contribLoadState === "loading" && (
+                  <div className="px-4 py-6 text-center text-xs text-muted-foreground">불러오는 중...</div>
+                )}
+                {contribLoadState === "error" && (
+                  <div className="px-4 py-6 flex flex-col items-center gap-2 text-center text-xs text-muted-foreground">
+                    <span>기여도 리포트를 불러오지 못했습니다.</span>
+                    <button onClick={reloadContrib} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white rounded-lg hover:opacity-90 transition-opacity" style={{ background: "var(--primary)" }}>
+                      <RefreshCw className="w-3.5 h-3.5" />다시 시도
+                    </button>
                   </div>
-                ))}
+                )}
+                {contribLoadState === "ready" && contribRows.length === 0 && (
+                  <div className="px-4 py-6 text-center text-xs text-muted-foreground">팀원이 없습니다.</div>
+                )}
+                {contribLoadState === "ready" && contribRows.map((r, i) => {
+                  const color = resolveMemberDisplay(r.name, i, String(r.userId)).color;
+                  return (
+                    <div key={r.userId} className="bg-card rounded-xl border border-border shadow-sm overflow-hidden">
+                      <div className="flex items-center gap-3 px-5 py-3 border-b border-border">
+                        <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold" style={{ background: color }}>{r.name[0]}</div>
+                        <div><div className="text-sm font-bold text-foreground">{r.name}</div><div className="text-[10px] text-muted-foreground">{r.role}</div></div>
+                        <div className="ml-auto flex items-center gap-2">
+                          <span className="text-xs text-muted-foreground">To-Do {r.todoDone}/{r.todoTotal} · 회의 {r.meetings}/{r.meetingsTotal}회</span>
+                        </div>
+                      </div>
+                      <div className="px-5 py-3 space-y-2">
+                        {r.categories && Object.entries({ "업무 수행":r.categories.task, "회의 참여":r.categories.meeting, "업무 편중도":r.categories.workload }).map(([label, val]) => (
+                          <div key={label} className="flex items-center gap-3">
+                            <span className="text-[10px] text-muted-foreground w-16 shrink-0">{label}</span>
+                            <div className="flex-1 h-1.5 bg-muted rounded-full"><div className="h-1.5 rounded-full" style={{ width:`${val}%`, background: color }} /></div>
+                            <span className="text-[10px] font-semibold text-foreground w-6 text-right">{val}</span>
+                          </div>
+                        ))}
+                        <div className="mt-2 p-2.5 rounded-lg text-xs text-muted-foreground leading-relaxed" style={{ background:"rgba(0,0,0,0.03)" }}>
+                          <strong className="text-foreground">AI 요약:</strong> {r.aiSummary ?? "AI 요약이 아직 없습니다."}
+                        </div>
+                        <div className="text-[10px] text-muted-foreground">근거: {r.evidence.length > 0 ? r.evidence.join(" / ") : "근거 없음"}</div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
 
@@ -578,25 +644,44 @@ function ReviewerMyPage({ name, email, onLogout }: { name: string; email: string
                   <Shield className="w-3.5 h-3.5 text-blue-500 shrink-0" />
                   <span className="text-xs text-blue-700 font-medium">AI 평가 근거 — 심사자 전용 · AI는 점수를 확정하지 않고 근거만 제공합니다.</span>
                 </div>
-                {CONTRIB_REPORTS.map(r => (
-                  <div key={r.memberId} className="bg-card rounded-xl border border-border shadow-sm p-4">
-                    <div className="flex items-center gap-2 mb-3">
-                      <div className="w-6 h-6 rounded-full flex items-center justify-center text-white text-[10px] font-bold" style={{ background: r.color }}>{r.name[0]}</div>
-                      <span className="text-sm font-bold text-foreground">{r.name}</span>
-                      <span className="text-[10px] text-muted-foreground">({r.role})</span>
-                    </div>
-                    <div className="rounded-lg p-3 mb-3 text-xs text-muted-foreground leading-relaxed" style={{ background:"rgba(112,72,232,0.05)", border:"1px solid rgba(112,72,232,0.2)" }}>
-                      <div className="flex items-center gap-1.5 mb-1"><Sparkles className="w-3 h-3 text-purple-500" /><strong className="text-foreground">AI 분석 요약</strong></div>
-                      {r.aiSummary}
-                    </div>
-                    <div className="text-[10px] text-muted-foreground mb-1 font-semibold">근거 출처</div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {r.evidence.map((e, i) => (
-                        <span key={i} className="text-[10px] font-medium px-2 py-0.5 rounded bg-muted text-muted-foreground border border-border cursor-pointer hover:border-blue-400 transition-colors">{e}</span>
-                      ))}
-                    </div>
+                {contribLoadState === "loading" && (
+                  <div className="px-4 py-6 text-center text-xs text-muted-foreground">불러오는 중...</div>
+                )}
+                {contribLoadState === "error" && (
+                  <div className="px-4 py-6 flex flex-col items-center gap-2 text-center text-xs text-muted-foreground">
+                    <span>AI 평가 근거를 불러오지 못했습니다.</span>
+                    <button onClick={reloadContrib} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white rounded-lg hover:opacity-90 transition-opacity" style={{ background: "var(--primary)" }}>
+                      <RefreshCw className="w-3.5 h-3.5" />다시 시도
+                    </button>
                   </div>
-                ))}
+                )}
+                {contribLoadState === "ready" && contribRows.length === 0 && (
+                  <div className="px-4 py-6 text-center text-xs text-muted-foreground">팀원이 없습니다.</div>
+                )}
+                {contribLoadState === "ready" && contribRows.map((r, i) => {
+                  const color = resolveMemberDisplay(r.name, i, String(r.userId)).color;
+                  return (
+                    <div key={r.userId} className="bg-card rounded-xl border border-border shadow-sm p-4">
+                      <div className="flex items-center gap-2 mb-3">
+                        <div className="w-6 h-6 rounded-full flex items-center justify-center text-white text-[10px] font-bold" style={{ background: color }}>{r.name[0]}</div>
+                        <span className="text-sm font-bold text-foreground">{r.name}</span>
+                        <span className="text-[10px] text-muted-foreground">({r.role})</span>
+                      </div>
+                      <div className="rounded-lg p-3 mb-3 text-xs text-muted-foreground leading-relaxed" style={{ background:"rgba(112,72,232,0.05)", border:"1px solid rgba(112,72,232,0.2)" }}>
+                        <div className="flex items-center gap-1.5 mb-1"><Sparkles className="w-3 h-3 text-purple-500" /><strong className="text-foreground">AI 분석 요약</strong></div>
+                        {r.aiSummary ?? "AI 요약이 아직 없습니다."}
+                      </div>
+                      <div className="text-[10px] text-muted-foreground mb-1 font-semibold">근거 출처</div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {r.evidence.length === 0 ? (
+                          <span className="text-[10px] text-muted-foreground">근거 없음</span>
+                        ) : r.evidence.map((e, idx) => (
+                          <span key={idx} className="text-[10px] font-medium px-2 py-0.5 rounded bg-muted text-muted-foreground border border-border cursor-pointer hover:border-blue-400 transition-colors">{e}</span>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
 
@@ -666,6 +751,9 @@ export function MyPage() {
   };
 
   return role === "member"
-    ? <MemberMyPage name={name} email={email} onLogout={handleLogout} projectId={currentProjectId} userId={user?.id ?? null} />
-    : <ReviewerMyPage name={name} email={email} onLogout={handleLogout} />;
+    ? <MemberMyPage
+        name={name} email={email} onLogout={handleLogout} projectId={currentProjectId} userId={user?.id ?? null}
+        avatarUrl={user?.avatarUrl ?? null} affiliation={user?.affiliation ?? null} field={user?.field ?? null} githubUsername={user?.githubUsername ?? null}
+      />
+    : <ReviewerMyPage name={name} email={email} onLogout={handleLogout} avatarUrl={user?.avatarUrl ?? null} />;
 }

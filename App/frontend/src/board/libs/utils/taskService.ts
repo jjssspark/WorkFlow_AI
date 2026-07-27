@@ -15,9 +15,9 @@ export function getCat(id: string): CategoryDef {
 // Task.dueDate는 내부적으로 ISO(YYYY-MM-DD)를 쓰고, 화면 표시할 때만 이 함수로 "M.D" 형태로 변환한다.
 export function formatDueDate(iso: string): string {
   if (!iso) return "미정";
-  const [, month, day] = iso.split("-");
-  if (!month || !day) return iso;
-  return `${month}.${day}`;
+  const [year, month, day] = iso.split("-");
+  if (!year || !month || !day) return iso;
+  return `${year}.${month}.${day}`;
 }
 
 export function getTasksByStatus(status: TaskStatus, tasks: Task[] = TASKS): Task[] {

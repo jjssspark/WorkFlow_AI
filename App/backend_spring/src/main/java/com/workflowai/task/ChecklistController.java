@@ -3,6 +3,9 @@ package com.workflowai.task;
 import com.workflowai.activity.ActivityService;
 import com.workflowai.common.ApiResponse;
 import com.workflowai.common.DemoDataService;
+import com.workflowai.project.ProjectMemberRepository;
+import com.workflowai.project.ProjectRole;
+import com.workflowai.security.CurrentUser;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -18,9 +21,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-// DONE: @projectAccess.isMember(#projectId)로 프로젝트 멤버십 검사 적용 완료 (2026-07-18).
-// TODO: currentActorId()가 항상 mock 사용자 "1"이라 실제 로그인 사용자가 활동 로그에 반영되지 않는다.
-// 남은 과제는 document_고무서에 별도 기록.
 @Tag(name = "업무 체크리스트", description = "업무 안 체크리스트 항목 조회/생성/수정/삭제 API")
 @RestController
 @RequestMapping("/api/v1/projects/{projectId}/tasks/{taskId}/checklists")
@@ -31,6 +31,7 @@ public class ChecklistController {
     private final ActivityService activityService;
     private final ChecklistAiService checklistAiService;
     private final ChecklistApplyService checklistApplyService;
+    private final ProjectMemberRepository projectMemberRepository;
     // 업무 ID를 고정 개수 버킷에 매핑한 스트라이프 락. 같은 업무 동시 저장 시 조회-후-저장 경합으로
     // 중복 저장되는 것을 막으면서, 업무 수에 비례해 락 객체가 무한 증가하지 않도록 상한을 둔다(단일 인스턴스 기준).
     private static final int APPLY_LOCK_STRIPES = 64;
@@ -42,7 +43,8 @@ public class ChecklistController {
         DemoDataService demoDataService,
         ActivityService activityService,
         ChecklistAiService checklistAiService,
-        ChecklistApplyService checklistApplyService
+        ChecklistApplyService checklistApplyService,
+        ProjectMemberRepository projectMemberRepository
     ) {
         this.checklistRepository = checklistRepository;
         this.taskRepository = taskRepository;
@@ -50,6 +52,7 @@ public class ChecklistController {
         this.activityService = activityService;
         this.checklistAiService = checklistAiService;
         this.checklistApplyService = checklistApplyService;
+        this.projectMemberRepository = projectMemberRepository;
         for (int i = 0; i < APPLY_LOCK_STRIPES; i++) {
             this.applyLocks[i] = new Object();
         }
@@ -64,9 +67,20 @@ public class ChecklistController {
         return task;
     }
 
-    // TODO: 로그인이 없어 활동 로그의 행위자를 항상 mock 사용자 "1"로 남긴다. 실제 인증이 붙으면 로그인 사용자로 교체.
     private Long currentActorId() {
-        return demoDataService.resolveUserId("1");
+        return CurrentUser.id();
+    }
+
+    private boolean isLeader(Long projectId, Long userId) {
+        return projectMemberRepository.findByProjectIdAndUserId(projectId, userId)
+            .map(member -> member.getRole() == ProjectRole.LEADER)
+            .orElse(false);
+    }
+
+    /** 팀장이거나 업무 담당자 본인만 체크리스트를 추가/토글/삭제할 수 있다. */
+    private boolean canModifyChecklist(Task task) {
+        Long userId = currentActorId();
+        return isLeader(task.getProjectId(), userId) || userId.equals(task.getAssigneeId());
     }
 
     @Operation(summary = "체크리스트 조회", description = "업무에 등록된 체크리스트 항목을 등록 순서대로 조회합니다.")
@@ -99,6 +113,9 @@ public class ChecklistController {
         Task task = resolveTaskOrNull(projectId, taskId);
         if (task == null) {
             return ResponseEntity.status(404).body(ApiResponse.fail("TASK_NOT_FOUND", "업무를 찾을 수 없습니다."));
+        }
+        if (!canModifyChecklist(task)) {
+            return ResponseEntity.status(403).body(ApiResponse.fail("FORBIDDEN_NOT_OWNER", "본인이 담당자인 업무만 체크리스트를 추가할 수 있습니다."));
         }
         Checklist checklist = checklistRepository.save(new Checklist(taskId, request.title()));
         activityService.record(
@@ -137,6 +154,9 @@ public class ChecklistController {
         if (task == null) {
             return ResponseEntity.status(404).body(ApiResponse.fail("TASK_NOT_FOUND", "업무를 찾을 수 없습니다."));
         }
+        if (!canModifyChecklist(task)) {
+            return ResponseEntity.status(403).body(ApiResponse.fail("FORBIDDEN_NOT_OWNER", "본인이 담당자인 업무만 체크리스트를 추가할 수 있습니다."));
+        }
         List<String> requestedTitles = request == null ? null : request.titles();
         List<Checklist> saved;
         // 커밋까지 락 안에서 이뤄지도록, 트랜잭션 경계를 가진 서비스 호출을 락으로 감싼다.
@@ -170,6 +190,9 @@ public class ChecklistController {
         if (task == null) {
             return ResponseEntity.status(404).body(ApiResponse.fail("TASK_NOT_FOUND", "업무를 찾을 수 없습니다."));
         }
+        if (!canModifyChecklist(task)) {
+            return ResponseEntity.status(403).body(ApiResponse.fail("FORBIDDEN_NOT_OWNER", "본인이 담당자인 업무만 체크리스트를 수정할 수 있습니다."));
+        }
         Checklist checklist = checklistRepository.findById(checklistId).orElse(null);
         if (checklist == null || !checklist.getTaskId().equals(taskId)) {
             return ResponseEntity.status(404).body(ApiResponse.fail("CHECKLIST_NOT_FOUND", "체크리스트 항목을 찾을 수 없습니다."));
@@ -194,8 +217,12 @@ public class ChecklistController {
         @Parameter(description = "업무 ID") @PathVariable Long taskId,
         @Parameter(description = "체크리스트 항목 ID") @PathVariable Long checklistId
     ) {
-        if (resolveTaskOrNull(projectId, taskId) == null) {
+        Task task = resolveTaskOrNull(projectId, taskId);
+        if (task == null) {
             return ResponseEntity.status(404).body(ApiResponse.fail("TASK_NOT_FOUND", "업무를 찾을 수 없습니다."));
+        }
+        if (!canModifyChecklist(task)) {
+            return ResponseEntity.status(403).body(ApiResponse.fail("FORBIDDEN_NOT_OWNER", "본인이 담당자인 업무만 체크리스트를 삭제할 수 있습니다."));
         }
         Checklist checklist = checklistRepository.findById(checklistId).orElse(null);
         if (checklist == null || !checklist.getTaskId().equals(taskId)) {

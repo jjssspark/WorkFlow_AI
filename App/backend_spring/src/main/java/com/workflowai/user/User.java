@@ -2,11 +2,17 @@ package com.workflowai.user;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 @Entity
 @Table(name = "users")
@@ -30,8 +36,37 @@ public class User {
     @Column(name = "password_hash", length = 255)
     private String passwordHash;
 
+    @Enumerated(EnumType.STRING)
     @Column(name = "reviewer_status", length = 20)
-    private String reviewerStatus;
+    private ReviewerStatus reviewerStatus;
+
+    @Column(name = "affiliation", length = 100)
+    private String affiliation;
+
+    @Column(name = "is_admin", nullable = false)
+    private boolean admin = false;
+
+    @Column(name = "faculty_id", length = 50)
+    private String facultyId;
+
+    @Column(name = "reviewer_rejection_reason", length = 500)
+    private String reviewerRejectionReason;
+
+    @Column(name = "field_tags", nullable = false)
+    @JdbcTypeCode(SqlTypes.JSON)
+    private List<String> fieldTags = new ArrayList<>();
+
+    @Column(name = "github_username", length = 100)
+    private String githubUsername;
+
+    @Column(name = "profile_image_path", length = 255)
+    private String profileImagePath;
+
+    @Column(name = "terms_agreed_at")
+    private LocalDateTime termsAgreedAt;
+
+    @Column(name = "privacy_agreed_at")
+    private LocalDateTime privacyAgreedAt;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -95,12 +130,84 @@ public class User {
         return passwordHash;
     }
 
-    public String getReviewerStatus() {
+    public ReviewerStatus getReviewerStatus() {
         return reviewerStatus;
     }
 
-    public void setReviewerStatus(String reviewerStatus) {
+    public void setReviewerStatus(ReviewerStatus reviewerStatus) {
         this.reviewerStatus = reviewerStatus;
+    }
+
+    public String getAffiliation() {
+        return affiliation;
+    }
+
+    public void setAffiliation(String affiliation) {
+        this.affiliation = affiliation;
+    }
+
+    public boolean isAdmin() {
+        return admin;
+    }
+
+    public void setAdmin(boolean admin) {
+        this.admin = admin;
+    }
+
+    public String getFacultyId() {
+        return facultyId;
+    }
+
+    public void setFacultyId(String facultyId) {
+        this.facultyId = facultyId;
+    }
+
+    public String getReviewerRejectionReason() {
+        return reviewerRejectionReason;
+    }
+
+    public void setReviewerRejectionReason(String reviewerRejectionReason) {
+        this.reviewerRejectionReason = reviewerRejectionReason;
+    }
+
+    public List<String> getFieldTags() {
+        return fieldTags;
+    }
+
+    public void setFieldTags(List<String> fieldTags) {
+        this.fieldTags = fieldTags;
+    }
+
+    public String getGithubUsername() {
+        return githubUsername;
+    }
+
+    public void setGithubUsername(String githubUsername) {
+        this.githubUsername = githubUsername;
+    }
+
+    public String getProfileImagePath() {
+        return profileImagePath;
+    }
+
+    public void setProfileImagePath(String profileImagePath) {
+        this.profileImagePath = profileImagePath;
+    }
+
+    public LocalDateTime getTermsAgreedAt() {
+        return termsAgreedAt;
+    }
+
+    public void setTermsAgreedAt(LocalDateTime termsAgreedAt) {
+        this.termsAgreedAt = termsAgreedAt;
+    }
+
+    public LocalDateTime getPrivacyAgreedAt() {
+        return privacyAgreedAt;
+    }
+
+    public void setPrivacyAgreedAt(LocalDateTime privacyAgreedAt) {
+        this.privacyAgreedAt = privacyAgreedAt;
     }
 
     public LocalDateTime getCreatedAt() {

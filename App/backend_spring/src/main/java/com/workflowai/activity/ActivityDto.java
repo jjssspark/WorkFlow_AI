@@ -1,5 +1,6 @@
 package com.workflowai.activity;
 
+import com.workflowai.common.UtcTimeFormat;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 @Schema(description = "활동 로그 항목")
@@ -16,7 +17,7 @@ public record ActivityDto(
             actorName,
             activity.getType(),
             activity.getMessage(),
-            activity.getCreatedAt().toString()
+            UtcTimeFormat.toIsoUtc(activity.getCreatedAt())
         );
     }
 }

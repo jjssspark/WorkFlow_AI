@@ -2,6 +2,8 @@ package com.workflowai.task;
 
 import com.workflowai.common.ApiResponse;
 import com.workflowai.common.DemoDataService;
+import com.workflowai.project.ProjectMemberRepository;
+import com.workflowai.project.ProjectRole;
 import com.workflowai.security.CurrentUser;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -45,6 +47,7 @@ public class TaskResultController {
     private final TaskRepository taskRepository;
     private final DemoDataService demoDataService;
     private final SupabaseStorageClient storageClient;
+    private final ProjectMemberRepository projectMemberRepository;
 
     public TaskResultController(
         TaskResultRepository taskResultRepository,
@@ -52,7 +55,8 @@ public class TaskResultController {
         TaskResultFileRepository taskResultFileRepository,
         TaskRepository taskRepository,
         DemoDataService demoDataService,
-        SupabaseStorageClient storageClient
+        SupabaseStorageClient storageClient,
+        ProjectMemberRepository projectMemberRepository
     ) {
         this.taskResultRepository = taskResultRepository;
         this.taskResultLinkRepository = taskResultLinkRepository;
@@ -60,6 +64,7 @@ public class TaskResultController {
         this.taskRepository = taskRepository;
         this.demoDataService = demoDataService;
         this.storageClient = storageClient;
+        this.projectMemberRepository = projectMemberRepository;
     }
 
     private Task resolveTaskOrNull(String projectId, Long taskId) {
@@ -73,6 +78,17 @@ public class TaskResultController {
 
     private boolean isAssignee(Task task, Long userId) {
         return userId != null && task.getAssigneeId() != null && task.getAssigneeId().equals(userId);
+    }
+
+    private boolean isLeader(Long projectId, Long userId) {
+        return userId != null && projectMemberRepository.findByProjectIdAndUserId(projectId, userId)
+            .map(member -> member.getRole() == ProjectRole.LEADER)
+            .orElse(false);
+    }
+
+    /** 담당자 본인이거나 팀장만 작업 내용(내용/링크/첨부파일)을 쓸 수 있다. */
+    private boolean canEditResult(Task task, Long userId) {
+        return isAssignee(task, userId) || isLeader(task.getProjectId(), userId);
     }
 
     /** 정규식 대신 URI 파서로 검증해 스킴은 맞지만 호스트가 없는 등 형식이 잘못된 URL을 걸러낸다. */
@@ -150,7 +166,7 @@ public class TaskResultController {
         if (task == null) {
             return ResponseEntity.status(404).body(ApiResponse.fail("TASK_NOT_FOUND", "업무를 찾을 수 없습니다."));
         }
-        if (!isAssignee(task, CurrentUser.id())) {
+        if (!canEditResult(task, CurrentUser.id())) {
             return ResponseEntity.status(403).body(ApiResponse.fail("FORBIDDEN_NOT_ASSIGNEE", "담당자만 작업 내용을 작성할 수 있습니다."));
         }
         TaskResult result = taskResultRepository.findByTaskId(taskId).orElse(null);
@@ -194,7 +210,7 @@ public class TaskResultController {
         if (task == null) {
             return ResponseEntity.status(404).body(ApiResponse.fail("TASK_NOT_FOUND", "업무를 찾을 수 없습니다."));
         }
-        if (!isAssignee(task, CurrentUser.id())) {
+        if (!canEditResult(task, CurrentUser.id())) {
             return ResponseEntity.status(403).body(ApiResponse.fail("FORBIDDEN_NOT_ASSIGNEE", "담당자만 링크를 추가할 수 있습니다."));
         }
         String title = (request.title() == null || request.title().isBlank()) ? request.url() : request.title();
@@ -217,7 +233,7 @@ public class TaskResultController {
         if (task == null) {
             return ResponseEntity.status(404).body(ApiResponse.fail("TASK_NOT_FOUND", "업무를 찾을 수 없습니다."));
         }
-        if (!isAssignee(task, CurrentUser.id())) {
+        if (!canEditResult(task, CurrentUser.id())) {
             return ResponseEntity.status(403).body(ApiResponse.fail("FORBIDDEN_NOT_ASSIGNEE", "담당자만 링크를 삭제할 수 있습니다."));
         }
         TaskResultLink link = taskResultLinkRepository.findById(linkId).orElse(null);
@@ -248,7 +264,7 @@ public class TaskResultController {
             return ResponseEntity.status(404).body(ApiResponse.fail("TASK_NOT_FOUND", "업무를 찾을 수 없습니다."));
         }
         Long uploaderId = CurrentUser.id();
-        if (!isAssignee(task, uploaderId)) {
+        if (!canEditResult(task, uploaderId)) {
             return ResponseEntity.status(403).body(ApiResponse.fail("FORBIDDEN_NOT_ASSIGNEE", "담당자만 파일을 업로드할 수 있습니다."));
         }
         String storagePath = "tasks/" + taskId + "/" + UUID.randomUUID() + "-" + sanitizeForStoragePath(originalName);
@@ -287,7 +303,7 @@ public class TaskResultController {
         if (task == null) {
             return ResponseEntity.status(404).body(ApiResponse.fail("TASK_NOT_FOUND", "업무를 찾을 수 없습니다."));
         }
-        if (!isAssignee(task, CurrentUser.id())) {
+        if (!canEditResult(task, CurrentUser.id())) {
             return ResponseEntity.status(403).body(ApiResponse.fail("FORBIDDEN_NOT_ASSIGNEE", "담당자만 파일을 삭제할 수 있습니다."));
         }
         TaskResultFile taskResultFile = taskResultFileRepository.findById(fileId).orElse(null);

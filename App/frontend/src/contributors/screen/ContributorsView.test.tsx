@@ -52,7 +52,7 @@ vi.mock("../../global/api/evaluationApi", () => ({
 }));
 
 function makeTask(id: string, assignee: string, status: Task["status"], title: string): Task {
-  return { id, title, status, priority: "medium", assignee, dueDate: "", labels: [], category: "backend", position: 0 };
+  return { id, title, status, priority: "medium", assignee, dueDate: "", labels: [], category: "backend", position: 0, pendingApproval: false, startDate: "", extraFields: {} };
 }
 
 function renderView() {

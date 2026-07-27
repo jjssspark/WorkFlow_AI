@@ -8,7 +8,11 @@ import re
 from core.cache import get_async_redis_client
 from llm_rag_assistant.app.schema.chat_schema import RagQueryResponse, RagSource
 from llm_rag_assistant.app.services.embedding_service import embed_text
-from llm_rag_assistant.app.services.generation_service import generate_answer
+from llm_rag_assistant.app.services.generation_service import (
+    generate_answer,
+    resolve_generation_provider,
+)
+from llm_rag_assistant.app.services.project_stats_service import fetch_project_stats
 from llm_rag_assistant.app.services.query_rewrite_service import rewrite_question
 from llm_rag_assistant.app.services.retrieval_service import search_similar_chunks
 from llm_rag_assistant.app.services.task_facts_service import enrich_with_facts
@@ -22,7 +26,13 @@ _SNIPPET_MAX_LEN = 200
 # v2: 개인화 질문 컨텍스트에 담당자 필터 안내문 추가 (generation_service._PERSONAL_CONTEXT_NOTICE)
 # v3: 출처 줄에 마감일·상태·우선순위 추가 (task_facts_service.enrich_with_facts)
 # v4: 개인화 안내문 강화 + 생성 temperature 고정 (generation_service)
-_ANSWER_CACHE_SCHEMA_VERSION = "v4"
+# v5: 프로젝트 전수 집계 블록을 컨텍스트에 주입 (project_stats_service / generation_service)
+# v6: 개인화 질문에 질문자 본인 전수 집계("내 업무") 블록 추가
+# v7: 마감 임박 업무 확정 목록 + 지난 마감 건수 추가 (project_stats_service)
+# v8: 블로커 업무 확정 목록(사유·마감·우선순위) 추가 (project_stats_service)
+# v9: 블로커 줄의 사용자 입력을 한 줄로 접고 길이 제한 (generation_service._one_line)
+# v10: 캐시 키에 생성 프로바이더 포함 - 프로바이더 전환 시 이전 백엔드 답변 혼입 방지
+_ANSWER_CACHE_SCHEMA_VERSION = "v10"
 _ANSWER_CACHE_TTL_SECONDS = 1800
 
 # "내 할 일 알려줘" 류 개인화 질문 판별용. 순수 벡터 유사도만으로는 "내"가 누구인지 구분할
@@ -72,6 +82,9 @@ def _answer_cache_key(
             "assignee_id": assignee_id,
             "question": question,
             "cache_epoch": cache_epoch,
+            # 모델이 다르면 같은 질문에도 답이 다르다. 이게 없으면 프로바이더를 되돌린 뒤에도
+            # 이전 백엔드가 만든 답변이 TTL(30분) 동안 계속 나간다.
+            "provider": resolve_generation_provider(),
         },
         ensure_ascii=False,
         sort_keys=True,
@@ -172,7 +185,13 @@ async def answer_question(
     rows = await search_similar_chunks(pool, project_id, query_embedding, top_k=5, assignee_id=assignee_id)
     # 청크 본문에 없는 마감일·상태·우선순위를 붙인다. 실패해도 facts만 비고 답변은 정상 진행된다.
     enriched_rows = await enrich_with_facts(pool, project_id, rows)
-    answer = await generate_answer(effective_question, enriched_rows, is_personal=assignee_id is not None)
+    # 검색은 상위 k개(표본)만 본다. "블로커 몇 건이야" 같은 전수 집계 질문은 이 경로로 답할 수
+    # 없어 프로젝트 전체 집계를 따로 붙인다. 캐시 히트 시에는 위에서 이미 반환되므로 실행되지
+    # 않는다 - 늘어나는 왕복은 캐시 미스 1회뿐이다.
+    stats = await fetch_project_stats(pool, project_id, assignee_id=assignee_id)
+    answer = await generate_answer(
+        effective_question, enriched_rows, is_personal=assignee_id is not None, stats=stats
+    )
 
     sources = [
         RagSource(

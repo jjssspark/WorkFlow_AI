@@ -1,5 +1,6 @@
 package com.workflowai.task;
 
+import com.workflowai.common.UtcTimeFormat;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 @Schema(description = "업무 코멘트")
@@ -18,7 +19,7 @@ public record TaskCommentDto(
             authorName,
             comment.getContent(),
             comment.getType(),
-            comment.getCreatedAt().toString()
+            UtcTimeFormat.toIsoUtc(comment.getCreatedAt())
         );
     }
 }

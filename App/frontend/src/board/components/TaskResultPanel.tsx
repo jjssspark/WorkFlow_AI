@@ -49,11 +49,14 @@ function errorMessage(e: unknown, fallback: string): string {
   return e instanceof Error ? e.message : fallback;
 }
 
-// 작업 내용/링크/첨부파일(Supabase Storage)을 실제로 백엔드에 저장한다. 쓰기는 담당자만 가능하며
-// (백엔드가 403으로 막음), 이 패널은 미리 막지 않고 시도했을 때 에러 메시지를 토스트로 보여준다.
+// 작업 내용/링크/첨부파일(Supabase Storage)을 실제로 백엔드에 저장한다. 쓰기는 담당자 본인이거나
+// 팀장만 가능하다(백엔드가 403으로도 막지만, 이 패널은 애초에 입력/버튼 자체를 숨겨서 시도조차 못하게 한다).
 export function TaskResultPanel({ task, onClose, onShowToast }: TaskResultPanelProps) {
-  const { currentProjectId, user } = useAuth();
+  const { currentProjectId, currentProject, user } = useAuth();
   const projectId = currentProjectId ?? DEMO_PROJECT_ID;
+  const isLeader = currentProject?.role === "팀장";
+  const isAssignee = user != null && task.assignee === String(user.id);
+  const canEdit = isLeader || isAssignee;
 
   const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading");
   const [content, setContent] = useState("");
@@ -216,46 +219,53 @@ export function TaskResultPanel({ task, onClose, onShowToast }: TaskResultPanelP
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <span className="text-[11px] font-bold text-muted-foreground">작업 내용 작성</span>
-              <button
-                onClick={handleResetContent}
-                disabled={!content}
-                className="flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded-lg text-muted-foreground hover:bg-muted transition-colors disabled:opacity-40"
-              >
-                <RotateCcw className="w-3 h-3" />초기화
-              </button>
+              {canEdit && (
+                <button
+                  onClick={handleResetContent}
+                  disabled={!content}
+                  className="flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded-lg text-muted-foreground hover:bg-muted transition-colors disabled:opacity-40"
+                >
+                  <RotateCcw className="w-3 h-3" />초기화
+                </button>
+              )}
             </div>
             <textarea
               value={content}
               onChange={(e) => { setContent(e.target.value.slice(0, 2000)); setIsSaved(false); }}
               maxLength={2000}
               rows={10}
-              placeholder="이번 작업에서 무엇을 했는지 작성해주세요."
-              className="w-full text-xs rounded-lg border border-border bg-input-background px-3 py-2 outline-none focus:border-blue-400 resize-none"
+              readOnly={!canEdit}
+              placeholder={canEdit ? "이번 작업에서 무엇을 했는지 작성해주세요." : "작성된 내용이 없습니다."}
+              className={`w-full text-xs rounded-lg border border-border px-3 py-2 outline-none resize-none ${canEdit ? "bg-input-background focus:border-blue-400" : "bg-muted/40 cursor-default"}`}
             />
-            <div className="flex items-center justify-between mt-1.5">
-              <button
-                onClick={() => void handleSaveContent()}
-                disabled={!content.trim() || saving}
-                className="text-xs font-semibold px-3 py-1.5 rounded-lg text-white disabled:opacity-40 transition-opacity"
-                style={{ background: "var(--primary)" }}
-              >
-                {saving ? "저장 중..." : isSaved ? "수정" : "생성"}
-              </button>
-              <span className="text-[10px] text-muted-foreground">{content.length}/2000</span>
-            </div>
+            {canEdit && (
+              <div className="flex items-center justify-between mt-1.5">
+                <button
+                  onClick={() => void handleSaveContent()}
+                  disabled={!content.trim() || saving}
+                  className="text-xs font-semibold px-3 py-1.5 rounded-lg text-white disabled:opacity-40 transition-opacity"
+                  style={{ background: "var(--primary)" }}
+                >
+                  {saving ? "저장 중..." : isSaved ? "수정" : "생성"}
+                </button>
+                <span className="text-[10px] text-muted-foreground">{content.length}/2000</span>
+              </div>
+            )}
           </div>
 
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <span className="text-[11px] font-bold text-muted-foreground">첨부파일</span>
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                disabled={uploadingFile}
-                className="flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded-lg hover:bg-muted transition-colors disabled:opacity-40"
-                style={{ color: "#3B5BDB" }}
-              >
-                <Plus className="w-3 h-3" />파일 업로드
-              </button>
+              {canEdit && (
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploadingFile}
+                  className="flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded-lg hover:bg-muted transition-colors disabled:opacity-40"
+                  style={{ color: "#3B5BDB" }}
+                >
+                  <Plus className="w-3 h-3" />파일 업로드
+                </button>
+              )}
               <input
                 ref={fileInputRef}
                 type="file"
@@ -264,15 +274,20 @@ export function TaskResultPanel({ task, onClose, onShowToast }: TaskResultPanelP
                 onChange={(e) => { void uploadFiles(e.target.files); e.target.value = ""; }}
               />
             </div>
-            <div
-              onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-              onDragLeave={() => setDragOver(false)}
-              onDrop={handleDrop}
-              onClick={() => !uploadingFile && fileInputRef.current?.click()}
-              className={`rounded-lg border border-dashed px-3 py-3 text-center text-[10.5px] text-muted-foreground cursor-pointer transition-colors ${dragOver ? "border-blue-400 bg-blue-50" : "border-border"}`}
-            >
-              {uploadingFile ? "업로드 중..." : "드래그 앤 드롭으로 파일을 추가할 수 있습니다. (파일당 최대 100MB)"}
-            </div>
+            {canEdit && (
+              <div
+                onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={handleDrop}
+                onClick={() => !uploadingFile && fileInputRef.current?.click()}
+                className={`rounded-lg border border-dashed px-3 py-3 text-center text-[10.5px] text-muted-foreground cursor-pointer transition-colors ${dragOver ? "border-blue-400 bg-blue-50" : "border-border"}`}
+              >
+                {uploadingFile ? "업로드 중..." : "드래그 앤 드롭으로 파일을 추가할 수 있습니다. (파일당 최대 100MB)"}
+              </div>
+            )}
+            {files.length === 0 && !canEdit && (
+              <div className="text-[10.5px] text-muted-foreground py-1">첨부된 파일이 없습니다.</div>
+            )}
             {files.length > 0 && (
               <div className="mt-2 space-y-1">
                 {files.map((f) => {
@@ -284,12 +299,14 @@ export function TaskResultPanel({ task, onClose, onShowToast }: TaskResultPanelP
                         {f.fileName}
                       </button>
                       <span className="shrink-0 text-[10px] text-muted-foreground">{formatFileSize(f.size)}</span>
-                      <button
-                        onClick={() => void handleRemoveFile(f.id)}
-                        className="shrink-0 opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-muted transition-opacity"
-                      >
-                        <Trash2 className="w-3 h-3 text-muted-foreground" />
-                      </button>
+                      {canEdit && (
+                        <button
+                          onClick={() => void handleRemoveFile(f.id)}
+                          className="shrink-0 opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-muted transition-opacity"
+                        >
+                          <Trash2 className="w-3 h-3 text-muted-foreground" />
+                        </button>
+                      )}
                     </div>
                   );
                 })}
@@ -299,6 +316,9 @@ export function TaskResultPanel({ task, onClose, onShowToast }: TaskResultPanelP
 
           <div>
             <div className="text-[11px] font-bold text-muted-foreground mb-1.5">관련 링크</div>
+            {links.length === 0 && !canEdit && (
+              <div className="text-[10.5px] text-muted-foreground py-1">등록된 링크가 없습니다.</div>
+            )}
             {links.length > 0 && (
               <div className="space-y-1 mb-2">
                 {links.map((l) => {
@@ -310,18 +330,20 @@ export function TaskResultPanel({ task, onClose, onShowToast }: TaskResultPanelP
                         <div className="text-xs font-medium text-foreground truncate">{l.title}</div>
                         <div className="text-[10px] text-muted-foreground truncate">{linkDomain(l.url)}</div>
                       </button>
-                      <button
-                        onClick={() => void handleRemoveLink(l.id)}
-                        className="shrink-0 opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-muted transition-opacity"
-                      >
-                        <Trash2 className="w-3 h-3 text-muted-foreground" />
-                      </button>
+                      {canEdit && (
+                        <button
+                          onClick={() => void handleRemoveLink(l.id)}
+                          className="shrink-0 opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-muted transition-opacity"
+                        >
+                          <Trash2 className="w-3 h-3 text-muted-foreground" />
+                        </button>
+                      )}
                     </div>
                   );
                 })}
               </div>
             )}
-            {addingLink ? (
+            {canEdit && (addingLink ? (
               <div className="space-y-1.5 rounded-lg border border-blue-200 p-2">
                 <input
                   autoFocus
@@ -357,7 +379,7 @@ export function TaskResultPanel({ task, onClose, onShowToast }: TaskResultPanelP
               >
                 <Plus className="w-3 h-3" />링크 추가
               </button>
-            )}
+            ))}
           </div>
         </div>
       )}

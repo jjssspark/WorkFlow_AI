@@ -56,8 +56,13 @@ if grep -Eq '__[A-Z_]+PASSWORD__' "${acl_tmp}"; then
   exit 1
 fi
 
-chown redis:redis "${acl_dir}" "${acl_tmp}"
+# redis-stack-server 이미지에는 redis 유저가 없고 redis-server가 root로 실행된다.
+# aclfile을 root 소유 600으로 두면 root 프로세스가 그대로 읽는다.
+# (alpine 시절의 `chown redis:redis`는 이 이미지에 없는 유저라 컨테이너를 크래시시켰다.)
 chmod 600 "${acl_tmp}"
 mv "${acl_tmp}" "${acl_file}"
 
-exec /usr/local/bin/docker-entrypoint.sh "$@" --aclfile "${acl_file}"
+# redis-stack-server에는 /usr/local/bin/docker-entrypoint.sh가 없다.
+# compose command로 넘어온 redis-server 실행을 그대로 exec하고 aclfile만 덧붙인다.
+# ($@ = "redis-server --loadmodule ... --dir /data", redis-server는 /usr/bin/redis-server)
+exec "$@" --aclfile "${acl_file}"

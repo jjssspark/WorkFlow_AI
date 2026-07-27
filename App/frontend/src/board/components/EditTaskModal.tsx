@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { CATEGORIES } from "../libs/mock/tasks";
 import { getCat } from "../libs/utils/taskService";
+import { CAT_MODAL_FIELDS } from "../libs/utils/catFields";
 import { updateTask, DEMO_PROJECT_ID } from "../libs/utils/taskApi";
 import { useAuth } from "../../global/hooks/useAuth";
 import { useProject } from "../../global/hooks/useProject";
@@ -26,6 +27,7 @@ export function EditTaskModal({ task, projectMembers, onClose, onUpdated }: Edit
   const [startDate, setStartDate] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [priority, setPriority] = useState<Priority>("medium");
+  const [extraFields, setExtraFields] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -40,6 +42,7 @@ export function EditTaskModal({ task, projectMembers, onClose, onUpdated }: Edit
     setStartDate(task.startDate ?? "");
     setDueDate(task.dueDate);
     setPriority(task.priority);
+    setExtraFields(task.extraFields ?? {});
     setError(null);
   }, [task, projectMembers]);
 
@@ -48,6 +51,10 @@ export function EditTaskModal({ task, projectMembers, onClose, onUpdated }: Edit
   const handleSubmit = async () => {
     if (!title.trim()) {
       setError("업무 제목은 비워둘 수 없습니다.");
+      return;
+    }
+    if (startDate && dueDate && startDate > dueDate) {
+      setError("시작일은 마감일보다 늦을 수 없습니다.");
       return;
     }
     const category = selCat === "other" ? (customCat.trim() || "other") : selCat;
@@ -62,6 +69,7 @@ export function EditTaskModal({ task, projectMembers, onClose, onUpdated }: Edit
         dueDate: dueDate || undefined,
         priority,
         description: description.trim() || undefined,
+        extraFields,
       }, currentProjectId ?? DEMO_PROJECT_ID);
       onUpdated(updated);
     } catch (cause) {
@@ -146,6 +154,22 @@ export function EditTaskModal({ task, projectMembers, onClose, onUpdated }: Edit
                   >
                     {p === "low" ? "낮음" : p === "medium" ? "중간" : "높음"}
                   </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-foreground block mb-1.5">카테고리 전용 정보</label>
+              <div className="space-y-2.5">
+                {(CAT_MODAL_FIELDS[selCat === "other" ? "other" : selCat] ?? CAT_MODAL_FIELDS.other).map(([label, placeholder]) => (
+                  <div key={label}>
+                    <label className="text-[10.5px] text-muted-foreground block mb-1">{label}</label>
+                    <input
+                      value={extraFields[label] ?? ""}
+                      onChange={(e) => setExtraFields((cur) => ({ ...cur, [label]: e.target.value }))}
+                      placeholder={placeholder}
+                      className="w-full rounded-xl border border-border bg-input-background px-4 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                    />
+                  </div>
                 ))}
               </div>
             </div>

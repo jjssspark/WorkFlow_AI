@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 import com.workflowai.rag.RagIngestService;
 import com.workflowai.task.Task;
 import com.workflowai.task.TaskRepository;
+import com.workflowai.user.User;
 import com.workflowai.user.UserRepository;
 import java.time.LocalDate;
 import java.util.List;
@@ -70,7 +71,7 @@ class ProjectServiceTest {
     void create_savesProjectAndRegistersCreatorAsLeader() {
         when(projectRepository.saveAndFlush(any(Project.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(taskRepository.findByProjectIdOrderByCreatedAtDesc(any())).thenReturn(List.of());
-        when(projectMemberRepository.countByProjectId(any())).thenReturn(0L);
+        when(projectMemberRepository.countByProjectIdAndRoleNot(any(), any())).thenReturn(0L);
 
         ProjectResponse response = projectService.create(1L, validRequest());
 
@@ -89,7 +90,7 @@ class ProjectServiceTest {
         );
         when(projectRepository.saveAndFlush(any(Project.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(taskRepository.findByProjectIdOrderByCreatedAtDesc(any())).thenReturn(List.of());
-        when(projectMemberRepository.countByProjectId(any())).thenReturn(0L);
+        when(projectMemberRepository.countByProjectIdAndRoleNot(any(), any())).thenReturn(0L);
 
         ProjectResponse response = projectService.create(1L, request);
 
@@ -124,7 +125,7 @@ class ProjectServiceTest {
         Project project = new Project("제목", "캡스톤디자인", "설명");
         ReflectionTestUtils.setField(project, "id", 10L);
         when(projectRepository.findById(10L)).thenReturn(Optional.of(project));
-        when(projectMemberRepository.countByProjectId(10L)).thenReturn(2L);
+        when(projectMemberRepository.countByProjectIdAndRoleNot(10L, ProjectRole.REVIEWER)).thenReturn(2L);
         Task done = new Task(10L, "a", "frontend", "완료", 1L, null, "medium", null, "MANUAL", null, 1L, 0.0);
         Task notDone = new Task(10L, "b", "frontend", "할 일", 1L, null, "medium", null, "MANUAL", null, 1L, 1.0);
         when(taskRepository.findByProjectIdOrderByCreatedAtDesc(any())).thenReturn(List.of(done, notDone));
@@ -140,7 +141,7 @@ class ProjectServiceTest {
         Project project = new Project("제목", "캡스톤디자인", "설명");
         ReflectionTestUtils.setField(project, "id", 10L);
         when(projectRepository.findById(10L)).thenReturn(Optional.of(project));
-        when(projectMemberRepository.countByProjectId(10L)).thenReturn(0L);
+        when(projectMemberRepository.countByProjectIdAndRoleNot(10L, ProjectRole.REVIEWER)).thenReturn(0L);
         when(taskRepository.findByProjectIdOrderByCreatedAtDesc(any())).thenReturn(List.of());
 
         ProjectResponse response = projectService.find(10L);
@@ -154,7 +155,7 @@ class ProjectServiceTest {
         when(projectRepository.findByInviteCode("AB12CD34")).thenReturn(Optional.of(project));
         when(projectMemberRepository.existsByProjectIdAndUserId(any(), any())).thenReturn(false);
         when(taskRepository.findByProjectIdOrderByCreatedAtDesc(any())).thenReturn(List.of());
-        when(projectMemberRepository.countByProjectId(any())).thenReturn(0L);
+        when(projectMemberRepository.countByProjectIdAndRoleNot(any(), any())).thenReturn(0L);
 
         projectService.joinByCode(5L, "ab12cd34");
 
@@ -178,7 +179,7 @@ class ProjectServiceTest {
         ReflectionTestUtils.setField(project, "id", 10L);
         ReflectionTestUtils.setField(project, "evalStatus", EvalStatus.EVALUATING);
         when(projectRepository.findById(10L)).thenReturn(Optional.of(project));
-        when(projectMemberRepository.countByProjectId(10L)).thenReturn(2L);
+        when(projectMemberRepository.countByProjectIdAndRoleNot(10L, ProjectRole.REVIEWER)).thenReturn(2L);
         when(taskRepository.findByProjectIdOrderByCreatedAtDesc(any())).thenReturn(List.of());
 
         ProjectResponse response = projectService.finalizeEvaluation(10L);
@@ -196,6 +197,21 @@ class ProjectServiceTest {
     }
 
     @Test
+    void members_excludesReviewersFromTheTeamList() {
+        ProjectMember leader = new ProjectMember(10L, 1L, ProjectRole.LEADER);
+        ProjectMember reviewer = new ProjectMember(10L, 2L, ProjectRole.REVIEWER);
+        when(projectMemberRepository.findAllByProjectId(10L)).thenReturn(List.of(leader, reviewer));
+        User leaderUser = new User("leader@example.com", "허영주", "email", "leader");
+        ReflectionTestUtils.setField(leaderUser, "id", 1L);
+        when(userRepository.findAllById(List.of(1L))).thenReturn(List.of(leaderUser));
+
+        List<MemberResponse> members = projectService.members(10L);
+
+        assertThat(members).hasSize(1);
+        assertThat(members.get(0).name()).isEqualTo("허영주");
+    }
+
+    @Test
     void delete_removesProjectRagSources() {
         projectService.delete(10L);
 
@@ -210,7 +226,7 @@ class ProjectServiceTest {
             .thenThrow(new DataIntegrityViolationException("duplicate key value violates unique constraint \"uq_projects_invite_code\""))
             .thenAnswer(invocation -> invocation.getArgument(0));
         when(taskRepository.findByProjectIdOrderByCreatedAtDesc(any())).thenReturn(List.of());
-        when(projectMemberRepository.countByProjectId(any())).thenReturn(0L);
+        when(projectMemberRepository.countByProjectIdAndRoleNot(any(), any())).thenReturn(0L);
 
         ProjectResponse response = projectService.create(1L, validRequest());
 

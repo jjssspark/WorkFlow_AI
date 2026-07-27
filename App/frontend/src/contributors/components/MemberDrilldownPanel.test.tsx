@@ -22,7 +22,7 @@ vi.mock("../../board/libs/utils/taskResultApi", () => ({
 }));
 
 function makeTask(id: string, title: string, status: Task["status"]): Task {
-  return { id, title, status, priority: "medium", assignee: "1", dueDate: "", labels: [], category: "backend", position: 0 };
+  return { id, title, status, priority: "medium", assignee: "1", dueDate: "", labels: [], category: "backend", position: 0, pendingApproval: false, startDate: "", extraFields: {} };
 }
 
 describe("MemberDrilldownPanel", () => {

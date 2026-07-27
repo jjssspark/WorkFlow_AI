@@ -19,6 +19,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.workflowai.common.DemoDataService;
+import com.workflowai.project.ProjectMember;
+import com.workflowai.project.ProjectMemberRepository;
+import com.workflowai.project.ProjectRole;
 import com.workflowai.security.UserPrincipal;
 import java.time.LocalDate;
 import java.util.List;
@@ -61,6 +64,9 @@ class TaskResultControllerTest {
 
     @MockitoBean
     private SupabaseStorageClient storageClient;
+
+    @MockitoBean
+    private ProjectMemberRepository projectMemberRepository;
 
     @AfterEach
     void clearSecurityContext() {
@@ -127,6 +133,27 @@ class TaskResultControllerTest {
                     """))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.content").value("API 명세 초안을 작성했습니다."));
+    }
+
+    @Test
+    void leaderCanSaveContentForSomeoneElsesTask() throws Exception {
+        authenticateAs(1L);
+        when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
+        when(taskRepository.findById(42L)).thenReturn(Optional.of(taskWithAssignee(5L)));
+        when(projectMemberRepository.findByProjectIdAndUserId(1L, 1L))
+            .thenReturn(Optional.of(new ProjectMember(1L, 1L, ProjectRole.LEADER)));
+        when(taskResultRepository.findByTaskId(42L)).thenReturn(Optional.empty());
+        when(taskResultRepository.save(any(TaskResult.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(taskResultLinkRepository.findByTaskIdOrderByCreatedAtAsc(42L)).thenReturn(List.of());
+        when(taskResultFileRepository.findByTaskIdOrderByCreatedAtAsc(42L)).thenReturn(List.of());
+
+        mockMvc.perform(put("/api/v1/projects/demo-project/tasks/42/result")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"content":"팀장이 대신 정리"}
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.content").value("팀장이 대신 정리"));
     }
 
     @Test

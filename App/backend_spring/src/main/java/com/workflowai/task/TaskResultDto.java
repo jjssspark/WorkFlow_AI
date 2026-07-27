@@ -1,5 +1,6 @@
 package com.workflowai.task;
 
+import com.workflowai.common.UtcTimeFormat;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
 
@@ -15,6 +16,6 @@ public record TaskResultDto(
     }
 
     public static TaskResultDto from(TaskResult result, List<TaskResultLinkDto> links, List<TaskResultFileDto> files) {
-        return new TaskResultDto(result.getContent(), result.getUpdatedAt().toString(), links, files);
+        return new TaskResultDto(result.getContent(), UtcTimeFormat.toIsoUtc(result.getUpdatedAt()), links, files);
     }
 }

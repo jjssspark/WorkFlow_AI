@@ -100,3 +100,9 @@ export function createInvitation(projectId: number, email: string, role: Project
     body: JSON.stringify({ email, role }),
   });
 }
+
+export function acceptInvitation(token: string) {
+  return apiFetch<void>(`/invitations/${token}/accept`, {
+    method: "POST",
+  });
+}
