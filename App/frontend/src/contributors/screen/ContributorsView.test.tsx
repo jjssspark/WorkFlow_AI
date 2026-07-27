@@ -6,6 +6,7 @@ import { ContributorsView } from "./ContributorsView";
 import { fetchTasks } from "../../board/libs/utils/taskApi";
 import { fetchAttendanceSummary, fetchAttendanceDetail } from "../../meetings/libs/utils/meetingAiApi";
 import { fetchContributionScore } from "../libs/utils/contributorsApi";
+import { downloadCalculatorCsv } from "../libs/utils/calculatorCsv";
 import { finalizeEvaluation, unfinalizeEvaluation, getProject, getProjectMembers } from "../../global/api/projectsApi";
 import {
   getEvaluationScores,
@@ -36,6 +37,10 @@ vi.mock("../../meetings/libs/utils/meetingAiApi", () => ({
 vi.mock("../libs/utils/contributorsApi", () => ({
   fetchContributionScore: vi.fn(),
   fetchContributionReport: vi.fn(),
+}));
+
+vi.mock("../libs/utils/calculatorCsv", () => ({
+  downloadCalculatorCsv: vi.fn(),
 }));
 
 vi.mock("../../global/api/projectsApi", () => ({
@@ -213,6 +218,30 @@ describe("ContributorsView 학점 계산기", () => {
     });
     vi.mocked(getEvaluationSettings).mockResolvedValue({ projectId: 1, contributionRatio: 40 });
     vi.mocked(upsertEvaluationSettings).mockResolvedValue({ projectId: 1, contributionRatio: 70 });
+  });
+
+  it("'CSV 저장' 버튼을 누르면 학점 계산기 행(이름/역할/기여점수/심사자점수/총합/학점/공개여부)을 그대로 downloadCalculatorCsv에 전달한다", async () => {
+    renderView();
+    const user = userEvent.setup();
+
+    const heading = await screen.findByText("학점 계산기");
+    const aside = heading.closest(".grade-calculator-card") as HTMLElement;
+    const reviewerScoreInput = within(aside).getByPlaceholderText("-");
+    await user.type(reviewerScoreInput, "90");
+    await waitFor(() => expect(within(aside).getByText("78.00")).toBeInTheDocument());
+
+    const csvButton = screen.getByRole("button", { name: "CSV 저장" });
+    await user.click(csvButton);
+
+    expect(downloadCalculatorCsv).toHaveBeenCalledWith(
+      [
+        {
+          name: "김민준", role: "팀장", score: 60, reviewerScore: "90",
+          total: 78, grade: "", isFinalPublic: false,
+        },
+      ],
+      "스마트 주차 관리 시스템",
+    );
   });
 
   it("기여 점수를 보여주고, 심사자 점수를 입력하면 비율(기여 40%/심사자 60%)로 총합을 계산한다", async () => {

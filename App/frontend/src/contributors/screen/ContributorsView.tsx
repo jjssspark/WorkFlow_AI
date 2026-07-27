@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { fetchAttendanceSummary, type MeetingAttendanceSummaryDto } from "../../meetings/libs/utils/meetingAiApi";
 import { fetchContributionReport, fetchContributionScore, type MemberContributionDto, type ContributionMemberScoreDto } from "../libs/utils/contributorsApi";
+import { downloadCalculatorCsv } from "../libs/utils/calculatorCsv";
 import { fetchTasks } from "../../board/libs/utils/taskApi";
 import type { Task } from "../../board/libs/types/task";
 import {
@@ -521,6 +522,23 @@ export function ContributorsView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mergedReports, evaluationDrafts, contributionRatio, calculatorSort]);
 
+  // "CSV 저장" 버튼 — 학점 계산기 테이블(화면에 보이는 정렬 순서 그대로)을 CSV로 내려받는다.
+  // 서버 호출 없이 이미 렌더링된 calculatorRows/finalPublicFlags를 그대로 직렬화한다.
+  const handleDownloadCsv = () => {
+    downloadCalculatorCsv(
+      calculatorRows.map((row) => ({
+        name: row.name,
+        role: row.role,
+        score: row.score,
+        reviewerScore: row.draft.reviewerScore,
+        total: row.total,
+        grade: row.draft.grade,
+        isFinalPublic: finalPublicFlags[row.memberId] ?? false,
+      })),
+      project?.title ?? "프로젝트",
+    );
+  };
+
   return (
     <div
       className="h-full overflow-y-auto bg-background"
@@ -573,9 +591,13 @@ export function ContributorsView() {
               <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingReport ? "animate-spin" : ""}`} />
               {isRefreshingReport ? "새로고침 중..." : "리포트 새로고침"}
             </button>
-            <button className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border bg-card text-xs font-semibold text-foreground hover:bg-muted transition-colors">
+            <button
+              type="button"
+              onClick={handleDownloadCsv}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border bg-card text-xs font-semibold text-foreground hover:bg-muted transition-colors"
+            >
               <Download className="w-3.5 h-3.5" />
-              PDF 저장
+              CSV 저장
             </button>
             {isPublished ? (
               <button
