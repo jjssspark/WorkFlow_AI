@@ -1029,6 +1029,20 @@ export function MeetingsView() {
     };
   };
 
+  const buildExportDataFromMeeting = (target: Meeting): ExportablePdfData => ({
+    title: target.title,
+    date: target.date,
+    kind: "",
+    participantNames: [],
+    summary: target.summary ?? "",
+    decisions: target.decisions ?? [],
+    todos: (target.todos ?? []).map(line => {
+      const parsed = parseMeetingTodoLine(line);
+      return { title: parsed.title, assigneeName: parsed.assigneeName || "미배정", dueDate: parsed.dueDate };
+    }),
+    risks: target.risks ?? [],
+  });
+
   const handleFileSelect = (file: File | undefined) => {
     if (!file) return;
     const mb = file.size / (1024 * 1024);
@@ -1615,6 +1629,49 @@ export function MeetingsView() {
     );
   };
 
+  // PDF 캡처용 숨김 영역: 화면에는 보이지 않고 html2canvas가 이 DOM을 캡처해 PDF로 저장한다.
+  // renderResults() 화면뿐 아니라 사이드바 재조회 상세 화면에서도 PDF 버튼을 쓰므로,
+  // 캡처 대상 DOM이 항상 마운트되도록 별도 함수로 분리해 양쪽에서 렌더링한다.
+  const renderPdfCaptureArea = () => (
+    <div style={{ position: "fixed", top: 0, left: "-10000px", width: "760px" }}>
+      <div ref={pdfCaptureRef} style={{ background: "#ffffff", padding: "40px", width: "760px", fontFamily: "'Malgun Gothic','Apple SD Gothic Neo',sans-serif", color: "#1a1a1a" }}>
+        {pdfExportData && (
+          <>
+            <h1 style={{ fontSize: "22px", fontWeight: 700, margin: "0 0 4px" }}>{pdfExportData.title}</h1>
+            <div style={{ fontSize: "12px", color: "#666666", marginBottom: "24px" }}>
+              {pdfExportData.date}{pdfExportData.kind ? ` · ${pdfExportData.kind}` : ""}
+              {pdfExportData.participantNames.length > 0 ? ` · 참석자 ${pdfExportData.participantNames.join(", ")}` : ""}
+            </div>
+
+            <h2 style={{ fontSize: "15px", fontWeight: 700, margin: "20px 0 8px", borderBottom: "1px solid #dddddd", paddingBottom: "4px" }}>회의 요약</h2>
+            <p style={{ fontSize: "13px", lineHeight: 1.7, margin: 0 }}>{pdfExportData.summary}</p>
+
+            <h2 style={{ fontSize: "15px", fontWeight: 700, margin: "20px 0 8px", borderBottom: "1px solid #dddddd", paddingBottom: "4px" }}>핵심 결정사항</h2>
+            <ul style={{ fontSize: "13px", lineHeight: 1.7, margin: 0, paddingLeft: "20px" }}>
+              {pdfExportData.decisions.length
+                ? pdfExportData.decisions.map((d, i) => <li key={i}>{d}</li>)
+                : <li>결정사항이 없습니다.</li>}
+            </ul>
+
+            <h2 style={{ fontSize: "15px", fontWeight: 700, margin: "20px 0 8px", borderBottom: "1px solid #dddddd", paddingBottom: "4px" }}>생성된 To-Do</h2>
+            <ul style={{ fontSize: "13px", lineHeight: 1.7, margin: 0, paddingLeft: "20px" }}>
+              {pdfExportData.todos.length
+                ? pdfExportData.todos.map((t, i) => <li key={i}>{t.title} - {t.assigneeName} ({t.dueDate || "마감일 미정"})</li>)
+                : <li>생성된 업무가 없습니다.</li>}
+            </ul>
+
+            <h2 style={{ fontSize: "15px", fontWeight: 700, margin: "20px 0 8px", borderBottom: "1px solid #dddddd", paddingBottom: "4px" }}>위험 요소</h2>
+            <ul style={{ fontSize: "13px", lineHeight: 1.7, margin: 0, paddingLeft: "20px" }}>
+              {pdfExportData.risks.length
+                ? pdfExportData.risks.map((r, i) => <li key={i}>{r}</li>)
+                : <li>감지된 위험 요소가 없습니다.</li>}
+            </ul>
+          </>
+        )}
+      </div>
+    </div>
+  );
+
   // ── Results screen ───────────────────────────────────────────────────────────
   const renderResults = () => {
     if (!analysisResult) {
@@ -1842,45 +1899,7 @@ export function MeetingsView() {
         )}
       </div>
 
-      {/* PDF 캡처용 숨김 영역: 화면에는 보이지 않고 html2canvas가 이 DOM을 캡처해 PDF로 저장한다.
-          Tailwind 클래스/CSS 변수(oklch 등) 대신 인라인 스타일만 사용 — html2canvas가 최신 CSS 색상 함수를 못 읽는 문제를 피하기 위함. */}
-      <div style={{ position: "fixed", top: 0, left: "-10000px", width: "760px" }}>
-        <div ref={pdfCaptureRef} style={{ background: "#ffffff", padding: "40px", width: "760px", fontFamily: "'Malgun Gothic','Apple SD Gothic Neo',sans-serif", color: "#1a1a1a" }}>
-          {pdfExportData && (
-            <>
-              <h1 style={{ fontSize: "22px", fontWeight: 700, margin: "0 0 4px" }}>{pdfExportData.title}</h1>
-              <div style={{ fontSize: "12px", color: "#666666", marginBottom: "24px" }}>
-                {pdfExportData.date}{pdfExportData.kind ? ` · ${pdfExportData.kind}` : ""}
-                {pdfExportData.participantNames.length > 0 ? ` · 참석자 ${pdfExportData.participantNames.join(", ")}` : ""}
-              </div>
-
-              <h2 style={{ fontSize: "15px", fontWeight: 700, margin: "20px 0 8px", borderBottom: "1px solid #dddddd", paddingBottom: "4px" }}>회의 요약</h2>
-              <p style={{ fontSize: "13px", lineHeight: 1.7, margin: 0 }}>{pdfExportData.summary}</p>
-
-              <h2 style={{ fontSize: "15px", fontWeight: 700, margin: "20px 0 8px", borderBottom: "1px solid #dddddd", paddingBottom: "4px" }}>핵심 결정사항</h2>
-              <ul style={{ fontSize: "13px", lineHeight: 1.7, margin: 0, paddingLeft: "20px" }}>
-                {pdfExportData.decisions.length
-                  ? pdfExportData.decisions.map((d, i) => <li key={i}>{d}</li>)
-                  : <li>결정사항이 없습니다.</li>}
-              </ul>
-
-              <h2 style={{ fontSize: "15px", fontWeight: 700, margin: "20px 0 8px", borderBottom: "1px solid #dddddd", paddingBottom: "4px" }}>생성된 To-Do</h2>
-              <ul style={{ fontSize: "13px", lineHeight: 1.7, margin: 0, paddingLeft: "20px" }}>
-                {pdfExportData.todos.length
-                  ? pdfExportData.todos.map((t, i) => <li key={i}>{t.title} - {t.assigneeName} ({t.dueDate || "마감일 미정"})</li>)
-                  : <li>생성된 업무가 없습니다.</li>}
-              </ul>
-
-              <h2 style={{ fontSize: "15px", fontWeight: 700, margin: "20px 0 8px", borderBottom: "1px solid #dddddd", paddingBottom: "4px" }}>위험 요소</h2>
-              <ul style={{ fontSize: "13px", lineHeight: 1.7, margin: 0, paddingLeft: "20px" }}>
-                {pdfExportData.risks.length
-                  ? pdfExportData.risks.map((r, i) => <li key={i}>{r}</li>)
-                  : <li>감지된 위험 요소가 없습니다.</li>}
-              </ul>
-            </>
-          )}
-        </div>
-      </div>
+      {renderPdfCaptureArea()}
 
       {/* 원본 보기 모달 */}
       {originalPreview && (
@@ -2157,6 +2176,7 @@ export function MeetingsView() {
       {renderDeleteConfirmModal()}
       {renderReregisterConfirmModal()}
       {renderOriginalTextModal()}
+      {renderPdfCaptureArea()}
 
       <div className="flex gap-2 border-b border-border px-4 shrink-0">
         <button
@@ -2445,9 +2465,16 @@ export function MeetingsView() {
         {meeting && meeting.summary ? (
           <div className="max-w-2xl space-y-5">
             <div>
-              <div className="flex items-center gap-2 mb-1">
-                <Sparkles className="w-4 h-4" style={{ color: "var(--accent)" }} />
-                <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--accent)" }}>AI 회의록 분석</span>
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4" style={{ color: "var(--accent)" }} />
+                  <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--accent)" }}>AI 회의록 분석</span>
+                </div>
+                <button onClick={() => handleExportPdf(buildExportDataFromMeeting(meeting))}
+                  disabled={isExportingPdf}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-border bg-card rounded-lg hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                  <FileText className="w-3.5 h-3.5" />{isExportingPdf ? "PDF 생성 중..." : "PDF로 저장"}
+                </button>
               </div>
               <h2 className="text-lg font-bold text-foreground">{meeting.title}</h2>
               <div className="text-xs text-muted-foreground mt-0.5">{meeting.date} · {meeting.duration}</div>
