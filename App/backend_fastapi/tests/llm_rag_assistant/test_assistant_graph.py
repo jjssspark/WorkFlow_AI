@@ -24,9 +24,11 @@ def use_memory_checkpointer(monkeypatch: pytest.MonkeyPatch) -> None:
     assistant_graph._pending_threads.clear()
 
 
-# 모든 도구가 팀장 전용이라, 권한이 관심사가 아닌 테스트는 LEADER로 돌려야 본론에 도달한다
-# (권한 검사가 prepare 노드 맨 앞이라 MEMBER면 대상 업무 해소 전에 먼저 막힌다).
-def _state(question: str, role: str = "LEADER") -> dict:
+# role에 기본값을 두지 않는다. 모든 도구가 팀장 전용이라 기본값을 LEADER로 두면, 권한을
+# 검증하려던 테스트가 역할을 빠뜨렸을 때 조용히 통과해버린다(권한 검사가 prepare 노드 맨
+# 앞이라 MEMBER면 대상 업무 해소 전에 막히는데 그 차이가 드러나지 않는다).
+# 명시를 강제해 각 테스트가 어떤 역할을 전제하는지 호출부에서 바로 보이게 한다.
+def _state(question: str, *, role: str) -> dict:
     return {
         "question": question,
         "history": [],
@@ -272,7 +274,7 @@ async def test_empty_plan_asks_again() -> None:
     with patch(
         "llm_rag_assistant.app.graph.assistant_graph.plan_actions", new=AsyncMock(return_value=[])
     ):
-        outcome = await start_command(object(), _state("어쩌구 저쩌구 해줘"))
+        outcome = await start_command(object(), _state("어쩌구 저쩌구 해줘", role="LEADER"))
 
     assert outcome.type == "done"
     assert outcome.card is None
@@ -289,7 +291,7 @@ async def test_unresolved_task_reports_not_found() -> None:
         "llm_rag_assistant.app.graph.assistant_graph.resolve_task_ref",
         new=AsyncMock(return_value=TaskMatch()),
     ):
-        outcome = await start_command(object(), _state("없는 업무에 코멘트 남겨줘"))
+        outcome = await start_command(object(), _state("없는 업무에 코멘트 남겨줘", role="LEADER"))
 
     assert outcome.type == "done"
     assert outcome.card is None
@@ -313,7 +315,7 @@ async def test_ambiguous_task_asks_user_to_choose() -> None:
         "llm_rag_assistant.app.graph.assistant_graph.resolve_task_ref",
         new=AsyncMock(return_value=match),
     ):
-        outcome = await start_command(object(), _state("로그인에 코멘트 남겨줘"))
+        outcome = await start_command(object(), _state("로그인에 코멘트 남겨줘", role="LEADER"))
 
     assert outcome.type == "done"
     assert "로그인 API 구현" in outcome.message
@@ -331,7 +333,7 @@ async def test_resume_with_success_completes_command() -> None:
         "llm_rag_assistant.app.graph.assistant_graph.resolve_task_ref",
         new=AsyncMock(return_value=TaskMatch(task_id=37, title="업무 생성 모달 구현")),
     ):
-        started = await start_command(object(), _state("WF-250 완료로 바꿔줘"))
+        started = await start_command(object(), _state("WF-250 완료로 바꿔줘", role="LEADER"))
         resumed = await resume_command(
             started.thread_id, {"step_id": started.card.step_id, "ok": True}
         )
@@ -360,7 +362,7 @@ async def test_multi_action_plan_resumes_each_step_sequentially() -> None:
         "llm_rag_assistant.app.graph.assistant_graph.resolve_task_ref",
         new=AsyncMock(return_value=TaskMatch(task_id=37, title="업무")),
     ):
-        first = await start_command(object(), _state("두 업무 상태 바꿔줘"))
+        first = await start_command(object(), _state("두 업무 상태 바꿔줘", role="LEADER"))
         assert first.type == "confirm"
 
         second = await resume_command(first.thread_id, {"step_id": first.card.step_id, "ok": True})
@@ -388,7 +390,7 @@ async def test_resume_with_failure_reports_it() -> None:
         "llm_rag_assistant.app.graph.assistant_graph.resolve_task_ref",
         new=AsyncMock(return_value=TaskMatch(task_id=37, title="업무")),
     ):
-        started = await start_command(object(), _state("WF-250 완료로 바꿔줘"))
+        started = await start_command(object(), _state("WF-250 완료로 바꿔줘", role="LEADER"))
         resumed = await resume_command(
             started.thread_id,
             {"step_id": started.card.step_id, "ok": False, "error": "업무를 찾을 수 없습니다"},
@@ -411,7 +413,7 @@ async def test_resume_rejects_mismatched_step_id() -> None:
         "llm_rag_assistant.app.graph.assistant_graph.resolve_task_ref",
         new=AsyncMock(return_value=TaskMatch(task_id=37, title="업무")),
     ):
-        started = await start_command(object(), _state("WF-250 완료로 바꿔줘"))
+        started = await start_command(object(), _state("WF-250 완료로 바꿔줘", role="LEADER"))
         resumed = await resume_command(
             started.thread_id, {"step_id": "9-deadbeef", "ok": True}
         )
@@ -436,7 +438,7 @@ async def test_resume_rejects_when_pending_step_cannot_be_determined(
         "llm_rag_assistant.app.graph.assistant_graph.resolve_task_ref",
         new=AsyncMock(return_value=TaskMatch(task_id=37, title="업무")),
     ):
-        started = await start_command(object(), _state("WF-250 완료로 바꿔줘"))
+        started = await start_command(object(), _state("WF-250 완료로 바꿔줘", role="LEADER"))
         monkeypatch.setattr(assistant_graph, "_pending_step_id", lambda snapshot: None)
         resumed = await resume_command(
             started.thread_id, {"step_id": started.card.step_id, "ok": True}
@@ -469,7 +471,7 @@ async def test_resume_discards_checkpoint_to_reclaim_memory() -> None:
         "llm_rag_assistant.app.graph.assistant_graph.resolve_task_ref",
         new=AsyncMock(return_value=TaskMatch(task_id=37, title="업무")),
     ):
-        started = await start_command(object(), _state("WF-250 완료로 바꿔줘"))
+        started = await start_command(object(), _state("WF-250 완료로 바꿔줘", role="LEADER"))
         # 승인 대기 스레드는 추적되고 체크포인트가 남아 있다.
         assert started.thread_id in assistant_graph._pending_threads
         await resume_command(started.thread_id, {"step_id": started.card.step_id, "ok": True})
@@ -490,7 +492,7 @@ async def test_start_command_discards_thread_for_terminal_outcome() -> None:
     with patch(
         "llm_rag_assistant.app.graph.assistant_graph.plan_actions", new=AsyncMock(return_value=[])
     ):
-        outcome = await start_command(object(), _state("어쩌구 저쩌구 해줘"))
+        outcome = await start_command(object(), _state("어쩌구 저쩌구 해줘", role="LEADER"))
 
     assert outcome.type == "done"
     assert outcome.thread_id not in assistant_graph._pending_threads

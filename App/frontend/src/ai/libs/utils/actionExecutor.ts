@@ -16,6 +16,18 @@ const VALID_STATUSES: TaskStatus[] = ["todo", "inprogress", "blocked", "done"];
 // 계획 단계를 통과한 제목이 여기서 다시 거부되지 않는다.
 const TITLE_MAX_LENGTH = 200;
 
+/**
+ * 제목 길이를 코드포인트 수로 센다.
+ *
+ * String.length는 UTF-16 코드 단위라 이모지 등 BMP 밖 문자를 2로 센다. 반면 Postgres
+ * varchar(200)과 그래프의 파이썬 len()은 코드포인트를 센다. 그대로 두면 세 곳의 기준이
+ * 어긋나, 계획 단계와 DB는 통과시키는 제목을 프론트만 거부해 "카드는 떴는데 안 되는"
+ * 계약 불일치가 된다(이모지 50개 + 한글 150자 = 코드포인트 200, UTF-16 250).
+ */
+function titleLength(value: string): number {
+  return [...value].length;
+}
+
 function toMessage(error: unknown): string {
   return error instanceof Error ? error.message : "요청을 처리하지 못했습니다.";
 }
@@ -26,6 +38,18 @@ function isValidCalendarDate(value: string): boolean {
   const [y, m, d] = value.split("-").map(Number);
   const dt = new Date(Date.UTC(y, m - 1, d));
   return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
+}
+
+/**
+ * 이름 비교용 정규화.
+ *
+ * - NFC: 같은 한글도 입력 경로에 따라 조합형(NFD)으로 들어올 수 있다. 정규화하지 않으면
+ *   눈에 똑같이 보이는 "김철수"가 서로 다른 문자열이라 일치도 부분 일치도 실패한다.
+ * - 소문자화: 영문 이름의 "Kim"과 "kim"이 갈리는 것을 막는다.
+ * - 공백 접기: 이름 중간에 들어간 여러 칸 공백을 한 칸으로 맞춘다.
+ */
+function normalizeName(value: string): string {
+  return value.normalize("NFC").trim().replace(/\s+/g, " ").toLowerCase();
 }
 
 /**
@@ -42,14 +66,18 @@ function resolveMember(
   members: readonly MemberResponse[],
   name: string
 ): { ok: true; member: MemberResponse } | { ok: false; error: string } {
-  const exact = members.filter(member => member.name.trim() === name);
-  const matches = exact.length > 0 ? exact : members.filter(member => member.name.includes(name));
+  const target = normalizeName(name);
+  const exact = members.filter(member => normalizeName(member.name) === target);
+  const matches =
+    exact.length > 0 ? exact : members.filter(member => normalizeName(member.name).includes(target));
 
   if (matches.length === 0) {
     return { ok: false, error: `'${name}' 담당자를 프로젝트 멤버에서 찾지 못했습니다.` };
   }
   if (matches.length > 1) {
-    return { ok: false, error: "이름이 겹치는 멤버가 여러 명입니다. 더 구체적으로 말씀해주세요." };
+    const names = matches.map(member => member.name).join(", ");
+    // 어느 후보들 사이에서 막혔는지 알려줘야 사용자가 무엇을 더 구체적으로 말해야 할지 안다.
+    return { ok: false, error: `이름이 겹치는 멤버가 여러 명입니다(${names}). 더 구체적으로 말씀해주세요.` };
   }
   return { ok: true, member: matches[0] };
 }
@@ -115,7 +143,7 @@ export async function executeAction(card: ActionCard, projectId: number): Promis
         if (!title) return { ok: false, error: "새 제목이 비어 있습니다." };
         // 그래프(state.py)와 같은 길이 검증. 백엔드를 우회한 값이 DB 제약에 걸려
         // 원인 모를 500으로 보이지 않게 한다.
-        if (title.length > TITLE_MAX_LENGTH) {
+        if (titleLength(title) > TITLE_MAX_LENGTH) {
           return { ok: false, error: `제목이 너무 깁니다(${TITLE_MAX_LENGTH}자 이내).` };
         }
         await updateTask(taskId, { title }, projectId);

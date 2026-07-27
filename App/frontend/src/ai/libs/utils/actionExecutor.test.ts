@@ -202,6 +202,30 @@ describe("executeAction", () => {
     expect(updateTask).not.toHaveBeenCalled();
   });
 
+  it("counts title length in code points, not UTF-16 units", async () => {
+    // 회귀 방어: String.length로 세면 이모지가 2로 계산돼, Postgres varchar(200)과 그래프의
+    // 파이썬 len()이 통과시키는 제목(코드포인트 200)을 프론트만 거부한다.
+    vi.mocked(updateTask).mockResolvedValue({} as never);
+    const title = "가".repeat(150) + "😀".repeat(50);
+    expect(title.length).toBe(250);
+    expect([...title].length).toBe(200);
+
+    const result = await executeAction(card({ tool: "rename_task", args: { title } }), 1);
+
+    expect(result.ok).toBe(true);
+    expect(updateTask).toHaveBeenCalledWith("37", { title }, 1);
+  });
+
+  it("still rejects a title over 200 code points", async () => {
+    const result = await executeAction(
+      card({ tool: "rename_task", args: { title: "😀".repeat(201) } }),
+      1
+    );
+
+    expect(result.ok).toBe(false);
+    expect(updateTask).not.toHaveBeenCalled();
+  });
+
   it("resolves the assignee name to a member id for change_assignee", async () => {
     vi.mocked(getProjectMembers).mockResolvedValue([member(5, "김철수"), member(9, "이영희")]);
     vi.mocked(updateTask).mockResolvedValue({} as never);
@@ -265,6 +289,46 @@ describe("executeAction", () => {
 
     expect(result.ok).toBe(true);
     expect(updateTask).toHaveBeenCalledWith("37", { assigneeId: "5" }, 1);
+  });
+
+  it("matches a name written in a different unicode normal form", async () => {
+    // 회귀 방어: 같은 한글도 입력 경로에 따라 조합형(NFD)으로 저장될 수 있다. 정규화하지
+    // 않으면 눈에 똑같아 보이는 이름이 일치도 부분 일치도 실패해 "멤버 없음"이 된다.
+    vi.mocked(getProjectMembers).mockResolvedValue([member(5, "김철수".normalize("NFD"))]);
+    vi.mocked(updateTask).mockResolvedValue({} as never);
+
+    const result = await executeAction(
+      card({ tool: "change_assignee", args: { assignee_name: "김철수" } }),
+      1
+    );
+
+    expect(result.ok).toBe(true);
+    expect(updateTask).toHaveBeenCalledWith("37", { assigneeId: "5" }, 1);
+  });
+
+  it("matches an english name regardless of letter case", async () => {
+    vi.mocked(getProjectMembers).mockResolvedValue([member(7, "Kim")]);
+    vi.mocked(updateTask).mockResolvedValue({} as never);
+
+    const result = await executeAction(
+      card({ tool: "change_assignee", args: { assignee_name: "kim" } }),
+      1
+    );
+
+    expect(result.ok).toBe(true);
+    expect(updateTask).toHaveBeenCalledWith("37", { assigneeId: "7" }, 1);
+  });
+
+  it("names the colliding candidates so the user knows what to disambiguate", async () => {
+    vi.mocked(getProjectMembers).mockResolvedValue([member(5, "김철수"), member(8, "김철수")]);
+
+    const result = await executeAction(
+      card({ tool: "change_assignee", args: { assignee_name: "김철수" } }),
+      1
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("김철수");
   });
 
   it("refuses when the name matches no project member", async () => {

@@ -82,10 +82,11 @@ def test_delete_task_is_supported_and_leader_only() -> None:
     assert requires_leader("delete_task") is True
 
 
-def test_every_tool_is_now_executable() -> None:
-    # 실행기가 전 도구를 지원하게 됐다. 도구를 새로 추가하면서 실행기 구현을 빠뜨리면
-    # 여기서 걸린다(카드는 뜨는데 실행이 거부되는 계약 불일치 방지).
-    assert SUPPORTED_TOOLS == ALL_TOOLS
+# 한때 SUPPORTED_TOOLS == ALL_TOOLS를 단언했으나 뺐다. 도구를 백엔드에 먼저 넣고 실행기를
+# 뒤이어 붙이는 정상적인 단계적 개발을 그 단언이 막는다. 실행기 미구현 도구가 사용자에게
+# 새어나가는 것은 이 단언이 아니라 그래프 prepare 노드가 막고 있고
+# (test_assistant_graph.test_tool_outside_supported_set_is_blocked_even_for_leader),
+# 아래 부분집합 단언이 반대 방향(실행기에만 있고 도구 목록엔 없는 오타)을 잡는다.
 
 
 def test_supported_tools_survive_permission_changes() -> None:
