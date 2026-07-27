@@ -3,12 +3,12 @@ import { createPortal } from "react-dom";
 import { useNavigate } from "react-router";
 import { Calendar, CheckCircle2, CheckSquare, Sparkles, TrendingUp } from "lucide-react";
 import { AiInsightBox } from "../../../ai/components/AiInsightBox";
-import { openAIAssistant } from "../../../ai/libs/utils/openAIAssistant";
-import { queryRag } from "../../../ai/libs/utils/ragApi";
+// import { openAIAssistant } from "../../../ai/libs/utils/openAIAssistant"; // "진행률 보고서 생성" 기능 미사용 처리
+// import { queryRag } from "../../../ai/libs/utils/ragApi"; // "진행률 보고서 생성" 기능 미사용 처리
 import { BackBtn } from "../../../global/component/BackBtn";
 import { CircleProgress } from "../../../global/component/CircleProgress";
 import { DetailStatCard } from "../../../global/component/DetailStatCard";
-import { notifyProgressReportReady } from "../../../global/api/notificationApi";
+// import { notifyProgressReportReady } from "../../../global/api/notificationApi"; // "진행률 보고서 생성" 기능 미사용 처리
 import { useAuth } from "../../../global/hooks/useAuth";
 import { useDashboardProgress } from "../../libs/hooks/useDashboardProgress";
 import { useDashboardSummary } from "../../libs/hooks/useDashboardSummary";
@@ -32,7 +32,7 @@ export function ProgressPage() {
   const { data: summary, loading: summaryLoading, error: summaryError } = useDashboardSummary(currentProjectId);
   const { data: progress, loading, error: progressError } = useDashboardProgress(currentProjectId);
   const { data: tasks, loading: tasksLoading } = useDashboardTasks(currentProjectId);
-  const [generatingReport, setGeneratingReport] = useState(false);
+  // const [generatingReport, setGeneratingReport] = useState(false); // "진행률 보고서 생성" 기능 미사용 처리
   const [hoveredMilestoneId, setHoveredMilestoneId] = useState<string | null>(null);
   const [milestoneHoverPos, setMilestoneHoverPos] = useState<{ x: number; y: number } | null>(null);
   const navigate = useNavigate();
@@ -88,24 +88,22 @@ export function ProgressPage() {
   const aiInsightFallback = longestStalledDangerTask
     ? `${user?.name ?? "담당자"}님의 ${longestStalledDangerTask.title}이 지연 위험입니다.`
     : "현재 지연 위험('위험') 업무가 없습니다.";
-  const delayRiskCount = progress?.delayRisks.filter(risk => isDelayRisk(risk.result)).length ?? 0;
-  const reportQuestion = `현재 프로젝트의 진행률 보고서를 생성해줘. 전체 업무 ${totalTasks}개 중 ${doneTasks}개가 완료되어 완료율은 ${progressPercent}%이고, 미완료 업무는 ${openTasks}개, 지연 주의·위험 업무는 ${delayRiskCount}개야. 핵심 현황과 일정 위험, 다음 액션을 요약해줘.`;
-
-  // AI 어시스턴트 패널에서 바로 답을 보게 하는 기존 동작은 그대로 두고,
-  // 같은 질문을 한 번 더 직접 호출해 응답이 실제로 도착하면(성공) 본인에게 알림을 남긴다.
-  const handleGenerateReport = async () => {
-    if (currentProjectId == null || generatingReport) return;
-    openAIAssistant(reportQuestion);
-    setGeneratingReport(true);
-    try {
-      const { answer } = await queryRag(currentProjectId, reportQuestion);
-      await notifyProgressReportReady(answer.length > 200 ? `${answer.slice(0, 200)}...` : answer);
-    } catch {
-      // 알림 전송 실패는 조용히 무시한다 — 보고서 자체는 이미 AI 어시스턴트 패널에 표시된다.
-    } finally {
-      setGeneratingReport(false);
-    }
-  };
+  // "진행률 보고서 생성" 기능 미사용 처리로 주석 처리(관련 코드)
+  // const delayRiskCount = progress?.delayRisks.filter(risk => isDelayRisk(risk.result)).length ?? 0;
+  // const reportQuestion = `현재 프로젝트의 진행률 보고서를 생성해줘. 전체 업무 ${totalTasks}개 중 ${doneTasks}개가 완료되어 완료율은 ${progressPercent}%이고, 미완료 업무는 ${openTasks}개, 지연 주의·위험 업무는 ${delayRiskCount}개야. 핵심 현황과 일정 위험, 다음 액션을 요약해줘.`;
+  // const handleGenerateReport = async () => {
+  //   if (currentProjectId == null || generatingReport) return;
+  //   openAIAssistant(reportQuestion);
+  //   setGeneratingReport(true);
+  //   try {
+  //     const { answer } = await queryRag(currentProjectId, reportQuestion);
+  //     await notifyProgressReportReady(answer.length > 200 ? `${answer.slice(0, 200)}...` : answer);
+  //   } catch {
+  //     // 알림 전송 실패는 조용히 무시한다 — 보고서 자체는 이미 AI 어시스턴트 패널에 표시된다.
+  //   } finally {
+  //     setGeneratingReport(false);
+  //   }
+  // };
 
   return (
     <div className="h-full overflow-y-auto p-6 space-y-4" style={{ fontFamily: "'Inter','Noto Sans KR',sans-serif" }}>
@@ -115,6 +113,7 @@ export function ProgressPage() {
           <h1 className="text-xl font-bold text-foreground">진행률 분석</h1>
           <p className="text-sm text-muted-foreground mt-0.5">업무와 마일스톤 기준으로 완료 현황을 분석합니다.</p>
         </div>
+        {/* "진행률 보고서 생성" 기능 미사용 처리 (주석 처리)
         <button
           onClick={handleGenerateReport}
           disabled={generatingReport}
@@ -123,6 +122,7 @@ export function ProgressPage() {
         >
           <Sparkles className="w-4 h-4" /> {generatingReport ? "생성 중..." : "진행률 보고서 생성"}
         </button>
+        */}
       </div>
 
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700">{error}</div>}
