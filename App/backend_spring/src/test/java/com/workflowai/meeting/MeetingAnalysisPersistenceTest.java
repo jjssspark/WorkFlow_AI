@@ -574,7 +574,8 @@ class MeetingAnalysisPersistenceTest {
                 new MeetingMeta("정기회의", "2026-07-15", List.of())
             ),
             "FASTAPI",
-            jobId
+            jobId,
+            77L
         );
 
         verify(meetingAnalysisRepository).save(any(MeetingAnalysis.class));

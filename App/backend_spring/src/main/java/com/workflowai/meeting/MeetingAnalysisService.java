@@ -137,6 +137,7 @@ public class MeetingAnalysisService {
         String resolvedSourceType = isAudioUpload ? "audio" : defaultString(sourceType, "document");
 
         UUID jobId = UUID.randomUUID();
+        Long uploaderId = CurrentUser.id();
         Meeting newMeeting = new Meeting(
             projectDbId,
             resolvedTitle,
@@ -146,7 +147,7 @@ public class MeetingAnalysisService {
             LocalDate.parse(resolvedDate),
             meetingKind,
             fileName,
-            CurrentUser.id(),
+            uploaderId,
             file == null ? null : file.getSize()
         );
         newMeeting.setAnalysisJobId(jobId);
@@ -176,7 +177,7 @@ public class MeetingAnalysisService {
             text,
             resolvedParticipantNames
         );
-        runAnalysisAfterCommit(meeting.getId(), request, jobId);
+        runAnalysisAfterCommit(meeting.getId(), request, jobId, uploaderId);
 
         String meetingId = String.valueOf(meeting.getId());
         return new MeetingAnalysisResponse(
@@ -327,7 +328,7 @@ public class MeetingAnalysisService {
         meeting.setAnalysisJobId(jobId);
         meetingRepository.save(meeting);
 
-        runAnalysisAfterCommit(id, request, jobId);
+        runAnalysisAfterCommit(id, request, jobId, CurrentUser.id());
 
         return new MeetingAnalysisResponse(
             meetingId,
@@ -638,10 +639,10 @@ public class MeetingAnalysisService {
             return new MeetingVersionResponse(String.valueOf(version.getId()), "SAVED");
         }
 
-        return triggerAnalysis(version, projectId, request.transcript());
+        return triggerAnalysis(version, projectId, request.transcript(), editorId);
     }
 
-    private MeetingVersionResponse triggerAnalysis(Meeting meeting, String projectId, String text) {
+    private MeetingVersionResponse triggerAnalysis(Meeting meeting, String projectId, String text, Long requestedBy) {
         AiAnalyzeRequest request = new AiAnalyzeRequest(
             projectId,
             meeting.getTitle(),
@@ -656,7 +657,7 @@ public class MeetingAnalysisService {
         meeting.setAnalysisStatus("processing");
         meeting.setAnalysisJobId(jobId);
         meetingRepository.save(meeting);
-        runAnalysisAfterCommit(meeting.getId(), request, jobId);
+        runAnalysisAfterCommit(meeting.getId(), request, jobId, requestedBy);
         return new MeetingVersionResponse(String.valueOf(meeting.getId()), "PROCESSING");
     }
 
@@ -676,7 +677,7 @@ public class MeetingAnalysisService {
             throw new IllegalStateException(MISSING_TRANSCRIPT_MESSAGE);
         }
 
-        return triggerAnalysis(meeting, projectId, text);
+        return triggerAnalysis(meeting, projectId, text, CurrentUser.id());
     }
 
     static final String MISSING_TRANSCRIPT_MESSAGE = "재분석할 회의록 원문이 없습니다.";
@@ -790,7 +791,7 @@ public class MeetingAnalysisService {
                 "task",
                 task.getId()
             ));
-            notificationRepository.deleteExcessUnreadByUserId(assigneeId);
+            notificationRepository.deleteExcessByUserId(assigneeId);
         }
         return true;
     }
@@ -951,8 +952,8 @@ public class MeetingAnalysisService {
         }
     }
 
-    private void runAnalysisAfterCommit(Long meetingId, AiAnalyzeRequest request, UUID jobId) {
-        runAfterCommit(() -> enqueueSafely(meetingId, request, jobId));
+    private void runAnalysisAfterCommit(Long meetingId, AiAnalyzeRequest request, UUID jobId, Long requestedBy) {
+        runAfterCommit(() -> enqueueSafely(meetingId, request, jobId, requestedBy));
     }
 
     private void runAfterCommit(Runnable operation) {
@@ -976,9 +977,9 @@ public class MeetingAnalysisService {
         }
     }
 
-    private void enqueueSafely(Long meetingId, AiAnalyzeRequest request, UUID jobId) {
+    private void enqueueSafely(Long meetingId, AiAnalyzeRequest request, UUID jobId, Long requestedBy) {
         try {
-            meetingAnalysisJobPublisher.enqueue(meetingId, request, jobId);
+            meetingAnalysisJobPublisher.enqueue(meetingId, request, jobId, requestedBy);
         } catch (RuntimeException exception) {
             log.warn(
                 "Failed to enqueue meeting analysis job: meetingId={}, cause={}",

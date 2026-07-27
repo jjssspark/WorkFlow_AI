@@ -676,6 +676,10 @@ export function MeetingsView() {
     // 아직 분석 전/실패 상태인 버전에 대해 빈 안내 문구만 보여주므로, 수정 알림("바로가기")으로
     // 온 사용자를 그리로 보내면 안 된다. 원본 회의록은 기존대로 분석/업로드 탭으로 보낸다.
     setHomeTab(target.originalMeetingId ? "saved" : "analyze");
+    // 역할분배를 요청하는 알림("바로가기")은 요약 탭이 아니라 역할분배 검토(To-Do) 탭으로 바로 연결한다.
+    if (searchParams.get("panel") === "todos") {
+      setPanelTab("todos");
+    }
     deepLinkHandledIdRef.current = targetMeetingId;
   }, [searchParams, meetings]);
 

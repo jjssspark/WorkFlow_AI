@@ -42,7 +42,7 @@ class NotificationAsyncSenderTest {
         assertThat(dto.title()).isEqualTo("새 업무 배정");
         assertThat(dto.targetType()).isEqualTo("task");
         assertThat(dto.targetId()).isEqualTo("42");
-        verify(notificationRepository).deleteExcessUnreadByUserId(5L);
+        verify(notificationRepository).deleteExcessByUserId(5L);
     }
 
     @Test
