@@ -19,7 +19,12 @@ const MIME_TO_EXTENSION: Record<string, string> = {
 const resolveExtension = (mimeType: string): string =>
   MIME_TO_EXTENSION[mimeType.split(";")[0].trim()] ?? ".webm";
 
-const getTodayIsoDate = (): string => new Date().toISOString().slice(0, 10);
+// toISOString()은 UTC 기준이라 KST 오전에는 날짜가 하루 밀린다. 로컬 시간대로 보정한다.
+// (MeetingsView의 동명 헬퍼와 같은 구현)
+const getTodayIsoDate = (): string => {
+  const date = new Date();
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+};
 
 const buildRecordingFileName = (mimeType: string): string => {
   const now = new Date();
