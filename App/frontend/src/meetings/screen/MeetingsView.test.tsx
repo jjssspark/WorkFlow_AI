@@ -306,8 +306,9 @@ describe("MeetingsView 홈 탭", () => {
 
     await waitFor(() => expect(fetchMeetings).toHaveBeenCalled());
     // "생성된 To-Do"는 panelTab==="todos"일 때만 보이는 문구다 — 기본값인 요약 탭이 아니라
-    // 클릭 없이 바로 이 탭으로 연결됐는지 확인한다.
-    expect(await screen.findByText(/생성된 To-Do/)).toBeInTheDocument();
+    // 클릭 없이 바로 이 탭으로 연결됐는지 확인한다. 상세 조회까지 기다려야 하므로,
+    // 전체 스위트를 병렬로 돌릴 때의 지연을 견디도록 기본 타임아웃(1초)보다 넉넉히 준다.
+    expect(await screen.findByText(/생성된 To-Do/, {}, { timeout: 5000 })).toBeInTheDocument();
   });
 
   it("'업무로 등록'을 누르면 바로 등록하지 않고 '역할 분배 검토' 화면을 먼저 보여준다", async () => {
