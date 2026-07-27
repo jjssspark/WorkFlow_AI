@@ -27,12 +27,12 @@ public class NotificationController {
         this.notificationBroadcaster = notificationBroadcaster;
     }
 
-    @Operation(summary = "내 알림 목록 조회", description = "로그인 사용자의 알림을 최신순으로 최대 50건 조회합니다.")
+    @Operation(summary = "내 알림 목록 조회", description = "로그인 사용자의 알림을 최신순으로 최대 20건 조회합니다.")
     @GetMapping
     public ResponseEntity<ApiResponse<List<NotificationDto>>> getNotifications() {
         Long userId = CurrentUser.id();
         List<NotificationDto> notifications = notificationRepository
-            .findTop50ByUserIdOrderByCreatedAtDesc(userId)
+            .findTop20ByUserIdOrderByCreatedAtDesc(userId)
             .stream()
             .map(NotificationDto::from)
             .toList();
@@ -65,13 +65,13 @@ public class NotificationController {
         if (request.ids() == null || request.ids().isEmpty()) {
             return ResponseEntity.ok(ApiResponse.ok(null));
         }
-        // 목록 조회가 최신순 최대 50건이므로, 정상적인 클라이언트라면 ids도 그 범위를 넘지 않는다.
+        // 목록 조회가 최신순 최대 20건이므로, 정상적인 클라이언트라면 ids도 그 범위를 넘지 않는다.
         // null/음수/중복 id 및 비정상적으로 큰 요청을 방어적으로 걸러낸다.
         List<Long> normalizedIds = request.ids().stream()
             .filter(Objects::nonNull)
             .filter(id -> id > 0)
             .distinct()
-            .limit(50)
+            .limit(20)
             .toList();
         if (normalizedIds.isEmpty()) {
             return ResponseEntity.ok(ApiResponse.ok(null));
@@ -80,6 +80,8 @@ public class NotificationController {
         List<Notification> owned = notificationRepository.findByIdInAndUserId(normalizedIds, userId);
         owned.forEach(Notification::markRead);
         notificationRepository.saveAll(owned);
+        // 읽은 알림은 보관할 필요가 없으므로 읽음 처리와 함께 바로 정리한다.
+        notificationRepository.deleteByUserIdAndReadTrue(userId);
         return ResponseEntity.ok(ApiResponse.ok(null));
     }
 }

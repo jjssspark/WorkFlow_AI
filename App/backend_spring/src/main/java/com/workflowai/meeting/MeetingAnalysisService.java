@@ -790,6 +790,7 @@ public class MeetingAnalysisService {
                 "task",
                 task.getId()
             ));
+            notificationRepository.deleteExcessUnreadByUserId(assigneeId);
         }
         return true;
     }
