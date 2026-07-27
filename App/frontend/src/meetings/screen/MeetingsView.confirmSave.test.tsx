@@ -25,7 +25,6 @@ vi.mock("../../global/api/projectsApi", () => ({
 vi.mock("../libs/hooks/RecordingSessionProvider", () => ({
   useRecordingSession: () => ({
     status: "idle",
-    elapsedSeconds: 0,
     error: null,
     startRecording: vi.fn(),
     requestStop: vi.fn(),
