@@ -2,6 +2,8 @@ package com.workflowai.task;
 
 import java.io.InputStream;
 import java.net.URI;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -87,7 +89,7 @@ public class S3StorageClient {
     public String createSignedUrl(String path, int expiresInSeconds, String downloadFileName) {
         GetObjectRequest.Builder getObjectRequest = GetObjectRequest.builder().bucket(bucket).key(path);
         if (downloadFileName != null && !downloadFileName.isBlank()) {
-            getObjectRequest.responseContentDisposition("attachment; filename=\"" + downloadFileName + "\"");
+            getObjectRequest.responseContentDisposition(contentDisposition(downloadFileName));
         }
         GetObjectPresignRequest presignRequest = GetObjectPresignRequest.builder()
             .signatureDuration(Duration.ofSeconds(expiresInSeconds))
@@ -95,5 +97,21 @@ public class S3StorageClient {
             .build();
         PresignedGetObjectRequest presigned = presigner.presignGetObject(presignRequest);
         return presigned.url().toString();
+    }
+
+    /**
+     * 원본 파일명을 그대로 따옴표 안에 넣으면 "가 있을 때 속성이 끊기거나(예: filename="a"; evil=1),
+     * 제어문자(CRLF 등)로 헤더 자체가 오염될 수 있다(비ASCII는 RFC 2616 filename 속성 자체가
+     * 원래 지원 안 함). ASCII로 정리한 filename과, RFC 5987 filename*(UTF-8 퍼센트 인코딩) 둘 다
+     * 채워서 따옴표/제어문자/비ASCII 전부 안전하게 처리한다 — filename*을 인식하는 브라우저는 원본
+     * 이름 그대로, 아니면 정리된 ASCII 이름으로 다운로드된다.
+     */
+    private static String contentDisposition(String downloadFileName) {
+        String asciiFallback = downloadFileName
+            .replaceAll("[^\\x20-\\x7E]", "_")
+            .replace("\\", "_")
+            .replace("\"", "'");
+        String encoded = URLEncoder.encode(downloadFileName, StandardCharsets.UTF_8).replace("+", "%20");
+        return "attachment; filename=\"" + asciiFallback + "\"; filename*=UTF-8''" + encoded;
     }
 }

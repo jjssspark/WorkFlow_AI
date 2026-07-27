@@ -20,7 +20,7 @@ export function formatDueDate(iso: string): string {
   return `${year}.${month}.${day}`;
 }
 
-// 칸반 카드 전용 표시: 시작일/마감일이 모두 올해면 연도를 생략해 "M.D"로, 하나라도 다른 해면 "YYYY.M.D"로 표시한다.
+// 칸반 카드 전용 표시: 시작일/마감일이 모두 올해면 연도를 생략해 "MM.DD"로, 하나라도 다른 해면 "YYYY.MM.DD"로 표시한다.
 export function shouldHideYearOnBoard(startDate: string, dueDate: string): boolean {
   const currentYear = String(new Date().getFullYear());
   const years = [startDate, dueDate].filter(Boolean).map((d) => d.split("-")[0]);
