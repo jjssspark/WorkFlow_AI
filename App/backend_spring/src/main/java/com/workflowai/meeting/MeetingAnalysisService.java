@@ -735,7 +735,10 @@ public class MeetingAnalysisService {
 
     private boolean registerSingleTask(Long meetingId, MeetingTodo todo, Long createdBy) {
         Long assigneeId = resolveAssignee(todo.assignee_id());
-        LocalDate dueDate = parseDateOrNull(todo.due_date());
+        // 연도 없는 날짜("07/31")는 회의 날짜의 연도로 채워야 업무보드 마감일과 어긋나지 않는다.
+        Meeting meetingForDate = meetingRepository.findById(meetingId).orElse(null);
+        LocalDate dateReference = meetingForDate == null ? null : meetingForDate.getMeetingDate();
+        LocalDate dueDate = parseDateOrNull(todo.due_date(), dateReference);
 
         Optional<MeetingActionItem> existingItem =
             meetingActionItemRepository.findFirstByMeetingIdAndTitle(meetingId, todo.title());
@@ -1043,12 +1046,38 @@ public class MeetingAnalysisService {
     }
 
     private LocalDate parseDateOrNull(String date) {
+        return parseDateOrNull(date, null);
+    }
+
+    /**
+     * 회의록 To-Do의 날짜를 파싱한다.
+     *
+     * <p>이전에는 ISO(yyyy-MM-dd)만 받아, 사용자가 "07/31"처럼 연도 없이 입력하거나 LLM이
+     * "2026.07.31"로 돌려주면 조용히 null이 되어 업무보드 마감일이 비어버렸다.
+     * 연도가 없는 입력은 회의 날짜(reference)의 연도로 채운다.
+     */
+    private LocalDate parseDateOrNull(String date, LocalDate reference) {
         if (date == null || date.isBlank()) return null;
+        String normalized = date.trim().replace('.', '-').replace('/', '-').replaceAll("-+", "-");
+        normalized = normalized.replaceAll("-$", "");
         try {
-            return LocalDate.parse(date);
-        } catch (Exception e) {
-            return null;
+            return LocalDate.parse(normalized);
+        } catch (Exception ignored) {
+            // 아래에서 연도 없는 형식(MM-dd)을 시도한다.
         }
+        java.util.regex.Matcher monthDay =
+            java.util.regex.Pattern.compile("^(\\d{1,2})-(\\d{1,2})$").matcher(normalized);
+        if (monthDay.matches()) {
+            int year = (reference == null ? LocalDate.now() : reference).getYear();
+            try {
+                return LocalDate.of(year, Integer.parseInt(monthDay.group(1)), Integer.parseInt(monthDay.group(2)));
+            } catch (Exception e) {
+                log.warn("To-Do 날짜를 해석하지 못했습니다: raw={}", date);
+                return null;
+            }
+        }
+        log.warn("To-Do 날짜를 해석하지 못했습니다: raw={}", date);
+        return null;
     }
 
     private Long parseLongOrNull(String value) {

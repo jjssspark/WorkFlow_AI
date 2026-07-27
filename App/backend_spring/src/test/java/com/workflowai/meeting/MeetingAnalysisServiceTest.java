@@ -1036,6 +1036,33 @@ class MeetingAnalysisServiceTest {
         assertThat(captor.getValue().getCreatedBy()).isEqualTo(25L);
     }
 
+    // 연도 없는 "07/31"이나 "2026.07.31" 같은 입력이 조용히 null이 되어 업무보드 마감일이
+    // 비어버리던 문제. 회의 날짜의 연도로 채워 업무보드와 어긋나지 않게 한다.
+    @Test
+    void registerTasksMapsNonIsoDueDateToTaskDueDate() {
+        UserPrincipal leader = new UserPrincipal(25L, "leader@example.com", "박지수");
+        SecurityContextHolder.getContext().setAuthentication(
+            new UsernamePasswordAuthenticationToken(leader, null, List.of())
+        );
+        when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
+        when(projectMemberRepository.existsByProjectIdAndUserId(1L, 25L)).thenReturn(true);
+        Meeting meeting = new Meeting(1L, "정기회의", "document", null, "completed", LocalDate.of(2026, 7, 19), "정기회의", "a.txt", 10L, 10L);
+        when(meetingRepository.findByIdAndProjectId(5L, 1L)).thenReturn(Optional.of(meeting));
+        when(meetingRepository.findById(5L)).thenReturn(Optional.of(meeting));
+        when(taskRepository.save(any(Task.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(taskRepository.findTopByProjectIdAndStatusOrderByPositionAsc(any(), any())).thenReturn(Optional.empty());
+        MeetingAnalysisService service = newService();
+
+        TaskRegisterRequest request = new TaskRegisterRequest(List.of(
+            new MeetingTodo("업무1", "설명", null, null, "07/31", "MEDIUM", "ETC", true, "")
+        ));
+        service.registerTasks("demo-project", "5", request);
+
+        ArgumentCaptor<Task> captor = ArgumentCaptor.forClass(Task.class);
+        verify(taskRepository).save(captor.capture());
+        assertThat(captor.getValue().getDueDate()).isEqualTo(LocalDate.of(2026, 7, 31));
+    }
+
     @Test
     void registerTasksNotifiesLeaderAndUploaderWhenDifferent() {
         UserPrincipal leader = new UserPrincipal(99L, "leader@example.com", "김팀장");
