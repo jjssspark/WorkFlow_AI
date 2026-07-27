@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""ApplicationContextLoadTest가 실제로 실행됐는지 확인한다.
+"""PostgreSQL/Testcontainers 기반 운영 방어 테스트가 실제로 실행됐는지 확인한다.
 
-이 테스트는 Docker가 없으면 조용히 건너뛴다(로컬 개발 편의). CI 게이트에서까지
+이 테스트들은 Docker가 없으면 조용히 건너뛴다(로컬 개발 편의). CI 게이트에서까지
 건너뛰면 배선 오류를 잡는 방어선이 사라지므로, JUnit 리포트를 파싱해 실행 여부를
 명시적으로 확인한다. 속성 순서나 공백에 의존하는 문자열 매칭 대신 XML로 파싱한다.
 """
@@ -9,8 +9,11 @@ import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-SUITE = "com.workflowai.ApplicationContextLoadTest"
-REPORT = Path("build/test-results/test") / f"TEST-{SUITE}.xml"
+SUITES = (
+    "com.workflowai.ApplicationContextLoadTest",
+    "com.workflowai.migration.ProductionSchemaMigrationTest",
+)
+REPORT_DIR = Path("build/test-results/test")
 
 
 def fail(message: str) -> None:
@@ -18,12 +21,13 @@ def fail(message: str) -> None:
     sys.exit(1)
 
 
-def main() -> None:
-    if not REPORT.is_file():
-        fail(f"리포트가 없습니다: {REPORT} — 테스트가 아예 실행되지 않았습니다.")
+def verify_suite(suite_name: str) -> None:
+    report = REPORT_DIR / f"TEST-{suite_name}.xml"
+    if not report.is_file():
+        fail(f"리포트가 없습니다: {report} — 테스트가 아예 실행되지 않았습니다.")
 
     try:
-        suite = ET.parse(REPORT).getroot()
+        suite = ET.parse(report).getroot()
     except ET.ParseError as error:
         fail(f"리포트를 파싱할 수 없습니다: {error}")
 
@@ -55,7 +59,12 @@ def main() -> None:
     if failures or errors:
         fail(f"테스트가 실패했습니다 (failures={failures}, errors={errors}).")
 
-    print(f"[OK] {SUITE} 실행 확인 (tests={tests}, skipped=0)")
+    print(f"[OK] {suite_name} 실행 확인 (tests={tests}, skipped=0)")
+
+
+def main() -> None:
+    for suite_name in SUITES:
+        verify_suite(suite_name)
 
 
 if __name__ == "__main__":

@@ -1,16 +1,21 @@
 import { useState } from "react";
 import { X } from "lucide-react";
-import { createMilestone } from "../libs/utils/milestoneApi";
+import { createMilestone, updateMilestone } from "../libs/utils/milestoneApi";
+import type { MilestoneProgressDto } from "../libs/types/dashboard";
 
 interface MilestoneAddPopupProps {
   projectId: number;
+  /** 수정 모드로 열 때 넘긴다 — 있으면 기존 값으로 채워지고 저장 시 수정 API를 호출한다. */
+  editTarget?: MilestoneProgressDto | null;
   onClose: () => void;
   onCreated: () => void;
 }
 
-export function MilestoneAddPopup({ projectId, onClose, onCreated }: MilestoneAddPopupProps) {
-  const [title, setTitle] = useState("");
-  const [dueDate, setDueDate] = useState("");
+export function MilestoneAddPopup({ projectId, editTarget, onClose, onCreated }: MilestoneAddPopupProps) {
+  const isEdit = editTarget != null;
+  const [title, setTitle] = useState(editTarget?.title ?? "");
+  const [startDate, setStartDate] = useState(editTarget?.startDate ?? "");
+  const [dueDate, setDueDate] = useState(editTarget?.dueDate ?? "");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -19,13 +24,23 @@ export function MilestoneAddPopup({ projectId, onClose, onCreated }: MilestoneAd
       setError("마일스톤 이름을 입력해주세요.");
       return;
     }
+    if (startDate && dueDate && startDate > dueDate) {
+      setError("시작일은 마감일보다 늦을 수 없습니다.");
+      return;
+    }
+    if (!window.confirm(isEdit ? "변경사항을 반영할까요?" : "마일스톤을 추가할까요?")) return;
     setSubmitting(true);
     setError(null);
     try {
-      await createMilestone(projectId, { title: title.trim(), dueDate: dueDate || null });
+      const input = { title: title.trim(), startDate: startDate || null, dueDate: dueDate || null };
+      if (isEdit) {
+        await updateMilestone(projectId, editTarget.id, input);
+      } else {
+        await createMilestone(projectId, input);
+      }
       onCreated();
     } catch {
-      setError("마일스톤 생성에 실패했습니다. 잠시 후 다시 시도해주세요.");
+      setError(isEdit ? "마일스톤 수정에 실패했습니다. 잠시 후 다시 시도해주세요." : "마일스톤 생성에 실패했습니다. 잠시 후 다시 시도해주세요.");
     } finally {
       setSubmitting(false);
     }
@@ -37,7 +52,7 @@ export function MilestoneAddPopup({ projectId, onClose, onCreated }: MilestoneAd
       <div className="fixed inset-0 flex items-center justify-center z-50 p-4" onClick={e => e.stopPropagation()}>
         <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm" style={{ fontFamily: "'Inter','Noto Sans KR',sans-serif" }}>
           <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-            <h2 className="text-base font-bold text-foreground">마일스톤 추가</h2>
+            <h2 className="text-base font-bold text-foreground">{isEdit ? "마일스톤 수정" : "마일스톤 추가"}</h2>
             <button onClick={onClose} className="p-1.5 hover:bg-muted rounded-lg transition-colors"><X className="w-4 h-4 text-muted-foreground" /></button>
           </div>
           <div className="p-6 space-y-3">
@@ -46,18 +61,29 @@ export function MilestoneAddPopup({ projectId, onClose, onCreated }: MilestoneAd
               <input
                 value={title}
                 onChange={e => setTitle(e.target.value)}
-                placeholder="예: MVP 발표"
+                placeholder="예) 착수보고 발표"
                 className="w-full rounded-xl border border-border bg-input-background px-4 py-2.5 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
               />
             </div>
-            <div>
-              <label className="text-xs font-semibold text-foreground block mb-1.5">마감일</label>
-              <input
-                type="date"
-                value={dueDate}
-                onChange={e => setDueDate(e.target.value)}
-                className="w-full rounded-xl border border-border bg-input-background px-4 py-2.5 text-sm outline-none focus:border-blue-400"
-              />
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-semibold text-foreground block mb-1.5">시작일</label>
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={e => setStartDate(e.target.value)}
+                  className="w-full rounded-xl border border-border bg-input-background px-4 py-2.5 text-sm outline-none focus:border-blue-400"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-foreground block mb-1.5">마감일</label>
+                <input
+                  type="date"
+                  value={dueDate}
+                  onChange={e => setDueDate(e.target.value)}
+                  className="w-full rounded-xl border border-border bg-input-background px-4 py-2.5 text-sm outline-none focus:border-blue-400"
+                />
+              </div>
             </div>
           </div>
           <div className="flex flex-col gap-2 px-6 py-4 border-t border-border">
@@ -70,7 +96,7 @@ export function MilestoneAddPopup({ projectId, onClose, onCreated }: MilestoneAd
                 className="px-5 py-2 text-sm font-semibold text-white rounded-xl disabled:opacity-40 hover:opacity-90 transition-opacity"
                 style={{ background: "linear-gradient(135deg,#3B5BDB,#4F6EF7)" }}
               >
-                {submitting ? "추가 중..." : "추가"}
+                {submitting ? (isEdit ? "수정 중..." : "추가 중...") : (isEdit ? "수정" : "추가")}
               </button>
             </div>
           </div>

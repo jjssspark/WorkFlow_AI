@@ -124,6 +124,7 @@ class ProjectServiceTest {
     void find_computesMemberCountAndTaskProgressFromRealData() {
         Project project = new Project("제목", "캡스톤디자인", "설명");
         ReflectionTestUtils.setField(project, "id", 10L);
+        ReflectionTestUtils.setField(project, "inviteCode", "AB12CD34");
         when(projectRepository.findById(10L)).thenReturn(Optional.of(project));
         when(projectMemberRepository.countByProjectIdAndRoleNot(10L, ProjectRole.REVIEWER)).thenReturn(2L);
         Task done = new Task(10L, "a", "frontend", "완료", 1L, null, "medium", null, "MANUAL", null, 1L, 0.0);
@@ -140,6 +141,7 @@ class ProjectServiceTest {
     void find_noTasks_progressIsZero() {
         Project project = new Project("제목", "캡스톤디자인", "설명");
         ReflectionTestUtils.setField(project, "id", 10L);
+        ReflectionTestUtils.setField(project, "inviteCode", "AB12CD34");
         when(projectRepository.findById(10L)).thenReturn(Optional.of(project));
         when(projectMemberRepository.countByProjectIdAndRoleNot(10L, ProjectRole.REVIEWER)).thenReturn(0L);
         when(taskRepository.findByProjectIdOrderByCreatedAtDesc(any())).thenReturn(List.of());
@@ -147,6 +149,23 @@ class ProjectServiceTest {
         ProjectResponse response = projectService.find(10L);
 
         assertThat(response.taskProgress()).isZero();
+    }
+
+    @Test
+    void find_missingInviteCode_backfillsAndPersistsCode() {
+        // 초대 코드 기능 도입 이전에 생성된 프로젝트는 invite_code가 null이다.
+        // 조회 시점에 코드를 채워 넣어 저장해야 한다(마이그레이션 없이 자연스러운 백필).
+        Project project = new Project("제목", "캡스톤디자인", "설명");
+        ReflectionTestUtils.setField(project, "id", 10L);
+        when(projectRepository.findById(10L)).thenReturn(Optional.of(project));
+        when(projectRepository.saveAndFlush(any(Project.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(projectMemberRepository.countByProjectIdAndRoleNot(any(), any())).thenReturn(0L);
+        when(taskRepository.findByProjectIdOrderByCreatedAtDesc(any())).thenReturn(List.of());
+
+        ProjectResponse response = projectService.find(10L);
+
+        assertThat(response.inviteCode()).isNotBlank();
+        verify(projectRepository).saveAndFlush(project);
     }
 
     @Test

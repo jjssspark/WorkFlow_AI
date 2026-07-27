@@ -132,12 +132,12 @@ public class TaskController {
             .orElse(0.0);
     }
 
-    // DONE: @projectAccess.isMember(#projectId)로 프로젝트 멤버십 검사 적용 완료 (2026-07-18).
     // DONE: assigneeId 실제 유저 id 미해석, currentActorId() mock 고정 문제 수정 (2026-07-22).
+    // DONE: 업무 생성 권한을 팀장 전용으로 강화 (2026-07-27, docs/decisions/2026-07-27-task-creation-leader-only.md).
 
     @Operation(
         summary = "업무 생성",
-        description = "업무보드에서 새 업무를 직접 생성합니다."
+        description = "업무보드에서 새 업무를 직접 생성합니다. 프로젝트 팀장만 생성할 수 있습니다."
     )
     @PostMapping
     @PreAuthorize("@projectAccess.hasRole(#projectId, 'LEADER')")

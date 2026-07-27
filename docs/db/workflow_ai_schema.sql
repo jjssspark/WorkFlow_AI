@@ -1,8 +1,8 @@
 -- ============================================================================
 -- WorkFlow AI - Database Schema (PostgreSQL DDL)
 -- 출처: Supabase 프로젝트 "work-flow" (ref: zzfcnbbzmbxzxptxghhq) 실제 스키마
---       (supabase db dump --schema public, 2026-07-22 기준)
--- 스코프: 실사용 스키마 전체 (27개 테이블)
+--       (supabase db dump --schema public, 2026-07-26 기준)
+-- 스코프: 실사용 스키마 전체 (29개 테이블, Flyway 메타 테이블 제외)
 -- 용도: 실제 서비스 스택(PostgreSQL/Supabase)에 직접 실행 가능한 DDL
 -- 요구 버전: PostgreSQL 13+ (실 운영: PostgreSQL 17, Supabase 관리형 인스턴스로 pgvector 사전 번들)
 --       자체 호스팅 PostgreSQL에서는 pgvector가 기본 포함되지 않으므로 CREATE EXTENSION 실행
@@ -41,19 +41,31 @@ CREATE TABLE users (
     password_hash   VARCHAR(255),
     reviewer_status VARCHAR(20),
     affiliation     VARCHAR(100),
-    field           JSONB NOT NULL DEFAULT '[]',
     github_username VARCHAR(100),
+    profile_image_path        VARCHAR(255),
+    field_tags                JSONB NOT NULL DEFAULT '[]',
+    terms_agreed_at           TIMESTAMP,
+    privacy_agreed_at         TIMESTAMP,
+    is_admin                  BOOLEAN NOT NULL DEFAULT FALSE,
+    faculty_id                VARCHAR(50),
+    reviewer_rejection_reason VARCHAR(500),
     CONSTRAINT uq_users_email UNIQUE (email),
     CONSTRAINT uq_users_provider UNIQUE (provider, provider_id)
 );
 COMMENT ON TABLE users IS '사용자';
 COMMENT ON COLUMN users.provider IS 'google 등 OAuth 제공자';
 COMMENT ON COLUMN users.provider_id IS 'OAuth sub (불변 식별자)';
-COMMENT ON COLUMN users.password_hash IS '로컬(이메일/비밀번호) 회원가입 계정만 사용. BCrypt 해시. Google/데모 계정은 NULL.';
-COMMENT ON COLUMN users.reviewer_status IS 'REVIEWER로 가입 신청한 계정만 사용: PENDING(승인 대기)/APPROVED(승인 완료). NULL이면 심사자 신청 이력 없음.';
+COMMENT ON COLUMN users.password_hash IS 'BCrypt 해시. provider=local 계정만 값이 있고 OAuth 계정은 NULL';
+COMMENT ON COLUMN users.reviewer_status IS 'REVIEWER로 가입 신청한 계정만 사용: PENDING(승인 대기)/APPROVED(승인 완료)/REJECTED(거부, 재신청 전까지 로그인 차단). NULL이면 심사자 신청 이력 없음.';
 COMMENT ON COLUMN users.affiliation IS '소속 (예: 컴퓨터공학과 3학년)';
-COMMENT ON COLUMN users.field IS '전공/관심 분야 태그 배열 (예: ["백엔드", "인프라"])';
 COMMENT ON COLUMN users.github_username IS 'GitHub 아이디만 저장한다 (URL 아님)';
+COMMENT ON COLUMN users.profile_image_path IS 'Supabase Storage 내 프로필 사진 오브젝트 경로 (avatars/{userId}/...)';
+COMMENT ON COLUMN users.field_tags IS '전공/관심 분야 태그 배열 (예: ["백엔드", "인프라"])';
+COMMENT ON COLUMN users.terms_agreed_at IS '이메일/비밀번호 회원가입 시 이용약관에 동의한 시각. Google OAuth/데모 계정은 이 절차를 거치지 않아 NULL';
+COMMENT ON COLUMN users.privacy_agreed_at IS '이메일/비밀번호 회원가입 시 개인정보처리방침에 동의한 시각. terms_agreed_at과 별도로 기록한다. Google OAuth/데모 계정은 이 절차를 거치지 않아 NULL';
+COMMENT ON COLUMN users.is_admin IS '전역 관리자 여부. 최초 관리자는 운영자가 DB에서 직접 UPDATE로 지정한다.';
+COMMENT ON COLUMN users.faculty_id IS '심사자(REVIEWER) 신청 시 입력하는 교수/교직원 식별번호. 민감정보 — 본인/관리자만 조회, 일반 응답에는 포함하지 않는다.';
+COMMENT ON COLUMN users.reviewer_rejection_reason IS '관리자가 심사자 신청을 거부할 때 남기는 사유.';
 
 CREATE TRIGGER trg_users_updated_at
     BEFORE UPDATE ON users
@@ -75,7 +87,9 @@ CREATE TABLE projects (
     goals          TEXT,
     invite_code    VARCHAR(20),
     created_by     BIGINT NULL,
+    eval_status    VARCHAR(20) NOT NULL DEFAULT 'EVALUATING',
     CONSTRAINT uq_projects_invite_code UNIQUE (invite_code),
+    CONSTRAINT chk_projects_eval_status CHECK (eval_status IN ('PENDING', 'EVALUATING', 'PUBLISHED')),
     CONSTRAINT fk_projects_created_by FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
 );
 COMMENT ON TABLE projects IS '프로젝트';
@@ -87,6 +101,7 @@ COMMENT ON COLUMN projects.tech_stack IS '기술 스택/주요 기능 키워드 
 COMMENT ON COLUMN projects.goals IS '진행 목표/간단 메모';
 COMMENT ON COLUMN projects.invite_code IS '초대 코드 (온보딩 시 자동 생성)';
 COMMENT ON COLUMN projects.created_by IS '생성자 user id';
+COMMENT ON COLUMN projects.eval_status IS '심사자 평가 상태: PENDING/EVALUATING/PUBLISHED (chk_projects_eval_status로 제한)';
 
 CREATE TRIGGER trg_projects_updated_at
     BEFORE UPDATE ON projects
@@ -128,11 +143,15 @@ CREATE TABLE milestones (
     id         BIGSERIAL PRIMARY KEY,
     project_id BIGINT NOT NULL,
     title      VARCHAR(200) NOT NULL,
+    start_date DATE,
     due_date   DATE,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_milestones_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
 );
 COMMENT ON TABLE milestones IS '프로젝트 마일스톤';
+COMMENT ON COLUMN milestones.start_date IS '로드맵 기간 표시용 시작일 (선택)';
+
+CREATE INDEX idx_milestones_project_dates ON milestones (project_id, start_date, due_date);
 
 CREATE TABLE tasks (
     id                BIGSERIAL PRIMARY KEY,
@@ -143,6 +162,7 @@ CREATE TABLE tasks (
     status            VARCHAR(20)  NOT NULL,
     assignee_id       BIGINT NULL,
     due_date          DATE,
+    done_date         DATE,
     priority          VARCHAR(20),
     description       TEXT,
     created_at        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -151,6 +171,9 @@ CREATE TABLE tasks (
     source_meeting_id BIGINT NULL,
     created_by        BIGINT NULL,
     "position"        DOUBLE PRECISION NOT NULL,
+    start_date        DATE,
+    pending_approval  BOOLEAN NOT NULL DEFAULT FALSE,
+    extra_fields      JSONB,
     CONSTRAINT fk_tasks_project       FOREIGN KEY (project_id)        REFERENCES projects(id)  ON DELETE CASCADE,
     CONSTRAINT fk_tasks_assignee      FOREIGN KEY (assignee_id)       REFERENCES users(id)     ON DELETE SET NULL,
     CONSTRAINT fk_tasks_milestone     FOREIGN KEY (milestone_id)      REFERENCES milestones(id) ON DELETE SET NULL,
@@ -164,6 +187,10 @@ COMMENT ON COLUMN tasks.status IS '할 일/진행 중/보류-블로커/완료';
 COMMENT ON COLUMN tasks.assignee_id IS '미배정 가능';
 COMMENT ON COLUMN tasks.source_type IS '회의록 액션 아이템에서 생성된 경우 출처 구분';
 COMMENT ON COLUMN tasks."position" IS '보드 내 드래그 정렬 순서(부동소수 기반). DEFAULT 없는 NOT NULL — INSERT 시 애플리케이션이 반드시 값을 계산해 넣어야 함';
+COMMENT ON COLUMN tasks.start_date IS '업무 시작일 (선택, 마감일보다 뒤일 수 없음)';
+COMMENT ON COLUMN tasks.pending_approval IS '팀원이 완료 이동을 요청했고 아직 팀장 승인/반려 전인 상태';
+COMMENT ON COLUMN tasks.extra_fields IS '업무 유형별 추가 입력값 (자유 형식 JSON)';
+COMMENT ON COLUMN tasks.done_date IS '업무 완료일 (선택, 시작일보다 앞일 수 없음)';
 
 CREATE TRIGGER trg_tasks_updated_at
     BEFORE UPDATE ON tasks
@@ -171,6 +198,7 @@ CREATE TRIGGER trg_tasks_updated_at
 
 CREATE INDEX idx_tasks_project_id ON tasks (project_id);
 CREATE INDEX idx_tasks_source_meeting_id ON tasks (source_meeting_id);
+CREATE INDEX idx_tasks_project_milestone ON tasks (project_id, milestone_id);
 
 CREATE TABLE task_checklists (
     id         BIGSERIAL PRIMARY KEY,
@@ -256,15 +284,28 @@ CREATE TABLE meetings (
     original_file_name  VARCHAR(255),
     uploaded_by         BIGINT NULL,
     file_size           BIGINT,
+    original_meeting_id BIGINT NULL,
+    edited_by           BIGINT NULL,
+    saved_at            TIMESTAMP,
     CONSTRAINT fk_meetings_project     FOREIGN KEY (project_id)  REFERENCES projects(id) ON DELETE CASCADE,
-    CONSTRAINT fk_meetings_uploaded_by FOREIGN KEY (uploaded_by) REFERENCES users(id)
+    CONSTRAINT fk_meetings_uploaded_by FOREIGN KEY (uploaded_by) REFERENCES users(id),
+    CONSTRAINT fk_meetings_original    FOREIGN KEY (original_meeting_id) REFERENCES meetings(id) ON DELETE SET NULL,
+    CONSTRAINT fk_meetings_edited_by   FOREIGN KEY (edited_by)   REFERENCES users(id) ON DELETE SET NULL
 );
-COMMENT ON TABLE meetings IS '회의록/녹음 업로드';
+COMMENT ON TABLE meetings IS '회의록/녹음 업로드 (원본 + 수정 버전을 같은 테이블에 보관)';
 COMMENT ON COLUMN meetings.file_type IS 'document/audio/video';
 COMMENT ON COLUMN meetings.analysis_status IS '비동기 분석 상태';
 COMMENT ON COLUMN meetings.analysis_job_id IS '현재 Redis Stream 분석 작업의 세대 식별자';
+COMMENT ON COLUMN meetings.original_meeting_id IS '이 레코드가 수정본이면 원본 회의록 id (원본 자신은 NULL)';
+COMMENT ON COLUMN meetings.edited_by IS '이 버전을 수정/생성한 사용자 (원본에는 NULL)';
+COMMENT ON COLUMN meetings.saved_at IS '분석결과 저장 확정 또는 수정본 저장 시각 (NULL이면 아직 저장 확정 전)';
 
 CREATE INDEX idx_meetings_project_id ON meetings (project_id);
+
+-- 같은 원본에 대해 동일 제목의 수정본이 중복 생성되는 것을 막는다 (원본 행은 대상 아님)
+CREATE UNIQUE INDEX uq_meetings_original_id_title
+  ON meetings (original_meeting_id, title)
+  WHERE original_meeting_id IS NOT NULL;
 
 -- tasks.source_meeting_id는 meetings보다 먼저(§2) 정의되므로 순방향 참조를 피해 여기서 추가한다
 ALTER TABLE tasks
@@ -388,16 +429,35 @@ CREATE TABLE document_chunks (
     content     TEXT NOT NULL,
     embedding   VECTOR(1024),
     created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT fk_chunks_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+    assignee_id BIGINT NULL,
+    CONSTRAINT fk_chunks_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+    CONSTRAINT document_chunks_assignee_id_fkey FOREIGN KEY (assignee_id) REFERENCES users(id) ON DELETE SET NULL
 );
 COMMENT ON TABLE document_chunks IS 'RAG 임베딩 청크';
 COMMENT ON COLUMN document_chunks.source_type IS 'meeting/task/deliverable/github (폴리모픽)';
 COMMENT ON COLUMN document_chunks.embedding IS 'pgvector VECTOR(1024), BAAI/bge-m3 기반 임베딩(쿼리 노이즈 강건성 파인튜닝)';
+COMMENT ON COLUMN document_chunks.assignee_id IS '청크 출처의 담당자 (개인화 질문 필터링용, 담당자 없으면 NULL)';
 
 CREATE INDEX IF NOT EXISTS idx_document_chunks_embedding
   ON document_chunks USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
 CREATE INDEX IF NOT EXISTS idx_document_chunks_project
   ON document_chunks (project_id, source_type);
+CREATE INDEX IF NOT EXISTS idx_document_chunks_project_assignee
+  ON document_chunks (project_id, assignee_id)
+  WHERE assignee_id IS NOT NULL;
+
+CREATE TABLE rag_assignee_sync_failures (
+    id            BIGSERIAL PRIMARY KEY,
+    project_id    BIGINT NOT NULL,
+    source_type   VARCHAR(50) NOT NULL,
+    source_id     BIGINT NOT NULL,
+    assignee_id   BIGINT NULL,
+    error_message TEXT,
+    failed_at     TIMESTAMP NOT NULL
+);
+COMMENT ON TABLE rag_assignee_sync_failures IS 'RAG 인덱싱 시 담당자(assignee) 동기화에 실패한 이력';
+COMMENT ON COLUMN rag_assignee_sync_failures.source_type IS 'meeting/task/deliverable/github (document_chunks와 동일 구분)';
+COMMENT ON COLUMN rag_assignee_sync_failures.assignee_id IS '동기화하려던 담당자 id (미배정이면 NULL). 장애 기록용이라 FK 제약을 두지 않는다';
 
 CREATE TABLE assistant_messages (
     id         BIGSERIAL PRIMARY KEY,
@@ -492,18 +552,52 @@ CREATE TABLE evaluation_scores (
     id         BIGSERIAL PRIMARY KEY,
     project_id BIGINT NOT NULL,
     user_id    BIGINT NOT NULL,
-    score      DECIMAL(5,2) NOT NULL,
-    is_public  BOOLEAN NOT NULL DEFAULT FALSE,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    score               DECIMAL(5,2) NOT NULL,
+    contribution_public BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    reviewer_score      DECIMAL(5,2),
+    grade               VARCHAR(2),
+    final_public        BOOLEAN NOT NULL DEFAULT FALSE,
+    comment_public      BOOLEAN NOT NULL DEFAULT FALSE,
+    comment             TEXT,
+    total_score         DECIMAL(5,2),
     CONSTRAINT uq_evaluation_scores UNIQUE (project_id, user_id),
+    CONSTRAINT chk_evaluation_scores_grade CHECK (
+        grade IS NULL OR grade IN (
+            'A+', 'A', 'A0', 'A-', 'B+', 'B', 'B0', 'B-',
+            'C+', 'C', 'C0', 'C-', 'D+', 'D', 'D0', 'D-',
+            'F', 'P', 'NP'
+        )
+    ),
     CONSTRAINT fk_scores_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
     CONSTRAINT fk_scores_user    FOREIGN KEY (user_id)    REFERENCES users(id)    ON DELETE CASCADE
 );
 COMMENT ON TABLE evaluation_scores IS '심사자 최종 평가 점수';
+COMMENT ON COLUMN evaluation_scores.score IS 'AI가 산정한 기여 점수(기여도 분석 화면 왼쪽 테이블 값)';
+COMMENT ON COLUMN evaluation_scores.contribution_public IS '기여 점수(왼쪽 기여도 테이블) 공개 여부';
+COMMENT ON COLUMN evaluation_scores.reviewer_score IS '심사자가 직접 입력한 점수';
+COMMENT ON COLUMN evaluation_scores.grade IS '학점 계산기가 산출한 학점 (chk_evaluation_scores_grade로 제한)';
+COMMENT ON COLUMN evaluation_scores.final_public IS '학점 계산기 총합/심사자 점수/학점 공개 여부';
+COMMENT ON COLUMN evaluation_scores.comment_public IS '심사 코멘트 공개 여부';
+COMMENT ON COLUMN evaluation_scores.comment IS '심사자가 팀원에게 남기는 평가 코멘트';
+COMMENT ON COLUMN evaluation_scores.total_score IS '학점 계산기가 계산해 저장한 최종 총합(기여 점수×비율 + 심사자 점수×비율)';
 
 CREATE TRIGGER trg_evaluation_scores_updated_at
     BEFORE UPDATE ON evaluation_scores
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE TABLE evaluation_settings (
+    project_id         BIGINT PRIMARY KEY,
+    contribution_ratio DECIMAL(5,2) NOT NULL DEFAULT 40.00,
+    updated_at         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_eval_settings_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+);
+COMMENT ON TABLE evaluation_settings IS '프로젝트별 학점 계산기 설정 (1:1 - projects.id)';
+COMMENT ON COLUMN evaluation_settings.contribution_ratio IS '총합에서 기여 점수가 차지하는 비율(%). 나머지는 심사자 점수 비율';
+
+CREATE TRIGGER trg_evaluation_settings_updated_at
+    BEFORE UPDATE ON evaluation_settings
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 CREATE TABLE comments (

@@ -36,6 +36,14 @@ public interface TaskRepository extends JpaRepository<Task, Long> {
     @Query("delete from Task t where t.sourceMeetingId = :meetingId")
     int deleteBySourceMeetingId(@Param("meetingId") Long meetingId);
 
+    /** 마일스톤 삭제 전에 연결 업무를 일정 미정 상태로 명시적으로 옮긴다. */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("update Task t set t.milestoneId = null where t.projectId = :projectId and t.milestoneId = :milestoneId")
+    int clearMilestoneId(
+        @Param("projectId") Long projectId,
+        @Param("milestoneId") Long milestoneId
+    );
+
     @Query("""
         select t.projectId as projectId,
                count(t.id) as totalCount,

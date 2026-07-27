@@ -38,6 +38,7 @@ const fetchMeeting = vi.fn();
 const deleteMeeting = vi.fn();
 const deleteMeetingAnalysis = vi.fn();
 const retryMeetingAnalysis = vi.fn();
+const registerMeetingTasks = vi.fn();
 
 vi.mock("../libs/utils/meetingAiApi", () => ({
   analyzeMeeting: vi.fn(),
@@ -47,7 +48,7 @@ vi.mock("../libs/utils/meetingAiApi", () => ({
   deleteMeeting: (...args: unknown[]) => deleteMeeting(...args),
   deleteMeetingAnalysis: (...args: unknown[]) => deleteMeetingAnalysis(...args),
   retryMeetingAnalysis: (...args: unknown[]) => retryMeetingAnalysis(...args),
-  registerMeetingTasks: vi.fn(),
+  registerMeetingTasks: (...args: unknown[]) => registerMeetingTasks(...args),
 }));
 
 const baseResult = (assignee_id: string | null): MeetingAiResult => ({
@@ -162,6 +163,24 @@ describe("MeetingsView 홈 탭", () => {
     expect(screen.queryByText("미저장 준비회의")).not.toBeInTheDocument();
   });
 
+  it("수정 저장만 하고 AI 재분석이 끝나지 않은 버전은 분석/업로드 탭 목록에 보이지 않는다", async () => {
+    fetchMeetings.mockResolvedValue([
+      { meetingId: "1", title: "저장된 정기회의", meetingDate: "2026-07-19", meetingType: "정기회의", analysisStatus: "completed", savedAt: "2026-07-19T10:00:00", originalMeetingId: null, tasksRegistered: false },
+      { meetingId: "6", title: "저장된 정기회의_수정본", meetingDate: "2026-07-23", meetingType: "정기회의", analysisStatus: "pending", savedAt: "2026-07-23T10:00:00", originalMeetingId: "1", tasksRegistered: false },
+    ]);
+
+    render(
+      <MemoryRouter initialEntries={["/meetings"]}>
+        <MeetingsView />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(fetchMeetings).toHaveBeenCalled());
+    // 기본 탭이 분석/업로드다 — 재분석 전 버전은 여기 목록에 없어야 한다.
+    await waitFor(() => expect(screen.getAllByText("저장된 정기회의").length).toBeGreaterThan(0));
+    expect(screen.queryByText("저장된 정기회의_수정본")).not.toBeInTheDocument();
+  });
+
   it("역할분배·업무등록이 안 된 저장 회의록에는 '등록완료' 배지가 보이지 않는다", async () => {
     const user = userEvent.setup();
     render(
@@ -256,6 +275,51 @@ describe("MeetingsView 홈 탭", () => {
 
     await waitFor(() => expect(screen.getByRole("button", { name: "분석/업로드" })).toHaveClass("border-blue-600"));
     expect(screen.getByRole("button", { name: "저장된 회의록" })).not.toHaveClass("border-blue-600");
+  });
+
+  it("'업무로 등록'을 누르면 바로 등록하지 않고 '역할 분배 검토' 화면을 먼저 보여준다", async () => {
+    const user = userEvent.setup();
+    fetchMeeting.mockResolvedValue({
+      meetingId: "1",
+      projectId: "1",
+      status: "COMPLETED",
+      sourceType: "document",
+      fileName: "meeting.txt",
+      analysisSource: "FASTAPI",
+      errorMessage: null,
+      attendees: [],
+      analysis: {
+        summary: "요약",
+        decisions: [],
+        risks: [],
+        keywords: [],
+        meeting_meta: { title: "저장된 정기회의", meeting_date: "2026-07-19", participants: [] },
+        todos: [
+          { title: "인증 구조 설계", description: "", assignee_candidate: "김민준", assignee_id: "1", due_date: "2026-07-20", priority: "HIGH", category: "BACKEND", needs_leader_review: false },
+        ],
+      },
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/meetings?meetingId=1"]}>
+        <MeetingsView />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(fetchMeetings).toHaveBeenCalled());
+    await user.click(await screen.findByRole("button", { name: "업무로 등록" }));
+
+    // 검토 화면으로만 전환되고, 아직 서버에 등록 요청은 나가지 않는다.
+    expect(await screen.findByRole("heading", { name: "역할 분배 검토" })).toBeInTheDocument();
+    expect(registerMeetingTasks).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: /업무 보드에 등록/ }));
+
+    await waitFor(() => expect(registerMeetingTasks).toHaveBeenCalledWith(
+      "1",
+      "1",
+      [expect.objectContaining({ title: "인증 구조 설계", assignee_id: "1" })]
+    ));
   });
 
   it("meetingId 쿼리파라미터의 회의록이 아직 저장되지 않았어도(savedAt null) 분석/업로드 탭으로 전환된다", async () => {
