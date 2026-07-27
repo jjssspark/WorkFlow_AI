@@ -140,7 +140,7 @@ class MeetingAnalysisQueueWorkerTest {
 
         newWorker().pollOnce();
 
-        verify(runner).runAnalysis(eq(21L), eq(request), any(UUID.class));
+        verify(runner).runAnalysis(eq(21L), eq(request), any(UUID.class), any());
         verify(streamOperations, never()).read(
             Consumer.from(GROUP, CONSUMER),
             StreamReadOptions.empty().block(Duration.ofSeconds(5)).count(1),
@@ -206,7 +206,7 @@ class MeetingAnalysisQueueWorkerTest {
 
         newWorker().pollOnce();
 
-        verify(runner).runAnalysis(eq(22L), eq(request), any(UUID.class));
+        verify(runner).runAnalysis(eq(22L), eq(request), any(UUID.class), any());
         verify(streamOperations, org.mockito.Mockito.times(2)).pending(
             eq(MeetingAnalysisJobPublisher.STREAM_KEY),
             eq(GROUP),
@@ -225,7 +225,7 @@ class MeetingAnalysisQueueWorkerTest {
         newWorker().pollOnce();
 
         InOrder order = inOrder(runner, redisTemplate);
-        order.verify(runner).runAnalysis(eq(12L), eq(request), any(UUID.class));
+        order.verify(runner).runAnalysis(eq(12L), eq(request), any(UUID.class), any());
         order.verify(redisTemplate).execute(
             any(RedisScript.class),
             eq(List.of(MeetingAnalysisJobPublisher.STREAM_KEY)),
@@ -301,7 +301,7 @@ class MeetingAnalysisQueueWorkerTest {
 
         newWorker().pollOnce();
 
-        verify(runner, never()).runAnalysis(any(), any(), any());
+        verify(runner, never()).runAnalysis(any(), any(), any(), any());
         verify(redisTemplate).execute(
             any(RedisScript.class),
             eq(List.of(MeetingAnalysisJobPublisher.STREAM_KEY)),
@@ -317,7 +317,7 @@ class MeetingAnalysisQueueWorkerTest {
             .thenReturn(List.of(record));
         when(meetingRepository.findById(15L)).thenReturn(Optional.of(processingMeeting()));
         org.mockito.Mockito.doThrow(new IllegalStateException("runner failed"))
-            .when(runner).runAnalysis(eq(15L), eq(request), any(UUID.class));
+            .when(runner).runAnalysis(eq(15L), eq(request), any(UUID.class), any());
 
         newWorker().pollOnce();
 
@@ -490,7 +490,7 @@ class MeetingAnalysisQueueWorkerTest {
 
     private String validPayload(Long meetingId) throws Exception {
         UUID jobId = UUID.nameUUIDFromBytes(("job-" + meetingId).getBytes());
-        return objectMapper.writeValueAsString(new MeetingAnalysisJob(jobId.toString(), meetingId, request));
+        return objectMapper.writeValueAsString(new MeetingAnalysisJob(jobId.toString(), meetingId, request, 77L));
     }
 
     private MapRecord<String, String, String> record(String id, String payload) {

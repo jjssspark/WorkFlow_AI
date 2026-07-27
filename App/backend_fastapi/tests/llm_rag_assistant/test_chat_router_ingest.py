@@ -42,6 +42,32 @@ def test_ingest_endpoint_returns_chunk_ids() -> None:
     assert response.json() == {"chunk_ids": [1, 2], "chunk_count": 2}
 
 
+def test_ingest_endpoint_rejects_blank_content_without_calling_service() -> None:
+    """빈 콘텐츠는 422로 거부하고 인덱싱 서비스를 아예 부르지 않아야 한다.
+
+    통과시키면 서비스의 선삭제만 실행돼 해당 문서가 RAG에서 사라진다. 삭제 의도는
+    /delete-source로 명시해야 한다.
+    """
+    _override_pool()
+
+    with patch(
+        "llm_rag_assistant.app.routers.chat_router.ingest_content",
+        new=AsyncMock(return_value=RagIngestResponse(chunk_ids=[], chunk_count=0)),
+    ) as mock_ingest:
+        client = TestClient(app)
+        responses = [
+            client.post(
+                "/ai/rag/ingest",
+                json={"project_id": 1, "source_type": "meeting", "source_id": 10, "content": content},
+            )
+            for content in ("", "   ", "\n\t ")
+        ]
+
+    app.dependency_overrides.clear()
+    assert [response.status_code for response in responses] == [422, 422, 422]
+    mock_ingest.assert_not_awaited()
+
+
 def test_assignee_sync_endpoint_calls_sync_assignee_with_request_fields() -> None:
     _override_pool()
 

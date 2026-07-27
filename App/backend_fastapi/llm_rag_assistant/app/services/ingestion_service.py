@@ -41,6 +41,13 @@ async def ingest_content(
     pool, project_id: int, source_type: str, source_id: int, content: str, assignee_id: int | None = None
 ) -> RagIngestResponse:
     chunks = chunk_text(content)
+    if not chunks:
+        # 아래 트랜잭션은 INSERT 전에 같은 source의 기존 청크를 통째로 지운다. 청크가 없는데
+        # 계속 진행하면 삭제만 반영돼 멀쩡한 인덱스가 사라진다. 삭제는 delete_source로만 한다.
+        # HTTP 경로는 스키마(RagIngestRequest)에서 이미 422로 막히므로, 여기 도달하는 건
+        # 서비스를 직접 부르는 백필 스크립트뿐이다 - 중단시키지 않고 조용히 건너뛴다.
+        return RagIngestResponse(chunk_ids=[], chunk_count=0)
+
     embeddings = [await embed_text(chunk) for chunk in chunks]
 
     await cache.advance_rag_project_epoch(project_id)

@@ -39,6 +39,10 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Verify migration guard script itself (approved/blocked rename scenarios)
+        if: github.event_name == 'pull_request'
+        run: bash .github/scripts/check-migration-changes.test.sh
+
       # 이 검사는 "무엇이 바뀌었나"를 보므로 PR 에서만 의미가 있다.
       - name: Block modification of existing migration files
         if: github.event_name == 'pull_request'

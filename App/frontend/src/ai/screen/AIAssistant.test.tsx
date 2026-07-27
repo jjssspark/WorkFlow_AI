@@ -1,8 +1,9 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { AIAssistant } from "./AIAssistant";
 import { apiFetch } from "../../global/api/apiClient";
+import { MAX_QUESTION_LENGTH } from "../libs/utils/ragApi";
 
 let mockCurrentProjectId: number | null = 1;
 
@@ -40,6 +41,27 @@ describe("AIAssistant", () => {
 
     await waitFor(() => expect(screen.getByText("실제 RAG 답변")).toBeInTheDocument());
     expect(screen.getByText(/출처: 회의록 #3/)).toBeInTheDocument();
+  });
+
+  // 서버(Spring RagController)는 1000자 초과 질문을 400 INVALID_QUESTION으로 거부한다. 입력창이
+  // 같은 상한을 걸지 않으면 사용자는 긴 글을 다 쓴 뒤에야 원인 모를 에러를 보게 된다.
+  it("caps the question input at the same length the server enforces", () => {
+    render(<AIAssistant onClose={() => {}} />);
+    const textbox = screen.getByPlaceholderText("프로젝트에 대해 무엇이든 물어보세요...");
+    expect(textbox).toHaveAttribute("maxlength", String(MAX_QUESTION_LENGTH));
+  });
+
+  it("reveals the character counter only as the limit approaches", async () => {
+    render(<AIAssistant onClose={() => {}} />);
+    const textbox = screen.getByPlaceholderText("프로젝트에 대해 무엇이든 물어보세요...");
+
+    // 짧은 질문에는 글자 수를 띄우지 않는다. 평소 입력을 방해하지 않기 위해서다.
+    await userEvent.type(textbox, "짧은 질문");
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+
+    // 상한 100자 전부터 보여줘서, 잘리기 전에 사용자가 알아차릴 수 있게 한다.
+    fireEvent.change(textbox, { target: { value: "가".repeat(MAX_QUESTION_LENGTH - 100) } });
+    expect(screen.getByRole("status")).toHaveTextContent(`${MAX_QUESTION_LENGTH - 100} / ${MAX_QUESTION_LENGTH}`);
   });
 
   it("shows API error message", async () => {
