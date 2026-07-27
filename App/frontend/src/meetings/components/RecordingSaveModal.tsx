@@ -14,7 +14,10 @@ const MIME_TO_EXTENSION: Record<string, string> = {
   "audio/ogg": ".ogg",
 };
 
-const resolveExtension = (mimeType: string): string => MIME_TO_EXTENSION[mimeType] ?? ".webm";
+// 브라우저는 코덱 파라미터를 붙여서 돌려주므로(Chrome "audio/webm;codecs=opus",
+// Firefox "audio/ogg; codecs=opus") 조회 전에 파라미터를 떼어낸다.
+const resolveExtension = (mimeType: string): string =>
+  MIME_TO_EXTENSION[mimeType.split(";")[0].trim()] ?? ".webm";
 
 const getTodayIsoDate = (): string => new Date().toISOString().slice(0, 10);
 
@@ -36,6 +39,7 @@ export function RecordingSaveModal() {
   const [participantIds, setParticipantIds] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isConfirmingCancel, setIsConfirmingCancel] = useState(false);
 
   useEffect(() => {
     if (!pendingBlob || currentProjectId == null) return;
@@ -45,6 +49,7 @@ export function RecordingSaveModal() {
     setMeetingKind(MEET_KINDS[0]);
     setParticipantIds([]);
     setErrorMessage(null);
+    setIsConfirmingCancel(false);
   }, [pendingBlob, currentProjectId]);
 
   if (!pendingBlob || currentProjectId == null) return null;
@@ -87,6 +92,7 @@ export function RecordingSaveModal() {
 
   return (
     <>
+      {/* 배경 클릭으로 닫지 않음 — 녹음 내용을 실수로 잃지 않도록 의도적으로 뺌. 취소 버튼에서만 확인 후 닫힘. */}
       <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50" />
       <div className="fixed inset-0 flex items-center justify-center z-50 p-4">
         <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
@@ -124,18 +130,34 @@ export function RecordingSaveModal() {
               ))}
             </div>
           </div>
-          <div className="flex justify-end gap-2 pt-2">
-            <button type="button" onClick={clearPendingBlob} disabled={isSubmitting}
-              className="px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-muted rounded-lg disabled:opacity-50">
-              취소
-            </button>
-            <button type="button" onClick={handleConfirm}
-              disabled={isSubmitting || !title.trim() || participantIds.length === 0}
-              className="px-4 py-2 text-sm font-semibold text-white rounded-lg disabled:opacity-40"
-              style={{ background: "linear-gradient(135deg,#7048E8,#4F6EF7)" }}>
-              {isSubmitting ? "분석 요청 중..." : "저장 및 분석 시작"}
-            </button>
-          </div>
+          {isConfirmingCancel ? (
+            <div className="space-y-2 pt-2">
+              <div className="text-xs text-red-600">정말 취소하시겠습니까? 녹음 내용이 삭제됩니다.</div>
+              <div className="flex justify-end gap-2">
+                <button type="button" onClick={() => setIsConfirmingCancel(false)}
+                  className="px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-muted rounded-lg">
+                  계속 작성
+                </button>
+                <button type="button" onClick={clearPendingBlob}
+                  className="px-4 py-2 text-sm font-semibold text-white bg-red-600 hover:bg-red-700 rounded-lg">
+                  예, 취소
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex justify-end gap-2 pt-2">
+              <button type="button" onClick={() => setIsConfirmingCancel(true)} disabled={isSubmitting}
+                className="px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-muted rounded-lg disabled:opacity-50">
+                취소
+              </button>
+              <button type="button" onClick={handleConfirm}
+                disabled={isSubmitting || !title.trim() || participantIds.length === 0}
+                className="px-4 py-2 text-sm font-semibold text-white rounded-lg disabled:opacity-40"
+                style={{ background: "linear-gradient(135deg,#7048E8,#4F6EF7)" }}>
+                {isSubmitting ? "분석 요청 중..." : "저장 및 분석 시작"}
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </>
