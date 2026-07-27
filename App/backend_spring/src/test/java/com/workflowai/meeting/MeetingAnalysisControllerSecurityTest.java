@@ -22,6 +22,7 @@ import org.springframework.security.config.annotation.method.configuration.Enabl
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import testsupport.AccessDeniedEnvelopeAdvice;
 
 // MethodSecurityTestConfig는 TaskControllerSecurityTest와 같은 이유로 @SpringBootConfiguration을 쓰지 않고
 // @ContextConfiguration으로 명시한다. AccessDeniedResponseAdvice도 다른 패키지의 동명 테스트 전용 advice와
@@ -122,8 +123,8 @@ class MeetingAnalysisControllerSecurityTest {
     @Import(MeetingAnalysisController.class)
     static class MethodSecurityTestConfig {
         @Bean
-        MeetingAnalysisAccessDeniedResponseAdvice accessDeniedResponseAdvice() {
-            return new MeetingAnalysisAccessDeniedResponseAdvice();
+        AccessDeniedEnvelopeAdvice accessDeniedResponseAdvice() {
+            return new AccessDeniedEnvelopeAdvice();
         }
     }
 }

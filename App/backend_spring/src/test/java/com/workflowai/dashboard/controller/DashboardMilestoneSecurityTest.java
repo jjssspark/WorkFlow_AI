@@ -23,6 +23,7 @@ import org.springframework.security.config.annotation.method.configuration.Enabl
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import testsupport.AccessDeniedEnvelopeAdvice;
 
 /**
  * 마일스톤 생성/수정/삭제는 팀장 전용 UI(DashProgressPage.tsx의 isLeader 게이팅)만 있고
@@ -82,8 +83,8 @@ class DashboardMilestoneSecurityTest {
     @Import(DashboardController.class)
     static class MethodSecurityTestConfig {
         @Bean
-        DashboardAccessDeniedResponseAdvice accessDeniedResponseAdvice() {
-            return new DashboardAccessDeniedResponseAdvice();
+        AccessDeniedEnvelopeAdvice accessDeniedResponseAdvice() {
+            return new AccessDeniedEnvelopeAdvice();
         }
     }
 }
