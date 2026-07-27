@@ -15,6 +15,7 @@ import com.workflowai.task.Task;
 import com.workflowai.task.TaskRepository;
 import com.workflowai.user.User;
 import com.workflowai.user.UserRepository;
+import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -28,11 +29,14 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
+import javax.imageio.ImageIO;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.rendering.PDFRenderer;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -48,6 +52,11 @@ import org.springframework.web.multipart.MultipartFile;
 public class MeetingAnalysisService {
     private static final Logger log = LoggerFactory.getLogger(MeetingAnalysisService.class);
     private static final Set<String> AUDIO_FILE_EXTENSIONS = Set.of(".mp3", ".wav", ".m4a", ".ogg");
+    // 스캔본 PDF OCR 설정. 페이지가 많은 회의 자료 전체를 인식하면 분석 요청이 몇 분씩 걸리므로 상한을 둔다.
+    private static final int OCR_MAX_PAGES = 30;
+    private static final int OCR_DPI = 200;
+    private static final String OCR_LANGUAGES = "kor+eng";
+    private static final long OCR_PAGE_TIMEOUT_SECONDS = 60;
     // 전역 멀티파트 한도(100MB)보다 낮게 둔다 - STT 단계에서 파일 전체를 메모리에 올리므로(Files.readAllBytes),
     // 큐 워커의 OOM 위험을 줄이기 위해 오디오는 더 보수적인 한도를 별도로 둔다.
     private static final long MAX_AUDIO_FILE_SIZE_BYTES = 30L * 1024 * 1024;
@@ -1196,7 +1205,15 @@ public class MeetingAnalysisService {
                 .replaceAll("\\n\\s+", "\n")
                 .trim();
             if (text.isBlank()) {
-                throw new IllegalArgumentException("PDF에서 분석할 텍스트를 추출하지 못했습니다.");
+                // 스캔본 PDF는 페이지 전체가 이미지라 텍스트 레이어가 없어 여기서 항상 비어 나온다.
+                // 이전에는 곧바로 400을 던져 스캔본 업로드가 아예 불가능했으므로 OCR로 한 번 더 시도한다.
+                String ocrText = ocrPdfPages(document);
+                if (ocrText.isBlank()) {
+                    throw new IllegalArgumentException(
+                        "PDF에서 분석할 텍스트를 추출하지 못했습니다. 스캔 품질이 낮거나 글자가 없는 파일일 수 있습니다."
+                    );
+                }
+                return ocrText;
             }
             return text;
         } catch (IllegalArgumentException e) {
@@ -1208,6 +1225,63 @@ public class MeetingAnalysisService {
             // 프론트는 이를 ApiRequestError가 아닌 원시 네트워크 오류로 오인해 일반 폴백 문구를 띄운다.
             throw new IllegalArgumentException("PDF 텍스트 추출에 실패했습니다.");
         }
+    }
+
+    // 스캔본 PDF를 페이지 이미지로 렌더링한 뒤 Tesseract CLI로 글자를 읽어낸다.
+    // tess4j(JNA) 대신 CLI를 쓰는 이유: 네이티브 라이브러리 로딩 실패가 런타임에만 드러나 디버깅이 어렵고,
+    // CLI는 tesseract가 없으면 곧바로 확인 가능한 형태로 실패하기 때문이다.
+    private String ocrPdfPages(PDDocument document) {
+        int pageCount = Math.min(document.getNumberOfPages(), OCR_MAX_PAGES);
+        if (pageCount == 0) {
+            return "";
+        }
+        PDFRenderer renderer = new PDFRenderer(document);
+        StringBuilder collected = new StringBuilder();
+
+        for (int pageIndex = 0; pageIndex < pageCount; pageIndex++) {
+            Path imagePath = null;
+            try {
+                BufferedImage image = renderer.renderImageWithDPI(pageIndex, OCR_DPI);
+                imagePath = Files.createTempFile("workflow-ocr-", ".png");
+                ImageIO.write(image, "png", imagePath.toFile());
+
+                String pageText = runTesseract(imagePath);
+                if (!pageText.isBlank()) {
+                    collected.append(pageText.trim()).append("\n");
+                }
+            } catch (Exception e) {
+                // 특정 페이지 렌더링/인식 실패가 문서 전체를 버리게 하지 않는다.
+                log.warn("PDF OCR 페이지 처리 실패: page={}", pageIndex + 1, e);
+            } finally {
+                if (imagePath != null) {
+                    try {
+                        Files.deleteIfExists(imagePath);
+                    } catch (IOException ignored) {
+                        // 임시 파일 정리 실패는 분석 결과에 영향을 주지 않는다.
+                    }
+                }
+            }
+        }
+        return collected.toString().replaceAll("\\n{3,}", "\n\n").trim();
+    }
+
+    private String runTesseract(Path imagePath) throws IOException, InterruptedException {
+        Process process = new ProcessBuilder(
+            "tesseract", imagePath.toString(), "stdout", "-l", OCR_LANGUAGES
+        ).redirectErrorStream(false).start();
+
+        String output;
+        try (var stdout = process.getInputStream()) {
+            output = new String(stdout.readAllBytes(), StandardCharsets.UTF_8);
+        }
+        if (!process.waitFor(OCR_PAGE_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+            process.destroyForcibly();
+            throw new IOException("tesseract 실행이 " + OCR_PAGE_TIMEOUT_SECONDS + "초를 넘겨 중단했습니다.");
+        }
+        if (process.exitValue() != 0) {
+            throw new IOException("tesseract가 비정상 종료했습니다: exitCode=" + process.exitValue());
+        }
+        return output;
     }
 
     private String extractDocxTextFromBytes(byte[] bytes) {
