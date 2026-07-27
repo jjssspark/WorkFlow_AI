@@ -41,6 +41,7 @@ SUPPORTED_TOOLS: frozenset[str] = frozenset(
         "set_due_date",
         "rename_task",
         "change_assignee",
+        "delete_task",
     }
 )
 

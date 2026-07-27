@@ -77,6 +77,17 @@ def test_change_assignee_rejects_empty_name() -> None:
         Action(tool="change_assignee", task_ref="WF-1", args={"assignee_name": "   "})
 
 
+def test_delete_task_is_supported_and_leader_only() -> None:
+    assert "delete_task" in SUPPORTED_TOOLS
+    assert requires_leader("delete_task") is True
+
+
+def test_every_tool_is_now_executable() -> None:
+    # 실행기가 전 도구를 지원하게 됐다. 도구를 새로 추가하면서 실행기 구현을 빠뜨리면
+    # 여기서 걸린다(카드는 뜨는데 실행이 거부되는 계약 불일치 방지).
+    assert SUPPORTED_TOOLS == ALL_TOOLS
+
+
 def test_supported_tools_survive_permission_changes() -> None:
     # SUPPORTED_TOOLS를 권한 집합에서 파생시키면 권한 재배치만으로 카드가 통째로 사라진다.
     # 권한이 전부 팀장으로 옮겨간 뒤에도 실행 가능 목록은 그대로여야 한다.

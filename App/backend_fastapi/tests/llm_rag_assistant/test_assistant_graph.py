@@ -95,18 +95,24 @@ async def test_member_is_blocked_before_card_for_leader_tool() -> None:
 
 
 @pytest.mark.asyncio
-async def test_leader_tool_blocked_as_unsupported_even_for_leader() -> None:
-    """실행기가 아직 수행 못 하는 팀장 도구는 권한을 통과해도 카드를 만들지 않는다
-    (누르면 프론트가 거부하는 계약 불일치 방지)."""
+async def test_tool_outside_supported_set_is_blocked_even_for_leader() -> None:
+    """실행기가 수행 못 하는 도구는 권한을 통과해도 카드를 만들지 않는다
+    (누르면 프론트가 거부하는 계약 불일치 방지).
+
+    지금은 모든 도구를 실행기가 지원해 실제 미지원 도구가 없다. 그래도 이 가드는 도구를
+    추가할 때 실행기 구현을 잊지 않게 하는 장치라, 집합을 좁혀 주입해 살려둔다.
+    """
     from llm_rag_assistant.app.graph.assistant_graph import start_command
 
-    # delete_task는 아직 실행기 미구현이라 SUPPORTED_TOOLS에 없다.
     plan = [Action(tool="delete_task", task_ref="WF-250", args={})]
     with patch(
         "llm_rag_assistant.app.graph.assistant_graph.plan_actions", new=AsyncMock(return_value=plan)
     ), patch(
         "llm_rag_assistant.app.graph.assistant_graph.resolve_task_ref",
         new=AsyncMock(return_value=TaskMatch(task_id=37, title="업무")),
+    ), patch(
+        "llm_rag_assistant.app.graph.assistant_graph.SUPPORTED_TOOLS",
+        frozenset({"change_status"}),
     ):
         outcome = await start_command(object(), _state("업무 삭제해줘", role="LEADER"))
 
@@ -180,6 +186,47 @@ async def test_leader_can_change_assignee() -> None:
     assert outcome.card.args["assignee_name"] == "김철수"
     # 카드는 이름만 싣는다. 실제 id 해소는 프론트 실행기가 멤버 목록을 받아 처리한다.
     assert "김철수" in outcome.card.summary
+
+
+@pytest.mark.asyncio
+async def test_leader_can_delete_task() -> None:
+    """delete_task는 되돌릴 수 없어 확인 카드가 유일한 안전장치다. 카드가 반드시 떠야 한다."""
+    from llm_rag_assistant.app.graph.assistant_graph import start_command
+
+    plan = [Action(tool="delete_task", task_ref="WF-250", args={})]
+    with patch(
+        "llm_rag_assistant.app.graph.assistant_graph.plan_actions", new=AsyncMock(return_value=plan)
+    ), patch(
+        "llm_rag_assistant.app.graph.assistant_graph.resolve_task_ref",
+        new=AsyncMock(return_value=TaskMatch(task_id=88, title="쓰지 않는 배치 스크립트")),
+    ):
+        outcome = await start_command(object(), _state("WF-250 삭제해줘", role="LEADER"))
+
+    assert outcome.type == "confirm"
+    assert outcome.card is not None
+    assert outcome.card.tool == "delete_task"
+    assert outcome.card.task_id == 88
+    # 무엇이 지워지는지 요약에 드러나야 사용자가 승인 전에 되돌릴 수 없음을 판단할 수 있다.
+    assert "쓰지 않는 배치 스크립트" in outcome.card.summary
+    assert "삭제" in outcome.card.summary
+
+
+@pytest.mark.asyncio
+async def test_member_is_blocked_for_delete_task() -> None:
+    from llm_rag_assistant.app.graph.assistant_graph import start_command
+
+    plan = [Action(tool="delete_task", task_ref="WF-250", args={})]
+    with patch(
+        "llm_rag_assistant.app.graph.assistant_graph.plan_actions", new=AsyncMock(return_value=plan)
+    ), patch(
+        "llm_rag_assistant.app.graph.assistant_graph.resolve_task_ref",
+        new=AsyncMock(return_value=TaskMatch(task_id=88, title="쓰지 않는 배치 스크립트")),
+    ):
+        outcome = await start_command(object(), _state("삭제해줘", role="MEMBER"))
+
+    assert outcome.type == "done"
+    assert outcome.card is None
+    assert "팀장" in outcome.message
 
 
 @pytest.mark.asyncio

@@ -1,4 +1,4 @@
-import { updateTaskPosition, updateTask } from "../../../board/libs/utils/taskApi";
+import { updateTaskPosition, updateTask, deleteTask } from "../../../board/libs/utils/taskApi";
 import { createTaskComment } from "../../../board/libs/utils/taskCommentApi";
 import { fetchChecklist, updateChecklistItem } from "../../../board/libs/utils/checklistApi";
 import { getProjectMembers, type MemberResponse } from "../../../global/api/projectsApi";
@@ -130,9 +130,15 @@ export async function executeAction(card: ActionCard, projectId: number): Promis
         await updateTask(taskId, { assigneeId: String(resolved.member.userId) }, projectId);
         return { ok: true };
       }
+      case "delete_task": {
+        // 되돌릴 수 없는 유일한 도구다. 안전장치는 확인 카드뿐이므로 여기서 대상 업무를
+        // 다시 좁히거나 추측하지 않는다 - 카드에 실린 task_id 그대로만 지운다.
+        await deleteTask(taskId, projectId);
+        return { ok: true };
+      }
       default:
-        // 나머지 팀장 전용 도구(delete_task)는 아직 미구현이다.
-        // 그래프 SUPPORTED_TOOLS에도 없어 카드 자체가 오지 않지만, 방어적으로 거부한다.
+        // 그래프 SUPPORTED_TOOLS와 이 switch가 어긋나면 "카드는 떴는데 안 되는" 상태가 된다.
+        // 도달할 일이 없어야 정상이지만, 어긋났을 때 조용히 실패하지 않도록 방어적으로 거부한다.
         return { ok: false, error: "아직 지원하지 않는 작업입니다." };
     }
   } catch (error) {

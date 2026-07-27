@@ -1,12 +1,16 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { executeAction } from "./actionExecutor";
-import { updateTaskPosition, updateTask } from "../../../board/libs/utils/taskApi";
+import { updateTaskPosition, updateTask, deleteTask } from "../../../board/libs/utils/taskApi";
 import { createTaskComment } from "../../../board/libs/utils/taskCommentApi";
 import { fetchChecklist, updateChecklistItem } from "../../../board/libs/utils/checklistApi";
 import { getProjectMembers, type MemberResponse } from "../../../global/api/projectsApi";
 import type { ActionCard } from "../types/command";
 
-vi.mock("../../../board/libs/utils/taskApi", () => ({ updateTaskPosition: vi.fn(), updateTask: vi.fn() }));
+vi.mock("../../../board/libs/utils/taskApi", () => ({
+  updateTaskPosition: vi.fn(),
+  updateTask: vi.fn(),
+  deleteTask: vi.fn(),
+}));
 vi.mock("../../../board/libs/utils/taskCommentApi", () => ({ createTaskComment: vi.fn() }));
 vi.mock("../../../board/libs/utils/checklistApi", () => ({
   fetchChecklist: vi.fn(),
@@ -285,5 +289,40 @@ describe("executeAction", () => {
     expect(result.ok).toBe(false);
     expect(getProjectMembers).not.toHaveBeenCalled();
     expect(updateTask).not.toHaveBeenCalled();
+  });
+
+  it("calls the existing delete API for delete_task", async () => {
+    vi.mocked(deleteTask).mockResolvedValue(undefined);
+
+    const result = await executeAction(card({ tool: "delete_task", args: {} }), 1);
+
+    expect(result.ok).toBe(true);
+    expect(deleteTask).toHaveBeenCalledWith("37", 1);
+  });
+
+  it("deletes only the task id carried by the card", async () => {
+    // 되돌릴 수 없는 도구라 대상을 다시 추측하거나 넓히면 안 된다.
+    vi.mocked(deleteTask).mockResolvedValue(undefined);
+
+    await executeAction(card({ tool: "delete_task", taskId: 91, args: {} }), 1);
+
+    expect(deleteTask).toHaveBeenCalledTimes(1);
+    expect(deleteTask).toHaveBeenCalledWith("91", 1);
+  });
+
+  it("refuses delete_task without a resolved task id", async () => {
+    const result = await executeAction(card({ tool: "delete_task", taskId: null, args: {} }), 1);
+
+    expect(result.ok).toBe(false);
+    expect(deleteTask).not.toHaveBeenCalled();
+  });
+
+  it("reports a failed delete instead of claiming success", async () => {
+    vi.mocked(deleteTask).mockRejectedValue(new Error("이미 삭제된 업무입니다."));
+
+    const result = await executeAction(card({ tool: "delete_task", args: {} }), 1);
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe("이미 삭제된 업무입니다.");
   });
 });
