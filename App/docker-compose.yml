@@ -6,7 +6,10 @@
 # 이 기본값이 그대로 쓰이지 않게 할 것.
 services:
   db:
-    image: postgres:17
+    # pgvector 확장이 포함된 이미지여야 한다. db/init/11_pre_baseline_backfill.sql이
+    # CREATE EXTENSION vector를 실행하므로, 순정 postgres:17에서는 빈 볼륨 초기화가
+    # 그 지점에서 실패한다(운영 compose는 처음부터 이 이미지를 쓴다).
+    image: pgvector/pgvector:pg17
     container_name: workflow-db
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-workflow}
