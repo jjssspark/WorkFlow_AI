@@ -511,7 +511,42 @@ Renewal configuration file /etc/letsencrypt/renewal/<도메인>.conf is broken.
 The error was: expected /etc/letsencrypt/live/<도메인>/cert.pem to be a symlink
 ```
 
-정리는 `docker exec workflow-certbot certbot delete --cert-name <도메인>`으로 한다.
-nginx는 `live/current` 심볼릭 링크만 보므로, 그 링크가 가리키는 인증서가 아니라면
-지워도 서비스에 영향이 없다. 지우기 전에 `readlink -f /etc/letsencrypt/live/current`로
-확인한다.
+**옛 갱신 설정 지우기 — 아래 순서를 지킨다.**
+
+인증서 삭제는 되돌리기 어렵다. nginx는 `live/current` 심볼릭 링크가 가리키는 인증서
+하나만 제시하므로, **그 대상만 아니면** 지워도 서비스에 영향이 없다. 반대로 잘못 짚으면
+운영 HTTPS가 즉시 끊긴다. 그래서 "지금 쓰이는 게 무엇인지"를 먼저 확정한다.
+
+`/etc/letsencrypt`는 호스트와 certbot 컨테이너가 같은 디렉터리를 공유한다(바인드 마운트).
+어느 쪽에서 봐도 결과는 같지만, 아래는 **모두 컨테이너 경유로 통일**한다. 호스트에서
+`sudo` 없이 접근할 수 있는지는 서버 계정 권한에 따라 다르기 때문이다.
+
+```bash
+# 1) 지금 nginx가 쓰는 인증서를 확정한다. 여기 나오는 이름은 절대 지우지 않는다.
+docker exec workflow-certbot readlink -f /etc/letsencrypt/live/current
+
+# 2) 등록된 갱신 설정을 나열해 지울 대상을 고른다.
+docker exec workflow-certbot ls -1 /etc/letsencrypt/renewal/
+
+# 3) 삭제 대상이 1)의 결과와 다른지 눈으로 대조한다. 같으면 중단한다.
+
+# 4) 되돌릴 수 있게 먼저 보관한다.
+docker exec workflow-certbot sh -c '
+  mkdir -p /etc/letsencrypt/backup-$(date +%Y%m%d)
+  cp -a /etc/letsencrypt/renewal/<지울도메인>.conf /etc/letsencrypt/backup-$(date +%Y%m%d)/
+  cp -a /etc/letsencrypt/archive/<지울도메인>      /etc/letsencrypt/backup-$(date +%Y%m%d)/ 2>/dev/null || true
+'
+
+# 5) 삭제
+docker exec workflow-certbot certbot delete --cert-name <지울도메인> --non-interactive
+
+# 6) 검증 — current 링크가 그대로이고 서비스가 살아 있는지
+docker exec workflow-certbot readlink -f /etc/letsencrypt/live/current   # 1)과 같아야 함
+curl -o /dev/null -w '%{http_code}\n' https://<도메인>/                  # 200
+docker exec workflow-certbot certbot renew --dry-run                     # 파싱 실패 0건
+```
+
+6번의 `--dry-run`은 비대화형 실행이라 **최대 8분의 무작위 지연**이 붙는다
+(`Non-interactive renewal: random delay of ...`). 응답이 없어도 멈춘 게 아니다.
+
+실제 적용 사례는 [duckdns 인증서 정리](../docs/trouble-shooting/2026-07-27-duckdns-cert-cleanup.md).

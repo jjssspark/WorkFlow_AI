@@ -67,6 +67,10 @@ Skipping.
 운영 도메인은 `t3-workflow-ai.site` 하나로 확정하고, duckdns 흔적을 서버에서 제거했다.
 
 ```bash
+# 0. 지금 nginx가 쓰는 인증서를 먼저 확정한다. 지울 대상이 이것과 겹치면 중단.
+docker exec workflow-certbot readlink -f /etc/letsencrypt/live/current
+#   -> /etc/letsencrypt/live/t3-workflow-ai.site   (삭제 대상 duckdns 와 다름을 확인)
+
 # 되돌릴 수 있게 먼저 보관
 docker exec workflow-certbot sh -c '
   mkdir -p /etc/letsencrypt/backup-duckdns-20260727
