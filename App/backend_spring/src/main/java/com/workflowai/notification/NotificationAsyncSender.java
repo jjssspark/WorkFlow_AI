@@ -43,8 +43,12 @@ public class NotificationAsyncSender {
 
     public void sendSafely(Long userId, String type, String title, String content, String targetType, Long targetId) {
         try {
-            Notification saved = requiresNewTransaction.execute(status ->
-                notificationRepository.save(new Notification(userId, type, title, content, targetType, targetId)));
+            Notification saved = requiresNewTransaction.execute(status -> {
+                Notification created = notificationRepository.save(
+                    new Notification(userId, type, title, content, targetType, targetId));
+                notificationRepository.deleteExcessUnreadByUserId(userId);
+                return created;
+            });
             broadcaster.broadcast(userId, NotificationDto.from(saved));
         } catch (Exception e) {
             log.warn("알림 발송 실패. userId={}, type={}, targetType={}, targetId={}", userId, type, targetType, targetId, e);

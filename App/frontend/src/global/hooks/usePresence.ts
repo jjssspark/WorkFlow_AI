@@ -19,6 +19,9 @@ export function usePresence(projectId: number | null): PresenceUser[] {
       return;
     }
     let cancelled = false;
+    // 프로젝트를 바꾼 직후에는 이전 프로젝트의 접속자 목록을 그대로 들고 있으면 안 된다 -
+    // 첫 폴링이 끝나기 전까지 다른 프로젝트 멤버가 "현재 접속 중"으로 잘못 표시된다.
+    setUsers([]);
     const load = async () => {
       try {
         const result = await apiFetch<PresenceUser[]>(`/projects/${projectId}/presence`);

@@ -84,7 +84,7 @@ class MeetingAnalysisPersistenceNotificationPersistenceIntegrationTest {
         // 커밋된 것인지(같은 스레드의 미커밋 상태를 우연히 보는 게 아닌지) 확인한다.
         List<com.workflowai.notification.Notification> notifications =
             new TransactionTemplate(transactionManager).execute(status ->
-                notificationRepository.findTop50ByUserIdOrderByCreatedAtDesc(10L));
+                notificationRepository.findTop20ByUserIdOrderByCreatedAtDesc(10L));
 
         assertThat(notifications).hasSize(1);
         assertThat(notifications.get(0).getType()).isEqualTo("MEETING_ANALYSIS_COMPLETED");
@@ -100,6 +100,6 @@ class MeetingAnalysisPersistenceNotificationPersistenceIntegrationTest {
             return null;
         });
 
-        assertThat(notificationRepository.findTop50ByUserIdOrderByCreatedAtDesc(10L)).isEmpty();
+        assertThat(notificationRepository.findTop20ByUserIdOrderByCreatedAtDesc(10L)).isEmpty();
     }
 }
