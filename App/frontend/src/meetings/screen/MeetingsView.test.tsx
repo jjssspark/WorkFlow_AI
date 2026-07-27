@@ -58,7 +58,6 @@ let mockRecordingStatus: "idle" | "requesting-permission" | "recording" | "stopp
 vi.mock("../libs/hooks/RecordingSessionProvider", () => ({
   useRecordingSession: () => ({
     status: mockRecordingStatus,
-    elapsedSeconds: 0,
     error: null,
     startRecording: mockStartRecording,
     requestStop: vi.fn(),

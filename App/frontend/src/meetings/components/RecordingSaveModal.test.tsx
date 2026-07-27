@@ -30,7 +30,7 @@ describe("RecordingSaveModal", () => {
 
   it("pendingBlob이 없으면 아무것도 렌더링하지 않는다", () => {
     mockedUseRecordingSession.mockReturnValue({
-      status: "idle", elapsedSeconds: 0, error: null,
+      status: "idle", error: null,
       startRecording: vi.fn(), requestStop: vi.fn(), pendingBlob: null, clearPendingBlob,
     });
     const { container } = render(<RecordingSaveModal />, { wrapper: MemoryRouter });
@@ -39,7 +39,7 @@ describe("RecordingSaveModal", () => {
 
   it("저장 확인 시 analyzeMeeting을 sourceType audio와 webm 확장자 파일로 호출한다", async () => {
     mockedUseRecordingSession.mockReturnValue({
-      status: "stopped", elapsedSeconds: 12, error: null,
+      status: "stopped", error: null,
       startRecording: vi.fn(), requestStop: vi.fn(),
       pendingBlob: { blob: new Blob(["x"], { type: "audio/webm" }), mimeType: "audio/webm" },
       clearPendingBlob,
@@ -68,7 +68,7 @@ describe("RecordingSaveModal", () => {
     ["audio/mp4", ".m4a"],
   ])("mimeType %s는 %s 확장자 파일로 업로드한다", async (mimeType, extension) => {
     mockedUseRecordingSession.mockReturnValue({
-      status: "stopped", elapsedSeconds: 12, error: null,
+      status: "stopped", error: null,
       startRecording: vi.fn(), requestStop: vi.fn(),
       pendingBlob: { blob: new Blob(["x"], { type: mimeType }), mimeType },
       clearPendingBlob,
@@ -88,7 +88,7 @@ describe("RecordingSaveModal", () => {
   // 취소는 녹음 원본을 되돌릴 수 없게 버리는 동작이므로 한 번의 오클릭으로 실행되면 안 된다.
   it("취소를 한 번 누르면 녹음을 지우지 않고 확인 문구를 먼저 보여준다", async () => {
     mockedUseRecordingSession.mockReturnValue({
-      status: "stopped", elapsedSeconds: 12, error: null,
+      status: "stopped", error: null,
       startRecording: vi.fn(), requestStop: vi.fn(),
       pendingBlob: { blob: new Blob(["x"], { type: "audio/webm" }), mimeType: "audio/webm" },
       clearPendingBlob,
@@ -104,7 +104,7 @@ describe("RecordingSaveModal", () => {
 
   it("취소 확인 후 '예, 취소'를 누르면 그때 clearPendingBlob이 호출된다", async () => {
     mockedUseRecordingSession.mockReturnValue({
-      status: "stopped", elapsedSeconds: 12, error: null,
+      status: "stopped", error: null,
       startRecording: vi.fn(), requestStop: vi.fn(),
       pendingBlob: { blob: new Blob(["x"], { type: "audio/webm" }), mimeType: "audio/webm" },
       clearPendingBlob,
@@ -120,7 +120,7 @@ describe("RecordingSaveModal", () => {
 
   it("'계속 작성'을 누르면 녹음을 유지한 채 원래 폼으로 돌아간다", async () => {
     mockedUseRecordingSession.mockReturnValue({
-      status: "stopped", elapsedSeconds: 12, error: null,
+      status: "stopped", error: null,
       startRecording: vi.fn(), requestStop: vi.fn(),
       pendingBlob: { blob: new Blob(["x"], { type: "audio/webm" }), mimeType: "audio/webm" },
       clearPendingBlob,
@@ -138,7 +138,7 @@ describe("RecordingSaveModal", () => {
 
   it("analyzeMeeting이 실패하면 에러 메시지를 보여주고 pendingBlob을 유지한다(clearPendingBlob 미호출)", async () => {
     mockedUseRecordingSession.mockReturnValue({
-      status: "stopped", elapsedSeconds: 12, error: null,
+      status: "stopped", error: null,
       startRecording: vi.fn(), requestStop: vi.fn(),
       pendingBlob: { blob: new Blob(["x"], { type: "audio/webm" }), mimeType: "audio/webm" },
       clearPendingBlob,
