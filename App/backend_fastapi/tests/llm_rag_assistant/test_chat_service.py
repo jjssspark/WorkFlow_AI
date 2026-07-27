@@ -636,6 +636,51 @@ async def test_answer_question_snippet_uses_original_content_not_facts() -> None
     assert result.sources[0].content_snippet == "로그인 API 구현"
 
 
+@pytest.mark.asyncio
+async def test_sources_map_one_to_one_to_search_rows_without_cross_wiring() -> None:
+    """반환 출처가 검색 행과 순서·개수·필드까지 1:1로 대응해야 한다.
+
+    출처 목록은 사용자가 답변 근거를 직접 열어보는 통로다. ID가 한 칸이라도 엇갈리면
+    근거가 아닌 문서를 근거라고 제시하게 된다. tasks와 meeting_action_items는 ID가
+    겹칠 수 있으므로 (source_type, source_id) 쌍이 함께 보존되는지까지 확인한다.
+    """
+    rows = [
+        {"source_type": "task", "source_id": 7, "content": "업무 7 본문", "similarity": 0.91},
+        {"source_type": "action_item", "source_id": 7, "content": "액션 7 본문", "similarity": 0.88},
+        {"source_type": "meeting", "source_id": 3, "content": "회의 3 본문", "similarity": 0.72},
+    ]
+    enriched = [{**row, "facts": None} for row in rows]
+
+    with (
+        patch(
+            "llm_rag_assistant.app.services.chat_service.embed_text",
+            new=AsyncMock(return_value=[0.1]),
+        ),
+        patch(
+            "llm_rag_assistant.app.services.chat_service.search_similar_chunks",
+            new=AsyncMock(return_value=rows),
+        ),
+        patch(
+            "llm_rag_assistant.app.services.chat_service.enrich_with_facts",
+            new=AsyncMock(return_value=enriched),
+        ),
+        patch(
+            "llm_rag_assistant.app.services.chat_service.generate_answer",
+            new=AsyncMock(return_value="답변"),
+        ),
+    ):
+        result = await answer_question(object(), project_id=5, question="질문")
+
+    assert [
+        (source.source_type, source.source_id, source.content_snippet, source.similarity)
+        for source in result.sources
+    ] == [
+        ("task", 7, "업무 7 본문", 0.91),
+        ("action_item", 7, "액션 7 본문", 0.88),
+        ("meeting", 3, "회의 3 본문", 0.72),
+    ]
+
+
 _MULTITURN_HISTORY = [
     {"role": "user", "content": "내 업무가 뭐야?"},
     {"role": "assistant", "content": "로그인 API 구현 업무가 있습니다"},
