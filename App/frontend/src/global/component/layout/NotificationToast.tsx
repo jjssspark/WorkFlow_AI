@@ -1,4 +1,4 @@
-import { Bell } from "lucide-react";
+import { Bell, X } from "lucide-react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 import {
@@ -47,6 +47,18 @@ export function NotificationToast({ notification, toastId }: Props) {
             <span className="px-1.5 py-0.5 rounded bg-amber-500 text-white text-[9px] font-bold">할 일</span>
           )}
           <div className="truncate text-sm font-semibold text-foreground">{notification.title}</div>
+          {/* 5초 뒤 자동으로 사라지지만, 그 전에 직접 닫을 수도 있어야 한다. */}
+          <button
+            type="button"
+            aria-label="알림 닫기"
+            onClick={(e) => {
+              e.stopPropagation();
+              toast.dismiss(toastId);
+            }}
+            className="ml-auto -mr-1 -mt-1 shrink-0 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
         </div>
         {notification.content && <div className="mt-0.5 text-xs text-muted-foreground">{notification.content}</div>}
         <div className="mt-1 flex items-center justify-between gap-2">
