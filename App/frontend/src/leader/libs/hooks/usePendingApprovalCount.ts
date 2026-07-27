@@ -35,7 +35,7 @@ export function usePendingApprovalCount(projectId: number | null, enabled: boole
         if (!cancelled && !receivedLiveCount) setCount(tasks.length);
       })
       .catch(() => {
-        if (!cancelled) setCount(0);
+        if (!cancelled && !receivedLiveCount) setCount(0);
       });
     return () => {
       cancelled = true;
