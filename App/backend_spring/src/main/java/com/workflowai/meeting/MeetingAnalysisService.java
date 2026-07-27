@@ -1231,7 +1231,8 @@ public class MeetingAnalysisService {
     // tess4j(JNA) 대신 CLI를 쓰는 이유: 네이티브 라이브러리 로딩 실패가 런타임에만 드러나 디버깅이 어렵고,
     // CLI는 tesseract가 없으면 곧바로 확인 가능한 형태로 실패하기 때문이다.
     private String ocrPdfPages(PDDocument document) {
-        int pageCount = Math.min(document.getNumberOfPages(), OCR_MAX_PAGES);
+        int totalPages = document.getNumberOfPages();
+        int pageCount = Math.min(totalPages, OCR_MAX_PAGES);
         if (pageCount == 0) {
             return "";
         }
@@ -1262,26 +1263,49 @@ public class MeetingAnalysisService {
                 }
             }
         }
-        return collected.toString().replaceAll("\\n{3,}", "\n\n").trim();
+        String recognized = collected.toString().replaceAll("\\n{3,}", "\n\n").trim();
+        if (recognized.isBlank()) {
+            return "";
+        }
+        // 상한을 넘겨 뒷부분을 못 읽었다는 사실을 결과에 남긴다. 잘린 회의록을 완전한 것으로
+        // 착각하면 뒤에 있던 결정사항·To-Do가 통째로 빠진 분석을 정상 결과로 받아들이게 된다.
+        if (totalPages > pageCount) {
+            log.warn("스캔본 PDF가 상한을 초과해 일부만 OCR 처리: total={}, processed={}", totalPages, pageCount);
+            return recognized + "\n\n[알림] 이 PDF는 총 " + totalPages + "페이지이며, 앞 "
+                + pageCount + "페이지만 문자 인식했습니다. 이후 내용은 분석에 포함되지 않았습니다.";
+        }
+        return recognized;
     }
 
     private String runTesseract(Path imagePath) throws IOException, InterruptedException {
-        Process process = new ProcessBuilder(
-            "tesseract", imagePath.toString(), "stdout", "-l", OCR_LANGUAGES
-        ).redirectErrorStream(false).start();
+        // 결과를 stdout 파이프로 받지 않고 tesseract가 직접 파일에 쓰게 한다.
+        // 파이프로 받으면 (1) readAllBytes()가 EOF까지 블로킹해 아래 waitFor 타임아웃이 영영
+        // 실행되지 않고, (2) 소비하지 않는 stderr 버퍼가 가득 차면 tesseract가 멈춰 교착에 빠진다.
+        // 두 스트림을 모두 버리고 파일로 주고받으면 두 문제가 함께 사라진다.
+        Path outputBase = Files.createTempFile("workflow-ocr-out-", "");
+        Files.deleteIfExists(outputBase); // tesseract가 <base>.txt를 새로 만든다
+        Path outputText = Path.of(outputBase + ".txt");
 
-        String output;
-        try (var stdout = process.getInputStream()) {
-            output = new String(stdout.readAllBytes(), StandardCharsets.UTF_8);
+        try {
+            Process process = new ProcessBuilder(
+                "tesseract", imagePath.toString(), outputBase.toString(), "-l", OCR_LANGUAGES
+            )
+                .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                .redirectError(ProcessBuilder.Redirect.DISCARD)
+                .start();
+
+            if (!process.waitFor(OCR_PAGE_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                process.destroyForcibly();
+                throw new IOException("tesseract 실행이 " + OCR_PAGE_TIMEOUT_SECONDS + "초를 넘겨 중단했습니다.");
+            }
+            if (process.exitValue() != 0) {
+                throw new IOException("tesseract가 비정상 종료했습니다: exitCode=" + process.exitValue());
+            }
+            return Files.exists(outputText) ? Files.readString(outputText, StandardCharsets.UTF_8) : "";
+        } finally {
+            Files.deleteIfExists(outputText);
+            Files.deleteIfExists(outputBase);
         }
-        if (!process.waitFor(OCR_PAGE_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-            process.destroyForcibly();
-            throw new IOException("tesseract 실행이 " + OCR_PAGE_TIMEOUT_SECONDS + "초를 넘겨 중단했습니다.");
-        }
-        if (process.exitValue() != 0) {
-            throw new IOException("tesseract가 비정상 종료했습니다: exitCode=" + process.exitValue());
-        }
-        return output;
     }
 
     private String extractDocxTextFromBytes(byte[] bytes) {
