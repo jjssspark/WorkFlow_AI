@@ -1,13 +1,22 @@
+import { useEffect } from "react";
+import { toast } from "sonner";
 import { useRecordingSession } from "../../../meetings/libs/hooks/RecordingSessionProvider";
 
 function formatElapsed(totalSeconds: number): string {
-  const minutes = Math.floor(totalSeconds / 60).toString().padStart(2, "0");
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60).toString().padStart(2, "0");
   const seconds = (totalSeconds % 60).toString().padStart(2, "0");
-  return `${minutes}:${seconds}`;
+  return hours > 0 ? `${hours}:${minutes}:${seconds}` : `${minutes}:${seconds}`;
 }
 
 export function RecordingIndicator() {
-  const { status, elapsedSeconds, requestStop } = useRecordingSession();
+  const { status, elapsedSeconds, error, requestStop } = useRecordingSession();
+
+  // 녹음 실패(마이크 권한 거부, MediaRecorder 오류)는 이 컴포넌트가 유일한 노출 지점이다.
+  useEffect(() => {
+    if (status === "error" && error) toast.error(error);
+  }, [status, error]);
+
   if (status !== "recording") return null;
 
   return (
