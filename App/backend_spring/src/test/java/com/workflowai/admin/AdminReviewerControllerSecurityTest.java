@@ -34,6 +34,7 @@ import org.springframework.security.config.annotation.method.configuration.Enabl
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import testsupport.AccessDeniedEnvelopeAdvice;
 
 @WebMvcTest(AdminReviewerController.class)
 @AutoConfigureMockMvc(addFilters = false)
@@ -141,8 +142,8 @@ class AdminReviewerControllerSecurityTest {
     @Import(AdminReviewerController.class)
     static class MethodSecurityTestConfig {
         @Bean
-        AccessDeniedResponseAdvice accessDeniedResponseAdvice() {
-            return new AccessDeniedResponseAdvice();
+        AccessDeniedEnvelopeAdvice accessDeniedResponseAdvice() {
+            return new AccessDeniedEnvelopeAdvice();
         }
     }
 

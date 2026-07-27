@@ -21,6 +21,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.test.web.servlet.MockMvc;
+import testsupport.AccessDeniedEnvelopeAdvice;
 
 @WebMvcTest(ContributionReportController.class)
 @AutoConfigureMockMvc(addFilters = false)
@@ -63,8 +64,8 @@ class ContributionReportSecurityTest {
     static class MethodSecurityTestConfig {
 
         @Bean
-        AccessDeniedResponseAdvice accessDeniedResponseAdvice() {
-            return new AccessDeniedResponseAdvice();
+        AccessDeniedEnvelopeAdvice accessDeniedResponseAdvice() {
+            return new AccessDeniedEnvelopeAdvice();
         }
     }
 }
