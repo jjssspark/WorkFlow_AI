@@ -735,7 +735,11 @@ public class MeetingAnalysisService {
 
     private boolean registerSingleTask(Long meetingId, MeetingTodo todo, Long createdBy) {
         Long assigneeId = resolveAssignee(todo.assignee_id());
-        LocalDate dueDate = parseDateOrNull(todo.due_date());
+        // 연도 없는 날짜("07/31")는 회의 날짜의 연도로 채워야 업무보드 마감일과 어긋나지 않는다.
+        Meeting meetingForDate = meetingRepository.findById(meetingId).orElse(null);
+        LocalDate dateReference = meetingForDate == null ? null : meetingForDate.getMeetingDate();
+        LocalDate dueDate = parseDateOrNull(todo.due_date(), dateReference);
+        LocalDate startDate = parseDateOrNull(todo.start_date(), dateReference);
 
         Optional<MeetingActionItem> existingItem =
             meetingActionItemRepository.findFirstByMeetingIdAndTitle(meetingId, todo.title());
@@ -760,15 +764,19 @@ public class MeetingAnalysisService {
             projectRepository.findById(taskProjectId)
                 .ifPresent(project -> ProjectSchedulePolicy.validate(project, null, dueDate, "업무"));
         }
-        double position = taskRepository.findTopByProjectIdAndStatusOrderByPositionDesc(taskProjectId, "todo")
-            .map(t -> t.getPosition() + 1)
+        // 보드는 position 오름차순으로 그리므로, 최댓값+1을 주면 새 업무가 맨 아래에 쌓인다.
+        // 최근에 등록한 업무일수록 위에 보여야 하므로 현재 최솟값보다 작은 값을 준다.
+        double position = taskRepository.findTopByProjectIdAndStatusOrderByPositionAsc(taskProjectId, "todo")
+            .map(t -> t.getPosition() - 1)
             .orElse(0.0);
         Task task = taskRepository.save(new Task(
             taskProjectId,
+            null,
             todo.title(),
             defaultString(todo.category(), "ETC"),
             "todo",
             assigneeId,
+            startDate,
             dueDate,
             defaultString(todo.priority(), "MEDIUM"),
             todo.description(),
@@ -916,6 +924,37 @@ public class MeetingAnalysisService {
         return userRepository.findById(userId).map(User::getName).orElse(null);
     }
 
+    /**
+     * 저장된 회의록 음성 파일을 재생용으로 읽는다.
+     *
+     * <p>filePath는 업로드 시 uploadsDir 아래로만 기록되지만, DB 값이 조작되는 경우까지 막기 위해
+     * 실제 경로가 uploadsDir 안에 있는지 다시 확인한다.
+     *
+     * <p>normalize()+startsWith()만으로는 uploads 안에 심볼릭 링크를 만들어 바깥 파일을 가리키는
+     * 우회를 막지 못한다. 양쪽 모두 toRealPath()로 링크를 해소한 뒤 비교한다.
+     */
+    public MeetingAudio findAudio(String projectId, String meetingId) {
+        Meeting meeting = requireProjectMeeting(projectId, meetingId);
+        if (meeting == null) return null;
+        if (!"audio".equals(meeting.getFileType())) return null;
+        String storedPath = meeting.getFilePath();
+        if (storedPath == null || storedPath.isBlank()) return null;
+
+        try {
+            Path root = Path.of(uploadsDir).toRealPath();
+            Path target = Path.of(storedPath).toRealPath();
+            if (!target.startsWith(root) || !Files.isRegularFile(target) || !Files.isReadable(target)) {
+                log.warn("회의록 음성 파일 접근을 거부했습니다: meetingId={}, path={}", meetingId, storedPath);
+                return null;
+            }
+            return new MeetingAudio(target, defaultString(meeting.getOriginalFileName(), target.getFileName().toString()));
+        } catch (IOException e) {
+            // 파일이 없거나 링크가 끊긴 경우 등 — 존재 여부를 노출하지 않고 404로 처리한다.
+            log.warn("회의록 음성 파일을 읽을 수 없습니다: meetingId={}", meetingId);
+            return null;
+        }
+    }
+
     private String storeUploadedFile(Long meetingId, MultipartFile file) {
         if (file == null || file.isEmpty()) return null;
         try {
@@ -1041,12 +1080,38 @@ public class MeetingAnalysisService {
     }
 
     private LocalDate parseDateOrNull(String date) {
+        return parseDateOrNull(date, null);
+    }
+
+    /**
+     * 회의록 To-Do의 날짜를 파싱한다.
+     *
+     * <p>이전에는 ISO(yyyy-MM-dd)만 받아, 사용자가 "07/31"처럼 연도 없이 입력하거나 LLM이
+     * "2026.07.31"로 돌려주면 조용히 null이 되어 업무보드 마감일이 비어버렸다.
+     * 연도가 없는 입력은 회의 날짜(reference)의 연도로 채운다.
+     */
+    private LocalDate parseDateOrNull(String date, LocalDate reference) {
         if (date == null || date.isBlank()) return null;
+        String normalized = date.trim().replace('.', '-').replace('/', '-').replaceAll("-+", "-");
+        normalized = normalized.replaceAll("-$", "");
         try {
-            return LocalDate.parse(date);
-        } catch (Exception e) {
-            return null;
+            return LocalDate.parse(normalized);
+        } catch (Exception ignored) {
+            // 아래에서 연도 없는 형식(MM-dd)을 시도한다.
         }
+        java.util.regex.Matcher monthDay =
+            java.util.regex.Pattern.compile("^(\\d{1,2})-(\\d{1,2})$").matcher(normalized);
+        if (monthDay.matches()) {
+            int year = (reference == null ? LocalDate.now() : reference).getYear();
+            try {
+                return LocalDate.of(year, Integer.parseInt(monthDay.group(1)), Integer.parseInt(monthDay.group(2)));
+            } catch (Exception e) {
+                log.warn("To-Do 날짜를 해석하지 못했습니다: raw={}", date);
+                return null;
+            }
+        }
+        log.warn("To-Do 날짜를 해석하지 못했습니다: raw={}", date);
+        return null;
     }
 
     private Long parseLongOrNull(String value) {

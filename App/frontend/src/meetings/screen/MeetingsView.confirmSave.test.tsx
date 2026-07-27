@@ -85,7 +85,7 @@ async function analyzeAndReachResults() {
   await user.click(await screen.findByRole("button", { name: /김민준/ }));
   await user.click(screen.getByRole("button", { name: "AI 분석 시작" }));
 
-  await waitFor(() => expect(screen.getByText("회의록 분석결과 저장")).toBeInTheDocument(), { timeout: 5000 });
+  await waitFor(() => expect(screen.getByText("회의록 저장")).toBeInTheDocument(), { timeout: 5000 });
   return user;
 }
 
@@ -142,7 +142,7 @@ describe("MeetingsView handleConfirmSave", () => {
     confirmMeetingSave.mockRejectedValue(new ApiRequestError("서버 저장에 실패했습니다.", 500));
 
     const user = await analyzeAndReachResults();
-    await user.click(screen.getByText("회의록 분석결과 저장"));
+    await user.click(screen.getByText("회의록 저장"));
 
     expect(await screen.findByText(/서버 저장에 실패했습니다/)).toBeInTheDocument();
     expect(confirmMeetingSave).toHaveBeenCalledWith("1", "M1");
@@ -158,13 +158,13 @@ describe("MeetingsView handleConfirmSave", () => {
 
     const user = await analyzeAndReachResults();
     const callsBeforeSave = fetchMeetings.mock.calls.length;
-    await user.click(screen.getByText("회의록 분석결과 저장"));
+    await user.click(screen.getByText("회의록 저장"));
 
     await waitFor(() => expect(confirmMeetingSave).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(fetchMeetings.mock.calls.length).toBeGreaterThan(callsBeforeSave));
 
     // savedAt이 재조회로 지워졌다면 여기서 서버를 다시 호출해버린다.
-    await user.click(screen.getByText("회의록 분석결과 저장"));
+    await user.click(screen.getByText("회의록 저장"));
 
     expect(await screen.findByText("이미 저장된 회의록입니다. 저장된 회의록 탭에서 확인할 수 있습니다.")).toBeInTheDocument();
     expect(confirmMeetingSave).toHaveBeenCalledTimes(1);
@@ -174,7 +174,7 @@ describe("MeetingsView handleConfirmSave", () => {
     confirmMeetingSave.mockResolvedValue({ meetingId: "M1", status: "SAVED" });
 
     const user = await analyzeAndReachResults();
-    await user.click(screen.getByText("회의록 분석결과 저장"));
+    await user.click(screen.getByText("회의록 저장"));
 
     await waitFor(() => expect(confirmMeetingSave).toHaveBeenCalledWith("1", "M1"));
     expect(screen.getByText("회의록이 저장되었습니다.")).toBeInTheDocument();
