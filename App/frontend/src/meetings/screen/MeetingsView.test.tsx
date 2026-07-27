@@ -277,6 +277,39 @@ describe("MeetingsView 홈 탭", () => {
     expect(screen.getByRole("button", { name: "저장된 회의록" })).not.toHaveClass("border-blue-600");
   });
 
+  it("panel=todos 쿼리파라미터가 있으면 클릭 없이 바로 '역할 분배 검토' 탭으로 연결된다", async () => {
+    // 팀장에게 역할분배를 요청하는 알림의 "바로가기"가 붙이는 panel=todos 쿼리를 재현한다.
+    fetchMeeting.mockResolvedValue({
+      meetingId: "1",
+      projectId: "1",
+      status: "COMPLETED",
+      sourceType: "document",
+      fileName: "meeting.txt",
+      analysisSource: "FASTAPI",
+      errorMessage: null,
+      attendees: [],
+      analysis: {
+        summary: "요약",
+        decisions: [],
+        risks: [],
+        keywords: [],
+        meeting_meta: { title: "저장된 정기회의", meeting_date: "2026-07-19", participants: [] },
+        todos: [],
+      },
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/meetings?meetingId=1&panel=todos"]}>
+        <MeetingsView />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(fetchMeetings).toHaveBeenCalled());
+    // "생성된 To-Do"는 panelTab==="todos"일 때만 보이는 문구다 — 기본값인 요약 탭이 아니라
+    // 클릭 없이 바로 이 탭으로 연결됐는지 확인한다.
+    expect(await screen.findByText(/생성된 To-Do/)).toBeInTheDocument();
+  });
+
   it("'업무로 등록'을 누르면 바로 등록하지 않고 '역할 분배 검토' 화면을 먼저 보여준다", async () => {
     const user = userEvent.setup();
     fetchMeeting.mockResolvedValue({
