@@ -107,4 +107,50 @@ describe("useMeetingRecorder", () => {
 
     expect(getUserMedia).toHaveBeenCalledTimes(1);
   });
+
+  it("동기적으로 start()를 두 번 호출해도 getUserMedia를 한 번만 호출한다 (same-tick race 방지)", async () => {
+    const getUserMedia = vi.fn().mockResolvedValue(createMockStream());
+    vi.stubGlobal("navigator", { ...globalThis.navigator, mediaDevices: { getUserMedia } });
+    const { result } = renderHook(() => useMeetingRecorder());
+
+    await act(async () => {
+      // 두 개의 Promise를 동시에 시작 (await 없이)
+      const p1 = result.current.start();
+      const p2 = result.current.start();
+      // 둘 다 완료될 때까지 기다림
+      await Promise.all([p1, p2]);
+    });
+
+    // getUserMedia는 정확히 한 번만 호출되어야 함
+    expect(getUserMedia).toHaveBeenCalledTimes(1);
+  });
+
+  it("unmount 시에 타이머와 스트림 트랙이 정리된다", async () => {
+    const stream = createMockStream();
+    const mockTrack = stream.getTracks()[0];
+    vi.stubGlobal("navigator", { ...globalThis.navigator, mediaDevices: { getUserMedia: vi.fn().mockResolvedValue(stream) } });
+    const { result, unmount } = renderHook(() => useMeetingRecorder());
+
+    await act(async () => {
+      await result.current.start();
+    });
+
+    // 타이머가 활성화되어 있는지 확인
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(result.current.elapsedSeconds).toBe(1);
+
+    // unmount
+    unmount();
+
+    // unmount 후 타이머가 동작하지 않아야 함
+    const previousElapsed = result.current.elapsedSeconds;
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+
+    // 트랙이 stop 호출되었는지 확인
+    expect(mockTrack.stop).toHaveBeenCalled();
+  });
 });

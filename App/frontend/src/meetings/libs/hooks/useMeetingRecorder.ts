@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export type RecorderStatus = "idle" | "requesting-permission" | "recording" | "stopped" | "error";
 
@@ -25,6 +25,7 @@ export function useMeetingRecorder(): UseMeetingRecorder {
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const isStartingRef = useRef<boolean>(false);
 
   const stopTimer = useCallback(() => {
     if (timerRef.current) {
@@ -33,8 +34,25 @@ export function useMeetingRecorder(): UseMeetingRecorder {
     }
   }, []);
 
+  const stopStreamTracks = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+    }
+  }, []);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      stopTimer();
+      stopStreamTracks();
+    };
+  }, [stopTimer, stopStreamTracks]);
+
   const start = useCallback(async () => {
-    if (status === "recording" || status === "requesting-permission") return;
+    // Synchronous guard using ref to prevent same-tick race
+    if (isStartingRef.current) return;
+    isStartingRef.current = true;
+
     setStatus("requesting-permission");
     setError(null);
     try {
@@ -53,10 +71,11 @@ export function useMeetingRecorder(): UseMeetingRecorder {
       }, TIMER_INTERVAL_MS);
       setStatus("recording");
     } catch {
+      isStartingRef.current = false;
       setStatus("error");
       setError("마이크 권한을 확인할 수 없습니다. 브라우저 설정에서 마이크 접근을 허용해주세요.");
     }
-  }, [status]);
+  }, []);
 
   const stop = useCallback(async (): Promise<RecordedAudio | null> => {
     const recorder = mediaRecorderRef.current;
@@ -76,6 +95,7 @@ export function useMeetingRecorder(): UseMeetingRecorder {
     mediaRecorderRef.current = null;
     streamRef.current = null;
     chunksRef.current = [];
+    isStartingRef.current = false;
     setStatus("stopped");
     return result;
   }, [stopTimer]);
