@@ -6,7 +6,7 @@ import com.workflowai.project.ProjectMember;
 import com.workflowai.project.ProjectMemberRepository;
 import com.workflowai.project.ProjectRepository;
 import com.workflowai.security.CurrentUser;
-import com.workflowai.task.SupabaseStorageClient;
+import com.workflowai.task.S3StorageClient;
 import com.workflowai.user.User;
 import com.workflowai.user.UserRepository;
 import io.swagger.v3.oas.annotations.Operation;
@@ -52,13 +52,13 @@ public class MeController {
     private final UserRepository userRepository;
     private final ProjectMemberRepository projectMemberRepository;
     private final ProjectRepository projectRepository;
-    private final SupabaseStorageClient storageClient;
+    private final S3StorageClient storageClient;
 
     public MeController(
         UserRepository userRepository,
         ProjectMemberRepository projectMemberRepository,
         ProjectRepository projectRepository,
-        SupabaseStorageClient storageClient
+        S3StorageClient storageClient
     ) {
         this.userRepository = userRepository;
         this.projectMemberRepository = projectMemberRepository;

@@ -84,7 +84,14 @@ workflow:
     dev-login-enabled: ${WORKFLOW_DEMO_DEV_LOGIN_ENABLED:false}
   uploads:
     dir: ${WORKFLOW_UPLOADS_DIR:uploads}
-  supabase:
-    url: ${SUPABASE_URL:}
-    service-role-key: ${SUPABASE_SERVICE_ROLE_KEY:}
-    storage-bucket: ${SUPABASE_STORAGE_BUCKET:task-results}
+  storage:
+    # S3 호환 오브젝트 스토리지 설정. 지금은 Supabase Storage의 S3 엔드포인트를, 이관 후에는 OCI
+    # Object Storage(S3 호환 API)를 가리키도록 바꾼다 — 코드는 그대로, 이 값들만 갈아끼우면 된다.
+    endpoint: ${STORAGE_ENDPOINT:}
+    region: ${STORAGE_REGION:us-east-1}
+    access-key: ${STORAGE_ACCESS_KEY:}
+    secret-key: ${STORAGE_SECRET_KEY:}
+    bucket: ${STORAGE_BUCKET:task-results}
+    # 가상 호스팅 스타일(bucket.endpoint/…) 대신 경로 스타일(endpoint/bucket/…) 사용 여부.
+    # Supabase/OCI/MinIO 등 커스텀 S3 호환 엔드포인트에서는 대체로 true가 안전하다.
+    path-style-access: ${STORAGE_PATH_STYLE_ACCESS:true}

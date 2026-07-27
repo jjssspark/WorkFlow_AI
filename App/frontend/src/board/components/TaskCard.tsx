@@ -7,7 +7,7 @@ import { useAuth } from "../../global/hooks/useAuth";
 import type { MemberResponse } from "../../global/api/projectsApi";
 import { TASK_DRAG_TYPE, type TaskDragItem } from "../libs/utils/dnd";
 import { canMoveTask } from "../libs/utils/taskActions";
-import { formatDueDate } from "../libs/utils/taskService";
+import { formatBoardTaskDate, shouldHideYearOnBoard } from "../libs/utils/taskService";
 import type { Task } from "../libs/types/task";
 
 interface TaskCardProps {
@@ -25,6 +25,7 @@ export function TaskCard({ task, catId, projectMembers, compact, selected, onSel
   const ref = useRef<HTMLDivElement>(null);
   const { user, currentProject } = useAuth();
   const canMove = canMoveTask(currentProject?.role === "팀장", task, user?.id) && !task.pendingApproval;
+  const hideYear = shouldHideYearOnBoard(task.startDate, task.dueDate);
 
   const [{ isDragging }, dragRef] = useDrag(
     () => ({
@@ -97,7 +98,9 @@ export function TaskCard({ task, catId, projectMembers, compact, selected, onSel
           <PriorityBadge priority={task.priority} />
           <div className="flex items-center gap-1.5 shrink-0">
             <span className="text-[10px] text-muted-foreground">
-              {task.startDate ? `${formatDueDate(task.startDate)} → ${formatDueDate(task.dueDate)}` : formatDueDate(task.dueDate)}
+              {task.startDate
+                ? `${formatBoardTaskDate(task.startDate, hideYear)} → ${formatBoardTaskDate(task.dueDate, hideYear)}`
+                : formatBoardTaskDate(task.dueDate, hideYear)}
             </span>
             {m && (
               <div
