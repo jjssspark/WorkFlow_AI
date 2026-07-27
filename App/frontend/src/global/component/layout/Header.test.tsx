@@ -46,6 +46,21 @@ describe("Header (mobile)", () => {
     expect(screen.getByRole("button", { name: "팀장페이지" })).toBeInTheDocument();
     expect(screen.getByText(childTitle)).toBeInTheDocument();
   });
+
+  it("keeps the global header and notification popover above sticky page content", async () => {
+    vi.mocked(fetchNotifications).mockResolvedValue([]);
+    vi.mocked(markNotificationsRead).mockResolvedValue(undefined);
+    renderHeader();
+
+    expect(document.querySelector("[data-global-header]")).toHaveClass("z-40");
+    await userEvent.click(screen.getByRole("button", { name: "알림" }));
+
+    expect(document.querySelector("[data-notification-popover]")).toHaveClass("z-50");
+    expect(document.querySelector("[data-notification-list]")).toHaveClass(
+      "max-h-[calc(100vh-10rem)]",
+      "overflow-y-auto",
+    );
+  });
 });
 
 vi.mock("../../api/notificationApi", async (importOriginal) => {
