@@ -18,6 +18,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Verify migration guard script itself (approved/blocked rename scenarios)
+        run: bash .github/scripts/check-migration-changes.test.sh
+
       - name: Block modification of existing migration files
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
