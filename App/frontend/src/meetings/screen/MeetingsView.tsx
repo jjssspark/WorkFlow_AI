@@ -420,6 +420,7 @@ export function MeetingsView() {
   const [selTodos, setSelTodos] = useState<string[]>([]);
   const [todoAssignees, setTodoAssignees] = useState<Record<string,string>>({});
   const [todoDueDates, setTodoDueDates] = useState<Record<string,string>>({});
+  const [todoStartDates, setTodoStartDates] = useState<Record<string,string>>({});
   const [showUnassigned, setShowUnassigned] = useState(false);
   const [uploadFileName, setUploadFileName] = useState("");
   const [uploadFileSize, setUploadFileSize] = useState("");
@@ -762,6 +763,7 @@ export function MeetingsView() {
 
   const getAssignee = (todo: GenTodo): string => todoAssignees[todo.id] ?? todo.assignee;
   const getDueDate = (todo: GenTodo): string => todoDueDates[todo.id] ?? todo.dueDate;
+  const getStartDate = (todo: GenTodo): string => todoStartDates[todo.id] ?? todo.startDate ?? "";
   const toApiTodo = (todo: GenTodo) => {
     const assigneeId = getAssignee(todo);
     return {
@@ -769,6 +771,7 @@ export function MeetingsView() {
       description: todo.desc,
       assignee_candidate: "",
       assignee_id: assigneeId || null,
+      start_date: getStartDate(todo) || null,
       due_date: getDueDate(todo) || null,
       priority: todo.priority.toUpperCase() as "HIGH" | "MEDIUM" | "LOW",
       category: todo.category,
@@ -1087,6 +1090,7 @@ export function MeetingsView() {
     setSelTodos([]);
     setTodoAssignees({});
     setTodoDueDates({});
+    setTodoStartDates({});
     setShowUnassigned(false);
     setAnalysisSource(null);
     setAnalysisError(null);
@@ -2019,7 +2023,7 @@ export function MeetingsView() {
               <thead>
                 <tr className="border-b border-border bg-muted/40">
                   <th className="pl-4 pr-2 py-3 w-8" />
-                  {["ID","업무명","카테고리","담당자","마감일","우선순위","근거"].map(h => (
+                  {["ID","업무명","카테고리","담당자","시작일","마감일","우선순위","근거"].map(h => (
                     <th key={h} className="px-3 py-3 text-left text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">{h}</th>
                   ))}
                   <th className="px-3 py-3 w-8" />
@@ -2057,6 +2061,18 @@ export function MeetingsView() {
                           type="text"
                           inputMode="numeric"
                           placeholder="MM.DD"
+                          aria-label={`${todo.title} 시작일`}
+                          value={getStartDate(todo)}
+                          onChange={e => setTodoStartDates(p => ({ ...p, [todo.id]: formatMMDDInput(e.target.value) }))}
+                          className="text-xs rounded-lg border border-border bg-card px-2 py-1.5 outline-none focus:border-blue-400 w-16 text-center"
+                        />
+                      </td>
+                      <td className="px-3 py-3">
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          placeholder="MM.DD"
+                          aria-label={`${todo.title} 마감일`}
                           value={getDueDate(todo)}
                           onChange={e => setTodoDueDates(p => ({ ...p, [todo.id]: formatMMDDInput(e.target.value) }))}
                           className="text-xs rounded-lg border border-border bg-card px-2 py-1.5 outline-none focus:border-blue-400 w-16 text-center"

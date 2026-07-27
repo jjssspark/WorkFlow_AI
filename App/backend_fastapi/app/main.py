@@ -124,6 +124,8 @@ class MeetingTodo(BaseModel):
     description: str
     assignee_candidate: str
     assignee_id: Optional[str] = None
+    # 시작일. 회의록에 명시된 경우에만 채우고, 없으면 팀장이 역할분배 화면에서 입력한다.
+    start_date: Optional[str] = None
     due_date: Optional[str] = None
     priority: str
     category: str

@@ -739,6 +739,7 @@ public class MeetingAnalysisService {
         Meeting meetingForDate = meetingRepository.findById(meetingId).orElse(null);
         LocalDate dateReference = meetingForDate == null ? null : meetingForDate.getMeetingDate();
         LocalDate dueDate = parseDateOrNull(todo.due_date(), dateReference);
+        LocalDate startDate = parseDateOrNull(todo.start_date(), dateReference);
 
         Optional<MeetingActionItem> existingItem =
             meetingActionItemRepository.findFirstByMeetingIdAndTitle(meetingId, todo.title());
@@ -770,10 +771,12 @@ public class MeetingAnalysisService {
             .orElse(0.0);
         Task task = taskRepository.save(new Task(
             taskProjectId,
+            null,
             todo.title(),
             defaultString(todo.category(), "ETC"),
             "todo",
             assigneeId,
+            startDate,
             dueDate,
             defaultString(todo.priority(), "MEDIUM"),
             todo.description(),

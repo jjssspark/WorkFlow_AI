@@ -1063,6 +1063,33 @@ class MeetingAnalysisServiceTest {
         assertThat(captor.getValue().getDueDate()).isEqualTo(LocalDate.of(2026, 7, 31));
     }
 
+    // 역할분배 화면에서 MM.DD로 입력한 시작일이 업무의 시작일로 저장돼야 한다.
+    @Test
+    void registerTasksMapsStartDateToTask() {
+        UserPrincipal leader = new UserPrincipal(25L, "leader@example.com", "박지수");
+        SecurityContextHolder.getContext().setAuthentication(
+            new UsernamePasswordAuthenticationToken(leader, null, List.of())
+        );
+        when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
+        when(projectMemberRepository.existsByProjectIdAndUserId(1L, 25L)).thenReturn(true);
+        Meeting meeting = new Meeting(1L, "정기회의", "document", null, "completed", LocalDate.of(2026, 7, 19), "정기회의", "a.txt", 10L, 10L);
+        when(meetingRepository.findByIdAndProjectId(5L, 1L)).thenReturn(Optional.of(meeting));
+        when(meetingRepository.findById(5L)).thenReturn(Optional.of(meeting));
+        when(taskRepository.save(any(Task.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(taskRepository.findTopByProjectIdAndStatusOrderByPositionAsc(any(), any())).thenReturn(Optional.empty());
+        MeetingAnalysisService service = newService();
+
+        TaskRegisterRequest request = new TaskRegisterRequest(List.of(
+            new MeetingTodo("업무1", "설명", null, null, "07.20", "07.31", "MEDIUM", "ETC", true, "")
+        ));
+        service.registerTasks("demo-project", "5", request);
+
+        ArgumentCaptor<Task> captor = ArgumentCaptor.forClass(Task.class);
+        verify(taskRepository).save(captor.capture());
+        assertThat(captor.getValue().getStartDate()).isEqualTo(LocalDate.of(2026, 7, 20));
+        assertThat(captor.getValue().getDueDate()).isEqualTo(LocalDate.of(2026, 7, 31));
+    }
+
     @Test
     void registerTasksNotifiesLeaderAndUploaderWhenDifferent() {
         UserPrincipal leader = new UserPrincipal(99L, "leader@example.com", "김팀장");
