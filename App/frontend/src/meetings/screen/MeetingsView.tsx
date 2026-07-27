@@ -10,6 +10,7 @@ import type { Meeting, UploadFlow, UploadType, GenTodo, SavedMeetingRecord, Expo
 import type { CatId, Priority, Task } from "../../board/libs/types/task";
 import { analyzeMeeting, confirmMeetingSave, deleteMeeting, deleteMeetingAnalysis, fetchMeeting, fetchMeetings, reanalyzeMeeting, registerMeetingTasks, retryMeetingAnalysis } from "../libs/utils/meetingAiApi";
 import { MeetingEditPanel } from "../components/MeetingEditPanel";
+import { MeetingAudioPlayer } from "../components/MeetingAudioPlayer";
 import type { MeetingAiResult } from "../libs/types/meetingAiTypes";
 import { deleteTask, DEMO_PROJECT_ID } from "../../board/libs/utils/taskApi";
 import { useAuth } from "../../global/hooks/useAuth";
@@ -1764,6 +1765,11 @@ export function MeetingsView() {
           <div className="flex justify-between"><span>미배정 업무</span><span className="font-semibold text-amber-600">{unassignedCount}개</span></div>
           <div className="flex justify-between"><span>위험 요소</span><span className="font-semibold text-red-600">{riskCards.length}건</span></div>
         </div>
+        {selected && isServerMeetingId(selected) && uploadType === "audio" && (
+          <div className="px-4 pt-2">
+            <MeetingAudioPlayer projectId={projectId} meetingId={selected} />
+          </div>
+        )}
         {/* Actions */}
         <div className="p-4 space-y-2">
           {currentUserRole === "leader" && (

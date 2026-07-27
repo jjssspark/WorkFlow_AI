@@ -924,6 +924,28 @@ public class MeetingAnalysisService {
         return userRepository.findById(userId).map(User::getName).orElse(null);
     }
 
+    /**
+     * 저장된 회의록 음성 파일을 재생용으로 읽는다.
+     *
+     * <p>filePath는 업로드 시 uploadsDir 아래로만 기록되지만, DB 값이 조작되는 경우까지 막기 위해
+     * 실제 경로가 uploadsDir 안에 있는지 다시 확인한다(경로 탈출 방지).
+     */
+    public MeetingAudio findAudio(String projectId, String meetingId) {
+        Meeting meeting = requireProjectMeeting(projectId, meetingId);
+        if (meeting == null) return null;
+        if (!"audio".equals(meeting.getFileType())) return null;
+        String storedPath = meeting.getFilePath();
+        if (storedPath == null || storedPath.isBlank()) return null;
+
+        Path root = Path.of(uploadsDir).toAbsolutePath().normalize();
+        Path target = Path.of(storedPath).toAbsolutePath().normalize();
+        if (!target.startsWith(root) || !Files.isReadable(target)) {
+            log.warn("회의록 음성 파일을 읽을 수 없습니다: meetingId={}, path={}", meetingId, storedPath);
+            return null;
+        }
+        return new MeetingAudio(target, defaultString(meeting.getOriginalFileName(), target.getFileName().toString()));
+    }
+
     private String storeUploadedFile(Long meetingId, MultipartFile file) {
         if (file == null || file.isEmpty()) return null;
         try {
