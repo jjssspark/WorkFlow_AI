@@ -14,9 +14,9 @@ vi.mock("react-router", async () => {
   return { ...actual, useNavigate: () => mockNavigate };
 });
 
-function renderHeader(onOpenMobileMenu = vi.fn()) {
+function renderHeader(onOpenMobileMenu = vi.fn(), initialPath = "/board") {
   render(
-    <MemoryRouter initialEntries={["/board"]}>
+    <MemoryRouter initialEntries={[initialPath]}>
       <AuthProvider>
         <Header onOpenMobileMenu={onOpenMobileMenu} />
       </AuthProvider>
@@ -35,6 +35,16 @@ describe("Header (mobile)", () => {
     const button = screen.getByRole("button", { name: "메뉴 열기" });
     await userEvent.click(button);
     expect(onOpenMobileMenu).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    ["/leader/roadmap", "로드맵"],
+    ["/leader/completion-approvals", "완료승인 대기"],
+  ])("shows the leader subpage in the top breadcrumb for %s", (path, childTitle) => {
+    renderHeader(vi.fn(), path);
+
+    expect(screen.getByRole("button", { name: "팀장페이지" })).toBeInTheDocument();
+    expect(screen.getByText(childTitle)).toBeInTheDocument();
   });
 });
 
