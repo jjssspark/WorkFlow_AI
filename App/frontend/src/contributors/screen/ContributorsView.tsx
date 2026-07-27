@@ -13,6 +13,7 @@ import {
   EyeOff,
   MessageSquare,
   RefreshCw,
+  RotateCcw,
   Search,
   ShieldCheck,
   Sparkles,
@@ -24,6 +25,7 @@ import { fetchTasks } from "../../board/libs/utils/taskApi";
 import type { Task } from "../../board/libs/types/task";
 import {
   finalizeEvaluation,
+  unfinalizeEvaluation,
   getProject,
   getProjectMembers,
   type MemberResponse,
@@ -116,19 +118,29 @@ export function ContributorsView() {
     }
     getProject(currentProjectId).then(setProject).catch(() => setProject(null));
   }, [currentProjectId]);
-  // "평가 확정" 버튼 상태 — 클릭 시 finalize-evaluation 호출, 성공하면 project를 갱신해
-  // 배지가 "평가 중" → "평가 완료"로 즉시 바뀌게 한다.
+  // "평가 확정" / "평가 확정 취소" 버튼 상태 — 클릭 시 finalize/unfinalize-evaluation을
+  // 호출하고, 성공하면 project를 갱신해 배지가 즉시 바뀌게 한다. 취소 방향은 팀원에게
+  // 이미 노출된 점수가 있을 수 있어 window.confirm으로 한 번 더 확인한다.
   const [isFinalizing, setIsFinalizing] = useState(false);
   const [finalizeError, setFinalizeError] = useState<string | null>(null);
-  const handleFinalizeEvaluation = async () => {
+  const handleToggleFinalize = async () => {
     if (currentProjectId == null) return;
+    const isPublishedNow = resolveEvalStatus(project?.evalStatus) === "PUBLISHED";
+    if (isPublishedNow) {
+      const confirmed = window.confirm(
+        "평가 확정을 취소하면 팀원에게 노출된 점수가 다시 비공개 상태로 표시됩니다. 취소할까요?"
+      );
+      if (!confirmed) return;
+    }
     setIsFinalizing(true);
     setFinalizeError(null);
     try {
-      const updated = await finalizeEvaluation(currentProjectId);
+      const updated = isPublishedNow
+        ? await unfinalizeEvaluation(currentProjectId)
+        : await finalizeEvaluation(currentProjectId);
       setProject(updated);
     } catch {
-      setFinalizeError("평가를 확정하지 못했습니다.");
+      setFinalizeError(isPublishedNow ? "평가 확정 취소에 실패했습니다." : "평가를 확정하지 못했습니다.");
     } finally {
       setIsFinalizing(false);
     }
@@ -569,15 +581,27 @@ export function ContributorsView() {
               <Download className="w-3.5 h-3.5" />
               PDF 저장
             </button>
-            <button
-              type="button"
-              onClick={handleFinalizeEvaluation}
-              disabled={isFinalizing || isPublished || currentProjectId == null}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <CheckCircle2 className="w-3.5 h-3.5" />
-              {isFinalizing ? "확정 중..." : isPublished ? "평가 완료됨" : "평가 확정"}
-            </button>
+            {isPublished ? (
+              <button
+                type="button"
+                onClick={handleToggleFinalize}
+                disabled={isFinalizing || currentProjectId == null}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border bg-card text-xs font-semibold text-foreground hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                {isFinalizing ? "취소 중..." : "평가 확정 취소"}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleToggleFinalize}
+                disabled={isFinalizing || currentProjectId == null}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                {isFinalizing ? "확정 중..." : "평가 확정"}
+              </button>
+            )}
           </div>
         </section>
 
