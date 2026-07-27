@@ -14,7 +14,12 @@
 구글 OAuth는 리디렉션 URI에 **HTTPS와 실제 도메인을 강제**한다. 생 IP(`161.33.132.66`)는
 HTTP라서 한 번, IP라서 또 한 번 거부되므로 도메인이 반드시 필요하다.
 
-[DuckDNS](https://www.duckdns.org) 등에서 무료 서브도메인을 받아 `161.33.132.66`에 연결한다.
+**현재 운영 도메인은 `t3-workflow-ai.site`다.** 아래 `<도메인>` 자리에는 이 값을 넣는다.
+
+초기에는 DuckDNS 무료 서브도메인(`t3-workflow-ai.duckdns.org`)을 썼으나 2026-07-20에
+정식 도메인으로 옮겼고, 2026-07-27에 남아 있던 duckdns 인증서를 서버에서 제거했다.
+새로 환경을 만들 때 무료 서브도메인을 쓸 수는 있지만, **운영에는 쓰지 않는다** —
+경위는 [도메인 이전 정리](../docs/trouble-shooting/2026-07-27-duckdns-cert-cleanup.md).
 
 연결됐는지 확인:
 
@@ -496,3 +501,17 @@ nginx가 `X-Forwarded-Proto`를 넘기는지 확인한다. 둘 다 `docker-compo
 docker exec workflow-certbot certbot certificates
 docker compose -f docker-compose.yml -f docker-compose.prod.yml logs certbot
 ```
+
+갱신 설정은 `t3-workflow-ai.site` **하나만** 있어야 한다. 여러 개가 보이면 도메인을
+옮기고 옛 설정을 지우지 않은 것이다. 특히 아래 메시지는 인증서가 사라진 자리를 갱신
+대상으로 잡고 있다는 뜻이고, 매 주기 로그를 덮어 **진짜 갱신 실패를 가린다.**
+
+```
+Renewal configuration file /etc/letsencrypt/renewal/<도메인>.conf is broken.
+The error was: expected /etc/letsencrypt/live/<도메인>/cert.pem to be a symlink
+```
+
+정리는 `docker exec workflow-certbot certbot delete --cert-name <도메인>`으로 한다.
+nginx는 `live/current` 심볼릭 링크만 보므로, 그 링크가 가리키는 인증서가 아니라면
+지워도 서비스에 영향이 없다. 지우기 전에 `readlink -f /etc/letsencrypt/live/current`로
+확인한다.
