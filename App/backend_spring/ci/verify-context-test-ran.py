@@ -17,6 +17,11 @@ SUITES = (
     "com.workflowai.common.HealthReadinessIntegrationTest",
     "com.workflowai.common.ErrorEnvelopeIntegrationTest",
     "com.workflowai.assistant.AssistantThreadIntegrationTest",
+    # 이건 Docker를 쓰지 않지만 같은 이유로 등록한다. RAG 색인은 best-effort라 실패해도
+    # 화면이 깨지지 않으므로, 이 테스트가 조용히 실행되지 않으면 와이어 포맷이 깨진 사실을
+    # 알아챌 다른 방법이 없다.
+    "com.workflowai.rag.FastApiRagClientWireContractTest",
+    "com.workflowai.rag.RagFastApiBoundaryIntegrationTest",
 )
 REPORT_DIR = Path("build/test-results/test")
 
