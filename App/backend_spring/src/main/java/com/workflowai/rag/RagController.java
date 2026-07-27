@@ -26,6 +26,9 @@ public class RagController {
     // 악의적 대용량 페이로드의 통로가 된다.
     private static final int MAX_HISTORY_MESSAGES = 6;
     private static final int MAX_HISTORY_CONTENT_LENGTH = 1000;
+    // 질문에도 같은 상한을 둔다. 임베딩 모델이 어차피 512토큰 근처에서 잘라내므로 그보다 긴
+    // 질문은 검색 정확도에 기여하지 못하면서, 재작성 LLM 호출 비용과 프롬프트 크기만 키운다.
+    private static final int MAX_QUESTION_LENGTH = 1000;
 
     private final FastApiRagClient fastApiRagClient;
     private final RagRateLimiter rateLimiter;
@@ -51,6 +54,12 @@ public class RagController {
         if (request.question() == null || request.question().isBlank()) {
             return ResponseEntity.badRequest()
                 .body(ApiResponse.fail("INVALID_QUESTION", "질문을 입력해주세요."));
+        }
+
+        if (request.question().length() > MAX_QUESTION_LENGTH) {
+            return ResponseEntity.badRequest()
+                .body(ApiResponse.fail(
+                    "INVALID_QUESTION", "질문은 " + MAX_QUESTION_LENGTH + "자 이하여야 합니다."));
         }
 
         // null은 히스토리 없음으로 정규화한다. FastAPI history 필드는 리스트를 기대한다.

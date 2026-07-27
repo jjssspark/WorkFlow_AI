@@ -159,6 +159,41 @@ class RagControllerTest {
     }
 
     @Test
+    void queryAcceptsQuestionAtMaxLength() throws Exception {
+        // 경계값은 통과해야 한다. 상한을 "미만"으로 잘못 구현하면 정상 질문이 막힌다.
+        authenticateAs(5L);
+        when(fastApiRagClient.query(any(RagQueryRequest.class)))
+            .thenReturn(new RagQueryResponse("답변", List.of()));
+
+        RagController controller = new RagController(fastApiRagClient, rateLimiter);
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
+
+        String body = objectMapper.writeValueAsString(
+            new RagQueryRequest(1L, "가".repeat(1000), null, null)
+        );
+        mockMvc.perform(post("/api/v1/ai/rag/query").contentType(MediaType.APPLICATION_JSON).content(body))
+            .andExpect(status().isOk());
+    }
+
+    @Test
+    void queryRejectsQuestionExceedingMaxLengthWithoutCallingFastApi() throws Exception {
+        // 질문 길이에 상한이 없으면 임베딩 정확도에 기여하지도 않는 거대 페이로드가 재작성
+        // LLM 호출과 프롬프트로 그대로 흘러간다. history content(1000자)와 같은 기준으로 끊는다.
+        authenticateAs(5L);
+        RagController controller = new RagController(fastApiRagClient, rateLimiter);
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
+
+        String body = objectMapper.writeValueAsString(
+            new RagQueryRequest(1L, "가".repeat(1001), null, null)
+        );
+        mockMvc.perform(post("/api/v1/ai/rag/query").contentType(MediaType.APPLICATION_JSON).content(body))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.code").value("INVALID_QUESTION"));
+
+        verify(fastApiRagClient, org.mockito.Mockito.never()).query(any());
+    }
+
+    @Test
     void queryRejectsHistoryMessageWithNullContent() throws Exception {
         authenticateAs(5L);
         RagController controller = new RagController(fastApiRagClient, rateLimiter);

@@ -681,6 +681,86 @@ async def test_sources_map_one_to_one_to_search_rows_without_cross_wiring() -> N
     ]
 
 
+@pytest.mark.asyncio
+async def test_sources_collapse_chunks_from_the_same_origin() -> None:
+    """긴 문서는 여러 청크로 쪼개져 상위 K개가 전부 같은 원본인 경우가 흔하다.
+
+    그대로 내보내면 같은 회의록 링크가 5줄 반복돼 근거가 하나뿐이라는 사실이 가려진다.
+    유사도 내림차순이므로 각 원본의 첫 등장(=최고 유사도)만 남긴다.
+    """
+    rows = [
+        {"source_type": "meeting", "source_id": 3, "content": "회의 앞부분", "similarity": 0.95},
+        {"source_type": "meeting", "source_id": 3, "content": "회의 중간부분", "similarity": 0.90},
+        {"source_type": "meeting", "source_id": 3, "content": "회의 뒷부분", "similarity": 0.85},
+        {"source_type": "task", "source_id": 7, "content": "업무 7", "similarity": 0.80},
+    ]
+
+    with (
+        patch(
+            "llm_rag_assistant.app.services.chat_service.embed_text",
+            new=AsyncMock(return_value=[0.1]),
+        ),
+        patch(
+            "llm_rag_assistant.app.services.chat_service.search_similar_chunks",
+            new=AsyncMock(return_value=rows),
+        ),
+        patch(
+            "llm_rag_assistant.app.services.chat_service.enrich_with_facts",
+            new=AsyncMock(return_value=[{**row, "facts": None} for row in rows]),
+        ) as mock_enrich,
+        patch(
+            "llm_rag_assistant.app.services.chat_service.generate_answer",
+            new=AsyncMock(return_value="답변"),
+        ) as mock_generate,
+    ):
+        result = await answer_question(object(), project_id=5, question="질문")
+
+    assert [(source.source_type, source.source_id) for source in result.sources] == [
+        ("meeting", 3),
+        ("task", 7),
+    ]
+    # 남는 건 각 원본의 최고 유사도 건이어야 한다.
+    assert result.sources[0].similarity == 0.95
+    assert result.sources[0].content_snippet == "회의 앞부분"
+    # 컨텍스트는 줄이지 않는다. 청크마다 내용이 달라 합치면 답변 근거가 준다.
+    assert len(mock_enrich.await_args.args[2]) == 4
+    assert len(mock_generate.await_args.args[1]) == 4
+
+
+@pytest.mark.asyncio
+async def test_sources_keep_distinct_origins_that_share_an_id() -> None:
+    """source_id 숫자가 같아도 source_type이 다르면 서로 다른 원본이다 - 합치면 안 된다."""
+    rows = [
+        {"source_type": "task", "source_id": 7, "content": "업무 7", "similarity": 0.9},
+        {"source_type": "action_item", "source_id": 7, "content": "액션 7", "similarity": 0.8},
+    ]
+
+    with (
+        patch(
+            "llm_rag_assistant.app.services.chat_service.embed_text",
+            new=AsyncMock(return_value=[0.1]),
+        ),
+        patch(
+            "llm_rag_assistant.app.services.chat_service.search_similar_chunks",
+            new=AsyncMock(return_value=rows),
+        ),
+        patch(
+            "llm_rag_assistant.app.services.chat_service.enrich_with_facts",
+            new=AsyncMock(return_value=[{**row, "facts": None} for row in rows]),
+        ),
+        patch(
+            "llm_rag_assistant.app.services.chat_service.generate_answer",
+            new=AsyncMock(return_value="답변"),
+        ),
+    ):
+        result = await answer_question(object(), project_id=5, question="질문")
+
+    assert [(source.source_type, source.source_id) for source in result.sources] == [
+        ("task", 7),
+        ("action_item", 7),
+    ]
+
+
 _MULTITURN_HISTORY = [
     {"role": "user", "content": "내 업무가 뭐야?"},
     {"role": "assistant", "content": "로그인 API 구현 업무가 있습니다"},
