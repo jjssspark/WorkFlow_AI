@@ -28,6 +28,9 @@ export function useMeetingRecorder(): UseMeetingRecorder {
   const startedAtRef = useRef<number | null>(null);
   // 세션이 점유 중인지를 나타낸다 — start() 중복 호출을 막고, stop()/에러에서 해제된다.
   const isBusyRef = useRef<boolean>(false);
+  // stop()이 진행 중인지. 종료 버튼 연속 클릭으로 stop()이 겹치면 뒤 호출이
+  // 앞 호출의 Blob 생성 전에 chunksRef를 비워 빈 녹음이 저장되므로 이를 막는다.
+  const isStoppingRef = useRef<boolean>(false);
 
   const stopTimer = useCallback(() => {
     if (timerRef.current) {
@@ -50,12 +53,19 @@ export function useMeetingRecorder(): UseMeetingRecorder {
     };
   }, [stopTimer, stopStreamTracks]);
 
+  // 실패 시에도 마이크를 반드시 끈다. 트랙을 살려두면 브라우저 녹음 표시가 남고,
+  // 곧바로 다시 start()하면 streamRef가 덮어써져 이전 스트림이 영영 정리되지 않는다.
   const failWithError = useCallback((message: string) => {
     stopTimer();
+    stopStreamTracks();
+    mediaRecorderRef.current = null;
+    streamRef.current = null;
+    chunksRef.current = [];
+    startedAtRef.current = null;
     isBusyRef.current = false;
     setStatus("error");
     setError(message);
-  }, [stopTimer]);
+  }, [stopTimer, stopStreamTracks]);
 
   const start = useCallback(async () => {
     // Synchronous guard using ref to prevent same-tick race
@@ -93,8 +103,12 @@ export function useMeetingRecorder(): UseMeetingRecorder {
   }, [failWithError]);
 
   const stop = useCallback(async (): Promise<RecordedAudio | null> => {
+    // 이미 종료 처리가 진행 중이면 어떤 공유 상태도 건드리지 않고 즉시 반환한다.
+    // MediaRecorder.stop()은 state를 동기적으로 inactive로 바꾸므로, 이 가드가 없으면
+    // 두 번째 호출이 아래 조기반환 분기로 들어가 chunksRef를 비워버린다.
+    if (isStoppingRef.current) return null;
+
     const recorder = mediaRecorderRef.current;
-    const stream = streamRef.current;
     // 멈출 대상이 없으면(기저 recorder가 스스로 inactive가 된 경우 포함) 훅이 잠기지 않도록
     // busy 가드와 status를 idle로 되돌린 뒤 반환한다.
     if (!recorder || recorder.state === "inactive") {
@@ -103,27 +117,34 @@ export function useMeetingRecorder(): UseMeetingRecorder {
       mediaRecorderRef.current = null;
       streamRef.current = null;
       chunksRef.current = [];
+      startedAtRef.current = null;
       isBusyRef.current = false;
       setStatus("idle");
       return null;
     }
 
+    isStoppingRef.current = true;
     const mimeType = recorder.mimeType || "audio/webm";
-    const result = await new Promise<RecordedAudio>(resolve => {
-      recorder.onstop = () => {
-        resolve({ blob: new Blob(chunksRef.current, { type: mimeType }), mimeType });
-      };
-      recorder.stop();
-    });
+    try {
+      const result = await new Promise<RecordedAudio>(resolve => {
+        recorder.onstop = () => {
+          resolve({ blob: new Blob(chunksRef.current, { type: mimeType }), mimeType });
+        };
+        recorder.stop();
+      });
 
-    stopTimer();
-    stream?.getTracks().forEach(track => track.stop());
-    mediaRecorderRef.current = null;
-    streamRef.current = null;
-    chunksRef.current = [];
-    isBusyRef.current = false;
-    setStatus("stopped");
-    return result;
+      stopTimer();
+      stopStreamTracks();
+      mediaRecorderRef.current = null;
+      streamRef.current = null;
+      chunksRef.current = [];
+      startedAtRef.current = null;
+      isBusyRef.current = false;
+      setStatus("stopped");
+      return result;
+    } finally {
+      isStoppingRef.current = false;
+    }
   }, [stopTimer, stopStreamTracks]);
 
   return { status, elapsedSeconds, error, start, stop };
