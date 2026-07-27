@@ -54,7 +54,7 @@ class NotificationControllerTest {
     void listsNotificationsForCurrentUser() throws Exception {
         authenticateAs(5L);
         Notification n = new Notification(5L, "TASK_ASSIGNED", "새 업무 배정", "'로그인 API' 업무가 배정되었습니다.", "task", 42L);
-        when(notificationRepository.findTop50ByUserIdOrderByCreatedAtDesc(5L)).thenReturn(List.of(n));
+        when(notificationRepository.findTop20ByUserIdOrderByCreatedAtDesc(5L)).thenReturn(List.of(n));
 
         mockMvc.perform(get("/api/v1/notifications"))
             .andExpect(status().isOk())
@@ -149,10 +149,10 @@ class NotificationControllerTest {
     }
 
     @Test
-    void capsIdsAtFifty() throws Exception {
+    void capsIdsAtTwenty() throws Exception {
         authenticateAs(5L);
         List<Long> tooMany = java.util.stream.LongStream.rangeClosed(1, 60).boxed().toList();
-        List<Long> expectedCapped = tooMany.subList(0, 50);
+        List<Long> expectedCapped = tooMany.subList(0, 20);
         String idsJson = tooMany.toString();
         when(notificationRepository.findByIdInAndUserId(eq(expectedCapped), eq(5L))).thenReturn(List.of());
 
