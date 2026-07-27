@@ -100,15 +100,15 @@ async def test_leader_tool_blocked_as_unsupported_even_for_leader() -> None:
     (누르면 프론트가 거부하는 계약 불일치 방지)."""
     from llm_rag_assistant.app.graph.assistant_graph import start_command
 
-    # change_assignee는 아직 실행기 미구현이라 SUPPORTED_TOOLS에 없다.
-    plan = [Action(tool="change_assignee", task_ref="WF-250", args={"assignee_name": "김철수"})]
+    # delete_task는 아직 실행기 미구현이라 SUPPORTED_TOOLS에 없다.
+    plan = [Action(tool="delete_task", task_ref="WF-250", args={})]
     with patch(
         "llm_rag_assistant.app.graph.assistant_graph.plan_actions", new=AsyncMock(return_value=plan)
     ), patch(
         "llm_rag_assistant.app.graph.assistant_graph.resolve_task_ref",
         new=AsyncMock(return_value=TaskMatch(task_id=37, title="업무")),
     ):
-        outcome = await start_command(object(), _state("담당자 바꿔줘", role="LEADER"))
+        outcome = await start_command(object(), _state("업무 삭제해줘", role="LEADER"))
 
     assert outcome.type == "done"
     assert outcome.card is None
@@ -157,6 +157,47 @@ async def test_leader_can_rename_task() -> None:
     assert outcome.card.args["title"] == "로그인 API 리팩터링"
     # 카드 요약에 바뀔 이름이 보여야 사용자가 승인 전에 확인할 수 있다.
     assert "로그인 API 리팩터링" in outcome.card.summary
+
+
+@pytest.mark.asyncio
+async def test_leader_can_change_assignee() -> None:
+    """change_assignee는 팀장 전용이고 실행기가 지원한다. 팀장은 확인 카드를 받는다."""
+    from llm_rag_assistant.app.graph.assistant_graph import start_command
+
+    plan = [Action(tool="change_assignee", task_ref="WF-250", args={"assignee_name": "김철수"})]
+    with patch(
+        "llm_rag_assistant.app.graph.assistant_graph.plan_actions", new=AsyncMock(return_value=plan)
+    ), patch(
+        "llm_rag_assistant.app.graph.assistant_graph.resolve_task_ref",
+        new=AsyncMock(return_value=TaskMatch(task_id=72, title="결제 모듈 연동")),
+    ):
+        outcome = await start_command(object(), _state("WF-250 담당자 김철수로 바꿔줘", role="LEADER"))
+
+    assert outcome.type == "confirm"
+    assert outcome.card is not None
+    assert outcome.card.tool == "change_assignee"
+    assert outcome.card.task_id == 72
+    assert outcome.card.args["assignee_name"] == "김철수"
+    # 카드는 이름만 싣는다. 실제 id 해소는 프론트 실행기가 멤버 목록을 받아 처리한다.
+    assert "김철수" in outcome.card.summary
+
+
+@pytest.mark.asyncio
+async def test_member_is_blocked_for_change_assignee() -> None:
+    from llm_rag_assistant.app.graph.assistant_graph import start_command
+
+    plan = [Action(tool="change_assignee", task_ref="WF-250", args={"assignee_name": "김철수"})]
+    with patch(
+        "llm_rag_assistant.app.graph.assistant_graph.plan_actions", new=AsyncMock(return_value=plan)
+    ), patch(
+        "llm_rag_assistant.app.graph.assistant_graph.resolve_task_ref",
+        new=AsyncMock(return_value=TaskMatch(task_id=72, title="결제 모듈 연동")),
+    ):
+        outcome = await start_command(object(), _state("담당자 바꿔줘", role="MEMBER"))
+
+    assert outcome.type == "done"
+    assert outcome.card is None
+    assert "팀장" in outcome.message
 
 
 @pytest.mark.asyncio

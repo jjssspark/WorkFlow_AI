@@ -1,6 +1,7 @@
 import { updateTaskPosition, updateTask } from "../../../board/libs/utils/taskApi";
 import { createTaskComment } from "../../../board/libs/utils/taskCommentApi";
 import { fetchChecklist, updateChecklistItem } from "../../../board/libs/utils/checklistApi";
+import { getProjectMembers, type MemberResponse } from "../../../global/api/projectsApi";
 import type { TaskStatus } from "../../../board/libs/types/task";
 import type { ActionCard } from "../types/command";
 
@@ -25,6 +26,32 @@ function isValidCalendarDate(value: string): boolean {
   const [y, m, d] = value.split("-").map(Number);
   const dt = new Date(Date.UTC(y, m - 1, d));
   return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
+}
+
+/**
+ * 담당자 이름을 프로젝트 멤버 한 명으로 좁힌다.
+ *
+ * 카드는 사용자가 말한 이름("김철수")만 담고 있고 업무 수정 API는 id를 요구하므로, 멤버
+ * 목록을 받아 여기서 해소한다. 정확히 한 명으로 좁혀지지 않으면 실행하지 않는다 - 엉뚱한
+ * 사람에게 업무를 넘기는 것이 되묻는 것보다 훨씬 나쁘다.
+ *
+ * 정확 일치가 여러 건일 수 있다(동명이인). 그때 첫 번째를 고르면 조용히 틀린 사람에게
+ * 배정되므로, 정확 일치도 1건일 때만 확정한다.
+ */
+function resolveMember(
+  members: readonly MemberResponse[],
+  name: string
+): { ok: true; member: MemberResponse } | { ok: false; error: string } {
+  const exact = members.filter(member => member.name.trim() === name);
+  const matches = exact.length > 0 ? exact : members.filter(member => member.name.includes(name));
+
+  if (matches.length === 0) {
+    return { ok: false, error: `'${name}' 담당자를 프로젝트 멤버에서 찾지 못했습니다.` };
+  }
+  if (matches.length > 1) {
+    return { ok: false, error: "이름이 겹치는 멤버가 여러 명입니다. 더 구체적으로 말씀해주세요." };
+  }
+  return { ok: true, member: matches[0] };
 }
 
 /**
@@ -94,8 +121,17 @@ export async function executeAction(card: ActionCard, projectId: number): Promis
         await updateTask(taskId, { title }, projectId);
         return { ok: true };
       }
+      case "change_assignee": {
+        const name = String(card.args.assignee_name ?? "").trim();
+        // 빈 이름이면 members.includes("")가 모두 참이라 아무나 걸린다.
+        if (!name) return { ok: false, error: "담당자 이름이 지정되지 않았습니다." };
+        const resolved = resolveMember(await getProjectMembers(projectId), name);
+        if (!resolved.ok) return { ok: false, error: resolved.error };
+        await updateTask(taskId, { assigneeId: String(resolved.member.userId) }, projectId);
+        return { ok: true };
+      }
       default:
-        // 나머지 팀장 전용 도구(change_assignee·delete_task)는 아직 미구현이다.
+        // 나머지 팀장 전용 도구(delete_task)는 아직 미구현이다.
         // 그래프 SUPPORTED_TOOLS에도 없어 카드 자체가 오지 않지만, 방어적으로 거부한다.
         return { ok: false, error: "아직 지원하지 않는 작업입니다." };
     }

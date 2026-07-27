@@ -3,6 +3,7 @@ import { executeAction } from "./actionExecutor";
 import { updateTaskPosition, updateTask } from "../../../board/libs/utils/taskApi";
 import { createTaskComment } from "../../../board/libs/utils/taskCommentApi";
 import { fetchChecklist, updateChecklistItem } from "../../../board/libs/utils/checklistApi";
+import { getProjectMembers, type MemberResponse } from "../../../global/api/projectsApi";
 import type { ActionCard } from "../types/command";
 
 vi.mock("../../../board/libs/utils/taskApi", () => ({ updateTaskPosition: vi.fn(), updateTask: vi.fn() }));
@@ -11,6 +12,11 @@ vi.mock("../../../board/libs/utils/checklistApi", () => ({
   fetchChecklist: vi.fn(),
   updateChecklistItem: vi.fn(),
 }));
+vi.mock("../../../global/api/projectsApi", () => ({ getProjectMembers: vi.fn() }));
+
+function member(userId: number, name: string): MemberResponse {
+  return { userId, name, email: `${userId}@example.com`, role: "팀원" };
+}
 
 function card(overrides: Partial<ActionCard>): ActionCard {
   return {
@@ -189,6 +195,95 @@ describe("executeAction", () => {
     );
 
     expect(result.ok).toBe(false);
+    expect(updateTask).not.toHaveBeenCalled();
+  });
+
+  it("resolves the assignee name to a member id for change_assignee", async () => {
+    vi.mocked(getProjectMembers).mockResolvedValue([member(5, "김철수"), member(9, "이영희")]);
+    vi.mocked(updateTask).mockResolvedValue({} as never);
+
+    const result = await executeAction(
+      card({ tool: "change_assignee", args: { assignee_name: "김철수" } }),
+      1
+    );
+
+    expect(result.ok).toBe(true);
+    expect(updateTask).toHaveBeenCalledWith("37", { assigneeId: "5" }, 1);
+  });
+
+  it("falls back to a partial name match when there is exactly one", async () => {
+    vi.mocked(getProjectMembers).mockResolvedValue([member(5, "김철수"), member(9, "이영희")]);
+    vi.mocked(updateTask).mockResolvedValue({} as never);
+
+    const result = await executeAction(
+      card({ tool: "change_assignee", args: { assignee_name: "철수" } }),
+      1
+    );
+
+    expect(result.ok).toBe(true);
+    expect(updateTask).toHaveBeenCalledWith("37", { assigneeId: "5" }, 1);
+  });
+
+  it("refuses to guess between members with the same name", async () => {
+    // 동명이인일 때 첫 번째를 고르면 조용히 틀린 사람에게 배정된다.
+    vi.mocked(getProjectMembers).mockResolvedValue([member(5, "김철수"), member(8, "김철수")]);
+
+    const result = await executeAction(
+      card({ tool: "change_assignee", args: { assignee_name: "김철수" } }),
+      1
+    );
+
+    expect(result.ok).toBe(false);
+    expect(updateTask).not.toHaveBeenCalled();
+  });
+
+  it("refuses an ambiguous partial name match", async () => {
+    vi.mocked(getProjectMembers).mockResolvedValue([member(5, "김민수"), member(8, "박민수")]);
+
+    const result = await executeAction(
+      card({ tool: "change_assignee", args: { assignee_name: "민수" } }),
+      1
+    );
+
+    expect(result.ok).toBe(false);
+    expect(updateTask).not.toHaveBeenCalled();
+  });
+
+  it("prefers an exact name match over a longer partial one", async () => {
+    // "김민"이 "김민수"에도 부분 일치하지만, 정확히 같은 이름이 있으면 그 사람이다.
+    vi.mocked(getProjectMembers).mockResolvedValue([member(5, "김민"), member(8, "김민수")]);
+    vi.mocked(updateTask).mockResolvedValue({} as never);
+
+    const result = await executeAction(
+      card({ tool: "change_assignee", args: { assignee_name: "김민" } }),
+      1
+    );
+
+    expect(result.ok).toBe(true);
+    expect(updateTask).toHaveBeenCalledWith("37", { assigneeId: "5" }, 1);
+  });
+
+  it("refuses when the name matches no project member", async () => {
+    vi.mocked(getProjectMembers).mockResolvedValue([member(5, "김철수")]);
+
+    const result = await executeAction(
+      card({ tool: "change_assignee", args: { assignee_name: "홍길동" } }),
+      1
+    );
+
+    expect(result.ok).toBe(false);
+    expect(updateTask).not.toHaveBeenCalled();
+  });
+
+  it("refuses an empty assignee name without fetching members", async () => {
+    // 빈 이름이면 includes("")가 모두 참이라 아무나 걸린다.
+    const result = await executeAction(
+      card({ tool: "change_assignee", args: { assignee_name: "   " } }),
+      1
+    );
+
+    expect(result.ok).toBe(false);
+    expect(getProjectMembers).not.toHaveBeenCalled();
     expect(updateTask).not.toHaveBeenCalled();
   });
 });
