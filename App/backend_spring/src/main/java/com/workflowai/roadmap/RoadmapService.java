@@ -121,9 +121,7 @@ public class RoadmapService {
     public void deleteMilestone(String projectIdParam, Long milestoneId) {
         Long projectId = demoDataService.resolveProjectId(projectIdParam);
         Milestone milestone = requireMilestone(projectId, milestoneId);
-        taskRepository.findByProjectIdOrderByStatusAscPositionAsc(projectId).stream()
-            .filter(task -> milestoneId.equals(task.getMilestoneId()))
-            .forEach(task -> task.moveToMilestone(null));
+        taskRepository.clearMilestoneId(projectId, milestoneId);
         milestoneRepository.delete(milestone);
     }
 

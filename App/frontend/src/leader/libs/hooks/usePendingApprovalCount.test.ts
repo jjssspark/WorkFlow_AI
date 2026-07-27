@@ -39,6 +39,13 @@ describe("usePendingApprovalCount", () => {
     expect(fetchPendingApprovalTasks).not.toHaveBeenCalled();
   });
 
+  it("does not call the API when no project is selected", () => {
+    const { result } = renderHook(() => usePendingApprovalCount(null));
+
+    expect(result.current).toBe(0);
+    expect(fetchPendingApprovalTasks).not.toHaveBeenCalled();
+  });
+
   it("silently falls back to 0 when the fetch fails", async () => {
     vi.mocked(fetchPendingApprovalTasks).mockRejectedValue(new Error("네트워크 오류"));
 
@@ -46,5 +53,31 @@ describe("usePendingApprovalCount", () => {
 
     await waitFor(() => expect(fetchPendingApprovalTasks).toHaveBeenCalled());
     expect(result.current).toBe(0);
+  });
+
+  it("does not call the API and returns 0 when there is no project context", () => {
+    const { result } = renderHook(() => usePendingApprovalCount(null));
+
+    expect(result.current).toBe(0);
+    expect(fetchPendingApprovalTasks).not.toHaveBeenCalled();
+  });
+
+  it("resets to 0 immediately when projectId changes, instead of showing the previous project's count", async () => {
+    let resolveSecond: (tasks: Task[]) => void = () => {};
+    vi.mocked(fetchPendingApprovalTasks)
+      .mockResolvedValueOnce([makeTask("T1"), makeTask("T2")])
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveSecond = resolve; }));
+
+    const { result, rerender } = renderHook(
+      ({ projectId }) => usePendingApprovalCount(projectId),
+      { initialProps: { projectId: 1 } }
+    );
+    await waitFor(() => expect(result.current).toBe(2));
+
+    rerender({ projectId: 2 });
+    expect(result.current).toBe(0);
+
+    resolveSecond([makeTask("T3")]);
+    await waitFor(() => expect(result.current).toBe(1));
   });
 });

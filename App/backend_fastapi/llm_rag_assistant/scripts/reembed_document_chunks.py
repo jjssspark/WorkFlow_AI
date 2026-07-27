@@ -2,8 +2,9 @@
 document_chunks 전체 임베딩을 최신 embed_text() 모델(BAAI/bge-m3)로 재계산해서 덮어쓴다.
 
 임베딩 모델을 바꾸면 기존 벡터는 새 모델의 벡터 공간과 차원이 달라 호환되지 않는다.
-이 스크립트를 실행하기 전에 반드시 docs/db/migrations/007_document_chunks_vector_1024.sql을
-먼저 적용해서 컬럼 타입을 바꿔야 한다(이 스크립트는 스키마를 바꾸지 않는다).
+이 스크립트를 실행하기 전에 반드시 V20260707_2__document_chunks_vector_1024.sql
+(App/backend_spring/src/main/resources/db/migration)을 먼저 적용해서 컬럼 타입을 바꿔야
+한다(이 스크립트는 스키마를 바꾸지 않는다).
 
 실행:
     cd App/backend_fastapi

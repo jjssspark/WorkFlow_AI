@@ -55,7 +55,12 @@ async function refreshTokens(): Promise<boolean> {
   }
 }
 
-export async function apiFetch<T>(path: string, options: RequestInit = {}, retry = true): Promise<T> {
+export async function apiFetch<T>(
+  path: string,
+  options: RequestInit = {},
+  retry = true,
+  timeoutMs?: number
+): Promise<T> {
   const accessToken = tokenStore.getAccessToken();
   const testSessionId = tokenStore.getTestSessionId();
   const headers = new Headers(options.headers);
@@ -65,7 +70,24 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}, retry
     headers.set("Content-Type", "application/json");
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, { ...options, headers });
+  const timeoutController = timeoutMs ? new AbortController() : null;
+  const timeoutId = timeoutController ? setTimeout(() => timeoutController.abort(), timeoutMs) : null;
+
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      ...options,
+      headers,
+      signal: timeoutController?.signal ?? options.signal,
+    });
+  } catch (error) {
+    if (timeoutController?.signal.aborted) {
+      throw new ApiRequestError("요청이 너무 오래 걸려 중단되었습니다. 잠시 후 다시 시도해주세요.", 0, "REQUEST_TIMEOUT");
+    }
+    throw error;
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
 
   if (response.status === 401 && retry && accessToken) {
     if (!refreshPromise) {
@@ -75,7 +97,7 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}, retry
     }
     const refreshed = await refreshPromise;
     if (refreshed) {
-      return apiFetch<T>(path, options, false);
+      return apiFetch<T>(path, options, false, timeoutMs);
     }
     throw new ApiRequestError("인증이 만료되었습니다. 다시 로그인해주세요.", 401, "UNAUTHORIZED");
   }

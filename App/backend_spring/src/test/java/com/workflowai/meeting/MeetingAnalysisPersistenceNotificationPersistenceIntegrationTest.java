@@ -3,6 +3,8 @@ package com.workflowai.meeting;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workflowai.common.DemoDataService;
+import com.workflowai.notification.NotificationAsyncSender;
+import com.workflowai.notification.NotificationBroadcaster;
 import com.workflowai.notification.NotificationRepository;
 import com.workflowai.notification.NotificationService;
 import com.workflowai.rag.RagIngestService;
@@ -31,7 +33,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  */
 @DataJpaTest
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
-@Import({MeetingAnalysisPersistence.class, NotificationService.class})
+@Import({MeetingAnalysisPersistence.class, NotificationService.class, NotificationAsyncSender.class})
 @TestPropertySource(properties = {
     "spring.jpa.hibernate.ddl-auto=create-drop",
     "spring.jpa.database-platform=org.hibernate.dialect.H2Dialect",
@@ -57,6 +59,9 @@ class MeetingAnalysisPersistenceNotificationPersistenceIntegrationTest {
     @MockBean
     private DemoDataService demoDataService;
 
+    @MockBean
+    private NotificationBroadcaster notificationBroadcaster;
+
     private Long saveTestMeeting() {
         Meeting meeting = new Meeting(1L, "정기회의", "document", null, "processing", LocalDate.now(), "정기회의", "a.txt", 10L, null);
         return meetingRepository.save(meeting).getId();
@@ -79,7 +84,7 @@ class MeetingAnalysisPersistenceNotificationPersistenceIntegrationTest {
         // 커밋된 것인지(같은 스레드의 미커밋 상태를 우연히 보는 게 아닌지) 확인한다.
         List<com.workflowai.notification.Notification> notifications =
             new TransactionTemplate(transactionManager).execute(status ->
-                notificationRepository.findTop50ByUserIdOrderByCreatedAtDesc(10L));
+                notificationRepository.findTop20ByUserIdOrderByCreatedAtDesc(10L));
 
         assertThat(notifications).hasSize(1);
         assertThat(notifications.get(0).getType()).isEqualTo("MEETING_ANALYSIS_COMPLETED");
@@ -95,6 +100,6 @@ class MeetingAnalysisPersistenceNotificationPersistenceIntegrationTest {
             return null;
         });
 
-        assertThat(notificationRepository.findTop50ByUserIdOrderByCreatedAtDesc(10L)).isEmpty();
+        assertThat(notificationRepository.findTop20ByUserIdOrderByCreatedAtDesc(10L)).isEmpty();
     }
 }

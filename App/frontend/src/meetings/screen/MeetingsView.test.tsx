@@ -4,16 +4,28 @@ import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { buildGeneratedTodos, deriveCurrentUserRole, MeetingsView } from "./MeetingsView";
 import type { MeetingAiResult } from "../libs/types/meetingAiTypes";
+import { ApiRequestError } from "../../global/api/apiClient";
 
+const mockUseAuth = vi.fn();
 vi.mock("../../global/hooks/useAuth", () => ({
-  useAuth: () => ({
-    user: { id: 1, email: "leader@test.com", name: "김민준" },
-    projectRoles: [{ projectId: 1, projectTitle: "테스트 프로젝트", role: "팀장" }],
-    currentProjectId: 1,
-    currentProject: { projectId: 1, projectTitle: "테스트 프로젝트", role: "팀장" },
-    logout: vi.fn(),
-  }),
+  useAuth: () => mockUseAuth(),
 }));
+
+const asLeader = () => ({
+  user: { id: 1, email: "leader@test.com", name: "김민준" },
+  projectRoles: [{ projectId: 1, projectTitle: "테스트 프로젝트", role: "팀장" }],
+  currentProjectId: 1,
+  currentProject: { projectId: 1, projectTitle: "테스트 프로젝트", role: "팀장" },
+  logout: vi.fn(),
+});
+
+const asReviewer = () => ({
+  user: { id: 2, email: "reviewer@test.com", name: "박심사" },
+  projectRoles: [{ projectId: 1, projectTitle: "테스트 프로젝트", role: "심사자" }],
+  currentProjectId: 1,
+  currentProject: { projectId: 1, projectTitle: "테스트 프로젝트", role: "심사자" },
+  logout: vi.fn(),
+});
 
 vi.mock("../../global/api/projectsApi", () => ({
   getProjectMembers: vi.fn().mockResolvedValue([
@@ -23,14 +35,18 @@ vi.mock("../../global/api/projectsApi", () => ({
 
 const fetchMeetings = vi.fn();
 const fetchMeeting = vi.fn();
+const deleteMeeting = vi.fn();
+const deleteMeetingAnalysis = vi.fn();
+const retryMeetingAnalysis = vi.fn();
 
 vi.mock("../libs/utils/meetingAiApi", () => ({
   analyzeMeeting: vi.fn(),
   confirmMeetingSave: vi.fn(),
   fetchMeeting: (...args: unknown[]) => fetchMeeting(...args),
   fetchMeetings: (...args: unknown[]) => fetchMeetings(...args),
-  deleteMeeting: vi.fn(),
-  retryMeetingAnalysis: vi.fn(),
+  deleteMeeting: (...args: unknown[]) => deleteMeeting(...args),
+  deleteMeetingAnalysis: (...args: unknown[]) => deleteMeetingAnalysis(...args),
+  retryMeetingAnalysis: (...args: unknown[]) => retryMeetingAnalysis(...args),
   registerMeetingTasks: vi.fn(),
 }));
 
@@ -111,6 +127,7 @@ describe("MeetingsView 홈 탭", () => {
   beforeEach(() => {
     localStorage.clear();
     vi.clearAllMocks();
+    mockUseAuth.mockReturnValue(asLeader());
     fetchMeetings.mockResolvedValue([
       { meetingId: "1", title: "저장된 정기회의", meetingDate: "2026-07-19", meetingType: "정기회의", analysisStatus: "completed", savedAt: "2026-07-19T10:00:00", originalMeetingId: null, tasksRegistered: false },
       { meetingId: "2", title: "미저장 준비회의", meetingDate: "2026-07-20", meetingType: "정기회의", analysisStatus: "completed", savedAt: null, originalMeetingId: null, tasksRegistered: false },
@@ -253,5 +270,206 @@ describe("MeetingsView 홈 탭", () => {
 
     await waitFor(() => expect(screen.getByRole("button", { name: "분석/업로드" })).toHaveClass("border-blue-600"));
     expect(screen.getByRole("button", { name: "저장된 회의록" })).not.toHaveClass("border-blue-600");
+  });
+
+  it("meetingId 쿼리파라미터의 회의록이 수정본(버전)이면 저장된 회의록 탭으로 전환된다", async () => {
+    // "6"은 originalMeetingId가 있는 버전이다 — 분석/업로드 탭이 아니라 저장된 회의록 탭으로 가야 한다.
+    fetchMeetings.mockResolvedValue([
+      { meetingId: "1", title: "저장된 정기회의", meetingDate: "2026-07-19", meetingType: "정기회의", analysisStatus: "completed", savedAt: "2026-07-19T10:00:00", originalMeetingId: null, tasksRegistered: false },
+      { meetingId: "6", title: "저장된 정기회의_수정본", meetingDate: "2026-07-23", meetingType: "정기회의", analysisStatus: "pending", savedAt: "2026-07-23T10:00:00", originalMeetingId: "1", tasksRegistered: false },
+    ]);
+    render(
+      <MemoryRouter initialEntries={["/meetings?meetingId=6"]}>
+        <MeetingsView />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(fetchMeetings).toHaveBeenCalled());
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "저장된 회의록" })).toHaveClass("border-blue-600"));
+    expect(screen.getByRole("button", { name: "분석/업로드" })).not.toHaveClass("border-blue-600");
+  });
+});
+
+describe("MeetingsView 삭제 플로우 분리", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.clearAllMocks();
+    mockUseAuth.mockReturnValue(asLeader());
+    deleteMeetingAnalysis.mockResolvedValue({ meetingId: "1", status: "DELETED" });
+    deleteMeeting.mockResolvedValue({ meetingId: "1", status: "DELETED" });
+    // 목록에서 첫 회의록이 자동 선택되면서 상세 조회 effect가 fetchMeeting을 호출하므로 목업해둔다.
+    fetchMeeting.mockResolvedValue({
+      meetingId: "1",
+      projectId: "1",
+      status: "COMPLETED",
+      sourceType: "document",
+      fileName: "meeting.txt",
+      analysisSource: "FASTAPI",
+      analysis: null,
+      errorMessage: null,
+      attendees: [],
+    });
+  });
+
+  it("분석 완료된 회의록의 삭제 버튼을 누르면 '분석 결과 삭제' 확인 모달이 뜬다", async () => {
+    fetchMeetings.mockResolvedValue([
+      { meetingId: "1", title: "분석완료 회의", meetingDate: "2026-07-19", meetingType: "정기회의", analysisStatus: "completed", savedAt: null, originalMeetingId: null, tasksRegistered: false },
+    ]);
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={["/meetings"]}>
+        <MeetingsView />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(fetchMeetings).toHaveBeenCalled());
+    await user.click(await screen.findByLabelText("분석완료 회의 분석 결과 삭제"));
+
+    expect(await screen.findByText("분석 결과 삭제")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "분석 결과만 삭제" })).toBeInTheDocument();
+    expect(screen.getByText("분석 결과 + To-Do 삭제")).toBeInTheDocument();
+  });
+
+  it("'분석 결과만 삭제'를 누르면 deleteMeetingAnalysis를 호출하고 목록에서 카드가 사라지지 않는다", async () => {
+    fetchMeetings.mockResolvedValue([
+      { meetingId: "1", title: "분석완료 회의", meetingDate: "2026-07-19", meetingType: "정기회의", analysisStatus: "completed", savedAt: null, originalMeetingId: null, tasksRegistered: false },
+    ]);
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={["/meetings"]}>
+        <MeetingsView />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(fetchMeetings).toHaveBeenCalled());
+    await user.click(await screen.findByLabelText("분석완료 회의 분석 결과 삭제"));
+    await user.click(await screen.findByRole("button", { name: "분석 결과만 삭제" }));
+
+    await waitFor(() => expect(deleteMeetingAnalysis).toHaveBeenCalledWith("1", "1", false));
+    expect(deleteMeeting).not.toHaveBeenCalled();
+    expect(await screen.findByText("분석 결과가 삭제되었습니다.")).toBeInTheDocument();
+    expect(screen.getByText("분석완료 회의")).toBeInTheDocument();
+  });
+
+  it("분석 전(pending/processing/failed) 회의록의 삭제 버튼은 기존처럼 전체 삭제(deleteMeeting) 확인 모달을 띄운다", async () => {
+    fetchMeetings.mockResolvedValue([
+      { meetingId: "2", title: "분석중 회의", meetingDate: "2026-07-20", meetingType: "정기회의", analysisStatus: "processing", savedAt: null, originalMeetingId: null, tasksRegistered: false },
+    ]);
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={["/meetings"]}>
+        <MeetingsView />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(fetchMeetings).toHaveBeenCalled());
+    await user.click(await screen.findByLabelText("분석중 회의 회의록 삭제"));
+
+    expect(await screen.findByText("회의록 삭제")).toBeInTheDocument();
+    await user.click(screen.getByText("삭제"));
+
+    await waitFor(() => expect(deleteMeeting).toHaveBeenCalledWith("1", "2", false));
+    expect(deleteMeetingAnalysis).not.toHaveBeenCalled();
+  });
+
+  it("분석 결과 삭제 요청이 타임아웃되면 실패로 단정하지 않고 서버 목록을 다시 조회한다", async () => {
+    fetchMeetings.mockResolvedValue([
+      { meetingId: "1", title: "분석완료 회의", meetingDate: "2026-07-19", meetingType: "정기회의", analysisStatus: "completed", savedAt: null, originalMeetingId: null, tasksRegistered: false },
+    ]);
+    deleteMeetingAnalysis.mockRejectedValue(new ApiRequestError("요청이 너무 오래 걸려 중단되었습니다.", 0, "REQUEST_TIMEOUT"));
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={["/meetings"]}>
+        <MeetingsView />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(fetchMeetings).toHaveBeenCalledTimes(1));
+    await user.click(await screen.findByLabelText("분석완료 회의 분석 결과 삭제"));
+    await user.click(await screen.findByRole("button", { name: "분석 결과만 삭제" }));
+
+    await waitFor(() => expect(deleteMeetingAnalysis).toHaveBeenCalledWith("1", "1", false));
+    expect(await screen.findByText("삭제 확인이 지연되고 있습니다. 최신 상태를 다시 불러옵니다.")).toBeInTheDocument();
+    await waitFor(() => expect(fetchMeetings).toHaveBeenCalledTimes(2));
+  });
+
+  it("'저장된 회의록' 탭의 새 삭제 버튼은 원본 삭제(deleteMeeting)를 호출한다", async () => {
+    fetchMeetings.mockResolvedValue([
+      { meetingId: "3", title: "저장된 회의", meetingDate: "2026-07-21", meetingType: "정기회의", analysisStatus: "completed", savedAt: "2026-07-21T10:00:00", originalMeetingId: null, tasksRegistered: false },
+    ]);
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={["/meetings"]}>
+        <MeetingsView />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(fetchMeetings).toHaveBeenCalled());
+    await user.click(screen.getByRole("button", { name: "저장된 회의록" }));
+    await user.click(await screen.findByLabelText("저장된 회의 회의록 삭제"));
+
+    expect(await screen.findByText("회의록 삭제")).toBeInTheDocument();
+    await user.click(screen.getByText("삭제"));
+
+    await waitFor(() => expect(deleteMeeting).toHaveBeenCalledWith("1", "3", false));
+    expect(deleteMeetingAnalysis).not.toHaveBeenCalled();
+  });
+});
+
+describe("MeetingsView 분석 결과 삭제 후 재분석", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.clearAllMocks();
+    mockUseAuth.mockReturnValue(asLeader());
+    retryMeetingAnalysis.mockResolvedValue({
+      meetingId: "1",
+      projectId: "1",
+      status: "PROCESSING",
+      sourceType: "document",
+      fileName: "meeting.txt",
+      analysisSource: null,
+      analysis: null,
+      errorMessage: null,
+      attendees: [],
+      transcript: null,
+    });
+  });
+
+  it("분석 실패 상태의 회의록을 선택하면 '재분석하기' 버튼이 보이고, 누르면 retryMeetingAnalysis를 호출한다", async () => {
+    fetchMeetings.mockResolvedValue([
+      { meetingId: "1", title: "실패한 회의", meetingDate: "2026-07-19", meetingType: "정기회의", analysisStatus: "failed", savedAt: null, originalMeetingId: null, tasksRegistered: false },
+    ]);
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={["/meetings"]}>
+        <MeetingsView />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(fetchMeetings).toHaveBeenCalled());
+    await user.click(await screen.findByText("실패한 회의"));
+
+    await user.click(await screen.findByRole("button", { name: "재분석하기" }));
+
+    await waitFor(() => expect(retryMeetingAnalysis).toHaveBeenCalledWith("1", "1"));
+  });
+
+  it("심사자에게는 분석 실패 상태의 회의록을 선택해도 '재분석하기' 버튼이 보이지 않는다", async () => {
+    mockUseAuth.mockReturnValue(asReviewer());
+    fetchMeetings.mockResolvedValue([
+      { meetingId: "1", title: "실패한 회의", meetingDate: "2026-07-19", meetingType: "정기회의", analysisStatus: "failed", savedAt: null, originalMeetingId: null, tasksRegistered: false },
+    ]);
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={["/meetings"]}>
+        <MeetingsView />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(fetchMeetings).toHaveBeenCalled());
+    await user.click(await screen.findByText("실패한 회의"));
+
+    expect(screen.queryByRole("button", { name: "재분석하기" })).not.toBeInTheDocument();
   });
 });

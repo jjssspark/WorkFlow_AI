@@ -34,6 +34,19 @@ describe("InviteCodeSection", () => {
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("GX4MKP"));
   });
 
+  it("클립보드 복사가 실패하면 실패 안내를 보여준다", async () => {
+    mockGetProject.mockResolvedValue({ id: 1, inviteCode: "GX4MKP" });
+    writeText.mockRejectedValue(new Error("권한 거부"));
+
+    render(<InviteCodeSection projectId={1} />);
+    await screen.findByText("GX4MKP");
+    await userEvent.click(screen.getByRole("button", { name: "코드 복사" }));
+
+    expect(
+      await screen.findByText("복사하지 못했습니다. 코드를 직접 선택해 복사해주세요"),
+    ).toBeInTheDocument();
+  });
+
   it("초대 코드가 없으면 안내 문구를 보여준다", async () => {
     mockGetProject.mockResolvedValue({ id: 1, inviteCode: null });
 

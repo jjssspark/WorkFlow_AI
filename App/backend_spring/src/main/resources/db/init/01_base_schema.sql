@@ -135,6 +135,7 @@ CREATE TABLE tasks (
     assignee_id  BIGINT NULL,
     start_date   DATE,
     due_date     DATE,
+    done_date    DATE,
     priority     VARCHAR(20),
     description  TEXT,
     position     DOUBLE PRECISION NOT NULL DEFAULT 0,

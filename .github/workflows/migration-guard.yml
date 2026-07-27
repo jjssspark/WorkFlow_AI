@@ -1,0 +1,25 @@
+name: Migration guard
+
+# 이미 DB에 적용된 V파일을 사후 수정하면 Flyway 체크섬 검증이 깨져 운영 Spring이
+# 크래시루프에 빠진다(2026-07-26, 41분 중단). 수정은 머지 전에 막고, 변경이 필요하면
+# 새 V파일을 추가하도록 유도한다.
+on:
+  pull_request:
+    paths:
+      - 'App/backend_spring/src/main/resources/db/migration/**'
+      - '.github/scripts/check-migration-changes.sh'
+      - '.github/workflows/migration-guard.yml'
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Block modification of existing migration files
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: bash .github/scripts/check-migration-changes.sh "$BASE_SHA" "$HEAD_SHA"

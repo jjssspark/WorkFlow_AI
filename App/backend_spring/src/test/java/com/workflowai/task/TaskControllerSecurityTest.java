@@ -1,5 +1,7 @@
 package com.workflowai.task;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
@@ -16,7 +18,10 @@ import com.workflowai.project.ProjectMemberRepository;
 import com.workflowai.project.ProjectRepository;
 import com.workflowai.rag.RagIngestService;
 import com.workflowai.security.ProjectAccess;
+import com.workflowai.security.UserPrincipal;
 import com.workflowai.user.UserRepository;
+import java.util.List;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -25,6 +30,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -69,6 +76,42 @@ class TaskControllerSecurityTest {
 
     @MockitoBean(name = "projectAccess")
     private ProjectAccess projectAccess;
+
+    @AfterEach
+    void clearSecurityContext() {
+        SecurityContextHolder.clearContext();
+    }
+
+    @Test
+    void projectMemberCanCreateTaskForLegacyClientCompatibility() throws Exception {
+        when(projectAccess.isMember("demo-project")).thenReturn(true);
+        when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
+        when(taskRepository.findTopByProjectIdAndStatusOrderByPositionDesc(anyLong(), any()))
+            .thenReturn(java.util.Optional.empty());
+        when(taskRepository.save(any(Task.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        UserPrincipal principal = new UserPrincipal(1L, "member@example.com", "팀원");
+        SecurityContextHolder.getContext().setAuthentication(
+            new UsernamePasswordAuthenticationToken(principal, null, List.of())
+        );
+        mockMvc.perform(post("/api/v1/projects/demo-project/tasks")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"title\":\"팀원 업무\",\"category\":\"backend\"}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.success").value(true));
+    }
+
+    @Test
+    void createTaskReturns403WhenNotProjectMember() throws Exception {
+        when(projectAccess.isMember("demo-project")).thenReturn(false);
+
+        mockMvc.perform(post("/api/v1/projects/demo-project/tasks")
+                .with(user("outsider"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"title\":\"외부 업무\"}"))
+            .andExpect(status().isForbidden())
+            .andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
+    }
 
     @Test
     void updateTaskReturns403WhenNotLeader() throws Exception {

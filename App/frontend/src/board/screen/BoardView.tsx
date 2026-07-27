@@ -27,7 +27,7 @@ function parseFilterParam(searchParams: URLSearchParams, key: string): string[] 
 }
 
 export function BoardView() {
-  const { currentProjectId, currentProject } = useAuth();
+  const { currentProjectId, currentProject, projectContextReady } = useAuth();
   const isLeader = currentProject?.role === "팀장";
   const projectId = currentProjectId ?? DEMO_PROJECT_ID;
   const [projectMembers, setProjectMembers] = useState<MemberResponse[]>([]);
@@ -82,9 +82,13 @@ export function BoardView() {
 
   // 다른 팀원의 변경사항은 실시간으로 반영되지 않고, 이 화면에 새로 들어오거나 새로고침할 때만 반영된다.
   // projectId가 바뀌면(사이드바에서 프로젝트 전환) 그 프로젝트의 업무로 다시 불러온다.
+  // projectContextReady가 되기 전(새로고침 직후 등)에는 currentProjectId가 아직 null이라 DEMO_PROJECT_ID로
+  // 폴백해버리므로, 실제 프로젝트가 확정될 때까지 기다렸다가 불러온다 - 그렇지 않으면 새로고침 시
+  // 잠깐 데모 프로젝트의 보드가 떴다가 바뀌고, 그 사이 삭제 등 액션은 데모 프로젝트로 나가 403이 난다.
   useEffect(() => {
+    if (!projectContextReady) return;
     loadTasks();
-  }, [loadTasks]);
+  }, [loadTasks, projectContextReady]);
 
   // 담당자 배정 UI(카드 아바타, 상세 패널, 드롭다운, 필터)는 현재 프로젝트의 실제 멤버만 보여준다.
   useEffect(() => {

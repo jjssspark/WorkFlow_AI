@@ -9,6 +9,7 @@ import type { OpenAIAssistantEventDetail } from "../libs/utils/openAIAssistant";
 import { ConfirmActionCard } from "../components/ConfirmActionCard";
 import type { ExecutionResult } from "../libs/utils/actionExecutor";
 import { confirmAction } from "../libs/utils/confirmAction";
+import { shouldShowSources } from "../libs/utils/sourceVisibility";
 
 const NO_PROJECT_MESSAGE = "아직 연결된 프로젝트가 없습니다. 프로젝트를 만들고 회의록을 업로드한 뒤 다시 질문해주세요.";
 
@@ -100,9 +101,19 @@ function saveSession(key: string, messages: ChatMsg[]): void {
 interface AIAssistantProps {
   onClose: () => void;
   pendingQuestion?: OpenAIAssistantEventDetail | null;
+  // 닫혀 있어도 언마운트하지 않고 숨기기만 한다. 언마운트하면 아래 정리 함수가 진행 중인
+  // 요청을 끊어 "질문하고 창을 닫으면 답변이 영영 오지 않는" 상태가 된다.
+  isOpen?: boolean;
+  // 닫혀 있는 동안 답변이 도착했음을 알린다. 호출부가 버튼에 표시를 띄우는 데 쓴다.
+  onAnswerWhileClosed?: () => void;
 }
 
-export function AIAssistant({ onClose, pendingQuestion }: AIAssistantProps) {
+export function AIAssistant({
+  onClose,
+  pendingQuestion,
+  isOpen = true,
+  onAnswerWhileClosed,
+}: AIAssistantProps) {
   const { user, currentProjectId, currentProject } = useAuth();
   const sessionKey = useMemo(() => buildSessionKey(user?.id, currentProjectId), [user?.id, currentProjectId]);
   const sessionKeyRef = useRef(sessionKey);
@@ -145,6 +156,13 @@ export function AIAssistant({ onClose, pendingQuestion }: AIAssistantProps) {
     };
   }, [cancel]);
 
+  // isOpen을 아래 효과의 의존성에 넣으면 창을 열 때 효과가 다시 돌아 같은 답변이 한 번 더
+  // 추가된다. 값은 필요하지만 재실행 트리거로는 쓰면 안 되므로 ref로 읽는다.
+  const isOpenRef = useRef(isOpen);
+  isOpenRef.current = isOpen;
+  const onAnswerWhileClosedRef = useRef(onAnswerWhileClosed);
+  onAnswerWhileClosedRef.current = onAnswerWhileClosed;
+
   useEffect(() => {
     if (askedForKeyRef.current !== sessionKey) return;
     if (status === "success" && answer) {
@@ -160,6 +178,9 @@ export function AIAssistant({ onClose, pendingQuestion }: AIAssistantProps) {
     }
     if (status === "error" && error) {
       setMessages(prev => [...prev, { role: "assistant", content: error }]);
+    }
+    if ((status === "success" && answer) || (status === "error" && error)) {
+      if (!isOpenRef.current) onAnswerWhileClosedRef.current?.();
     }
   }, [status, answer, error, sessionKey]);
 
@@ -233,7 +254,13 @@ export function AIAssistant({ onClose, pendingQuestion }: AIAssistantProps) {
   }, [clearCard]);
 
   return (
-    <div className="fixed right-0 top-0 h-full w-[380px] shadow-2xl flex flex-col z-50" style={{ background: "#FFFFFF", fontFamily: "'Inter', 'Noto Sans KR', sans-serif", borderLeft: "1px solid var(--border)" }}>
+    // 숨김은 인라인 display로 건다. 루트가 flex라 Tailwind의 hidden 클래스를 얹으면
+    // 두 display 유틸리티의 우선순위 싸움이 되어 빌드 순서에 따라 결과가 달라진다.
+    // inert/aria-hidden까지 걸어야 닫힌 패널의 입력창이 Tab 순서에 남지 않는다.
+    <div className="fixed right-0 top-0 h-full w-[380px] shadow-2xl flex flex-col z-50"
+      aria-hidden={!isOpen || undefined}
+      inert={!isOpen || undefined}
+      style={{ background: "#FFFFFF", fontFamily: "'Inter', 'Noto Sans KR', sans-serif", borderLeft: "1px solid var(--border)", ...(isOpen ? {} : { display: "none" }) }}>
       {/* Header */}
       <div className="flex items-center justify-between px-5 py-4 border-b border-border" style={{ background: "linear-gradient(135deg, #7048E8 0%, #4F6EF7 100%)" }}>
         <div className="flex items-center gap-2.5">
@@ -245,7 +272,7 @@ export function AIAssistant({ onClose, pendingQuestion }: AIAssistantProps) {
             <div className="text-[10px] text-purple-200">{currentProject?.projectTitle ?? "프로젝트를 선택하세요"}</div>
           </div>
         </div>
-        <button onClick={onClose} className="p-1.5 hover:bg-white/20 rounded-lg transition-colors">
+        <button onClick={onClose} aria-label="AI 어시스턴트 닫기" className="p-1.5 hover:bg-white/20 rounded-lg transition-colors">
           <X className="w-4 h-4 text-white" />
         </button>
       </div>
@@ -274,7 +301,7 @@ export function AIAssistant({ onClose, pendingQuestion }: AIAssistantProps) {
                 style={m.role === "user" ? { background: "linear-gradient(135deg, #3B5BDB 0%, #4F6EF7 100%)" } : {}}>
                 {m.content}
               </div>
-              {m.sources && m.sources.length > 0 && (
+              {m.sources && shouldShowSources(m.content, m.sources) && (
                 <div className="flex flex-wrap gap-1.5 mt-1.5">
                   {m.sources.map((s, si) => (
                     <span key={si} className="text-[10px] px-2 py-0.5 rounded-full bg-secondary text-muted-foreground border border-border">
