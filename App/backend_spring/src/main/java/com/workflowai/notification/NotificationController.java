@@ -87,8 +87,6 @@ public class NotificationController {
         List<Notification> owned = notificationRepository.findByIdInAndUserId(normalizedIds, userId);
         owned.forEach(Notification::markRead);
         notificationRepository.saveAll(owned);
-        // 읽은 알림은 보관할 필요가 없으므로 읽음 처리와 함께 바로 정리한다.
-        notificationRepository.deleteByUserIdAndReadTrue(userId);
         return ResponseEntity.ok(ApiResponse.ok(null));
     }
 

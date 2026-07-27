@@ -4,7 +4,7 @@ import { ChevronRight, Search, Calendar, Bell, LogOut, Menu } from "lucide-react
 import { TAB_TITLES } from "../../lib/constants/nav";
 import type { Tab } from "../../../board/libs/types/task";
 import {
-  ACTION_REQUIRED_NOTIFICATION_TYPES, fetchNotifications, markNotificationsRead,
+  ACTION_REQUIRED_NOTIFICATION_TYPES, fetchNotifications, markNotificationsRead, meetingNotificationPanelQuery,
   type NotificationResponse,
 } from "../../api/notificationApi";
 import { useAuth } from "../../hooks/useAuth";
@@ -185,7 +185,7 @@ export function Header({ onOpenMobileMenu }: { onOpenMobileMenu?: () => void }) 
                           <button
                             onClick={() => {
                               setNotifOpen(false);
-                              navigate(`/meetings?meetingId=${n.targetId}`);
+                              navigate(`/meetings?meetingId=${n.targetId}${meetingNotificationPanelQuery(n.type)}`);
                             }}
                             className="mt-1.5 px-2 py-1 rounded bg-blue-600 text-white text-[10px] font-semibold hover:bg-blue-700"
                           >
@@ -201,7 +201,7 @@ export function Header({ onOpenMobileMenu }: { onOpenMobileMenu?: () => void }) 
           )}
         </div>
 
-        {/* 현재 프로젝트 접속 중인 사용자 아바타 (10~30초 간격 폴링) */}
+        {/* 현재 프로젝트 접속 중인 사용자 아바타 (5초 간격 폴링) */}
         {presenceUsers.length > 0 && (
           <div className="flex items-center gap-1.5 ml-1">
             <div className="flex -space-x-2">

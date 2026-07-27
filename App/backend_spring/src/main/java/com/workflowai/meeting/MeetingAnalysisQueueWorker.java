@@ -322,7 +322,7 @@ public class MeetingAnalysisQueueWorker implements ApplicationRunner {
             return;
         }
         try {
-            runner.runAnalysis(job.meetingId(), job.request(), UUID.fromString(job.jobId()));
+            runner.runAnalysis(job.meetingId(), job.request(), UUID.fromString(job.jobId()), job.requestedBy());
         } catch (RuntimeException exception) {
             log.warn(
                 "Meeting analysis runner failed; record remains pending. recordId={}, jobId={}, meetingId={}, errorType={}",
