@@ -78,6 +78,9 @@ export function isDelayRisk(result: string): boolean {
  * 백엔드 JVM은 Asia/Seoul(KST, UTC+9)로 고정되어 있으므로, 오프셋이 없는 문자열에는
  * "+09:00"을 명시로 붙여 브라우저 타임존과 무관하게 항상 정확한 시각으로 파싱한다. */
 export function parseKstDateTime(dateStr: string): Date {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    return new Date(`${dateStr}T00:00:00+09:00`);
+  }
   const hasOffset = /[Zz]|[+-]\d{2}:?\d{2}$/.test(dateStr);
   return new Date(hasOffset ? dateStr : `${dateStr}+09:00`);
 }
