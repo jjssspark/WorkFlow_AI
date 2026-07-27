@@ -379,9 +379,9 @@ export function DashProgressPage() {
         </div>
         <div className="flex items-center gap-2">
           <button onClick={onGoUrgent} className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-red-200 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors"><AlertTriangle className="w-3.5 h-3.5" />마감 임박 업무</button>
-          <button onClick={handleGenerateReport} disabled={generatingReport} className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-white rounded-lg disabled:opacity-60" style={{ background: "linear-gradient(135deg,#7048E8,#4F6EF7)" }}>
+          {/* <button onClick={handleGenerateReport} disabled={generatingReport} className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-white rounded-lg disabled:opacity-60" style={{ background: "linear-gradient(135deg,#7048E8,#4F6EF7)" }}>
             <Sparkles className="w-3.5 h-3.5" />{generatingReport ? "생성 중..." : "진행률 보고서"}
-          </button>
+          </button> */}
         </div>
       </div>
 
