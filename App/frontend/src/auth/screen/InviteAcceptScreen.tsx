@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
-import { acceptInvitation } from "../../global/api/projectsApi";
+import { acceptInvitation, joinProjectByCode } from "../../global/api/projectsApi";
 
 type Status = "loading" | "success" | "error";
 
@@ -25,9 +25,14 @@ export function InviteAcceptScreen() {
 
     acceptInvitation(token)
       .then(() => setStatus("success"))
-      .catch((err: unknown) => {
-        setStatus("error");
-        setMessage(err instanceof Error ? err.message : "초대 수락에 실패했습니다.");
+      .catch((emailInviteErr: unknown) => {
+        // 이메일 초대 토큰이 아니라 사이드바에서 복사한 프로젝트 참여 코드일 수 있으니 재시도한다.
+        joinProjectByCode(token)
+          .then(() => setStatus("success"))
+          .catch(() => {
+            setStatus("error");
+            setMessage(emailInviteErr instanceof Error ? emailInviteErr.message : "초대 수락에 실패했습니다.");
+          });
       });
   }, [token]);
 

@@ -34,6 +34,18 @@ describe("InviteCodeSection", () => {
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("GX4MKP"));
   });
 
+  it("링크 복사 버튼을 누르면 초대 코드가 담긴 URL을 클립보드에 넣는다", async () => {
+    mockGetProject.mockResolvedValue({ id: 1, inviteCode: "GX4MKP" });
+
+    render(<InviteCodeSection projectId={1} />);
+    await screen.findByText("GX4MKP");
+    await userEvent.click(screen.getByRole("button", { name: "링크 복사" }));
+
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/invite/GX4MKP`),
+    );
+  });
+
   it("클립보드 복사가 실패하면 실패 안내를 보여준다", async () => {
     mockGetProject.mockResolvedValue({ id: 1, inviteCode: "GX4MKP" });
     writeText.mockRejectedValue(new Error("권한 거부"));

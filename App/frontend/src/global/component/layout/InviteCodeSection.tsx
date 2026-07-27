@@ -44,7 +44,7 @@ export function InviteCodeSection({ projectId }: { projectId: number }) {
         </button>
         <button
           type="button"
-          onClick={() => copy(`${window.location.origin}/projects`)}
+          onClick={() => copy(`${window.location.origin}/invite/${code}`)}
           className="px-2 py-1 rounded text-[10px] bg-white/10 text-white hover:bg-white/20"
         >
           링크 복사

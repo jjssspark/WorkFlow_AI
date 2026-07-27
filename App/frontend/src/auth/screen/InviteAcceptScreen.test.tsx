@@ -5,7 +5,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { InviteAcceptScreen } from "./InviteAcceptScreen";
 
 const mockAcceptInvitation = vi.hoisted(() => vi.fn());
-vi.mock("../../global/api/projectsApi", () => ({ acceptInvitation: mockAcceptInvitation }));
+const mockJoinProjectByCode = vi.hoisted(() => vi.fn());
+vi.mock("../../global/api/projectsApi", () => ({
+  acceptInvitation: mockAcceptInvitation,
+  joinProjectByCode: mockJoinProjectByCode,
+}));
 
 const mockNavigate = vi.hoisted(() => vi.fn());
 vi.mock("react-router", async () => {
@@ -25,6 +29,7 @@ function renderAt(path: string) {
 
 beforeEach(() => {
   mockAcceptInvitation.mockReset();
+  mockJoinProjectByCode.mockReset();
   mockNavigate.mockReset();
   sessionStorage.clear();
 });
@@ -51,10 +56,21 @@ describe("InviteAcceptScreen", () => {
 
   it("이미 처리된 초대면 에러 메시지를 보여준다", async () => {
     mockAcceptInvitation.mockRejectedValue(new Error("이미 처리된 초대입니다."));
+    mockJoinProjectByCode.mockRejectedValue(new Error("유효하지 않은 초대 코드입니다."));
 
     renderAt("/invite/AQ28CU79");
 
     expect(await screen.findByText("이미 처리된 초대입니다.")).toBeInTheDocument();
+  });
+
+  it("이메일 초대 토큰이 아니면 프로젝트 참여 코드로 재시도해 참여를 완료한다", async () => {
+    mockAcceptInvitation.mockRejectedValue(new Error("초대를 찾을 수 없습니다."));
+    mockJoinProjectByCode.mockResolvedValue({ id: 1 });
+
+    renderAt("/invite/AQ28CU79");
+
+    expect(await screen.findByText("프로젝트에 참여했습니다.")).toBeInTheDocument();
+    expect(mockJoinProjectByCode).toHaveBeenCalledWith("AQ28CU79");
   });
 
   it("마운트 시 pendingInvite sessionStorage 값을 정리한다", async () => {
