@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { toast } from "sonner";
-import { useRecordingSession } from "../../../meetings/libs/hooks/RecordingSessionProvider";
+import { useRecordingElapsedSeconds, useRecordingSession } from "../../../meetings/libs/hooks/RecordingSessionProvider";
 
 function formatElapsed(totalSeconds: number): string {
   const hours = Math.floor(totalSeconds / 3600);
@@ -10,7 +10,8 @@ function formatElapsed(totalSeconds: number): string {
 }
 
 export function RecordingIndicator() {
-  const { status, elapsedSeconds, error, requestStop } = useRecordingSession();
+  const { status, error, requestStop } = useRecordingSession();
+  const elapsedSeconds = useRecordingElapsedSeconds();
 
   // 녹음 실패(마이크 권한 거부, MediaRecorder 오류)는 이 컴포넌트가 유일한 노출 지점이다.
   useEffect(() => {
