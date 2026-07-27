@@ -1,4 +1,5 @@
-import { createBrowserRouter, Navigate } from "react-router";
+import { createBrowserRouter, Navigate, Outlet, type RouteObject } from "react-router";
+import { Toaster } from "../global/component/ui/sonner";
 import { RequireAuth, RequireRole, RequireAdmin } from "../global/hooks/useAuthGuard";
 import { AppShell } from "../global/component/layout/AppShell";
 import { LoginScreen } from "../auth/screen/LoginScreen";
@@ -28,7 +29,22 @@ import { ContributorsView } from "../contributors/screen/ContributorsView";
 import { MyPageRoute } from "../mypage/screen/MyPageRoute";
 import { ProfileSettingsScreen } from "../mypage/screen/ProfileSettingsScreen";
 
-export const router = createBrowserRouter([
+/**
+ * Toaster를 모든 경로의 바깥 레이아웃에 둔다. 로그인 직후 밀린 알림 토스트는 아직 AppShell
+ * 밖(/login·/projects)에서 발행되는데, sonner는 Toaster가 없을 때 발행된 토스트를 나중에
+ * 다시 보여주지 않으므로 AppShell 안에만 두면 그 알림들이 그대로 사라진다.
+ * 토스트 내용(NotificationToast)이 useNavigate를 쓰므로 라우터 안이어야 한다.
+ */
+function RootLayout() {
+  return (
+    <>
+      <Outlet />
+      <Toaster position="top-right" />
+    </>
+  );
+}
+
+const appRoutes: RouteObject[] = [
   { path: "/login", element: <LoginScreen /> },
   { path: "/signup", element: <SignupScreen /> },
   { path: "/terms", element: <TermsScreen /> },
@@ -90,4 +106,8 @@ export const router = createBrowserRouter([
     ],
   },
   { path: "*", element: <Navigate to="/login" replace /> },
-]);
+];
+
+export const routes: RouteObject[] = [{ element: <RootLayout />, children: appRoutes }];
+
+export const router = createBrowserRouter(routes);
