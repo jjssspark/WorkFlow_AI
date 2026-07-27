@@ -3,7 +3,11 @@ import { apiFetch } from "./apiClient";
 export interface EvaluationScoreDto {
   projectId: number;
   userId: number;
+  // AI가 산정한 기여 점수(기여도 분석 화면 왼쪽 테이블 값). 학점 계산기의 총합(totalScore)과는
+  // 별개 필드다 — 과거엔 하나의 필드를 공유해서 학점 계산기 저장 시 기여 점수가 총합으로
+  // 덮어써지는 버그가 있었다(코드 리뷰로 발견, 2026-07-24).
   score: number;
+  totalScore: number | null;
   contributionPublic: boolean;
   finalPublic: boolean;
   commentPublic: boolean;
@@ -12,12 +16,15 @@ export interface EvaluationScoreDto {
   comment: string | null;
 }
 
-// upsertEvaluationScore에 전달할 값들 — score/contributionPublic/finalPublic/commentPublic/
-// reviewerScore/grade/comment는 모두 생략(undefined)하면 서버가 기존 값을 그대로 유지한다.
-// 세 공개 플래그(contributionPublic/finalPublic/commentPublic)는 서로 독립적으로 토글되므로,
-// 한쪽 화면의 토글이 다른 화면이 저장한 값이나 공개 상태를 덮어쓰지 않도록 건드릴 필드만 넘긴다.
+// upsertEvaluationScore에 전달할 값들 — score/totalScore/contributionPublic/finalPublic/
+// commentPublic/reviewerScore/grade/comment는 모두 생략(undefined)하면 서버가 기존 값을
+// 그대로 유지한다. 세 공개 플래그(contributionPublic/finalPublic/commentPublic)는 서로
+// 독립적으로 토글되므로, 한쪽 화면의 토글이 다른 화면이 저장한 값이나 공개 상태를
+// 덮어쓰지 않도록 건드릴 필드만 넘긴다. 학점 계산기 저장은 반드시 totalScore만 채우고
+// score(AI 기여 점수)는 건드리지 않는다.
 export interface EvaluationScoreUpdate {
   score?: number;
+  totalScore?: number;
   contributionPublic?: boolean;
   finalPublic?: boolean;
   commentPublic?: boolean;
@@ -34,6 +41,7 @@ export function upsertEvaluationScore(projectId: number, userId: number, update:
       projectId,
       userId,
       score: update.score ?? null,
+      totalScore: update.totalScore ?? null,
       contributionPublic: update.contributionPublic ?? null,
       finalPublic: update.finalPublic ?? null,
       commentPublic: update.commentPublic ?? null,
@@ -71,6 +79,7 @@ export interface MyEvaluationDto {
   contributionRevealed: boolean;
   score: number | null;
   finalRevealed: boolean;
+  totalScore: number | null;
   reviewerScore: number | null;
   grade: string | null;
   commentRevealed: boolean;

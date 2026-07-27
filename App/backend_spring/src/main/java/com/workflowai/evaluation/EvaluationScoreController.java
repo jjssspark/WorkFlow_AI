@@ -52,11 +52,16 @@ public class EvaluationScoreController {
         }
         EvaluationScore entity = evaluationScoreRepository.findByProjectIdAndUserId(projectId, request.userId())
             .orElseGet(() -> new EvaluationScore(projectId, request.userId(), BigDecimal.ZERO, false));
-        // score/공개 플래그 3종/reviewerScore/grade/comment는 모두 null이면 기존 값을 그대로
-        // 유지한다 — 세 공개 플래그(기여 점수/총합·학점/코멘트)는 서로 독립적으로 토글되므로,
-        // 한쪽만 토글하는 호출이 다른 두 화면이 저장한 값이나 공개 상태를 덮어쓰면 안 된다.
+        // score/totalScore/공개 플래그 3종/reviewerScore/grade/comment는 모두 null이면
+        // 기존 값을 그대로 유지한다 — 세 공개 플래그(기여 점수/총합·학점/코멘트)는 서로
+        // 독립적으로 토글되므로, 한쪽만 토글하는 호출이 다른 두 화면이 저장한 값이나
+        // 공개 상태를 덮어쓰면 안 된다. score(AI 기여 점수)와 totalScore(학점 계산기
+        // 최종 총합)는 별개 컬럼이므로 학점 계산기 저장은 totalScore만 채운다.
         if (request.score() != null) {
             entity.setScore(request.score());
+        }
+        if (request.totalScore() != null) {
+            entity.setTotalScore(request.totalScore());
         }
         if (request.contributionPublic() != null) {
             entity.setContributionPublic(request.contributionPublic());
