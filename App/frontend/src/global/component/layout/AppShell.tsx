@@ -4,7 +4,8 @@ import { Sparkles } from "lucide-react";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
 import { AIAssistant } from "../../../ai/screen/AIAssistant";
-import { Toaster } from "../ui/sonner";
+import { RecordingIndicator } from "./RecordingIndicator";
+import { RecordingSaveModal } from "../../../meetings/components/RecordingSaveModal";
 import {
   OPEN_AI_ASSISTANT_EVENT,
   type OpenAIAssistantEventDetail,
@@ -199,7 +200,8 @@ export function AppShell() {
         </>
       )}
 
-      <Toaster position="top-right" />
+      <RecordingIndicator />
+      <RecordingSaveModal />
     </div>
   );
 }

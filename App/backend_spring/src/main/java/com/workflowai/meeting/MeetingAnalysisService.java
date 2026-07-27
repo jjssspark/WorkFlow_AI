@@ -55,6 +55,7 @@ import org.springframework.web.multipart.MultipartFile;
 public class MeetingAnalysisService {
     private static final Logger log = LoggerFactory.getLogger(MeetingAnalysisService.class);
     private static final Set<String> AUDIO_FILE_EXTENSIONS = Set.of(".mp3", ".wav", ".m4a", ".ogg");
+    private static final Set<String> AUDIO_FILE_EXTENSIONS = Set.of(".mp3", ".wav", ".m4a", ".ogg", ".webm");
     // 스캔본 PDF OCR 설정. 페이지가 많은 회의 자료 전체를 인식하면 분석 요청이 몇 분씩 걸리므로 상한을 둔다.
     private static final int OCR_MAX_PAGES = 30;
     private static final int OCR_DPI = 200;
@@ -66,6 +67,9 @@ public class MeetingAnalysisService {
     private static final long OCR_SLOT_WAIT_SECONDS = 5;
     // 동시에 OCR을 도는 문서 수 제한. 없으면 업로드 몇 건만으로 CPU와 스레드가 모두 점유된다.
     private static final Semaphore OCR_SLOTS = new Semaphore(2);
+    // 분석 결과를 사용자가 지운 상태. 분석이 실제로 실패한 "failed"와 구분해야 프론트가
+    // 분석/업로드 목록에서 빼면서도 재분석 가능한 항목으로 다룰 수 있다.
+    static final String ANALYSIS_DELETED_STATUS = "analysis_deleted";
     // 전역 멀티파트 한도(100MB)보다 낮게 둔다 - STT 단계에서 파일 전체를 메모리에 올리므로(Files.readAllBytes),
     // 큐 워커의 OOM 위험을 줄이기 위해 오디오는 더 보수적인 한도를 별도로 둔다.
     private static final long MAX_AUDIO_FILE_SIZE_BYTES = 30L * 1024 * 1024;
@@ -279,7 +283,9 @@ public class MeetingAnalysisService {
         Meeting meeting = requireProjectMeeting(projectId, meetingId);
         if (meeting == null) return null;
         Long id = parseLongOrNull(meetingId);
-        if (!"failed".equals(meeting.getAnalysisStatus())) {
+        // 분석 결과를 지운 회의록(ANALYSIS_DELETED_STATUS)도 보존된 transcript로 재분석할 수 있어야 한다.
+        String analysisStatus = meeting.getAnalysisStatus();
+        if (!"failed".equals(analysisStatus) && !ANALYSIS_DELETED_STATUS.equals(analysisStatus)) {
             throw new IllegalStateException("MEETING_NOT_FAILED");
         }
 
@@ -560,7 +566,10 @@ public class MeetingAnalysisService {
             taskRepository.clearSourceMeetingId(meetingDbId);
         }
 
-        meeting.setAnalysisStatus("failed");
+        // "분석 실패"와 같은 값을 쓰면 프론트가 둘을 구분하지 못해, 분석 결과를 지운 회의록이
+        // '분석 실패'로 분석/업로드 목록에 그대로 남는다(새로고침해도 되살아난다).
+        // 재분석은 여전히 가능해야 하므로 retry()가 이 상태도 허용한다.
+        meeting.setAnalysisStatus(ANALYSIS_DELETED_STATUS);
         meetingRepository.save(meeting);
 
         runAfterCommit(() ->
@@ -727,7 +736,11 @@ public class MeetingAnalysisService {
 
     private boolean registerSingleTask(Long meetingId, MeetingTodo todo, Long createdBy) {
         Long assigneeId = resolveAssignee(todo.assignee_id());
-        LocalDate dueDate = parseDateOrNull(todo.due_date());
+        // 연도 없는 날짜("07/31")는 회의 날짜의 연도로 채워야 업무보드 마감일과 어긋나지 않는다.
+        Meeting meetingForDate = meetingRepository.findById(meetingId).orElse(null);
+        LocalDate dateReference = meetingForDate == null ? null : meetingForDate.getMeetingDate();
+        LocalDate dueDate = parseDateOrNull(todo.due_date(), dateReference);
+        LocalDate startDate = parseDateOrNull(todo.start_date(), dateReference);
 
         Optional<MeetingActionItem> existingItem =
             meetingActionItemRepository.findFirstByMeetingIdAndTitle(meetingId, todo.title());
@@ -752,15 +765,19 @@ public class MeetingAnalysisService {
             projectRepository.findById(taskProjectId)
                 .ifPresent(project -> ProjectSchedulePolicy.validate(project, null, dueDate, "업무"));
         }
-        double position = taskRepository.findTopByProjectIdAndStatusOrderByPositionDesc(taskProjectId, "todo")
-            .map(t -> t.getPosition() + 1)
+        // 보드는 position 오름차순으로 그리므로, 최댓값+1을 주면 새 업무가 맨 아래에 쌓인다.
+        // 최근에 등록한 업무일수록 위에 보여야 하므로 현재 최솟값보다 작은 값을 준다.
+        double position = taskRepository.findTopByProjectIdAndStatusOrderByPositionAsc(taskProjectId, "todo")
+            .map(t -> t.getPosition() - 1)
             .orElse(0.0);
         Task task = taskRepository.save(new Task(
             taskProjectId,
+            null,
             todo.title(),
             defaultString(todo.category(), "ETC"),
             "todo",
             assigneeId,
+            startDate,
             dueDate,
             defaultString(todo.priority(), "MEDIUM"),
             todo.description(),
@@ -908,6 +925,37 @@ public class MeetingAnalysisService {
         return userRepository.findById(userId).map(User::getName).orElse(null);
     }
 
+    /**
+     * 저장된 회의록 음성 파일을 재생용으로 읽는다.
+     *
+     * <p>filePath는 업로드 시 uploadsDir 아래로만 기록되지만, DB 값이 조작되는 경우까지 막기 위해
+     * 실제 경로가 uploadsDir 안에 있는지 다시 확인한다.
+     *
+     * <p>normalize()+startsWith()만으로는 uploads 안에 심볼릭 링크를 만들어 바깥 파일을 가리키는
+     * 우회를 막지 못한다. 양쪽 모두 toRealPath()로 링크를 해소한 뒤 비교한다.
+     */
+    public MeetingAudio findAudio(String projectId, String meetingId) {
+        Meeting meeting = requireProjectMeeting(projectId, meetingId);
+        if (meeting == null) return null;
+        if (!"audio".equals(meeting.getFileType())) return null;
+        String storedPath = meeting.getFilePath();
+        if (storedPath == null || storedPath.isBlank()) return null;
+
+        try {
+            Path root = Path.of(uploadsDir).toRealPath();
+            Path target = Path.of(storedPath).toRealPath();
+            if (!target.startsWith(root) || !Files.isRegularFile(target) || !Files.isReadable(target)) {
+                log.warn("회의록 음성 파일 접근을 거부했습니다: meetingId={}, path={}", meetingId, storedPath);
+                return null;
+            }
+            return new MeetingAudio(target, defaultString(meeting.getOriginalFileName(), target.getFileName().toString()));
+        } catch (IOException e) {
+            // 파일이 없거나 링크가 끊긴 경우 등 — 존재 여부를 노출하지 않고 404로 처리한다.
+            log.warn("회의록 음성 파일을 읽을 수 없습니다: meetingId={}", meetingId);
+            return null;
+        }
+    }
+
     private String storeUploadedFile(Long meetingId, MultipartFile file) {
         if (file == null || file.isEmpty()) return null;
         try {
@@ -1033,12 +1081,38 @@ public class MeetingAnalysisService {
     }
 
     private LocalDate parseDateOrNull(String date) {
+        return parseDateOrNull(date, null);
+    }
+
+    /**
+     * 회의록 To-Do의 날짜를 파싱한다.
+     *
+     * <p>이전에는 ISO(yyyy-MM-dd)만 받아, 사용자가 "07/31"처럼 연도 없이 입력하거나 LLM이
+     * "2026.07.31"로 돌려주면 조용히 null이 되어 업무보드 마감일이 비어버렸다.
+     * 연도가 없는 입력은 회의 날짜(reference)의 연도로 채운다.
+     */
+    private LocalDate parseDateOrNull(String date, LocalDate reference) {
         if (date == null || date.isBlank()) return null;
+        String normalized = date.trim().replace('.', '-').replace('/', '-').replaceAll("-+", "-");
+        normalized = normalized.replaceAll("-$", "");
         try {
-            return LocalDate.parse(date);
-        } catch (Exception e) {
-            return null;
+            return LocalDate.parse(normalized);
+        } catch (Exception ignored) {
+            // 아래에서 연도 없는 형식(MM-dd)을 시도한다.
         }
+        java.util.regex.Matcher monthDay =
+            java.util.regex.Pattern.compile("^(\\d{1,2})-(\\d{1,2})$").matcher(normalized);
+        if (monthDay.matches()) {
+            int year = (reference == null ? LocalDate.now() : reference).getYear();
+            try {
+                return LocalDate.of(year, Integer.parseInt(monthDay.group(1)), Integer.parseInt(monthDay.group(2)));
+            } catch (Exception e) {
+                log.warn("To-Do 날짜를 해석하지 못했습니다: raw={}", date);
+                return null;
+            }
+        }
+        log.warn("To-Do 날짜를 해석하지 못했습니다: raw={}", date);
+        return null;
     }
 
     private Long parseLongOrNull(String value) {

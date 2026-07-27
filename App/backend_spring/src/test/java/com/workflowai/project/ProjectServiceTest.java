@@ -216,6 +216,29 @@ class ProjectServiceTest {
     }
 
     @Test
+    void unfinalizeEvaluation_setsEvalStatusToEvaluating() {
+        Project project = new Project("제목", "캡스톤디자인", "설명");
+        ReflectionTestUtils.setField(project, "id", 10L);
+        ReflectionTestUtils.setField(project, "evalStatus", EvalStatus.PUBLISHED);
+        when(projectRepository.findById(10L)).thenReturn(Optional.of(project));
+        when(projectMemberRepository.countByProjectIdAndRoleNot(10L, ProjectRole.REVIEWER)).thenReturn(2L);
+        when(taskRepository.findByProjectIdOrderByCreatedAtDesc(any())).thenReturn(List.of());
+
+        ProjectResponse response = projectService.unfinalizeEvaluation(10L);
+
+        assertThat(response.evalStatus()).isEqualTo("EVALUATING");
+        assertThat(project.getEvalStatus()).isEqualTo(EvalStatus.EVALUATING);
+    }
+
+    @Test
+    void unfinalizeEvaluation_projectNotFound_throws() {
+        when(projectRepository.findById(999L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> projectService.unfinalizeEvaluation(999L))
+            .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     void members_excludesReviewersFromTheTeamList() {
         ProjectMember leader = new ProjectMember(10L, 1L, ProjectRole.LEADER);
         ProjectMember reviewer = new ProjectMember(10L, 2L, ProjectRole.REVIEWER);

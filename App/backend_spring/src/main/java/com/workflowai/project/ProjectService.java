@@ -273,6 +273,19 @@ public class ProjectService {
         return toResponse(project);
     }
 
+    /**
+     * 심사자가 "평가 확정"을 취소할 때 호출한다. eval_status를 EVALUATING으로
+     * 되돌린다. finalizeEvaluation과 마찬가지로 현재 상태를 검사하지 않고
+     * 무조건 전이시킨다 — 잠금 기능이 아닌 단순 진행 상태 표시이므로.
+     * 팀원별 점수/공개 여부(evaluation_scores)는 건드리지 않는다.
+     */
+    @Transactional
+    public ProjectResponse unfinalizeEvaluation(Long projectId) {
+        Project project = getProjectOrThrow(projectId);
+        project.setEvalStatus(EvalStatus.EVALUATING);
+        return toResponse(project);
+    }
+
     /** 팀원 목록(담당자 배정, 기여도 평가 등)이므로 심사자는 제외한다 — 심사자 본인은 평가 대상이 아니다. */
     public List<MemberResponse> members(Long projectId) {
         List<ProjectMember> members = projectMemberRepository.findAllByProjectId(projectId).stream()

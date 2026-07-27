@@ -14,9 +14,9 @@ vi.mock("react-router", async () => {
   return { ...actual, useNavigate: () => mockNavigate };
 });
 
-function renderHeader(onOpenMobileMenu = vi.fn()) {
+function renderHeader(onOpenMobileMenu = vi.fn(), initialPath = "/board") {
   render(
-    <MemoryRouter initialEntries={["/board"]}>
+    <MemoryRouter initialEntries={[initialPath]}>
       <AuthProvider>
         <Header onOpenMobileMenu={onOpenMobileMenu} />
       </AuthProvider>
@@ -35,6 +35,31 @@ describe("Header (mobile)", () => {
     const button = screen.getByRole("button", { name: "메뉴 열기" });
     await userEvent.click(button);
     expect(onOpenMobileMenu).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    ["/leader/roadmap", "로드맵"],
+    ["/leader/completion-approvals", "완료승인 대기"],
+  ])("shows the leader subpage in the top breadcrumb for %s", (path, childTitle) => {
+    renderHeader(vi.fn(), path);
+
+    expect(screen.getByRole("button", { name: "팀장페이지" })).toBeInTheDocument();
+    expect(screen.getByText(childTitle)).toBeInTheDocument();
+  });
+
+  it("keeps the global header and notification popover above sticky page content", async () => {
+    vi.mocked(fetchNotifications).mockResolvedValue([]);
+    vi.mocked(markNotificationsRead).mockResolvedValue(undefined);
+    renderHeader();
+
+    expect(document.querySelector("[data-global-header]")).toHaveClass("z-40");
+    await userEvent.click(screen.getByRole("button", { name: "알림" }));
+
+    expect(document.querySelector("[data-notification-popover]")).toHaveClass("z-50");
+    expect(document.querySelector("[data-notification-list]")).toHaveClass(
+      "max-h-[calc(100vh-10rem)]",
+      "overflow-y-auto",
+    );
   });
 });
 
@@ -164,5 +189,20 @@ describe("Header 알림", () => {
 
     await screen.findByText("회의록이 저장됐습니다");
     expect(screen.queryByRole("button", { name: "바로가기" })).not.toBeInTheDocument();
+  });
+
+  it("평가 공개 알림(evaluation)에도 바로가기 버튼이 보이고 클릭 시 마이페이지로 이동한다", async () => {
+    vi.mocked(fetchNotifications).mockResolvedValue([
+      { id: "1", type: "CONTRIBUTION_SCORE_PUBLISHED", title: "기여도 점수가 공개되었습니다.", content: "심사자가 '캡스톤디자인 2024' 프로젝트의 기여도 점수를 공개했습니다.", targetType: "evaluation", targetId: "5", read: false, createdAt: new Date().toISOString() },
+    ]);
+    vi.mocked(markNotificationsRead).mockResolvedValue(undefined);
+
+    renderHeader();
+    await openBell();
+
+    const shortcutButton = await screen.findByRole("button", { name: "바로가기" });
+    await userEvent.click(shortcutButton);
+
+    expect(mockNavigate).toHaveBeenCalledWith("/mypage");
   });
 });

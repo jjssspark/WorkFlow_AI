@@ -29,11 +29,13 @@ import com.workflowai.dashboard.entity.MlPrediction;
 import com.workflowai.dashboard.repository.MilestoneRepository;
 import com.workflowai.dashboard.repository.MlPredictionRepository;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -89,6 +91,7 @@ public class DashboardService {
         this.notificationService = notificationService;
     }
 
+    @Transactional(readOnly = true)
     public DashboardSummaryResponse getSummary(String projectIdParam) {
         Long projectId = demoDataService.resolveProjectId(projectIdParam);
         List<Task> tasks = taskRepository.findByProjectIdOrderByCreatedAtDesc(projectId);
@@ -99,6 +102,20 @@ public class DashboardService {
         long inProgress = tasks.stream().filter(t -> STATUS_INPROGRESS.equals(t.getStatus())).count();
         long progressPercent = total == 0 ? 0 : Math.round(done * 100.0 / total);
 
+        List<Activity> recentActivityRows = activityRepository.findTop10ByProjectIdOrderByCreatedAtDesc(projectId);
+        // 팀원 업무 편중도(workload) 화면이므로 심사자는 제외한다(심사자는 업무를 배정받지 않는 평가자).
+        List<ProjectMember> members = projectMemberRepository.findAllByProjectId(projectId).stream()
+            .filter(member -> member.getRole() != ProjectRole.REVIEWER)
+            .toList();
+
+        // 업무마다/활동마다 담당자 이름을 각각 조회하면(N+1) Supabase 왕복이 업무·활동 개수만큼
+        // 늘어나 대시보드 로딩이 크게 느려진다(2026-07-27 실측) - 필요한 user id를 모아 한 번에 조회한다.
+        Set<Long> userIds = new java.util.HashSet<>();
+        tasks.forEach(t -> userIds.add(t.getAssigneeId()));
+        recentActivityRows.forEach(a -> userIds.add(a.getActorId()));
+        members.forEach(m -> userIds.add(m.getUserId()));
+        Map<Long, String> userNames = loadUserNames(userIds);
+
         List<UpcomingTaskDto> upcoming = tasks.stream()
             .filter(t -> !STATUS_DONE.equals(t.getStatus()))
             .sorted(Comparator.comparing(Task::getDueDate, Comparator.nullsLast(Comparator.naturalOrder())))
@@ -108,35 +125,40 @@ public class DashboardService {
                 t.getTitle(),
                 t.getStatus(),
                 t.getDueDate() == null ? null : t.getDueDate().toString(),
-                resolveUserName(t.getAssigneeId())
+                userNames.get(t.getAssigneeId())
             ))
             .toList();
 
-        List<WorkloadEntryDto> workload = buildWorkload(projectId, tasks);
+        List<WorkloadEntryDto> workload = buildWorkload(members, tasks, userNames);
 
-        List<ActivityItemDto> recentActivity = activityRepository
-            .findTop10ByProjectIdOrderByCreatedAtDesc(projectId)
-            .stream()
-            .map(this::toActivityItemDto)
+        List<ActivityItemDto> recentActivity = recentActivityRows.stream()
+            .map(a -> toActivityItemDto(a, userNames))
             .toList();
 
         return new DashboardSummaryResponse(total, done, progressPercent, blocked, inProgress, upcoming, workload, recentActivity);
     }
 
+    @Transactional(readOnly = true)
     public List<DashboardTaskDto> getTasks(String projectIdParam) {
         Long projectId = demoDataService.resolveProjectId(projectIdParam);
-        return taskRepository.findByProjectIdOrderByStatusAscPositionAsc(projectId).stream()
-            .map(this::toDashboardTaskDto)
+        List<Task> tasks = taskRepository.findByProjectIdOrderByStatusAscPositionAsc(projectId);
+        Map<Long, String> userNames = loadUserNames(tasks.stream().map(Task::getAssigneeId).toList());
+        return tasks.stream()
+            .map(t -> toDashboardTaskDto(t, userNames))
             .toList();
     }
 
+    @Transactional(readOnly = true)
     public List<ActivityItemDto> getActivities(String projectIdParam) {
         Long projectId = demoDataService.resolveProjectId(projectIdParam);
-        return activityRepository.findTop50ByProjectIdOrderByCreatedAtDesc(projectId).stream()
-            .map(this::toActivityItemDto)
+        List<Activity> activities = activityRepository.findTop50ByProjectIdOrderByCreatedAtDesc(projectId);
+        Map<Long, String> userNames = loadUserNames(activities.stream().map(Activity::getActorId).toList());
+        return activities.stream()
+            .map(a -> toActivityItemDto(a, userNames))
             .toList();
     }
 
+    @Transactional(readOnly = true)
     public ProgressDetailResponse getProgressDetail(String projectIdParam) {
         Long projectId = demoDataService.resolveProjectId(projectIdParam);
         List<Task> tasks = taskRepository.findByProjectIdOrderByCreatedAtDesc(projectId);
@@ -153,10 +175,11 @@ public class DashboardService {
 
         Map<Long, Task> tasksById = new LinkedHashMap<>();
         tasks.forEach(t -> tasksById.put(t.getId(), t));
+        Map<Long, String> userNames = loadUserNames(tasks.stream().map(Task::getAssigneeId).toList());
 
         List<DelayRiskDto> delayRisks = latestPredictions.stream()
             .filter(p -> !RISK_RESULT_NORMAL.equals(p.getResult()))
-            .map(p -> toDelayRiskDto(p, tasksById.get(p.getTargetId())))
+            .map(p -> toDelayRiskDto(p, tasksById.get(p.getTargetId()), userNames))
             .filter(java.util.Objects::nonNull)
             .toList();
 
@@ -178,16 +201,18 @@ public class DashboardService {
      * getProgressDetail()이 만드는 것과 동일한 업무별(target_type='task') 최신 예측을
      * 담당자 기준으로 한 번 더 걸러내는 조회다.
      */
+    @Transactional(readOnly = true)
     public List<DelayRiskDto> getMyDelayRisks(String projectIdParam, Long userId) {
         Long projectId = demoDataService.resolveProjectId(projectIdParam);
         List<Task> tasks = taskRepository.findByProjectIdOrderByCreatedAtDesc(projectId);
 
         Map<Long, Task> tasksById = new LinkedHashMap<>();
         tasks.forEach(t -> tasksById.put(t.getId(), t));
+        Map<Long, String> userNames = loadUserNames(List.of(userId));
 
         return latestPredictionsByTarget(projectId).stream()
             .filter(p -> !RISK_RESULT_NORMAL.equals(p.getResult()))
-            .map(p -> toDelayRiskDtoForAssignee(p, tasksById.get(p.getTargetId()), userId))
+            .map(p -> toDelayRiskDtoForAssignee(p, tasksById.get(p.getTargetId()), userId, userNames))
             .filter(java.util.Objects::nonNull)
             .toList();
     }
@@ -287,7 +312,7 @@ public class DashboardService {
         return fastApiWorkloadScoreClient.fetch(projectId);
     }
 
-    private List<WorkloadEntryDto> buildWorkload(Long projectId, List<Task> tasks) {
+    private List<WorkloadEntryDto> buildWorkload(List<ProjectMember> members, List<Task> tasks, Map<Long, String> userNames) {
         Map<Long, List<Task>> byAssignee = new LinkedHashMap<>();
         for (Task task : tasks) {
             if (task.getAssigneeId() == null) {
@@ -297,21 +322,17 @@ public class DashboardService {
         }
 
         List<WorkloadEntryDto> result = new ArrayList<>();
-        // 팀원 업무 편중도 화면이므로 심사자는 제외한다(심사자는 업무를 배정받지 않는 평가자).
-        List<ProjectMember> members = projectMemberRepository.findAllByProjectId(projectId).stream()
-            .filter(member -> member.getRole() != ProjectRole.REVIEWER)
-            .toList();
         for (ProjectMember member : members) {
             Long userId = member.getUserId();
-            result.add(toWorkloadEntry(userId, byAssignee.remove(userId)));
+            result.add(toWorkloadEntry(userId, byAssignee.remove(userId), userNames));
         }
         for (Map.Entry<Long, List<Task>> entry : byAssignee.entrySet()) {
-            result.add(toWorkloadEntry(entry.getKey(), entry.getValue()));
+            result.add(toWorkloadEntry(entry.getKey(), entry.getValue(), userNames));
         }
         return result;
     }
 
-    private WorkloadEntryDto toWorkloadEntry(Long assigneeId, List<Task> assigneeTasks) {
+    private WorkloadEntryDto toWorkloadEntry(Long assigneeId, List<Task> assigneeTasks, Map<Long, String> userNames) {
         List<Task> tasks = assigneeTasks == null ? List.of() : assigneeTasks;
         long doneCount = tasks.stream().filter(t -> STATUS_DONE.equals(t.getStatus())).count();
         long todoCount = tasks.stream().filter(t -> "todo".equals(t.getStatus())).count();
@@ -319,7 +340,7 @@ public class DashboardService {
         long blockedCount = tasks.stream().filter(t -> STATUS_BLOCKED.equals(t.getStatus())).count();
         return new WorkloadEntryDto(
             String.valueOf(assigneeId),
-            resolveUserName(assigneeId),
+            userNames.get(assigneeId),
             tasks.size(),
             doneCount,
             todoCount,
@@ -399,14 +420,14 @@ public class DashboardService {
     }
 
     /** getMyDelayRisks 전용 — task가 없거나 담당자가 userId와 다르면 걸러낸다. */
-    private DelayRiskDto toDelayRiskDtoForAssignee(MlPrediction prediction, Task task, Long userId) {
+    private DelayRiskDto toDelayRiskDtoForAssignee(MlPrediction prediction, Task task, Long userId, Map<Long, String> userNames) {
         if (task == null || !userId.equals(task.getAssigneeId())) {
             return null;
         }
-        return toDelayRiskDto(prediction, task);
+        return toDelayRiskDto(prediction, task, userNames);
     }
 
-    private DelayRiskDto toDelayRiskDto(MlPrediction prediction, Task task) {
+    private DelayRiskDto toDelayRiskDto(MlPrediction prediction, Task task, Map<Long, String> userNames) {
         if (task == null) {
             // 예측 이후 업무가 삭제된 경우 등 - 더 이상 존재하지 않는 업무는 화면에 표시하지 않는다.
             return null;
@@ -415,7 +436,7 @@ public class DashboardService {
         return new DelayRiskDto(
             String.valueOf(task.getId()),
             task.getTitle(),
-            resolveUserName(task.getAssigneeId()),
+            userNames.get(task.getAssigneeId()),
             task.getStatus(),
             task.getDueDate() == null ? null : task.getDueDate().toString(),
             prediction.getResult(),
@@ -424,26 +445,26 @@ public class DashboardService {
         );
     }
 
-    private ActivityItemDto toActivityItemDto(Activity activity) {
+    private ActivityItemDto toActivityItemDto(Activity activity, Map<Long, String> userNames) {
         return new ActivityItemDto(
             String.valueOf(activity.getId()),
             activity.getType(),
             activity.getActorId() == null ? null : String.valueOf(activity.getActorId()),
-            resolveUserName(activity.getActorId()),
+            userNames.get(activity.getActorId()),
             activity.getMessage(),
             activity.getTargetId() == null ? null : String.valueOf(activity.getTargetId()),
             activity.getCreatedAt() == null ? null : UtcTimeFormat.toIsoUtc(activity.getCreatedAt())
         );
     }
 
-    private DashboardTaskDto toDashboardTaskDto(Task task) {
+    private DashboardTaskDto toDashboardTaskDto(Task task, Map<Long, String> userNames) {
         return new DashboardTaskDto(
             String.valueOf(task.getId()),
             task.getTitle(),
             task.getCategory(),
             task.getStatus(),
             task.getAssigneeId() == null ? null : String.valueOf(task.getAssigneeId()),
-            resolveUserName(task.getAssigneeId()),
+            userNames.get(task.getAssigneeId()),
             task.getDueDate() == null ? null : task.getDueDate().toString(),
             task.getDoneDate() == null ? null : task.getDoneDate().toString(),
             task.getPriority(),
@@ -455,10 +476,13 @@ public class DashboardService {
         );
     }
 
-    private String resolveUserName(Long userId) {
-        if (userId == null) {
-            return null;
+    /** 여러 user id의 이름을 한 번의 쿼리로 조회한다(반복 조회로 인한 N+1 방지). */
+    private Map<Long, String> loadUserNames(Collection<Long> userIds) {
+        List<Long> distinctIds = userIds.stream().filter(Objects::nonNull).distinct().toList();
+        if (distinctIds.isEmpty()) {
+            return Map.of();
         }
-        return userRepository.findById(userId).map(User::getName).orElse(null);
+        return userRepository.findAllById(distinctIds).stream()
+            .collect(java.util.stream.Collectors.toMap(User::getId, u -> Objects.requireNonNullElse(u.getName(), "")));
     }
 }
