@@ -434,9 +434,6 @@ export function MeetingsView() {
   const [newTodoError, setNewTodoError] = useState<string | null>(null);
   const [saveMeetingMessage, setSaveMeetingMessage] = useState<string | null>(null);
   const [saveMeetingError, setSaveMeetingError] = useState<string | null>(null);
-  const [reanalyzingMeetingId, setReanalyzingMeetingId] = useState<string | null>(null);
-  const [reanalyzeMessage, setReanalyzeMessage] = useState<string | null>(null);
-  const [reanalyzeError, setReanalyzeError] = useState<string | null>(null);
   const [originalViewMessage, setOriginalViewMessage] = useState<string | null>(null);
   const [originalPreview, setOriginalPreview] = useState<{ kind: "text"; content: string; fileName: string } | { kind: "unsupported"; fileName: string } | null>(null);
   const [pdfExportMessage, setPdfExportMessage] = useState<string | null>(null);
@@ -635,6 +632,7 @@ export function MeetingsView() {
             savedAt: dto.savedAt,
             originalMeetingId: dto.originalMeetingId,
             tasksRegistered: dto.tasksRegistered,
+            hasGeneratedTodos: dto.hasGeneratedTodos,
           };
           // 목록 API는 요약만 내려주므로, 이미 상세 분석 결과를 캐시해둔 회의록은 그 결과를 보존한다.
           // 그렇지 않으면 탭을 옮겼다가 돌아올 때마다 상세 조회를 다시 하게 되어 화면이 늦게 뜬다.
@@ -873,20 +871,38 @@ export function MeetingsView() {
 
   // pending/failed 상태인 버전(수정본)을 편집 화면 없이 그 자리에서 재분석한다.
   // 새 버전을 만들지 않고 이미 저장된 transcript로 분석만 재실행하므로 fetchMeeting 조회가 필요 없다.
+  // 신규 업로드(startAnalysis)/재시도(runRetryAnalysis)와 동일하게 uploadFlow를 "analyzing"으로
+  // 바꿔 분석 화면을 띄우고 pollMeetingStatus로 완료까지 진행해야, 재분석이 실제로 실행되고 있다는
+  // 것이 화면에 보인다. 토스트 메시지만 띄우고 끝나면 "화면은 안 뜨고 알림만 온다"는 문제가 생긴다.
   const handleReanalyzeVersion = async (meetingId: string) => {
-    setReanalyzingMeetingId(meetingId);
-    setReanalyzeError(null);
+    const title = meetings.find(m => m.id === meetingId)?.title ?? "";
+    const uploadedAt = new Date().toISOString();
+    setMeetTitle(title);
+    setAnalysisResult(null);
+    setSelTodos([]);
+    setAnalysisSource(null);
+    setAnalysisError(null);
+    setAnalyzeStage(0);
+    setAnalyzeProgress(0);
+    setAnalyzeProgressTarget(8);
+    setAnalysisElapsedSeconds(0);
+    setPollAttemptCount(0);
+    setAnalysisPhase("uploading");
+    setAnalysisRequestPending(true);
+    setUploadFlow("analyzing");
+
     try {
-      await reanalyzeMeeting(projectId, meetingId);
-      setReanalyzeMessage("AI 재분석을 요청했습니다.");
-      setTimeout(() => setReanalyzeMessage(null), 2500);
-      void refreshMeetingsFromServer();
+      const response = await reanalyzeMeeting(projectId, meetingId);
+      setAnalysisRequestPending(false);
+      setActiveMeetingId(response.meetingId);
+      setAnalysisPhase("queued");
+      setAnalyzeProgressTarget(28);
+      pollMeetingStatus(response.meetingId, title, uploadedAt);
     } catch (error) {
+      setAnalysisRequestPending(false);
       const status = error instanceof ApiRequestError ? ` (${error.status})` : "";
-      setReanalyzeError(`재분석 요청에 실패했습니다${status}. 잠시 후 다시 시도해주세요.`);
-      setTimeout(() => setReanalyzeError(null), 4000);
-    } finally {
-      setReanalyzingMeetingId(null);
+      setAnalysisError(`재분석 요청에 실패했습니다${status}. 잠시 후 다시 시도해주세요.`);
+      setUploadFlow("results");
     }
   };
 
@@ -1154,6 +1170,11 @@ export function MeetingsView() {
         // 클라이언트가 타임아웃으로 요청을 포기해도 서버는 처리를 계속할 수 있어, 실제로는
         // 삭제가 이미 끝났을 수 있다. "삭제 안 됐다"고 단정하지 말고 서버 상태를 다시 조회해
         // 화면을 실제 상태와 맞춘다.
+        // 로컬 캐시(getStoredMeetings)에 이 항목이 그대로 남아있으면 refreshMeetingsFromServer의
+        // 병합 로직이 "서버가 모르는 로컬 전용 항목"으로 오인해 되살려낸다(삭제 확인 후에도
+        // 목록에 그대로 남는 버그의 원인). 삭제된 것으로 먼저 반영해두면, 실제로 서버 삭제가
+        // 안 끝난 경우에도 뒤이은 refresh의 serverMeetings가 그대로 다시 채워준다.
+        removeMeetingFromLocalState(target.id);
         setMeetingListError("삭제 확인이 지연되고 있습니다. 최신 상태를 다시 불러옵니다.");
         setTimeout(() => setMeetingListError(null), 6000);
         void refreshMeetingsFromServer();
@@ -1375,9 +1396,11 @@ export function MeetingsView() {
               </button>
               <button
                 type="button"
+                disabled={!deleteTarget.hasGeneratedTodos}
                 onClick={() => void handleDeleteAnalysisResult(deleteTarget, true)}
-                className="px-4 py-2 text-sm font-semibold text-white rounded-xl hover:opacity-90 transition-opacity"
+                className="px-4 py-2 text-sm font-semibold text-white rounded-xl hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:opacity-40"
                 style={{ background: "linear-gradient(135deg,#EF4444,#DC2626)" }}
+                title={deleteTarget.hasGeneratedTodos ? undefined : "이 분석 결과는 생성된 To-Do가 없습니다."}
               >
                 분석 결과 + To-Do 삭제
               </button>
@@ -2518,8 +2541,6 @@ export function MeetingsView() {
             </div>
           ) : (
             <>
-            {reanalyzeMessage && <div className="text-[10px] text-emerald-600 mb-2">{reanalyzeMessage}</div>}
-            {reanalyzeError && <div className="text-[10px] text-red-600 mb-2">{reanalyzeError}</div>}
             <div className="space-y-2 max-w-2xl">
               {savedMeetingsList.map(m => {
                 const isPendingVersion = Boolean(m.originalMeetingId) && (m.status === "pending" || m.status === "failed");
@@ -2546,7 +2567,6 @@ export function MeetingsView() {
                       {currentUserRole !== "reviewer" && (
                         <button
                           type="button"
-                          disabled={reanalyzingMeetingId === m.id}
                           onClick={event => {
                             event.stopPropagation();
                             if (isPendingVersion) {

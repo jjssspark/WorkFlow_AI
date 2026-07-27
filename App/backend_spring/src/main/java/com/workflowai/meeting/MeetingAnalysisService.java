@@ -349,12 +349,16 @@ public class MeetingAnalysisService {
         List<Meeting> meetings = meetingRepository.findByProjectIdOrderByCreatedAtDesc(projectDbId);
 
         List<Long> meetingIds = meetings.stream().map(Meeting::getId).toList();
-        Set<Long> meetingIdsWithRegisteredTasks = meetingIds.isEmpty()
-            ? Set.of()
-            : meetingActionItemRepository.findByMeetingIdIn(meetingIds).stream()
-                .filter(item -> item.getCreatedTaskId() != null)
-                .map(MeetingActionItem::getMeetingId)
-                .collect(Collectors.toSet());
+        List<MeetingActionItem> actionItems = meetingIds.isEmpty()
+            ? List.of()
+            : meetingActionItemRepository.findByMeetingIdIn(meetingIds);
+        Set<Long> meetingIdsWithRegisteredTasks = actionItems.stream()
+            .filter(item -> item.getCreatedTaskId() != null)
+            .map(MeetingActionItem::getMeetingId)
+            .collect(Collectors.toSet());
+        Set<Long> meetingIdsWithGeneratedTodos = actionItems.stream()
+            .map(MeetingActionItem::getMeetingId)
+            .collect(Collectors.toSet());
 
         return meetings.stream()
             .map(m -> new MeetingSummary(
@@ -365,7 +369,8 @@ public class MeetingAnalysisService {
                 m.getAnalysisStatus(),
                 m.getSavedAt() == null ? null : m.getSavedAt().toString(),
                 m.getOriginalMeetingId() == null ? null : String.valueOf(m.getOriginalMeetingId()),
-                meetingIdsWithRegisteredTasks.contains(m.getId())
+                meetingIdsWithRegisteredTasks.contains(m.getId()),
+                meetingIdsWithGeneratedTodos.contains(m.getId())
             ))
             .toList();
     }
@@ -1202,7 +1207,13 @@ public class MeetingAnalysisService {
                 throw new IllegalArgumentException("PDF에서 분석할 텍스트를 추출하지 못했습니다.");
             }
             return text;
-        } catch (IOException ignored) {
+        } catch (IllegalArgumentException e) {
+            throw e;
+        } catch (Exception e) {
+            // Loader.loadPDF/PDFTextStripper는 손상되거나 암호화된 PDF에서 IOException 외의
+            // 언체크 예외(RuntimeException 계열)도 던질 수 있다. 이걸 못 잡으면 여기서 던져진
+            // 예외가 컨트롤러의 catch(IllegalArgumentException)를 지나쳐 500으로 새어나가고,
+            // 프론트는 이를 ApiRequestError가 아닌 원시 네트워크 오류로 오인해 일반 폴백 문구를 띄운다.
             throw new IllegalArgumentException("PDF 텍스트 추출에 실패했습니다.");
         }
     }
