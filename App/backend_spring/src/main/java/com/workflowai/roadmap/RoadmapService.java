@@ -188,7 +188,10 @@ public class RoadmapService {
             tasks.size(),
             done,
             progress,
-            tasks.stream().map(this::toTaskDto).toList()
+            tasks.stream()
+                .sorted(Comparator.comparingDouble(Task::getPosition))
+                .map(this::toTaskDto)
+                .toList()
         );
     }
 
@@ -204,6 +207,7 @@ public class RoadmapService {
             date(task.getStartDate()),
             date(task.getDueDate()),
             task.getPriority(),
+            task.getDescription(),
             task.getPosition()
         );
     }

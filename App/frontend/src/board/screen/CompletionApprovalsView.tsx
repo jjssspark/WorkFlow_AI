@@ -15,6 +15,7 @@ import { formatDueDate } from "../libs/utils/taskService";
 import { useAuth } from "../../global/hooks/useAuth";
 import { getProjectMembers, type MemberResponse } from "../../global/api/projectsApi";
 import type { Task } from "../libs/types/task";
+import { publishPendingApprovalCount } from "../../leader/libs/utils/pendingApprovalEvents";
 
 const UNASSIGNED = "__unassigned__";
 
@@ -38,6 +39,7 @@ export function CompletionApprovalsView() {
     fetchPendingApprovalTasks(projectId)
       .then(async (result) => {
         setTasks(result);
+        publishPendingApprovalCount(projectId, result.length);
         setLoadState("ready");
         // 목록의 각 업무 체크리스트 진행률도 같이 보여준다(행에 담당자 진행 상황을 바로 보여주기 위함).
         const entries = await Promise.all(
@@ -80,7 +82,11 @@ export function CompletionApprovalsView() {
   // 승인/반려/취소 이후엔 더 이상 대기 목록에 속하지 않으므로 로컬 목록에서 바로 제거하고,
   // 상세 패널이 그 업무를 보고 있었다면 같이 닫는다.
   const removeFromList = (taskId: string) => {
-    setTasks((prev) => prev.filter((t) => t.id !== taskId));
+    setTasks((prev) => {
+      const next = prev.filter((t) => t.id !== taskId);
+      publishPendingApprovalCount(projectId, next.length);
+      return next;
+    });
     setSelId((prev) => (prev === taskId ? null : prev));
   };
 

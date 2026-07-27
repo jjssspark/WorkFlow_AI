@@ -1,8 +1,9 @@
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { usePendingApprovalCount } from "./usePendingApprovalCount";
 import { fetchPendingApprovalTasks } from "../../../board/libs/utils/taskApi";
 import type { Task } from "../../../board/libs/types/task";
+import { publishPendingApprovalCount } from "../utils/pendingApprovalEvents";
 
 vi.mock("../../../board/libs/utils/taskApi", async () => {
   const actual = await vi.importActual<typeof import("../../../board/libs/utils/taskApi")>(
@@ -79,5 +80,15 @@ describe("usePendingApprovalCount", () => {
 
     resolveSecond([makeTask("T3")]);
     await waitFor(() => expect(result.current).toBe(1));
+  });
+
+  it("updates immediately when the approval list publishes a changed count", async () => {
+    vi.mocked(fetchPendingApprovalTasks).mockResolvedValue([makeTask("T1"), makeTask("T2")]);
+    const { result } = renderHook(() => usePendingApprovalCount(1));
+    await waitFor(() => expect(result.current).toBe(2));
+
+    act(() => publishPendingApprovalCount(1, 1));
+
+    expect(result.current).toBe(1);
   });
 });
