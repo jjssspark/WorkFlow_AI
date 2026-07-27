@@ -36,6 +36,7 @@ import org.springframework.security.config.annotation.method.configuration.Enabl
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import testsupport.AccessDeniedEnvelopeAdvice;
 
 // MethodSecurityTestConfig는 일부러 @SpringBootConfiguration을 쓰지 않는다. 같은 패키지(com.workflowai.task)의
 // 다른 @WebMvcTest(예: ChecklistControllerGenerateTest)들이 설정 클래스를 명시하지 않고 자동 탐지에 의존하는데,
@@ -152,8 +153,8 @@ class TaskControllerSecurityTest {
     @Import(TaskController.class)
     static class MethodSecurityTestConfig {
         @Bean
-        TaskAccessDeniedResponseAdvice accessDeniedResponseAdvice() {
-            return new TaskAccessDeniedResponseAdvice();
+        AccessDeniedEnvelopeAdvice accessDeniedResponseAdvice() {
+            return new AccessDeniedEnvelopeAdvice();
         }
     }
 }

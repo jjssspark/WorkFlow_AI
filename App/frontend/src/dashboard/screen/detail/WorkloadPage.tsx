@@ -74,7 +74,7 @@ export function WorkloadPage() {
   const isLeader = currentProject?.role === "팀장";
   const { data: summary, loading: summaryLoading, error: summaryError, refetch: refetchSummary } = useDashboardSummary(currentProjectId);
   const { data: tasks, loading: tasksLoading, error: tasksError, refetch } = useDashboardTasks(currentProjectId);
-  const { data: workloadScore, loading: workloadScoreLoading, refetch: refetchWorkloadScore } = useWorkloadScore(currentProjectId);
+  const { data: workloadScore, loading: workloadScoreLoading, error: workloadScoreError, refetch: refetchWorkloadScore } = useWorkloadScore(currentProjectId);
   const [pageRefreshing, setPageRefreshing] = useState(false);
   const navigate = useNavigate();
   const onBack = () => navigate("/dashboard");
@@ -182,8 +182,18 @@ export function WorkloadPage() {
         <DetailStatCard label="1인 평균 업무" value={summaryLoading || pageRefreshing ? "..." : `${averageInProgressTasks}개`} sub="진행 중 배정 기준" color="#7048E8" icon={Layers} />
         <DetailStatCard
           label="과부하 위험"
-          value={summaryLoading || pageRefreshing ? "..." : `${overloaded.length}명`}
-          sub={workloadScoreLoading || pageRefreshing ? "분석 중" : topOverloadedName ? `${topOverloadedName}님` : "위험 팀원 없음"}
+          value={
+            summaryLoading || pageRefreshing ? "..." : workloadScoreError ? "...명" : `${overloaded.length}명`
+          }
+          sub={
+            workloadScoreLoading || pageRefreshing
+              ? "분석 중"
+              : workloadScoreError
+                ? "ML 업무편중점수 모델 로딩에 실패했습니다."
+                : topOverloadedName
+                  ? `${topOverloadedName}님`
+                  : "위험 팀원 없음"
+          }
           color="#EF4444"
           icon={AlertTriangle}
         />

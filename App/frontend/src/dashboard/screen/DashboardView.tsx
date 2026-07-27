@@ -28,6 +28,7 @@ import {
   TrendingUp,
   Upload,
   Users,
+  X,
   Zap,
 } from "lucide-react";
 import { Avatar } from "../../global/component/Avatar";
@@ -40,13 +41,17 @@ import { useDashboardProgress } from "../libs/hooks/useDashboardProgress";
 import { useDashboardSummary } from "../libs/hooks/useDashboardSummary";
 import { useDashboardTasks } from "../libs/hooks/useDashboardTasks";
 import { activityIconMeta, activityMessage, activityTypeLabel, formatRelativeTime } from "../libs/utils/activityDisplay";
-import { daysSince, daysUntilDue, formatDashboardDueDate, isDelayRisk, normalizeTaskStatus } from "../libs/utils/dashboardTaskUtils";
+import { daysSince, daysUntilDue, formatDashboardDueDate, isDelayRisk, normalizePriority, normalizeTaskStatus } from "../libs/utils/dashboardTaskUtils";
 import { resolveMemberDisplay } from "../libs/utils/memberDisplay";
 import { AiInsightBox } from "../../ai/components/AiInsightBox";
 import { openAIAssistant } from "../../ai/libs/utils/openAIAssistant";
 import { ProgressFrequencyChart } from "../components/ProgressFrequencyChart";
 import { AddTaskModal } from "../../board/components/AddTaskModal";
+import { TaskDetailPopup } from "../components/TaskDetailPopup";
+import { TaskStatusPill } from "../../board/components/TaskStatusPill";
+import { PriorityBadge } from "../../board/components/PriorityBadge";
 import { getProjectMembers, type MemberResponse } from "../../global/api/projectsApi";
+import type { DashboardTaskDto } from "../libs/types/dashboard";
 
 function EmptyState({ children }: { children: string }) {
   return <div className="w-full h-full flex items-center justify-center py-8 text-center text-xs text-muted-foreground">{children}</div>;
@@ -80,6 +85,8 @@ export function DashboardView() {
   const { data: progress, loading: progressLoading, error: progressError } = useDashboardProgress(currentProjectId);
   const { data: tasks, loading: tasksLoading } = useDashboardTasks(currentProjectId);
   const [showAddTask, setShowAddTask] = useState(false);
+  const [showMyTasks, setShowMyTasks] = useState(false);
+  const [detailTarget, setDetailTarget] = useState<DashboardTaskDto | null>(null);
   const [projectMembers, setProjectMembers] = useState<MemberResponse[]>([]);
 
   useEffect(() => {
@@ -114,20 +121,25 @@ export function DashboardView() {
   const projectStart = progress?.projectCreatedAt ?? null;
   const projectDeadline = progress?.projectDeadline ?? null;
 
-  const dangerRiskTaskIds = new Set((progress?.delayRisks ?? []).filter(risk => isDelayRisk(risk.result)).map(risk => risk.taskId));
-  const longestStalledDangerTask = tasks
-    .filter(task => dangerRiskTaskIds.has(task.id))
-    .reduce<{ title: string; days: number } | null>((longest, task) => {
-      const days = daysSince(task.updatedAt) ?? 0;
-      return !longest || days > longest.days ? { title: task.title, days } : longest;
-    }, null);
-  const aiInsightReady = !summaryLoading && !progressLoading && !tasksLoading;
-  const aiInsightPrompt = longestStalledDangerTask
-    ? `지연위험도 주의/위험 업무 중, 가장 오래 정체된 업무인 '${longestStalledDangerTask.title}'의 대응법을 알려줘 (2~3문장).`
-    : "";
+  // "AI 추천 액션" 기능 미사용 처리로 아래 변수들도 함께 주석 처리(관련 코드)
+  // const dangerRiskTaskIds = new Set((progress?.delayRisks ?? []).filter(risk => isDelayRisk(risk.result)).map(risk => risk.taskId));
+  // const longestStalledDangerTask = tasks
+  //   .filter(task => dangerRiskTaskIds.has(task.id))
+  //   .reduce<{ title: string; days: number } | null>((longest, task) => {
+  //     const days = daysSince(task.updatedAt) ?? 0;
+  //     return !longest || days > longest.days ? { title: task.title, days } : longest;
+  //   }, null);
+  // const aiInsightReady = !summaryLoading && !progressLoading && !tasksLoading;
+  // const aiInsightPrompt = longestStalledDangerTask
+  //   ? `지연위험도 주의/위험 업무 중, 가장 오래 정체된 업무인 '${longestStalledDangerTask.title}'의 대응법을 알려줘 (2~3문장).`
+  //   : "";
+
+  const myTasks = user == null ? [] : tasks.filter(task => task.assigneeId === String(user.id));
 
   const quickActions = [
-    ...(isLeader ? [{ label: "업무 추가", icon: Plus, color: "#3B5BDB", onClick: () => setShowAddTask(true) }] : []),
+    ...(isLeader
+      ? [{ label: "업무 추가", icon: Plus, color: "#3B5BDB", onClick: () => setShowAddTask(true) }]
+      : [{ label: "내업무 조회", icon: Plus, color: "#3B5BDB", onClick: () => setShowMyTasks(true) }]),
     { label: "회의록 업로드", icon: Upload, color: "#7048E8", onClick: () => navigate("/meetings?upload=1") },
     ...(deliverablesActive ? [{ label: "산출물", icon: Package, color: "#0F766E", onClick: () => navigate("/deliverables") }] : []),
     { label: "AI 어시스턴트", icon: Sparkles, color: "#F59E0B", onClick: () => openAIAssistant() },
@@ -152,6 +164,7 @@ export function DashboardView() {
         </div>
       )}
 
+      {/* "AI 추천 액션" 기능 미사용 처리 (주석 처리)
       {longestStalledDangerTask ? (
         <AiInsightBox
           projectId={currentProjectId}
@@ -177,6 +190,7 @@ export function DashboardView() {
           </button>
         </div>
       )}
+      */}
 
       <div className="bg-card rounded-xl p-4 shadow-sm border border-border">
         <div className="text-sm font-semibold text-foreground mb-3">빠른 액션</div>
@@ -334,6 +348,51 @@ export function DashboardView() {
         onClose={() => setShowAddTask(false)}
         onCreated={() => setShowAddTask(false)}
       />
+
+      {showMyTasks && (
+        <>
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50" onClick={() => setShowMyTasks(false)} />
+          <div className="fixed inset-0 flex items-center justify-center z-50 p-4" onClick={e => e.stopPropagation()}>
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col" style={{ fontFamily: "'Inter','Noto Sans KR',sans-serif" }}>
+              <div className="px-6 py-4 border-b border-border flex items-center justify-between shrink-0">
+                <span className="text-sm font-semibold text-foreground">내 업무 목록</span>
+                <button onClick={() => setShowMyTasks(false)} className="p-1.5 hover:bg-muted rounded-lg transition-colors"><X className="w-4 h-4 text-muted-foreground" /></button>
+              </div>
+              <div className="flex items-center gap-3 px-5 py-2 border-b border-border bg-muted/40 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider shrink-0">
+                <span className="w-12 shrink-0">ID</span>
+                <span className="flex-1">업무명</span>
+                <span className="shrink-0">상태</span>
+                <span className="shrink-0">우선순위</span>
+                <span className="w-12 text-right shrink-0">마감일</span>
+                <span className="w-8 shrink-0" />
+              </div>
+              <div className="flex-1 overflow-y-auto scrollbar-thin divide-y divide-border">
+                {tasksLoading ? (
+                  <div className="px-5 py-8 text-center text-sm text-muted-foreground">데이터를 불러오는 중입니다.</div>
+                ) : myTasks.length === 0 ? (
+                  <div className="px-5 py-8 text-center text-sm text-muted-foreground">배정된 업무가 없습니다.</div>
+                ) : myTasks.map(task => (
+                  <div key={task.id} className="flex items-center gap-3 px-5 py-3 hover:bg-muted/30 transition-colors">
+                    <span className="font-mono text-[10px] text-muted-foreground w-12">{task.id}</span>
+                    <span className="flex-1 text-xs font-medium text-foreground truncate">{task.title}</span>
+                    <TaskStatusPill status={normalizeTaskStatus(task.status)} />
+                    <PriorityBadge priority={normalizePriority(task.priority)} />
+                    <span className="text-xs text-muted-foreground w-12 text-right">{formatDashboardDueDate(task.dueDate)}</span>
+                    <button onClick={() => setDetailTarget(task)} className="text-[11px] font-medium text-blue-600 hover:text-blue-700 whitespace-nowrap">상세</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+      {detailTarget && currentProjectId != null && (
+        <TaskDetailPopup
+          task={detailTarget}
+          projectId={currentProjectId}
+          onClose={() => setDetailTarget(null)}
+        />
+      )}
     </div>
   );
 }

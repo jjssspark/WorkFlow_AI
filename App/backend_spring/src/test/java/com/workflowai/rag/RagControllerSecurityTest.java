@@ -25,6 +25,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import testsupport.AccessDeniedEnvelopeAdvice;
 
 /**
  * RagController.query()의 @PreAuthorize("@projectAccess.isMember(#request.project_id())")가
@@ -92,8 +93,8 @@ class RagControllerSecurityTest {
     @Import(RagController.class)
     static class MethodSecurityTestConfig {
         @Bean
-        RagAccessDeniedResponseAdvice accessDeniedResponseAdvice() {
-            return new RagAccessDeniedResponseAdvice();
+        AccessDeniedEnvelopeAdvice accessDeniedResponseAdvice() {
+            return new AccessDeniedEnvelopeAdvice();
         }
     }
 }

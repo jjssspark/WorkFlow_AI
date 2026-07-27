@@ -39,3 +39,14 @@ export interface SavedMeetingRecord {
   createdAt: string;
   source: "MEETING_AI";
 }
+
+export interface ExportablePdfData {
+  title: string;
+  date: string;
+  kind: string;
+  participantNames: string[];
+  summary: string;
+  decisions: string[];
+  todos: { title: string; assigneeName: string; dueDate: string }[];
+  risks: string[];
+}

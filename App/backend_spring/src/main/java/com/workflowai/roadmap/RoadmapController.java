@@ -84,4 +84,17 @@ public class RoadmapController {
     ) {
         return ApiResponse.ok(roadmapService.moveTask(projectId, taskId, request));
     }
+
+    @Operation(
+        summary = "로드맵 업무 일괄 배치 변경",
+        description = "다중 업무의 단계와 순서를 하나의 트랜잭션으로 변경합니다. 하나라도 유효하지 않으면 전체를 롤백합니다."
+    )
+    @PatchMapping("/tasks/layout")
+    @PreAuthorize("@projectAccess.hasRole(#projectId, 'LEADER')")
+    public ApiResponse<java.util.List<RoadmapTaskDto>> updateTaskLayout(
+        @PathVariable String projectId,
+        @RequestBody RoadmapTaskLayoutRequest request
+    ) {
+        return ApiResponse.ok(roadmapService.updateTaskLayout(projectId, request));
+    }
 }

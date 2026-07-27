@@ -6,8 +6,7 @@ import { RoadmapView } from "./RoadmapView";
 const fetchRoadmap = vi.fn();
 const createMilestone = vi.fn();
 const deleteMilestone = vi.fn();
-const moveRoadmapTask = vi.fn();
-const updateRoadmapTaskPosition = vi.fn();
+const updateRoadmapTaskLayout = vi.fn();
 const fetchChecklist = vi.fn();
 const mockUseAuth = vi.fn();
 
@@ -19,8 +18,7 @@ vi.mock("../libs/utils/roadmapApi", () => ({
   fetchRoadmap: (...args: unknown[]) => fetchRoadmap(...args),
   createMilestone: (...args: unknown[]) => createMilestone(...args),
   deleteMilestone: (...args: unknown[]) => deleteMilestone(...args),
-  moveRoadmapTask: (...args: unknown[]) => moveRoadmapTask(...args),
-  updateRoadmapTaskPosition: (...args: unknown[]) => updateRoadmapTaskPosition(...args),
+  updateRoadmapTaskLayout: (...args: unknown[]) => updateRoadmapTaskLayout(...args),
 }));
 
 vi.mock("../../board/libs/utils/checklistApi", () => ({
@@ -65,9 +63,8 @@ describe("RoadmapView", () => {
     });
     fetchRoadmap.mockResolvedValue(structuredClone(response));
     fetchChecklist.mockResolvedValue([]);
-    moveRoadmapTask.mockResolvedValue({});
+    updateRoadmapTaskLayout.mockResolvedValue([]);
     deleteMilestone.mockResolvedValue(undefined);
-    updateRoadmapTaskPosition.mockResolvedValue({});
     createMilestone.mockImplementation((_projectId, input) => Promise.resolve({
       id: `recommended-${input.title}`,
       title: input.title,
@@ -219,8 +216,11 @@ describe("RoadmapView", () => {
     fireEvent.drop(target, { dataTransfer });
 
     await waitFor(() => {
-      expect(moveRoadmapTask).toHaveBeenCalledWith(1, "10", "3");
-      expect(moveRoadmapTask).toHaveBeenCalledWith(1, "11", "3");
+      expect(updateRoadmapTaskLayout).toHaveBeenCalledTimes(1);
+      expect(updateRoadmapTaskLayout).toHaveBeenCalledWith(1, [
+        expect.objectContaining({ taskId: "10", milestoneId: "3", position: 0 }),
+        expect.objectContaining({ taskId: "11", milestoneId: "3", position: 1 }),
+      ]);
     });
   });
 
@@ -260,10 +260,12 @@ describe("RoadmapView", () => {
     fireEvent.drop(currentSecondTask, { dataTransfer, clientY: 39 });
 
     await waitFor(() => {
-      expect(updateRoadmapTaskPosition).toHaveBeenCalledWith(1, "11", "todo", 0);
-      expect(updateRoadmapTaskPosition).toHaveBeenCalledWith(1, "10", "todo", 1);
+      expect(updateRoadmapTaskLayout).toHaveBeenCalledTimes(1);
+      expect(updateRoadmapTaskLayout).toHaveBeenCalledWith(1, [
+        expect.objectContaining({ taskId: "11", milestoneId: "2", position: 0 }),
+        expect.objectContaining({ taskId: "10", milestoneId: "2", position: 1 }),
+      ]);
     });
-    expect(moveRoadmapTask).not.toHaveBeenCalled();
   });
 
   it("edits and adds recommended project stages before creating them", async () => {

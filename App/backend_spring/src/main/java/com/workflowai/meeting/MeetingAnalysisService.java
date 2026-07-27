@@ -47,7 +47,7 @@ import org.springframework.web.multipart.MultipartFile;
 @Service
 public class MeetingAnalysisService {
     private static final Logger log = LoggerFactory.getLogger(MeetingAnalysisService.class);
-    private static final Set<String> AUDIO_FILE_EXTENSIONS = Set.of(".mp3", ".wav", ".m4a", ".ogg");
+    private static final Set<String> AUDIO_FILE_EXTENSIONS = Set.of(".mp3", ".wav", ".m4a", ".ogg", ".webm");
     // 분석 결과를 사용자가 지운 상태. 분석이 실제로 실패한 "failed"와 구분해야 프론트가
     // 분석/업로드 목록에서 빼면서도 재분석 가능한 항목으로 다룰 수 있다.
     static final String ANALYSIS_DELETED_STATUS = "analysis_deleted";
