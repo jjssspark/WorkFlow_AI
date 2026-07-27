@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import {
+  fetchNotifications,
   fetchUnreadNotificationCount,
   subscribeNotificationStream,
   type NotificationResponse,
@@ -10,6 +11,8 @@ import { NotificationToast } from "../component/layout/NotificationToast";
 
 const FALLBACK_POLL_INTERVAL_MS = 60_000;
 const TOAST_DURATION_MS = 5_000;
+/** 접속 시 밀린 알림을 한꺼번에 다 띄우면 화면을 덮으므로, 카톡처럼 최근 몇 건만 보여준다. */
+const MAX_PENDING_TOASTS = 5;
 
 interface NotificationsState {
   unreadCount: number;
@@ -31,13 +34,32 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const handleNotification = useCallback((notification: NotificationResponse) => {
-    setUnreadCount((prev) => prev + 1);
+  const showToast = useCallback((notification: NotificationResponse) => {
     toast.custom(
       (toastId) => <NotificationToast notification={notification} toastId={toastId} />,
       { duration: TOAST_DURATION_MS }
     );
   }, []);
+
+  const handleNotification = useCallback((notification: NotificationResponse) => {
+    setUnreadCount((prev) => prev + 1);
+    showToast(notification);
+  }, [showToast]);
+
+  /**
+   * 자리를 비운 사이 쌓인(=아직 안 읽은) 알림을 접속 직후 카톡처럼 띄운다. SSE는 접속 이후에
+   * 새로 발생한 것만 보내주므로, 그 전에 도착한 알림은 여기서만 볼 수 있다.
+   */
+  const showPendingNotifications = useCallback(async () => {
+    try {
+      const notifications = await fetchNotifications();
+      // 목록이 최신순이라 그대로 띄우면 가장 오래된 게 맨 위에 남는다 - 뒤집어서 최신이 위로 오게 한다.
+      const pending = notifications.filter((n) => !n.read).slice(0, MAX_PENDING_TOASTS).reverse();
+      pending.forEach(showToast);
+    } catch (err) {
+      console.error("미확인 알림을 불러오지 못했습니다.", err);
+    }
+  }, [showToast]);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -46,6 +68,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     }
 
     refreshUnreadCount();
+    void showPendingNotifications();
     const controller = new AbortController();
     subscribeNotificationStream({ onNotification: handleNotification }, controller.signal);
 
@@ -55,7 +78,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       controller.abort();
       clearInterval(interval);
     };
-  }, [isAuthenticated, handleNotification, refreshUnreadCount]);
+  }, [isAuthenticated, handleNotification, refreshUnreadCount, showPendingNotifications]);
 
   return (
     <NotificationsContext.Provider value={{ unreadCount, refreshUnreadCount }}>
