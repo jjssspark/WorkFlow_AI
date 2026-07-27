@@ -34,11 +34,14 @@ ALL_TOOLS: frozenset[str] = MEMBER_TOOLS | LEADER_TOOLS
 # 권한(LEADER_TOOLS)과는 별개의 축이라 파생시키지 않고 따로 나열한다. 예전에는 MEMBER_TOOLS에서
 # 파생했는데, 그러면 권한 재배치만으로 실행 가능 목록이 딸려 바뀌어 카드가 통째로 사라진다.
 SUPPORTED_TOOLS: frozenset[str] = frozenset(
-    {"change_status", "add_comment", "toggle_checklist", "set_due_date"}
+    {"change_status", "add_comment", "toggle_checklist", "set_due_date", "rename_task"}
 )
 
 _VALID_STATUSES: frozenset[str] = frozenset({"todo", "inprogress", "blocked", "done"})
 _DATE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+# tasks.title은 VARCHAR(200)이다. 더 긴 제목을 실행 단계까지 흘려보내면 DB가 거절해
+# 사용자에게는 원인 모를 500으로 보인다. 계획 단계에서 거부해 되묻기로 빠진다.
+_TITLE_MAX_LENGTH = 200
 
 ToolName = Literal[
     "change_status",
@@ -89,7 +92,9 @@ class Action(BaseModel):
             if not isinstance(args.get("done"), bool):
                 raise ValueError("toggle_checklist args.done가 불리언이 아닙니다")
         elif self.tool == "rename_task":
-            _require_str(args, "title")
+            title = _require_str(args, "title").strip()
+            if len(title) > _TITLE_MAX_LENGTH:
+                raise ValueError(f"rename_task args.title이 {_TITLE_MAX_LENGTH}자를 넘습니다")
         elif self.tool == "set_due_date":
             date_str = _require_str(args, "date")
             if not _DATE_PATTERN.match(date_str):

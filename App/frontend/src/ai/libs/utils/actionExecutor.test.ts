@@ -161,4 +161,34 @@ describe("executeAction", () => {
     expect(fetchChecklist).not.toHaveBeenCalled();
     expect(updateChecklistItem).not.toHaveBeenCalled();
   });
+
+  it("calls the existing task API for rename_task", async () => {
+    vi.mocked(updateTask).mockResolvedValue({} as never);
+
+    const result = await executeAction(
+      card({ tool: "rename_task", args: { title: "  로그인 API 리팩터링  " } }),
+      1
+    );
+
+    expect(result.ok).toBe(true);
+    expect(updateTask).toHaveBeenCalledWith("37", { title: "로그인 API 리팩터링" }, 1);
+  });
+
+  it("refuses an empty new title without calling the API", async () => {
+    const result = await executeAction(card({ tool: "rename_task", args: { title: "   " } }), 1);
+
+    expect(result.ok).toBe(false);
+    expect(updateTask).not.toHaveBeenCalled();
+  });
+
+  it("refuses a title longer than the tasks.title column", async () => {
+    // VARCHAR(200)을 넘기면 DB가 거절해 사용자에게는 원인 모를 500으로 보인다.
+    const result = await executeAction(
+      card({ tool: "rename_task", args: { title: "가".repeat(201) } }),
+      1
+    );
+
+    expect(result.ok).toBe(false);
+    expect(updateTask).not.toHaveBeenCalled();
+  });
 });
