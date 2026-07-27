@@ -192,6 +192,17 @@ export function Header({ onOpenMobileMenu }: { onOpenMobileMenu?: () => void }) 
                             바로가기
                           </button>
                         )}
+                        {n.targetType === "evaluation" && n.targetId && (
+                          <button
+                            onClick={() => {
+                              setNotifOpen(false);
+                              navigate("/mypage");
+                            }}
+                            className="mt-1.5 px-2 py-1 rounded bg-blue-600 text-white text-[10px] font-semibold hover:bg-blue-700"
+                          >
+                            바로가기
+                          </button>
+                        )}
                       </div>
                     );
                   })}

@@ -162,4 +162,19 @@ describe("Header 알림", () => {
     await screen.findByText("회의록이 저장됐습니다");
     expect(screen.queryByRole("button", { name: "바로가기" })).not.toBeInTheDocument();
   });
+
+  it("평가 공개 알림(evaluation)에도 바로가기 버튼이 보이고 클릭 시 마이페이지로 이동한다", async () => {
+    vi.mocked(fetchNotifications).mockResolvedValue([
+      { id: "1", type: "CONTRIBUTION_SCORE_PUBLISHED", title: "기여도 점수가 공개되었습니다.", content: "심사자가 '캡스톤디자인 2024' 프로젝트의 기여도 점수를 공개했습니다.", targetType: "evaluation", targetId: "5", read: false, createdAt: new Date().toISOString() },
+    ]);
+    vi.mocked(markNotificationsRead).mockResolvedValue(undefined);
+
+    renderHeader();
+    await openBell();
+
+    const shortcutButton = await screen.findByRole("button", { name: "바로가기" });
+    await userEvent.click(shortcutButton);
+
+    expect(mockNavigate).toHaveBeenCalledWith("/mypage");
+  });
 });
