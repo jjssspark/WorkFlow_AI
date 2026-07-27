@@ -2,11 +2,15 @@ package com.workflowai.meeting;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 import com.workflowai.common.DemoDataService;
 import com.workflowai.notification.NotificationService;
+import com.workflowai.project.ProjectMember;
+import com.workflowai.project.ProjectMemberRepository;
+import com.workflowai.project.ProjectRole;
 import com.workflowai.rag.RagIngestService;
 import java.time.LocalDate;
 import java.util.List;
@@ -52,6 +56,9 @@ class MeetingAnalysisPersistenceRealTransactionIntegrationTest {
     @Autowired
     private PlatformTransactionManager transactionManager;
 
+    @Autowired
+    private ProjectMemberRepository projectMemberRepository;
+
     @MockBean
     private NotificationService notificationService;
 
@@ -66,6 +73,13 @@ class MeetingAnalysisPersistenceRealTransactionIntegrationTest {
         return meetingRepository.save(meeting).getId();
     }
 
+    /** 업로더 본인(10L)에게는 알림이 가지 않으므로, 알림 발생을 보려면 다른 사용자인 팀장이 필요하다. */
+    private void saveTeamLeaderOnce() {
+        if (!projectMemberRepository.existsByProjectIdAndUserId(1L, 99L)) {
+            projectMemberRepository.save(new ProjectMember(1L, 99L, ProjectRole.LEADER));
+        }
+    }
+
     private MeetingAnalysisResult emptyResult() {
         return new MeetingAnalysisResult(
             "요약", List.of(), List.of(), List.of(), List.of(),
@@ -75,19 +89,20 @@ class MeetingAnalysisPersistenceRealTransactionIntegrationTest {
 
     @Test
     void realTransactionCommitSendsSuccessNotificationAndPersistsCompletedStatus() {
+        saveTeamLeaderOnce();
         Long meetingId = saveTestMeeting();
 
         persistence.saveAnalysisSuccess(meetingId, emptyResult(), "FASTAPI");
 
         verify(notificationService).notifyAfterCommit(
-            10L, "MEETING_ANALYSIS_COMPLETED", "회의 분석이 완료되었습니다.",
-            "'정기회의' 회의록 분석이 완료되었습니다.", "meeting", meetingId
+            eq(99L), eq("MEETING_ANALYSIS_COMPLETED_NOTIFY_LEADER"), any(), any(), eq("meeting"), eq(meetingId)
         );
         assertThat(meetingRepository.findById(meetingId).orElseThrow().getAnalysisStatus()).isEqualTo("completed");
     }
 
     @Test
     void realTransactionRollbackNeverSendsSuccessNotificationAndKeepsOriginalStatus() {
+        saveTeamLeaderOnce();
         Long meetingId = saveTestMeeting();
 
         new TransactionTemplate(transactionManager).execute(status -> {

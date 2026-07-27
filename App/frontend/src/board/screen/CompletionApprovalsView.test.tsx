@@ -6,6 +6,10 @@ import { fetchPendingApprovalTasks, approveTaskCompletion, rejectTaskCompletion 
 import { fetchChecklist } from "../libs/utils/checklistApi";
 import { getProjectMembers } from "../../global/api/projectsApi";
 import type { Task } from "../libs/types/task";
+import {
+  PENDING_APPROVAL_COUNT_CHANGED,
+  type PendingApprovalCountDetail,
+} from "../../leader/libs/utils/pendingApprovalEvents";
 
 vi.mock("../libs/utils/taskApi", async () => {
   const actual = await vi.importActual<typeof import("../libs/utils/taskApi")>("../libs/utils/taskApi");
@@ -54,6 +58,7 @@ function makeTask(id: string, title: string, assignee: string): Task {
 
 describe("CompletionApprovalsView", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     vi.mocked(getProjectMembers).mockResolvedValue([
       { userId: 1, name: "허영주", email: "a@a.com", role: "팀장" },
       { userId: 2, name: "박상준", email: "b@a.com", role: "팀원" },
@@ -94,6 +99,11 @@ describe("CompletionApprovalsView", () => {
   });
 
   it("approves a task and removes it from the list", async () => {
+    const publishedCounts: number[] = [];
+    const handleCount = (event: Event) => {
+      publishedCounts.push((event as CustomEvent<PendingApprovalCountDetail>).detail.count);
+    };
+    window.addEventListener(PENDING_APPROVAL_COUNT_CHANGED, handleCount);
     vi.mocked(fetchPendingApprovalTasks).mockResolvedValue([makeTask("T1", "결제 모듈 완료", "2")]);
     vi.mocked(approveTaskCompletion).mockResolvedValue({} as Task);
 
@@ -104,6 +114,8 @@ describe("CompletionApprovalsView", () => {
 
     await waitFor(() => expect(approveTaskCompletion).toHaveBeenCalledWith("T1", 1));
     await waitFor(() => expect(screen.queryByText("결제 모듈 완료")).not.toBeInTheDocument());
+    expect(publishedCounts).toEqual(expect.arrayContaining([1, 0]));
+    window.removeEventListener(PENDING_APPROVAL_COUNT_CHANGED, handleCount);
   });
 
   it("rejects a task and removes it from the list", async () => {

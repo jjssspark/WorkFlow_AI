@@ -15,6 +15,17 @@ vi.mock("../../global/api/projectsApi", () => ({
   ]),
 }));
 
+vi.mock("../libs/hooks/RecordingSessionProvider", () => ({
+  useRecordingSession: () => ({
+    status: "idle",
+    error: null,
+    startRecording: vi.fn(),
+    requestStop: vi.fn(),
+    pendingBlob: null,
+    clearPendingBlob: vi.fn(),
+  }),
+}));
+
 const fetchMeetings = vi.fn();
 const fetchMeeting = vi.fn();
 const createMeetingVersion = vi.fn();
@@ -164,7 +175,7 @@ describe("MeetingsView 저장된 회의록 수정 진입점", () => {
     expect(screen.queryByRole("button", { name: "수정" })).not.toBeInTheDocument();
   });
 
-  it("pending 버전에서 'AI 재분석하기' 클릭 시 편집 화면을 열지 않고 바로 재분석을 요청한다", async () => {
+  it("pending 버전에서 'AI 재분석하기' 클릭 시 편집 화면 대신 분석 화면을 띄우고 재분석을 요청한다", async () => {
     fetchMeetings.mockResolvedValue([
       {
         meetingId: "6",
@@ -185,8 +196,11 @@ describe("MeetingsView 저장된 회의록 수정 진입점", () => {
     await user.click(await screen.findByRole("button", { name: "AI 재분석하기" }));
 
     expect(reanalyzeMeeting).toHaveBeenCalledWith("1", "6");
-    expect(fetchMeeting).not.toHaveBeenCalled();
+    // 신규 업로드/재시도와 동일한 분석 화면(uploadFlow: "analyzing")으로 전환되어야 하며,
+    // 그 화면은 pollMeetingStatus를 통해 fetchMeeting으로 상태를 조회한다.
+    await waitFor(() => expect(fetchMeeting).toHaveBeenCalledWith("1", "6"));
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "저장된 회의록" })).not.toBeInTheDocument();
   });
 
   it("failed 상태인 버전에도 'AI 재분석하기' 버튼이 보인다", async () => {

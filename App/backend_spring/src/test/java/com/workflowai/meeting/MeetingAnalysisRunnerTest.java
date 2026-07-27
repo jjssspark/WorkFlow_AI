@@ -31,6 +31,7 @@ class MeetingAnalysisRunnerTest {
         "demo-project", "정기회의", "2026-07-15", "정기회의", "document", "a.txt", "내용", List.of("김민준")
     );
     private final UUID jobId = UUID.randomUUID();
+    private final Long requestedBy = 77L;
 
     private MeetingAnalysisRunner newRunner() {
         when(meetingAnalysisPersistence.claimJob(9L, jobId)).thenReturn(true);
@@ -44,9 +45,9 @@ class MeetingAnalysisRunnerTest {
         );
         when(fastApiMeetingClient.analyze(request)).thenReturn(result);
 
-        newRunner().runAnalysis(9L, request, jobId);
+        newRunner().runAnalysis(9L, request, jobId, requestedBy);
 
-        verify(meetingAnalysisPersistence).saveAnalysisSuccessForJob(9L, result, "FASTAPI", jobId);
+        verify(meetingAnalysisPersistence).saveAnalysisSuccessForJob(9L, result, "FASTAPI", jobId, requestedBy);
         verify(meetingAnalysisPersistence, never()).saveAnalysisFailureForJob(any(), any(), any());
     }
 
@@ -58,9 +59,9 @@ class MeetingAnalysisRunnerTest {
         when(fastApiMeetingClient.analyze(request)).thenThrow(new RuntimeException("연결 실패"));
         when(fallbackMeetingAnalyzer.analyze(request)).thenReturn(fallbackResult);
 
-        newRunner().runAnalysis(9L, request, jobId);
+        newRunner().runAnalysis(9L, request, jobId, requestedBy);
 
-        verify(meetingAnalysisPersistence).saveAnalysisSuccessForJob(9L, fallbackResult, "SPRING_FALLBACK", jobId);
+        verify(meetingAnalysisPersistence).saveAnalysisSuccessForJob(9L, fallbackResult, "SPRING_FALLBACK", jobId, requestedBy);
     }
 
     @Test
@@ -68,7 +69,7 @@ class MeetingAnalysisRunnerTest {
         when(fastApiMeetingClient.analyze(request)).thenThrow(new RuntimeException("연결 실패"));
         when(fallbackMeetingAnalyzer.analyze(request)).thenThrow(new RuntimeException("fallback 실패"));
 
-        newRunner().runAnalysis(9L, request, jobId);
+        newRunner().runAnalysis(9L, request, jobId, requestedBy);
 
         verify(meetingAnalysisPersistence).saveAnalysisFailureForJob(
             9L,
@@ -97,13 +98,13 @@ class MeetingAnalysisRunnerTest {
         );
         when(fastApiMeetingClient.analyze(any(AiAnalyzeRequest.class))).thenReturn(result);
 
-        newRunner().runAnalysis(9L, audioRequest, jobId);
+        newRunner().runAnalysis(9L, audioRequest, jobId, requestedBy);
 
         assertThat(meeting.getTranscript()).isEqualTo("전사된 음성 텍스트");
         ArgumentCaptor<AiAnalyzeRequest> requestCaptor = ArgumentCaptor.forClass(AiAnalyzeRequest.class);
         verify(fastApiMeetingClient).analyze(requestCaptor.capture());
         assertThat(requestCaptor.getValue().text()).isEqualTo("전사된 음성 텍스트");
-        verify(meetingAnalysisPersistence).saveAnalysisSuccessForJob(9L, result, "FASTAPI", jobId);
+        verify(meetingAnalysisPersistence).saveAnalysisSuccessForJob(9L, result, "FASTAPI", jobId, requestedBy);
     }
 
     @Test
@@ -118,7 +119,7 @@ class MeetingAnalysisRunnerTest {
             "demo-project", "음성 회의록", "2026-07-24", "정기회의", "audio", "meeting.wav", "", List.of("김민준")
         );
 
-        newRunner().runAnalysis(9L, audioRequest, jobId);
+        newRunner().runAnalysis(9L, audioRequest, jobId, requestedBy);
 
         verify(meetingAnalysisPersistence).saveAnalysisFailureForJob(
             9L, "음성 파일에서 텍스트를 추출하지 못했습니다.", jobId

@@ -122,6 +122,9 @@ class MeetingAnalysisPersistenceTest {
         when(meetingRepository.findByIdForUpdate(5L)).thenReturn(Optional.of(meeting));
         when(meetingAttendeeRepository.findByMeetingId(5L)).thenReturn(List.of());
         when(meetingAnalysisRepository.save(any(MeetingAnalysis.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        ProjectMember leaderMember = new ProjectMember(1L, 99L, com.workflowai.project.ProjectRole.LEADER);
+        when(projectMemberRepository.findByProjectIdAndRole(1L, com.workflowai.project.ProjectRole.LEADER))
+            .thenReturn(Optional.of(leaderMember));
         doThrow(new RuntimeException("notification service down"))
             .when(notificationService).notifyAfterCommit(any(), any(), any(), any(), any(), any());
 
@@ -145,6 +148,9 @@ class MeetingAnalysisPersistenceTest {
         when(meetingRepository.findByIdForUpdate(5L)).thenReturn(Optional.of(meeting));
         when(meetingAttendeeRepository.findByMeetingId(5L)).thenReturn(List.of());
         when(meetingAnalysisRepository.save(any(MeetingAnalysis.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        ProjectMember leaderMember = new ProjectMember(1L, 99L, com.workflowai.project.ProjectRole.LEADER);
+        when(projectMemberRepository.findByProjectIdAndRole(1L, com.workflowai.project.ProjectRole.LEADER))
+            .thenReturn(Optional.of(leaderMember));
 
         MeetingAnalysisResult result = new MeetingAnalysisResult(
             "요약", List.of(), List.of(), List.of(), List.of(),
@@ -163,8 +169,8 @@ class MeetingAnalysisPersistenceTest {
             synchronizations.forEach(TransactionSynchronization::afterCommit);
 
             verify(ragIngestService).ingestBestEffort(1L, "meeting", 5L, "요약");
-            verify(notificationService).notifyAfterCommit(10L, "MEETING_ANALYSIS_COMPLETED", "회의 분석이 완료되었습니다.",
-                "'정기회의' 회의록 분석이 완료되었습니다.", "meeting", 5L);
+            verify(notificationService).notifyAfterCommit(eq(99L), eq("MEETING_ANALYSIS_COMPLETED_NOTIFY_LEADER"),
+                any(), any(), eq("meeting"), eq(5L));
         } finally {
             TransactionSynchronizationManager.clearSynchronization();
         }
@@ -178,6 +184,9 @@ class MeetingAnalysisPersistenceTest {
         when(meetingRepository.findByIdForUpdate(5L)).thenReturn(Optional.of(meeting));
         when(meetingAttendeeRepository.findByMeetingId(5L)).thenReturn(List.of());
         when(meetingAnalysisRepository.save(any(MeetingAnalysis.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        ProjectMember leaderMember = new ProjectMember(1L, 99L, com.workflowai.project.ProjectRole.LEADER);
+        when(projectMemberRepository.findByProjectIdAndRole(1L, com.workflowai.project.ProjectRole.LEADER))
+            .thenReturn(Optional.of(leaderMember));
 
         MeetingAnalysisResult result = new MeetingAnalysisResult(
             "요약", List.of(), List.of(), List.of(), List.of(),
@@ -212,12 +221,13 @@ class MeetingAnalysisPersistenceTest {
 
         persistence.saveAnalysisSuccess(5L, result, "FASTAPI");
 
-        verify(notificationService).notifyAfterCommit(eq(10L), eq("MEETING_ANALYSIS_COMPLETED"), any(), any(), eq("meeting"), eq(5L));
         verify(notificationService).notifyAfterCommit(eq(99L), eq("MEETING_ANALYSIS_COMPLETED_NOTIFY_LEADER"), any(), any(), eq("meeting"), eq(5L));
+        // 분석을 실행한 본인(10L)에게는 알림이 가지 않는다.
+        verify(notificationService, never()).notifyAfterCommit(eq(10L), any(), any(), any(), any(), any());
     }
 
     @Test
-    void saveAnalysisSuccessSendsOnlyOneNotificationWhenUploaderIsLeader() {
+    void saveAnalysisSuccessSendsNoNotificationWhenUploaderIsLeader() {
         MeetingAnalysisPersistence persistence = newPersistence();
         Meeting meeting = new Meeting(1L, "정기회의", "document", null, "processing", LocalDate.now(), "정기회의", "a.txt", 99L, 10L);
         when(meetingRepository.findByIdForUpdate(5L)).thenReturn(Optional.of(meeting));
@@ -234,8 +244,43 @@ class MeetingAnalysisPersistenceTest {
 
         persistence.saveAnalysisSuccess(5L, result, "FASTAPI");
 
-        verify(notificationService, times(1)).notifyAfterCommit(any(), any(), any(), any(), any(), any());
-        verify(notificationService).notifyAfterCommit(eq(99L), eq("MEETING_ANALYSIS_COMPLETED"), any(), any(), eq("meeting"), eq(5L));
+        // 팀장 본인이 올리고 분석까지 했으므로 알릴 상대가 없다.
+        verify(notificationService, never()).notifyAfterCommit(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void saveAnalysisSuccessForJobCreditsTheActualRequesterNotTheOriginalUploader() {
+        // 원본 업로더(10L)가 아니라, 이번 재분석을 실제로 트리거한 사용자(20L)가 완료 알림에
+        // 크레딧돼야 한다 — 예: A가 업로드한 회의록을 B가 재시도(retry)한 경우.
+        MeetingAnalysisPersistence persistence = newPersistence();
+        UUID jobId = UUID.randomUUID();
+        Meeting meeting = new Meeting(1L, "정기회의", "document", null, "processing", LocalDate.now(), "정기회의", "a.txt", 10L, 10L);
+        meeting.setAnalysisJobId(jobId);
+        when(meetingRepository.findByIdForUpdate(5L)).thenReturn(Optional.of(meeting));
+        when(meetingAttendeeRepository.findByMeetingId(5L)).thenReturn(List.of());
+        when(meetingAnalysisRepository.save(any(MeetingAnalysis.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        ProjectMember leaderMember = new ProjectMember(1L, 99L, com.workflowai.project.ProjectRole.LEADER);
+        when(projectMemberRepository.findByProjectIdAndRole(1L, com.workflowai.project.ProjectRole.LEADER))
+            .thenReturn(Optional.of(leaderMember));
+        User requester = mock(User.class);
+        when(requester.getName()).thenReturn("박지수");
+        when(userRepository.findById(20L)).thenReturn(Optional.of(requester));
+
+        MeetingAnalysisResult result = new MeetingAnalysisResult(
+            "요약", List.of(), List.of(), List.of(), List.of(),
+            new MeetingMeta("정기회의", "2026-07-15", List.of())
+        );
+
+        persistence.saveAnalysisSuccessForJob(5L, result, "FASTAPI", jobId, 20L);
+
+        ArgumentCaptor<String> contentCaptor = ArgumentCaptor.forClass(String.class);
+        verify(notificationService).notifyAfterCommit(
+            eq(99L), eq("MEETING_ANALYSIS_COMPLETED_NOTIFY_LEADER"), any(), contentCaptor.capture(), eq("meeting"), eq(5L)
+        );
+        assertThat(contentCaptor.getValue()).contains("박지수님이");
+        // 원본 업로더(10L)에게도, 재분석을 실행한 본인(20L)에게도 알림이 가지 않는다.
+        verify(notificationService, never()).notifyAfterCommit(eq(10L), any(), any(), any(), any(), any());
+        verify(notificationService, never()).notifyAfterCommit(eq(20L), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -574,7 +619,8 @@ class MeetingAnalysisPersistenceTest {
                 new MeetingMeta("정기회의", "2026-07-15", List.of())
             ),
             "FASTAPI",
-            jobId
+            jobId,
+            77L
         );
 
         verify(meetingAnalysisRepository).save(any(MeetingAnalysis.class));

@@ -12,11 +12,13 @@ vi.mock("./useAuth", () => ({ useAuth: () => mockUseAuth() }));
 type StreamHandlers = { onNotification: (n: NotificationResponse) => void };
 let streamHandlers: StreamHandlers | null = null;
 const fetchUnreadNotificationCount = vi.fn();
+const fetchNotifications = vi.fn();
 const subscribeNotificationStream = vi.fn((handlers: StreamHandlers) => {
   streamHandlers = handlers;
 });
 vi.mock("../api/notificationApi", () => ({
   fetchUnreadNotificationCount: (...args: unknown[]) => fetchUnreadNotificationCount(...args),
+  fetchNotifications: (...args: unknown[]) => fetchNotifications(...args),
   subscribeNotificationStream: (...args: unknown[]) => subscribeNotificationStream(...(args as [StreamHandlers, AbortSignal])),
 }));
 
@@ -32,10 +34,20 @@ function sampleNotification(): NotificationResponse {
   };
 }
 
+function notificationsOf(count: number, read = false): NotificationResponse[] {
+  return Array.from({ length: count }, (_, i) => ({
+    ...sampleNotification(),
+    id: String(i + 1),
+    title: `알림${i + 1}`,
+    read,
+  }));
+}
+
 describe("NotificationProvider", () => {
   beforeEach(() => {
     streamHandlers = null;
     fetchUnreadNotificationCount.mockReset().mockResolvedValue(0);
+    fetchNotifications.mockReset().mockResolvedValue([]);
     subscribeNotificationStream.mockClear();
     vi.mocked(toast.custom).mockClear();
   });
@@ -66,5 +78,25 @@ describe("NotificationProvider", () => {
 
     expect(getByTestId("count").textContent).toBe("1");
     expect(toast.custom).toHaveBeenCalledOnce();
+  });
+
+  it("접속하면 자리를 비운 사이 쌓인 안 읽은 알림을 최대 5건까지 토스트로 띄운다", async () => {
+    mockUseAuth.mockReturnValue({ isAuthenticated: true });
+    fetchNotifications.mockResolvedValue(notificationsOf(8));
+
+    render(<NotificationProvider><Probe /></NotificationProvider>);
+
+    // 8건이 밀려 있어도 화면을 덮지 않도록 5건까지만 띄운다.
+    await waitFor(() => expect(toast.custom).toHaveBeenCalledTimes(5));
+  });
+
+  it("이미 읽은 알림은 접속 시 다시 띄우지 않는다", async () => {
+    mockUseAuth.mockReturnValue({ isAuthenticated: true });
+    fetchNotifications.mockResolvedValue(notificationsOf(3, true));
+
+    render(<NotificationProvider><Probe /></NotificationProvider>);
+
+    await waitFor(() => expect(fetchNotifications).toHaveBeenCalled());
+    expect(toast.custom).not.toHaveBeenCalled();
   });
 });

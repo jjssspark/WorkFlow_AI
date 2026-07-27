@@ -86,7 +86,7 @@ class MeetingAnalysisServiceAfterCommitFailureIntegrationTest {
     @Test
     void afterCommitEnqueueFailureDurablyPersistsFailedStatusInNewTransaction() {
         doThrow(new IllegalStateException("redis unavailable"))
-            .when(meetingAnalysisJobPublisher).enqueue(any(), any(), any());
+            .when(meetingAnalysisJobPublisher).enqueue(any(), any(), any(), any());
 
         MeetingAnalysisResponse response = service.analyze(
             "demo-project",
@@ -132,7 +132,7 @@ class MeetingAnalysisServiceAfterCommitFailureIntegrationTest {
             assertThat(commitObserved).isTrue();
             enqueueObserved.set(true);
             return null;
-        }).when(meetingAnalysisJobPublisher).enqueue(any(), any(), any());
+        }).when(meetingAnalysisJobPublisher).enqueue(any(), any(), any(), any());
 
         try {
             new TransactionTemplate(transactionManager).executeWithoutResult(status -> {

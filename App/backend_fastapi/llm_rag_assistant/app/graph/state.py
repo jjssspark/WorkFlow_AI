@@ -8,18 +8,48 @@ from pydantic import BaseModel, Field, model_validator
 
 # 도구 목록을 한 곳에서만 정의한다. 계획 노드의 허용 목록, 권한 판정, 프론트 실행기 매핑이
 # 서로 어긋나면 "카드는 떴는데 실행이 안 되는" 상태가 되므로 여기가 유일한 기준이다.
-MEMBER_TOOLS: frozenset[str] = frozenset({"change_status", "add_comment", "toggle_checklist"})
-LEADER_TOOLS: frozenset[str] = frozenset({"rename_task", "set_due_date", "change_assignee", "delete_task"})
+#
+# 어시스턴트로 하는 업무 변경은 전부 팀장 전용이다. 보드 화면에서는 멤버도 상태 변경·코멘트·
+# 체크리스트를 할 수 있지만(Spring은 그 API들을 isMember로 허용한다), 대화로 하는 변경은
+# 대상 업무를 유사도로 추정하는 단계가 끼어 오작동 시 되돌리기가 어렵다. 그래서 어시스턴트
+# 경로만 더 좁게 잡는다. 멤버 전용 도구는 없다.
+MEMBER_TOOLS: frozenset[str] = frozenset()
+LEADER_TOOLS: frozenset[str] = frozenset(
+    {
+        "change_status",
+        "add_comment",
+        "toggle_checklist",
+        "rename_task",
+        "set_due_date",
+        "change_assignee",
+        "delete_task",
+    }
+)
 ALL_TOOLS: frozenset[str] = MEMBER_TOOLS | LEADER_TOOLS
 
 # 프론트 실행기(actionExecutor.ts)가 실제로 수행할 수 있는 도구. 이 집합에 없는 도구는
 # 그래프가 확인 카드를 만들어도 실행 단계에서 거부돼 "카드는 떴는데 안 되는" 계약 불일치가
 # 생기므로 prepare에서 차단한다. 실행기에 도구를 추가하면 여기도 반드시 함께 넓힌다.
-# set_due_date는 팀장 전용(LEADER_TOOLS)이라 멤버는 권한 단계에서 먼저 막힌다.
-SUPPORTED_TOOLS: frozenset[str] = MEMBER_TOOLS | frozenset({"set_due_date"})
+#
+# 권한(LEADER_TOOLS)과는 별개의 축이라 파생시키지 않고 따로 나열한다. 예전에는 MEMBER_TOOLS에서
+# 파생했는데, 그러면 권한 재배치만으로 실행 가능 목록이 딸려 바뀌어 카드가 통째로 사라진다.
+SUPPORTED_TOOLS: frozenset[str] = frozenset(
+    {
+        "change_status",
+        "add_comment",
+        "toggle_checklist",
+        "set_due_date",
+        "rename_task",
+        "change_assignee",
+        "delete_task",
+    }
+)
 
 _VALID_STATUSES: frozenset[str] = frozenset({"todo", "inprogress", "blocked", "done"})
 _DATE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+# tasks.title은 VARCHAR(200)이다. 더 긴 제목을 실행 단계까지 흘려보내면 DB가 거절해
+# 사용자에게는 원인 모를 500으로 보인다. 계획 단계에서 거부해 되묻기로 빠진다.
+_TITLE_MAX_LENGTH = 200
 
 ToolName = Literal[
     "change_status",
@@ -70,7 +100,9 @@ class Action(BaseModel):
             if not isinstance(args.get("done"), bool):
                 raise ValueError("toggle_checklist args.done가 불리언이 아닙니다")
         elif self.tool == "rename_task":
-            _require_str(args, "title")
+            title = _require_str(args, "title").strip()
+            if len(title) > _TITLE_MAX_LENGTH:
+                raise ValueError(f"rename_task args.title이 {_TITLE_MAX_LENGTH}자를 넘습니다")
         elif self.tool == "set_due_date":
             date_str = _require_str(args, "date")
             if not _DATE_PATTERN.match(date_str):

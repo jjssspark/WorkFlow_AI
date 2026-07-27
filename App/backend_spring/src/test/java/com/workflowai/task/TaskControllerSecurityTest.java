@@ -36,6 +36,7 @@ import org.springframework.security.config.annotation.method.configuration.Enabl
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import testsupport.AccessDeniedEnvelopeAdvice;
 
 // MethodSecurityTestConfig는 일부러 @SpringBootConfiguration을 쓰지 않는다. 같은 패키지(com.workflowai.task)의
 // 다른 @WebMvcTest(예: ChecklistControllerGenerateTest)들이 설정 클래스를 명시하지 않고 자동 탐지에 의존하는데,
@@ -83,32 +84,32 @@ class TaskControllerSecurityTest {
     }
 
     @Test
-    void projectMemberCanCreateTaskForLegacyClientCompatibility() throws Exception {
-        when(projectAccess.isMember("demo-project")).thenReturn(true);
+    void leaderCanCreateTask() throws Exception {
+        when(projectAccess.hasRole(eq("demo-project"), eq("LEADER"))).thenReturn(true);
         when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
         when(taskRepository.findTopByProjectIdAndStatusOrderByPositionDesc(anyLong(), any()))
             .thenReturn(java.util.Optional.empty());
         when(taskRepository.save(any(Task.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        UserPrincipal principal = new UserPrincipal(1L, "member@example.com", "팀원");
+        UserPrincipal principal = new UserPrincipal(1L, "leader@example.com", "팀장");
         SecurityContextHolder.getContext().setAuthentication(
             new UsernamePasswordAuthenticationToken(principal, null, List.of())
         );
         mockMvc.perform(post("/api/v1/projects/demo-project/tasks")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"title\":\"팀원 업무\",\"category\":\"backend\"}"))
+                .content("{\"title\":\"팀장 업무\",\"category\":\"backend\"}"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.success").value(true));
     }
 
     @Test
-    void createTaskReturns403WhenNotProjectMember() throws Exception {
-        when(projectAccess.isMember("demo-project")).thenReturn(false);
+    void createTaskReturns403WhenNotLeader() throws Exception {
+        when(projectAccess.hasRole(eq("demo-project"), eq("LEADER"))).thenReturn(false);
 
         mockMvc.perform(post("/api/v1/projects/demo-project/tasks")
-                .with(user("outsider"))
+                .with(user("member"))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"title\":\"외부 업무\"}"))
+                .content("{\"title\":\"팀원 업무\",\"category\":\"backend\"}"))
             .andExpect(status().isForbidden())
             .andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
     }
@@ -152,8 +153,8 @@ class TaskControllerSecurityTest {
     @Import(TaskController.class)
     static class MethodSecurityTestConfig {
         @Bean
-        TaskAccessDeniedResponseAdvice accessDeniedResponseAdvice() {
-            return new TaskAccessDeniedResponseAdvice();
+        AccessDeniedEnvelopeAdvice accessDeniedResponseAdvice() {
+            return new AccessDeniedEnvelopeAdvice();
         }
     }
 }

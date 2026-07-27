@@ -297,7 +297,7 @@ export function DashProgressPage() {
         if (!edit) return false;
         return edit.title !== item.title || edit.startDate !== (item.startDate ?? "") || edit.dueDate !== (item.dueDate ?? "");
       });
-      await Promise.all(changed.map(item => {
+      const results = await Promise.allSettled(changed.map(item => {
         const edit = bulkEdits[item.id];
         return updateMilestone(currentProjectId, item.id, {
           title: edit.title.trim(),
@@ -305,10 +305,20 @@ export function DashProgressPage() {
           dueDate: edit.dueDate || null,
         });
       }));
-      exitBulkEditMode();
+      const failedCount = results.filter(result => result.status === "rejected").length;
+      // 일부만 실패해도 성공한 나머지는 이미 서버에 반영됐으므로, 우선 화면을 최신 상태로 맞춘다.
+      // refetch 자체가 실패하더라도 로딩 표시가 고착되지 않도록 finally로 반드시 해제한다.
       setMilestoneRefreshing(true);
-      await refetch();
-      setMilestoneRefreshing(false);
+      try {
+        await refetch();
+      } finally {
+        setMilestoneRefreshing(false);
+      }
+      if (failedCount > 0) {
+        setBulkError(`${changed.length}개 중 ${failedCount}개 수정에 실패했습니다. 다시 시도해주세요.`);
+      } else {
+        exitBulkEditMode();
+      }
     } catch {
       setBulkError("마일스톤 수정에 실패했습니다. 잠시 후 다시 시도해주세요.");
     } finally {
@@ -326,11 +336,23 @@ export function DashProgressPage() {
     setBulkError(null);
     setBulkSubmitting(true);
     try {
-      await Promise.all(Array.from(bulkSelectedIds).map(id => deleteMilestone(currentProjectId, id)));
-      exitBulkEditMode();
+      const ids = Array.from(bulkSelectedIds);
+      const results = await Promise.allSettled(ids.map(id => deleteMilestone(currentProjectId, id)));
+      const failedIds = ids.filter((_, index) => results[index].status === "rejected");
+      // 일부만 실패해도 성공한 나머지는 이미 삭제됐으므로, 우선 화면을 최신 상태로 맞춘다.
+      // refetch 자체가 실패하더라도 로딩 표시가 고착되지 않도록 finally로 반드시 해제한다.
       setMilestoneRefreshing(true);
-      await refetch();
-      setMilestoneRefreshing(false);
+      try {
+        await refetch();
+      } finally {
+        setMilestoneRefreshing(false);
+      }
+      if (failedIds.length > 0) {
+        setBulkSelectedIds(new Set(failedIds));
+        setBulkError(`${ids.length}개 중 ${failedIds.length}개 삭제에 실패했습니다. 다시 시도해주세요.`);
+      } else {
+        exitBulkEditMode();
+      }
     } catch {
       setBulkError("마일스톤 삭제에 실패했습니다. 잠시 후 다시 시도해주세요.");
     } finally {
@@ -357,9 +379,9 @@ export function DashProgressPage() {
         </div>
         <div className="flex items-center gap-2">
           <button onClick={onGoUrgent} className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-red-200 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors"><AlertTriangle className="w-3.5 h-3.5" />마감 임박 업무</button>
-          <button onClick={handleGenerateReport} disabled={generatingReport} className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-white rounded-lg disabled:opacity-60" style={{ background: "linear-gradient(135deg,#7048E8,#4F6EF7)" }}>
+          {/* <button onClick={handleGenerateReport} disabled={generatingReport} className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-white rounded-lg disabled:opacity-60" style={{ background: "linear-gradient(135deg,#7048E8,#4F6EF7)" }}>
             <Sparkles className="w-3.5 h-3.5" />{generatingReport ? "생성 중..." : "진행률 보고서"}
-          </button>
+          </button> */}
         </div>
       </div>
 

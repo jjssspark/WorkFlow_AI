@@ -12,6 +12,14 @@ vi.mock("../../api/notificationApi", () => ({
   subscribeNotificationStream: vi.fn(),
 }));
 
+vi.mock("../../../meetings/libs/hooks/RecordingSessionProvider", () => ({
+  useRecordingSession: () => ({
+    status: "idle", error: null,
+    startRecording: vi.fn(), requestStop: vi.fn(), pendingBlob: null, clearPendingBlob: vi.fn(),
+  }),
+  useRecordingElapsedSeconds: () => 0,
+}));
+
 function renderAppShell() {
   return render(
     <MemoryRouter initialEntries={["/board"]}>

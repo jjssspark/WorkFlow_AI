@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import {
   AlertTriangle,
@@ -8,7 +8,6 @@ import {
   Clock,
   Eye,
   EyeOff,
-  FileText,
   GraduationCap,
   Lock,
   Mail,
@@ -60,7 +59,6 @@ export function SignupScreen() {
   const [isProfessor, setIsProfessor] = useState(draft?.isProfessor ?? false);
   const [professorNo, setProfessorNo] = useState("");
   const [affiliation, setAffiliation] = useState("");
-  const [certificateName, setCertificateName] = useState("");
   const [approvalSubmitted, setApprovalSubmitted] = useState(false);
   const [signupError, setSignupError] = useState<string | null>(null);
   const [showPrivacyModal, setShowPrivacyModal] = useState(false);
@@ -76,10 +74,6 @@ export function SignupScreen() {
   const pwMismatch = Boolean(pw && pwConfirm && pw !== pwConfirm);
   const professorValid = !isProfessor || Boolean(professorNo.trim() && affiliation.trim());
   const valid = Boolean(name.trim() && email.trim() && pw && pwMatch && termsAgreed && privacyAgreed && professorValid);
-
-  const handleCertificateChange = (event: ChangeEvent<HTMLInputElement>) => {
-    setCertificateName(event.target.files?.[0]?.name ?? "");
-  };
 
   const handleSubmit = async () => {
     if (!valid || loading) return;
@@ -245,15 +239,6 @@ export function SignupScreen() {
                         placeholder="예: PROF-2026-001"
                       />
                     </div>
-                    <label className="block">
-                      <span className="text-xs font-semibold text-foreground">인증 서류 첨부</span>
-                      <div className="mt-1.5 flex items-center gap-2 rounded-xl border border-dashed border-violet-200 bg-violet-50 px-3 py-3">
-                        <FileText className="w-4 h-4 text-violet-600" />
-                        <span className="flex-1 text-xs text-violet-700 truncate">{certificateName || "재직증명서, 교원증 이미지 등"}</span>
-                        <span className="text-xs font-semibold text-violet-700">선택</span>
-                      </div>
-                      <input type="file" className="hidden" onChange={handleCertificateChange} />
-                    </label>
                     <div className="text-xs text-violet-600 bg-violet-50 rounded-lg px-3 py-2">
                       가입하기를 누르면 관리자 승인 후 가입 처리됩니다.
                     </div>

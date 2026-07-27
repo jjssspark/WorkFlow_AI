@@ -3,16 +3,17 @@ import { useNavigate, useSearchParams } from "react-router";
 import { CatTag } from "../../board/components/CatTag";
 import { PriorityBadge } from "../../board/components/PriorityBadge";
 import { getCat } from "../../board/libs/utils/taskService";
-import { getStoredMeetings, getSavedMeetings, saveSavedMeetings, getStoredTasks, saveStoredTasks, saveStoredMeetings, getDeletedMeetingIds, markDeletedMeeting } from "../../board/libs/utils/localStore";
+import { getStoredMeetings, getSavedMeetings, saveSavedMeetings, getStoredTasks, saveStoredTasks, saveStoredMeetings, getDeletedMeetingIds, markDeletedMeeting, unmarkDeletedMeeting } from "../../board/libs/utils/localStore";
 import { addActivity } from "../../board/libs/utils/activityStore";
 import { CATEGORIES } from "../../board/libs/mock/tasks";
-import type { Meeting, UploadFlow, UploadType, GenTodo, SavedMeetingRecord } from "../libs/types/meeting";
+import type { Meeting, UploadFlow, UploadType, GenTodo, SavedMeetingRecord, ExportablePdfData } from "../libs/types/meeting";
 import type { CatId, Priority, Task } from "../../board/libs/types/task";
 import { analyzeMeeting, confirmMeetingSave, deleteMeeting, deleteMeetingAnalysis, fetchMeeting, fetchMeetings, reanalyzeMeeting, registerMeetingTasks, retryMeetingAnalysis } from "../libs/utils/meetingAiApi";
 import { MeetingEditPanel } from "../components/MeetingEditPanel";
 import type { MeetingAiResult } from "../libs/types/meetingAiTypes";
 import { deleteTask, DEMO_PROJECT_ID } from "../../board/libs/utils/taskApi";
 import { useAuth } from "../../global/hooks/useAuth";
+import { useRecordingSession } from "../libs/hooks/RecordingSessionProvider";
 import type { ProjectRoleKo } from "../../global/api/authTypes";
 import { ApiRequestError } from "../../global/api/apiClient";
 import { getProjectMembers, type MemberResponse } from "../../global/api/projectsApi";
@@ -228,6 +229,27 @@ export const buildGeneratedTodos = (result: MeetingAiResult): GenTodo[] =>
     };
   });
 
+// 저장된 회의록 상세(meeting.todos, "이름: 업무내용 (마감일)" 문자열)를 역할 분배 검토 화면의
+// GenTodo 형태로 변환한다 — "업무로 등록"도 검토 화면을 거치게 하기 위해 필요하다.
+export const buildGenTodosFromMeetingLines = (lines: string[], members: MemberResponse[]): GenTodo[] =>
+  lines.map((line, index) => {
+    const parsed = parseMeetingTodoLine(line);
+    const matchedMember = members.find(m => m.name.trim() === parsed.assigneeName.trim());
+    const assignee = matchedMember ? String(matchedMember.userId) : "";
+    return {
+      id: `MTG-${String(index + 1).padStart(2, "0")}`,
+      title: parsed.title,
+      desc: "",
+      category: "other",
+      assignee,
+      dueDate: parsed.dueDate,
+      priority: "medium" as const,
+      basis: matchedMember ? `회의록 후보 담당자: ${parsed.assigneeName}` : "회의록 AI 분석 결과",
+      assigned: Boolean(assignee),
+      source: "MEETING_AI" as const,
+    };
+  });
+
 const buildRiskCards = (risks: string[]) =>
   risks.map((text, index) => ({
     level: index === 0 ? "high" : "medium",
@@ -368,6 +390,7 @@ const buildMeetingFromAnalysisResponse = (
 
 export function MeetingsView() {
   const { currentProjectId, currentProject } = useAuth();
+  const { status: recordingStatus, startRecording } = useRecordingSession();
   const currentUserRole = deriveCurrentUserRole(currentProject?.role);
   const projectId = String(currentProjectId ?? DEMO_PROJECT_ID);
   const navigate = useNavigate();
@@ -413,9 +436,6 @@ export function MeetingsView() {
   const [newTodoError, setNewTodoError] = useState<string | null>(null);
   const [saveMeetingMessage, setSaveMeetingMessage] = useState<string | null>(null);
   const [saveMeetingError, setSaveMeetingError] = useState<string | null>(null);
-  const [reanalyzingMeetingId, setReanalyzingMeetingId] = useState<string | null>(null);
-  const [reanalyzeMessage, setReanalyzeMessage] = useState<string | null>(null);
-  const [reanalyzeError, setReanalyzeError] = useState<string | null>(null);
   const [originalViewMessage, setOriginalViewMessage] = useState<string | null>(null);
   const [originalPreview, setOriginalPreview] = useState<{ kind: "text"; content: string; fileName: string } | { kind: "unsupported"; fileName: string } | null>(null);
   const [pdfExportMessage, setPdfExportMessage] = useState<string | null>(null);
@@ -604,16 +624,20 @@ export function MeetingsView() {
       .then(list => {
         const deletedMeetingIds = getDeletedMeetingIds(projectId);
         const serverMeetings: Meeting[] = list.map(dto => {
-          const status = dto.analysisStatus === "completed" ? "processed" : dto.analysisStatus === "failed" ? "failed" : dto.analysisStatus === "pending" ? "pending" : "processing";
+          const status = dto.analysisStatus === "completed" ? "processed" : dto.analysisStatus === "analysis_deleted" ? "analysisDeleted" : dto.analysisStatus === "failed" ? "failed" : dto.analysisStatus === "pending" ? "pending" : "processing";
           const base: Meeting = {
             id: dto.meetingId,
             title: dto.title,
             date: dto.meetingDate ?? "",
             duration: dto.analysisStatus === "completed" ? "분석 완료" : dto.analysisStatus,
             status,
-            savedAt: dto.savedAt,
+            // 저장 직후 재조회 응답이 아직 saved_at을 반영하지 못했더라도(진행 중이던 폴링 응답 등)
+            // 로컬이 이미 아는 저장 시각을 지우지 않는다. savedAt은 null -> 값으로만 바뀌므로
+            // 값이 있는 쪽을 남기는 것이 항상 안전하다. 지우면 방금 저장한 회의록이 목록에서 사라진다.
+            savedAt: dto.savedAt ?? cached.find(item => item.id === dto.meetingId)?.savedAt ?? null,
             originalMeetingId: dto.originalMeetingId,
             tasksRegistered: dto.tasksRegistered,
+            hasGeneratedTodos: dto.hasGeneratedTodos,
           };
           // 목록 API는 요약만 내려주므로, 이미 상세 분석 결과를 캐시해둔 회의록은 그 결과를 보존한다.
           // 그렇지 않으면 탭을 옮겼다가 돌아올 때마다 상세 조회를 다시 하게 되어 화면이 늦게 뜬다.
@@ -647,7 +671,12 @@ export function MeetingsView() {
   // 다만 수정본(버전)은 바로 아래 분기에서 예외적으로 "저장된 회의록" 탭으로 보낸다.
   useEffect(() => {
     const targetMeetingId = searchParams.get("meetingId");
-    if (!targetMeetingId || deepLinkHandledIdRef.current === targetMeetingId) return;
+    if (!targetMeetingId) return;
+    // panel 값까지 키에 포함시켜야, 같은 meetingId를 이미 한 번 열어본 뒤 다른 panel로
+    // 다시 딥링크가 와도(예: 요약 알림 → 나중에 역할분배 알림) 무시되지 않고 반영된다.
+    const panel = searchParams.get("panel") ?? "";
+    const deepLinkKey = `${targetMeetingId}:${panel}`;
+    if (deepLinkHandledIdRef.current === deepLinkKey) return;
     setSelected(targetMeetingId);
     const target = meetings.find(item => item.id === targetMeetingId);
     if (!target) return;
@@ -655,7 +684,11 @@ export function MeetingsView() {
     // 아직 분석 전/실패 상태인 버전에 대해 빈 안내 문구만 보여주므로, 수정 알림("바로가기")으로
     // 온 사용자를 그리로 보내면 안 된다. 원본 회의록은 기존대로 분석/업로드 탭으로 보낸다.
     setHomeTab(target.originalMeetingId ? "saved" : "analyze");
-    deepLinkHandledIdRef.current = targetMeetingId;
+    // 역할분배를 요청하는 알림("바로가기")은 요약 탭이 아니라 역할분배 검토(To-Do) 탭으로 바로 연결한다.
+    if (panel === "todos") {
+      setPanelTab("todos");
+    }
+    deepLinkHandledIdRef.current = deepLinkKey;
   }, [searchParams, meetings]);
 
   // 참석자 체크 목록은 현재 프로젝트의 실제 멤버만 보여준다.
@@ -810,15 +843,40 @@ export function MeetingsView() {
     setTimeout(() => setSaveMeetingMessage(null), 2500);
   };
 
+  const markMeetingSavedLocally = (meetingId: string) => {
+    const savedAt = new Date().toISOString();
+    // 곧이어 실행되는 refreshMeetingsFromServer()가 localStorage를 동기적으로 읽는다.
+    // 저장소 반영을 setMeetings 업데이터 안에서만 하면 React가 업데이터를 실행하기 전에
+    // 재조회가 옛 값을 읽어, 방금 저장한 회의록이 저장된 회의록 목록에서 사라진다.
+    saveStoredMeetings(
+      getStoredMeetings(projectId).map(item => item.id === meetingId ? { ...item, savedAt } : item),
+      projectId
+    );
+    setMeetings(prev => prev.map(item => item.id === meetingId ? { ...item, savedAt } : item));
+  };
+
   // 서버 저장확정(saved_at 확정 + MEETING_SAVED/_NOTIFY_LEADER 알림)을 먼저 시도하고,
   // 성공했을 때만 로컬 상태 반영(handleSaveMeeting)과 성공 메시지를 보여준다 — 순서를 바꾸면
   // 서버 저장이 실패해도 로컬은 이미 "저장됨"으로 보여 화면과 실제 상태가 어긋난다.
   const handleConfirmSave = async () => {
     if (!selected) return;
     setSaveMeetingError(null);
+    // 같은 회의록을 반복 저장하면 저장 시각만 덮어쓰면서 서버 호출과 저장 용량을 낭비한다.
+    // 이미 저장된 회의록이면 알리고 끝낸다.
+    const alreadySaved = meetings.find(item => item.id === selected)?.savedAt;
+    if (alreadySaved) {
+      setSaveMeetingMessage("이미 저장된 회의록입니다. 저장된 회의록 탭에서 확인할 수 있습니다.");
+      setTimeout(() => setSaveMeetingMessage(null), 3000);
+      return;
+    }
     try {
       await confirmMeetingSave(projectId, selected);
       handleSaveMeeting();
+      // "저장된 회의록" 목록은 meetings의 savedAt으로 걸러진다(savedMeetingsList).
+      // 서버 재조회 결과를 기다리면 저장 직후엔 목록이 비어 보여 새로고침해야 뜨므로,
+      // 서버 저장이 확정된 시점에 로컬 meetings의 savedAt도 즉시 채운다.
+      markMeetingSavedLocally(selected);
+      void refreshMeetingsFromServer();
     } catch (error) {
       const status = error instanceof ApiRequestError ? ` (${error.status})` : "";
       setSaveMeetingError(`서버 저장에 실패했습니다${status}. 잠시 후 다시 시도해주세요.`);
@@ -843,20 +901,38 @@ export function MeetingsView() {
 
   // pending/failed 상태인 버전(수정본)을 편집 화면 없이 그 자리에서 재분석한다.
   // 새 버전을 만들지 않고 이미 저장된 transcript로 분석만 재실행하므로 fetchMeeting 조회가 필요 없다.
+  // 신규 업로드(startAnalysis)/재시도(runRetryAnalysis)와 동일하게 uploadFlow를 "analyzing"으로
+  // 바꿔 분석 화면을 띄우고 pollMeetingStatus로 완료까지 진행해야, 재분석이 실제로 실행되고 있다는
+  // 것이 화면에 보인다. 토스트 메시지만 띄우고 끝나면 "화면은 안 뜨고 알림만 온다"는 문제가 생긴다.
   const handleReanalyzeVersion = async (meetingId: string) => {
-    setReanalyzingMeetingId(meetingId);
-    setReanalyzeError(null);
+    const title = meetings.find(m => m.id === meetingId)?.title ?? "";
+    const uploadedAt = new Date().toISOString();
+    setMeetTitle(title);
+    setAnalysisResult(null);
+    setSelTodos([]);
+    setAnalysisSource(null);
+    setAnalysisError(null);
+    setAnalyzeStage(0);
+    setAnalyzeProgress(0);
+    setAnalyzeProgressTarget(8);
+    setAnalysisElapsedSeconds(0);
+    setPollAttemptCount(0);
+    setAnalysisPhase("uploading");
+    setAnalysisRequestPending(true);
+    setUploadFlow("analyzing");
+
     try {
-      await reanalyzeMeeting(projectId, meetingId);
-      setReanalyzeMessage("AI 재분석을 요청했습니다.");
-      setTimeout(() => setReanalyzeMessage(null), 2500);
-      void refreshMeetingsFromServer();
+      const response = await reanalyzeMeeting(projectId, meetingId);
+      setAnalysisRequestPending(false);
+      setActiveMeetingId(response.meetingId);
+      setAnalysisPhase("queued");
+      setAnalyzeProgressTarget(28);
+      pollMeetingStatus(response.meetingId, title, uploadedAt);
     } catch (error) {
+      setAnalysisRequestPending(false);
       const status = error instanceof ApiRequestError ? ` (${error.status})` : "";
-      setReanalyzeError(`재분석 요청에 실패했습니다${status}. 잠시 후 다시 시도해주세요.`);
-      setTimeout(() => setReanalyzeError(null), 4000);
-    } finally {
-      setReanalyzingMeetingId(null);
+      setAnalysisError(`재분석 요청에 실패했습니다${status}. 잠시 후 다시 시도해주세요.`);
+      setUploadFlow("results");
     }
   };
 
@@ -904,16 +980,19 @@ export function MeetingsView() {
     setOriginalPreview({ kind: "unsupported", fileName: selectedFile.name });
   };
 
-  const handleExportPdf = async () => {
-    if (!analysisResult) {
-      setPdfExportMessage("분석 결과가 없어 PDF로 저장할 수 없습니다.");
-      setTimeout(() => setPdfExportMessage(null), 2500);
+  const [pdfExportData, setPdfExportData] = useState<ExportablePdfData | null>(null);
+
+  const handleExportPdf = async (data: ExportablePdfData) => {
+    if (isExportingPdf) return;
+    setIsExportingPdf(true);
+    setPdfExportData(data);
+    await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    const target = pdfCaptureRef.current;
+    if (!target) {
+      setIsExportingPdf(false);
+      setPdfExportData(null);
       return;
     }
-    const target = pdfCaptureRef.current;
-    if (!target || isExportingPdf) return;
-
-    setIsExportingPdf(true);
     try {
       const canvas = await html2canvas(target, { scale: 2, backgroundColor: "#ffffff", useCORS: true });
       const imgData = canvas.toDataURL("image/png");
@@ -934,16 +1013,49 @@ export function MeetingsView() {
         heightLeft -= pageHeight;
       }
 
-      const dateForFile = (meetDate || getTodayIsoDate()).replace(/-/g, "");
-      const safeTitle = (meetTitle.trim() || "회의록").replace(/[\\/:*?"<>|]/g, "_");
+      const dateForFile = (data.date || getTodayIsoDate()).replace(/-/g, "");
+      const safeTitle = (data.title.trim() || "회의록").replace(/[\\/:*?"<>|]/g, "_");
       pdf.save(`회의록_${safeTitle}_${dateForFile}.pdf`);
     } catch {
       setPdfExportMessage("PDF 생성 중 오류가 발생했습니다. 다시 시도해주세요.");
       setTimeout(() => setPdfExportMessage(null), 2500);
     } finally {
       setIsExportingPdf(false);
+      setPdfExportData(null);
     }
   };
+
+  const buildExportDataFromAnalysis = (): ExportablePdfData | null => {
+    if (!analysisResult) return null;
+    return {
+      title: meetTitle,
+      date: meetDate,
+      kind: meetKind,
+      participantNames: partIds.map(id => projectMembers.find(m => String(m.userId) === id)?.name ?? id),
+      summary: analysisResult.summary,
+      decisions: analysisResult.decisions,
+      todos: reviewTodos.map(t => ({
+        title: t.title,
+        assigneeName: projectMembers.find(m => String(m.userId) === getAssignee(t))?.name ?? "미배정",
+        dueDate: getDueDate(t) || "",
+      })),
+      risks: analysisResult.risks,
+    };
+  };
+
+  const buildExportDataFromMeeting = (target: Meeting): ExportablePdfData => ({
+    title: target.title,
+    date: target.date,
+    kind: "",
+    participantNames: [],
+    summary: target.summary ?? "",
+    decisions: target.decisions ?? [],
+    todos: (target.todos ?? []).map(line => {
+      const parsed = parseMeetingTodoLine(line);
+      return { title: parsed.title, assigneeName: parsed.assigneeName || "미배정", dueDate: parsed.dueDate };
+    }),
+    risks: target.risks ?? [],
+  });
 
   const handleFileSelect = (file: File | undefined) => {
     if (!file) return;
@@ -1068,6 +1180,18 @@ export function MeetingsView() {
     }
   };
 
+  // 낙관적 삭제가 서버에서 실패했을 때 화면과 로컬 캐시를 삭제 이전 상태로 되돌린다.
+  const restoreMeetingToLocalState = (
+    meetingsSnapshot: Meeting[],
+    savedSnapshot: SavedMeetingRecord[]
+  ) => {
+    setMeetings(() => {
+      saveStoredMeetings(meetingsSnapshot, projectId);
+      return meetingsSnapshot;
+    });
+    saveSavedMeetings(savedSnapshot, projectId);
+  };
+
   const removeLinkedLocalTasks = async (target: Meeting) => {
     const matchesMeeting = (task: Task) =>
       task.sourceMeetingTitle === target.id || task.sourceMeetingTitle === target.title;
@@ -1097,6 +1221,16 @@ export function MeetingsView() {
     setDeletingMeetingId(target.id);
     setMeetingListError(null);
     setDeleteMessage(null);
+
+    // 서버 DELETE 응답(최대 10초)을 기다린 뒤에 목록을 갱신하면 그동안 삭제한 항목이 그대로 남아
+    // "삭제가 안 된다, 새로고침해야 사라진다"로 보인다. 먼저 화면에서 지우고, 서버 삭제가
+    // 진짜 실패한 경우(권한/인증/서버 오류)에만 스냅샷으로 되돌린다.
+    const meetingsSnapshot = meetings;
+    const savedSnapshot = getSavedMeetings(projectId);
+    removeMeetingFromLocalState(target.id);
+    setDeleteMessage(deleteLinkedTasks ? "회의록과 연동 업무가 삭제되었습니다." : "회의록이 삭제되었습니다.");
+    setTimeout(() => setDeleteMessage(null), 2500);
+
     try {
       if (isServerMeetingId(target.id)) {
         await deleteMeeting(projectId, target.id, deleteLinkedTasks);
@@ -1104,9 +1238,6 @@ export function MeetingsView() {
       if (deleteLinkedTasks) {
         await removeLinkedLocalTasks(target);
       }
-      removeMeetingFromLocalState(target.id);
-      setDeleteMessage(deleteLinkedTasks ? "회의록과 연동 업무가 삭제되었습니다." : "회의록이 삭제되었습니다.");
-      setTimeout(() => setDeleteMessage(null), 2500);
     } catch (error) {
       const message = error instanceof Error ? error.message : "";
       const isMissingMeeting =
@@ -1114,20 +1245,19 @@ export function MeetingsView() {
           ? error.status === 404 || error.code === "MEETING_NOT_FOUND"
           : message.includes("회의록을 찾을 수 없습니다");
       if (isMissingMeeting) {
+        // 서버에 이미 없으므로 낙관적 제거가 결과적으로 옳다. 되돌리지 않는다.
         if (deleteLinkedTasks) {
           await removeLinkedLocalTasks(target);
         }
-        removeMeetingFromLocalState(target.id);
-        setDeleteMessage("서버에 없는 회의록이라 목록에서 제거했습니다.");
-        setTimeout(() => setDeleteMessage(null), 2500);
       } else if (error instanceof ApiRequestError && error.code === "REQUEST_TIMEOUT") {
-        // 클라이언트가 타임아웃으로 요청을 포기해도 서버는 처리를 계속할 수 있어, 실제로는
-        // 삭제가 이미 끝났을 수 있다. "삭제 안 됐다"고 단정하지 말고 서버 상태를 다시 조회해
-        // 화면을 실제 상태와 맞춘다.
-        setMeetingListError("삭제 확인이 지연되고 있습니다. 최신 상태를 다시 불러옵니다.");
-        setTimeout(() => setMeetingListError(null), 6000);
+        // 클라이언트가 타임아웃으로 요청을 포기해도 서버는 처리를 계속해 삭제가 이미 끝났을 수 있다.
+        // 화면에서는 이미 지운 상태이므로 사용자에게 "지연" 문구를 띄우지 않고, 조용히 서버 상태만
+        // 다시 조회해 실제로 삭제되지 않았다면 목록이 스스로 복구되게 한다.
         void refreshMeetingsFromServer();
       } else {
+        setDeleteMessage(null);
+        unmarkDeletedMeeting(target.id, projectId);
+        restoreMeetingToLocalState(meetingsSnapshot, savedSnapshot);
         const statusCode = error instanceof ApiRequestError ? error.status : null;
         const isAuthError = statusCode === 401 || message.includes("인증이 만료") || message.includes("다시 로그인");
         const isPermissionError = statusCode === 403;
@@ -1148,7 +1278,7 @@ export function MeetingsView() {
   const updateMeetingAfterAnalysisDelete = (meetingId: string) => {
     setMeetings(prev => {
       const next = prev.map(item => item.id === meetingId
-        ? { ...item, status: "failed" as const, summary: undefined, decisions: undefined, todos: undefined, risks: undefined, analyzedAt: undefined, tasksRegistered: false }
+        ? { ...item, status: "analysisDeleted" as const, summary: undefined, decisions: undefined, todos: undefined, risks: undefined, analyzedAt: undefined, tasksRegistered: false }
         : item);
       saveStoredMeetings(next, projectId);
       return next;
@@ -1186,9 +1316,8 @@ export function MeetingsView() {
       const status = statusCode ? ` (${statusCode})` : "";
       if (error instanceof ApiRequestError && error.code === "REQUEST_TIMEOUT") {
         // handleDeleteMeeting과 동일한 이유: 클라이언트 타임아웃 후에도 서버는 삭제를 끝냈을 수 있으므로
-        // 실패로 단정하지 않고 서버 상태를 다시 조회해 화면을 맞춘다.
-        setMeetingListError("삭제 확인이 지연되고 있습니다. 최신 상태를 다시 불러옵니다.");
-        setTimeout(() => setMeetingListError(null), 6000);
+        // 실패로 단정하지 않고 조용히 서버 상태를 다시 조회해 화면을 맞춘다(지연 문구는 띄우지 않는다).
+        updateMeetingAfterAnalysisDelete(target.id);
         void refreshMeetingsFromServer();
         return;
       }
@@ -1274,99 +1403,14 @@ export function MeetingsView() {
     await performRegisterSelectedTodos(newTodos, existingKeys);
   };
 
-  type ParsedMeetingTodo = { assigneeName: string; title: string; dueDate: string; assigneeId: string };
-
-  // 이미 등록된 업무는 로컬 보드에 중복 카드를 만들지 않는다(서버도 동일 조건이면 재등록을 무시하므로 안전).
-  const performRegisterMeetingTodos = async (
-    todosToRegister: ParsedMeetingTodo[],
-    existingKeys: Set<string>,
-    unassignedCount: number
-  ) => {
-    const existingTasks = getStoredTasks();
-    setIsRegisteringTasks(true);
-    setRegisterMessage("업무보드에 등록 중입니다...");
-    try {
-      if (todosToRegister.length > 0) {
-        await registerMeetingTasks(projectId, meetingIdentifier, todosToRegister.map(todo => ({
-          title: todo.title,
-          description: "",
-          assignee_candidate: todo.assigneeName,
-          assignee_id: todo.assigneeId,
-          due_date: todo.dueDate || null,
-          priority: "MEDIUM",
-          category: "ETC",
-          needs_leader_review: false,
-        })));
-      }
-
-      const now = Date.now();
-      const createdTasks: Task[] = todosToRegister
-        .filter(todo => !existingKeys.has(buildTodoRegistrationKey(meetingIdentifier, todo.title, todo.assigneeId, todo.dueDate)))
-        .map((todo, index) => ({
-          id: `AI-${now}-${String(index + 1).padStart(2, "0")}`,
-          title: todo.title,
-          status: "todo",
-          priority: "medium",
-          assignee: todo.assigneeId,
-          dueDate: todo.dueDate,
-          category: "other",
-          position: index,
-          labels: ["회의록 AI"],
-          sourceMeetingTitle: meetingIdentifier,
-        }));
-      if (createdTasks.length > 0) {
-        saveStoredTasks([...createdTasks, ...existingTasks]);
-        addActivity(`회의록 AI로 '${meetingIdentifier}'의 업무 ${createdTasks.length}건을 업무보드에 등록했습니다.`, "김민준", "meeting-registered");
-      }
-      setRegisterMessage(
-        unassignedCount > 0
-          ? `업무 보드에 등록되었습니다. (미배정 업무 ${unassignedCount}건 포함, 업무보드에서 담당자를 지정해주세요)`
-          : "업무 보드에 등록되었습니다."
-      );
-      setTimeout(() => setRegisterMessage(null), 2500);
-    } catch {
-      setRegisterMessage("서버에 업무 등록을 실패했습니다. 다시 시도해주세요.");
-      setTimeout(() => setRegisterMessage(null), 2500);
-    } finally {
-      setIsRegisteringTasks(false);
-    }
-  };
-
   // 회의 상세 화면(meeting.todos, 문자열 배열)에서 "업무로 등록" 클릭 시 실행.
-  const handleRegisterMeetingTodos = async () => {
-    if (isRegisteringTasks) return;
+  // 바로 등록하지 않고, "역할분배 검토"와 동일한 화면을 먼저 보여준 뒤 팀장이 최종 등록하게 한다.
+  const handleOpenMeetingTodosReview = () => {
     if (!meeting || !meeting.todos || meeting.todos.length === 0) return;
-    const existingTasks = getStoredTasks();
-    const existingKeys = new Set(
-      existingTasks.map(task => buildTodoRegistrationKey(task.sourceMeetingTitle ?? "", task.title, task.assignee, task.dueDate))
-    );
-
-    const parsedTodos = meeting.todos.map(line => {
-      const parsed = parseMeetingTodoLine(line);
-      const matchedMember = projectMembers.find(m => m.name.trim() === parsed.assigneeName.trim());
-      const assigneeId = matchedMember ? String(matchedMember.userId) : "";
-      return { ...parsed, assigneeId };
-    });
-
-    const unassignedCount = parsedTodos.filter(todo => !todo.assigneeId).length;
-
-    const newTodos = parsedTodos.filter(todo => {
-      const key = buildTodoRegistrationKey(meetingIdentifier, todo.title, todo.assigneeId, todo.dueDate);
-      return !existingKeys.has(key);
-    });
-
-    if (newTodos.length === 0) {
-      if (parsedTodos.length > 0) {
-        setConfirmReregister(() => () => {
-          setConfirmReregister(null);
-          void performRegisterMeetingTodos(parsedTodos, existingKeys, unassignedCount);
-        });
-        return;
-      }
-      return;
-    }
-
-    await performRegisterMeetingTodos(newTodos, existingKeys, unassignedCount);
+    const converted = buildGenTodosFromMeetingLines(meeting.todos, projectMembers);
+    setManualTodos(converted);
+    setSelTodos(converted.map(todo => todo.id));
+    setUploadFlow("review");
   };
 
   const renderRegisteringOverlay = () => isRegisteringTasks ? (
@@ -1430,9 +1474,11 @@ export function MeetingsView() {
               </button>
               <button
                 type="button"
+                disabled={!deleteTarget.hasGeneratedTodos}
                 onClick={() => void handleDeleteAnalysisResult(deleteTarget, true)}
-                className="px-4 py-2 text-sm font-semibold text-white rounded-xl hover:opacity-90 transition-opacity"
+                className="px-4 py-2 text-sm font-semibold text-white rounded-xl hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:opacity-40"
                 style={{ background: "linear-gradient(135deg,#EF4444,#DC2626)" }}
+                title={deleteTarget.hasGeneratedTodos ? undefined : "이 분석 결과는 생성된 To-Do가 없습니다."}
               >
                 분석 결과 + To-Do 삭제
               </button>
@@ -1597,6 +1643,52 @@ export function MeetingsView() {
     );
   };
 
+  // PDF 캡처용 숨김 영역: 화면에는 보이지 않고 html2canvas가 이 DOM을 캡처해 PDF로 저장한다.
+  // renderResults() 화면뿐 아니라 사이드바 재조회 상세 화면에서도 PDF 버튼을 쓰므로,
+  // 캡처 대상 DOM이 항상 마운트되도록 별도 함수로 분리해 양쪽에서 렌더링한다.
+  // Tailwind 클래스/CSS 변수 대신 인라인 스타일을 쓰는 이유: html2canvas는 oklch() 같은
+  // 최신 CSS 색상 함수를 파싱하지 못해, Tailwind의 CSS 변수 기반 색상을 쓰면 내보낸 PDF에서
+  // 색이 검게 깨진다. 이 영역에서는 인라인 리터럴 색상값을 유지할 것.
+  const renderPdfCaptureArea = () => (
+    <div style={{ position: "fixed", top: 0, left: "-10000px", width: "760px" }}>
+      <div ref={pdfCaptureRef} style={{ background: "#ffffff", padding: "40px", width: "760px", fontFamily: "'Malgun Gothic','Apple SD Gothic Neo',sans-serif", color: "#1a1a1a" }}>
+        {pdfExportData && (
+          <>
+            <h1 style={{ fontSize: "22px", fontWeight: 700, margin: "0 0 4px" }}>{pdfExportData.title}</h1>
+            <div style={{ fontSize: "12px", color: "#666666", marginBottom: "24px" }}>
+              {pdfExportData.date}{pdfExportData.kind ? ` · ${pdfExportData.kind}` : ""}
+              {pdfExportData.participantNames.length > 0 ? ` · 참석자 ${pdfExportData.participantNames.join(", ")}` : ""}
+            </div>
+
+            <h2 style={{ fontSize: "15px", fontWeight: 700, margin: "20px 0 8px", borderBottom: "1px solid #dddddd", paddingBottom: "4px" }}>회의 요약</h2>
+            <p style={{ fontSize: "13px", lineHeight: 1.7, margin: 0 }}>{pdfExportData.summary}</p>
+
+            <h2 style={{ fontSize: "15px", fontWeight: 700, margin: "20px 0 8px", borderBottom: "1px solid #dddddd", paddingBottom: "4px" }}>핵심 결정사항</h2>
+            <ul style={{ fontSize: "13px", lineHeight: 1.7, margin: 0, paddingLeft: "20px" }}>
+              {pdfExportData.decisions.length
+                ? pdfExportData.decisions.map((d, i) => <li key={i}>{d}</li>)
+                : <li>결정사항이 없습니다.</li>}
+            </ul>
+
+            <h2 style={{ fontSize: "15px", fontWeight: 700, margin: "20px 0 8px", borderBottom: "1px solid #dddddd", paddingBottom: "4px" }}>생성된 To-Do</h2>
+            <ul style={{ fontSize: "13px", lineHeight: 1.7, margin: 0, paddingLeft: "20px" }}>
+              {pdfExportData.todos.length
+                ? pdfExportData.todos.map((t, i) => <li key={i}>{t.title} - {t.assigneeName} ({t.dueDate || "마감일 미정"})</li>)
+                : <li>생성된 업무가 없습니다.</li>}
+            </ul>
+
+            <h2 style={{ fontSize: "15px", fontWeight: 700, margin: "20px 0 8px", borderBottom: "1px solid #dddddd", paddingBottom: "4px" }}>위험 요소</h2>
+            <ul style={{ fontSize: "13px", lineHeight: 1.7, margin: 0, paddingLeft: "20px" }}>
+              {pdfExportData.risks.length
+                ? pdfExportData.risks.map((r, i) => <li key={i}>{r}</li>)
+                : <li>감지된 위험 요소가 없습니다.</li>}
+            </ul>
+          </>
+        )}
+      </div>
+    </div>
+  );
+
   // ── Results screen ───────────────────────────────────────────────────────────
   const renderResults = () => {
     if (!analysisResult) {
@@ -1704,7 +1796,11 @@ export function MeetingsView() {
           <div className="flex flex-col items-end gap-1">
             <div className="flex items-center gap-2">
               <button onClick={handleViewOriginal} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-border bg-card rounded-lg hover:bg-muted transition-colors"><Eye className="w-3.5 h-3.5" />원본 보기</button>
-              <button onClick={handleExportPdf} disabled={!analysisResult || isExportingPdf} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-border bg-card rounded-lg hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-card"><FileText className="w-3.5 h-3.5" />{isExportingPdf ? "PDF 생성 중..." : "PDF 저장"}</button>
+              <button onClick={() => { const data = buildExportDataFromAnalysis(); if (data) handleExportPdf(data); }}
+                disabled={!analysisResult || isExportingPdf}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-border bg-card rounded-lg hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-card">
+                <FileText className="w-3.5 h-3.5" />{isExportingPdf ? "PDF 생성 중..." : "PDF 저장"}
+              </button>
             </div>
             {originalViewMessage && <div className="text-[10px] text-amber-600">{originalViewMessage}</div>}
             {pdfExportMessage && <div className="text-[10px] text-amber-600">{pdfExportMessage}</div>}
@@ -1820,43 +1916,7 @@ export function MeetingsView() {
         )}
       </div>
 
-      {/* PDF 캡처용 숨김 영역: 화면에는 보이지 않고 html2canvas가 이 DOM을 캡처해 PDF로 저장한다.
-          Tailwind 클래스/CSS 변수(oklch 등) 대신 인라인 스타일만 사용 — html2canvas가 최신 CSS 색상 함수를 못 읽는 문제를 피하기 위함. */}
-      <div style={{ position: "fixed", top: 0, left: "-10000px", width: "760px" }}>
-        <div ref={pdfCaptureRef} style={{ background: "#ffffff", padding: "40px", width: "760px", fontFamily: "'Malgun Gothic','Apple SD Gothic Neo',sans-serif", color: "#1a1a1a" }}>
-          <h1 style={{ fontSize: "22px", fontWeight: 700, margin: "0 0 4px" }}>{meetTitle}</h1>
-          <div style={{ fontSize: "12px", color: "#666666", marginBottom: "24px" }}>
-            {meetDate} · {meetKind} · 참석자 {partIds.map(id => projectMembers.find(m => String(m.userId) === id)?.name ?? id).join(", ")}
-          </div>
-
-          <h2 style={{ fontSize: "15px", fontWeight: 700, margin: "20px 0 8px", borderBottom: "1px solid #dddddd", paddingBottom: "4px" }}>회의 요약</h2>
-          <p style={{ fontSize: "13px", lineHeight: 1.7, margin: 0 }}>{analysisResult.summary}</p>
-
-          <h2 style={{ fontSize: "15px", fontWeight: 700, margin: "20px 0 8px", borderBottom: "1px solid #dddddd", paddingBottom: "4px" }}>핵심 결정사항</h2>
-          <ul style={{ fontSize: "13px", lineHeight: 1.7, margin: 0, paddingLeft: "20px" }}>
-            {analysisResult.decisions.length
-              ? analysisResult.decisions.map((d, i) => <li key={i}>{d}</li>)
-              : <li>결정사항이 없습니다.</li>}
-          </ul>
-
-          <h2 style={{ fontSize: "15px", fontWeight: 700, margin: "20px 0 8px", borderBottom: "1px solid #dddddd", paddingBottom: "4px" }}>생성된 To-Do</h2>
-          <ul style={{ fontSize: "13px", lineHeight: 1.7, margin: 0, paddingLeft: "20px" }}>
-            {reviewTodos.length
-              ? reviewTodos.map(t => {
-                  const assigneeName = projectMembers.find(m => String(m.userId) === getAssignee(t))?.name ?? "미배정";
-                  return <li key={t.id}>{t.title} - {assigneeName} ({getDueDate(t) || "마감일 미정"})</li>;
-                })
-              : <li>생성된 업무가 없습니다.</li>}
-          </ul>
-
-          <h2 style={{ fontSize: "15px", fontWeight: 700, margin: "20px 0 8px", borderBottom: "1px solid #dddddd", paddingBottom: "4px" }}>위험 요소</h2>
-          <ul style={{ fontSize: "13px", lineHeight: 1.7, margin: 0, paddingLeft: "20px" }}>
-            {analysisResult.risks.length
-              ? analysisResult.risks.map((r, i) => <li key={i}>{r}</li>)
-              : <li>감지된 위험 요소가 없습니다.</li>}
-          </ul>
-        </div>
-      </div>
+      {renderPdfCaptureArea()}
 
       {/* 원본 보기 모달 */}
       {originalPreview && (
@@ -1900,8 +1960,8 @@ export function MeetingsView() {
         <div className="shrink-0 px-6 pt-5 pb-4 border-b border-border">
           <div className="flex items-start justify-between mb-3">
             <div>
-              <button onClick={() => setUploadFlow("results")} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground mb-2 transition-colors group">
-                <ArrowLeft className="w-3.5 h-3.5 group-hover:-translate-x-0.5 transition-transform" />분석 결과로 돌아가기
+              <button onClick={() => setUploadFlow(analysisResult ? "results" : null)} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground mb-2 transition-colors group">
+                <ArrowLeft className="w-3.5 h-3.5 group-hover:-translate-x-0.5 transition-transform" />{analysisResult ? "분석 결과로 돌아가기" : "회의록으로 돌아가기"}
               </button>
               <h1 className="text-xl font-bold text-foreground">역할 분배 검토</h1>
               <p className="text-sm text-muted-foreground mt-0.5">팀장이 확인하고 승인한 업무만 업무 보드에 등록됩니다.</p>
@@ -2133,6 +2193,7 @@ export function MeetingsView() {
       {renderDeleteConfirmModal()}
       {renderReregisterConfirmModal()}
       {renderOriginalTextModal()}
+      {renderPdfCaptureArea()}
 
       <div className="flex gap-2 border-b border-border px-4 shrink-0">
         <button
@@ -2349,8 +2410,13 @@ export function MeetingsView() {
             style={{ background:"linear-gradient(135deg,#7048E8 0%,#4F6EF7 100%)" }}>
             <Upload className="w-4 h-4" />회의록 업로드
           </button>
-          <button className="p-2 rounded-lg border border-border bg-card hover:bg-muted transition-colors">
-            <Mic className="w-4 h-4 text-muted-foreground" />
+          <button
+            type="button"
+            onClick={startRecording}
+            disabled={recordingStatus === "recording" || recordingStatus === "requesting-permission"}
+            title="회의 녹음 시작"
+            className="p-2 rounded-lg border border-border bg-card hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+            <Mic className={`w-4 h-4 ${recordingStatus === "recording" ? "text-red-500" : "text-muted-foreground"}`} />
           </button>
         </div>
         <div className="flex-1 overflow-y-auto p-3 space-y-2">
@@ -2369,7 +2435,11 @@ export function MeetingsView() {
                 회의록 업로드
               </button>
             </div>
-          ) : meetings.map(m => (
+          ) : meetings
+            // 분석 결과를 지운 회의록은 이 목록에 남을 이유가 없다. 저장된 회의록 탭에는 그대로 있고
+            // 거기서 다시 분석할 수 있다.
+            .filter(m => m.status !== "analysisDeleted")
+            .filter(m => !m.originalMeetingId || m.status === "processed").map(m => (
             <div key={m.id} onClick={() => setSelected(m.id)}
               role="button"
               tabIndex={0}
@@ -2416,10 +2486,18 @@ export function MeetingsView() {
         {meeting && meeting.summary ? (
           <div className="max-w-2xl space-y-5">
             <div>
-              <div className="flex items-center gap-2 mb-1">
-                <Sparkles className="w-4 h-4" style={{ color: "var(--accent)" }} />
-                <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--accent)" }}>AI 회의록 분석</span>
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4" style={{ color: "var(--accent)" }} />
+                  <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--accent)" }}>AI 회의록 분석</span>
+                </div>
+                <button onClick={() => handleExportPdf(buildExportDataFromMeeting(meeting))}
+                  disabled={isExportingPdf}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-border bg-card rounded-lg hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                  <FileText className="w-3.5 h-3.5" />{isExportingPdf ? "PDF 생성 중..." : "PDF로 저장"}
+                </button>
               </div>
+              {pdfExportMessage && <div className="text-[10px] text-amber-600 text-right mb-1">{pdfExportMessage}</div>}
               <h2 className="text-lg font-bold text-foreground">{meeting.title}</h2>
               <div className="text-xs text-muted-foreground mt-0.5">{meeting.date} · {meeting.duration}</div>
               {(meeting.uploadedAt || meeting.analyzedAt) && (
@@ -2466,11 +2544,10 @@ export function MeetingsView() {
                     </button>
                   ) : (
                     <button
-                      onClick={handleRegisterMeetingTodos}
-                      disabled={meeting.todos.length === 0 || isRegisteringTasks}
+                      onClick={handleOpenMeetingTodosReview}
+                      disabled={meeting.todos.length === 0}
                       className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-600 hover:text-blue-700 disabled:text-slate-400 disabled:cursor-not-allowed">
-                      {isRegisteringTasks && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                      {isRegisteringTasks ? "등록 중" : "업무로 등록"}
+                      업무로 등록
                     </button>
                   ))}
                 </div>
@@ -2574,11 +2651,9 @@ export function MeetingsView() {
             </div>
           ) : (
             <>
-            {reanalyzeMessage && <div className="text-[10px] text-emerald-600 mb-2">{reanalyzeMessage}</div>}
-            {reanalyzeError && <div className="text-[10px] text-red-600 mb-2">{reanalyzeError}</div>}
             <div className="space-y-2 max-w-2xl">
               {savedMeetingsList.map(m => {
-                const isPendingVersion = Boolean(m.originalMeetingId) && (m.status === "pending" || m.status === "failed");
+                const isPendingVersion = Boolean(m.originalMeetingId) && (m.status === "pending" || m.status === "failed" || m.status === "analysisDeleted");
                 return (
                 <div key={m.id} onClick={() => handleViewSavedMeetingOriginal(m)}
                   role="button"
@@ -2602,7 +2677,6 @@ export function MeetingsView() {
                       {currentUserRole !== "reviewer" && (
                         <button
                           type="button"
-                          disabled={reanalyzingMeetingId === m.id}
                           onClick={event => {
                             event.stopPropagation();
                             if (isPendingVersion) {

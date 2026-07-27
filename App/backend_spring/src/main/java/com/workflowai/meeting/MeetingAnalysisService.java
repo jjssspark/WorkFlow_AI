@@ -15,12 +15,15 @@ import com.workflowai.task.Task;
 import com.workflowai.task.TaskRepository;
 import com.workflowai.user.User;
 import com.workflowai.user.UserRepository;
+import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
@@ -28,11 +31,15 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
+import javax.imageio.ImageIO;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.rendering.PDFRenderer;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,7 +54,21 @@ import org.springframework.web.multipart.MultipartFile;
 @Service
 public class MeetingAnalysisService {
     private static final Logger log = LoggerFactory.getLogger(MeetingAnalysisService.class);
-    private static final Set<String> AUDIO_FILE_EXTENSIONS = Set.of(".mp3", ".wav", ".m4a", ".ogg");
+    private static final Set<String> AUDIO_FILE_EXTENSIONS = Set.of(".mp3", ".wav", ".m4a", ".ogg", ".webm");
+    // 스캔본 PDF OCR 설정. 페이지가 많은 회의 자료 전체를 인식하면 분석 요청이 몇 분씩 걸리므로 상한을 둔다.
+    private static final int OCR_MAX_PAGES = 30;
+    private static final int OCR_DPI = 200;
+    private static final String OCR_LANGUAGES = "kor+eng";
+    private static final long OCR_PAGE_TIMEOUT_SECONDS = 60;
+    // 페이지당 상한만으로는 30페이지 문서 하나가 최악 30분간 스레드를 붙잡는다. 문서 전체 예산으로 자른다.
+    private static final long OCR_TOTAL_BUDGET_SECONDS = 180;
+    private static final long OCR_KILL_WAIT_SECONDS = 5;
+    private static final long OCR_SLOT_WAIT_SECONDS = 5;
+    // 동시에 OCR을 도는 문서 수 제한. 없으면 업로드 몇 건만으로 CPU와 스레드가 모두 점유된다.
+    private static final Semaphore OCR_SLOTS = new Semaphore(2);
+    // 분석 결과를 사용자가 지운 상태. 분석이 실제로 실패한 "failed"와 구분해야 프론트가
+    // 분석/업로드 목록에서 빼면서도 재분석 가능한 항목으로 다룰 수 있다.
+    static final String ANALYSIS_DELETED_STATUS = "analysis_deleted";
     // 전역 멀티파트 한도(100MB)보다 낮게 둔다 - STT 단계에서 파일 전체를 메모리에 올리므로(Files.readAllBytes),
     // 큐 워커의 OOM 위험을 줄이기 위해 오디오는 더 보수적인 한도를 별도로 둔다.
     private static final long MAX_AUDIO_FILE_SIZE_BYTES = 30L * 1024 * 1024;
@@ -137,6 +158,7 @@ public class MeetingAnalysisService {
         String resolvedSourceType = isAudioUpload ? "audio" : defaultString(sourceType, "document");
 
         UUID jobId = UUID.randomUUID();
+        Long uploaderId = CurrentUser.id();
         Meeting newMeeting = new Meeting(
             projectDbId,
             resolvedTitle,
@@ -146,7 +168,7 @@ public class MeetingAnalysisService {
             LocalDate.parse(resolvedDate),
             meetingKind,
             fileName,
-            CurrentUser.id(),
+            uploaderId,
             file == null ? null : file.getSize()
         );
         newMeeting.setAnalysisJobId(jobId);
@@ -176,7 +198,7 @@ public class MeetingAnalysisService {
             text,
             resolvedParticipantNames
         );
-        runAnalysisAfterCommit(meeting.getId(), request, jobId);
+        runAnalysisAfterCommit(meeting.getId(), request, jobId, uploaderId);
 
         String meetingId = String.valueOf(meeting.getId());
         return new MeetingAnalysisResponse(
@@ -260,7 +282,9 @@ public class MeetingAnalysisService {
         Meeting meeting = requireProjectMeeting(projectId, meetingId);
         if (meeting == null) return null;
         Long id = parseLongOrNull(meetingId);
-        if (!"failed".equals(meeting.getAnalysisStatus())) {
+        // 분석 결과를 지운 회의록(ANALYSIS_DELETED_STATUS)도 보존된 transcript로 재분석할 수 있어야 한다.
+        String analysisStatus = meeting.getAnalysisStatus();
+        if (!"failed".equals(analysisStatus) && !ANALYSIS_DELETED_STATUS.equals(analysisStatus)) {
             throw new IllegalStateException("MEETING_NOT_FAILED");
         }
 
@@ -327,7 +351,7 @@ public class MeetingAnalysisService {
         meeting.setAnalysisJobId(jobId);
         meetingRepository.save(meeting);
 
-        runAnalysisAfterCommit(id, request, jobId);
+        runAnalysisAfterCommit(id, request, jobId, CurrentUser.id());
 
         return new MeetingAnalysisResponse(
             meetingId,
@@ -348,12 +372,16 @@ public class MeetingAnalysisService {
         List<Meeting> meetings = meetingRepository.findByProjectIdOrderByCreatedAtDesc(projectDbId);
 
         List<Long> meetingIds = meetings.stream().map(Meeting::getId).toList();
-        Set<Long> meetingIdsWithRegisteredTasks = meetingIds.isEmpty()
-            ? Set.of()
-            : meetingActionItemRepository.findByMeetingIdIn(meetingIds).stream()
-                .filter(item -> item.getCreatedTaskId() != null)
-                .map(MeetingActionItem::getMeetingId)
-                .collect(Collectors.toSet());
+        List<MeetingActionItem> actionItems = meetingIds.isEmpty()
+            ? List.of()
+            : meetingActionItemRepository.findByMeetingIdIn(meetingIds);
+        Set<Long> meetingIdsWithRegisteredTasks = actionItems.stream()
+            .filter(item -> item.getCreatedTaskId() != null)
+            .map(MeetingActionItem::getMeetingId)
+            .collect(Collectors.toSet());
+        Set<Long> meetingIdsWithGeneratedTodos = actionItems.stream()
+            .map(MeetingActionItem::getMeetingId)
+            .collect(Collectors.toSet());
 
         return meetings.stream()
             .map(m -> new MeetingSummary(
@@ -364,7 +392,8 @@ public class MeetingAnalysisService {
                 m.getAnalysisStatus(),
                 m.getSavedAt() == null ? null : m.getSavedAt().toString(),
                 m.getOriginalMeetingId() == null ? null : String.valueOf(m.getOriginalMeetingId()),
-                meetingIdsWithRegisteredTasks.contains(m.getId())
+                meetingIdsWithRegisteredTasks.contains(m.getId()),
+                meetingIdsWithGeneratedTodos.contains(m.getId())
             ))
             .toList();
     }
@@ -487,10 +516,8 @@ public class MeetingAnalysisService {
         );
         deleteUploadedFile(filePath);
 
-        notificationService.notifyActorAndCounterpart(
-            actorId, "MEETING_DELETED", "회의록을 삭제했습니다",
-            "'" + title + "' 회의록을 삭제했습니다." + scopeSuffix,
-            uploaderId, "MEETING_DELETED", "회의록이 삭제되었습니다",
+        notificationService.notifyCounterpart(
+            actorId, uploaderId, "MEETING_DELETED", "회의록이 삭제되었습니다",
             actorName + "님이 '" + title + "' 회의록을 삭제했습니다." + scopeSuffix,
             "meeting", meetingDbId
         );
@@ -538,7 +565,10 @@ public class MeetingAnalysisService {
             taskRepository.clearSourceMeetingId(meetingDbId);
         }
 
-        meeting.setAnalysisStatus("failed");
+        // "분석 실패"와 같은 값을 쓰면 프론트가 둘을 구분하지 못해, 분석 결과를 지운 회의록이
+        // '분석 실패'로 분석/업로드 목록에 그대로 남는다(새로고침해도 되살아난다).
+        // 재분석은 여전히 가능해야 하므로 retry()가 이 상태도 허용한다.
+        meeting.setAnalysisStatus(ANALYSIS_DELETED_STATUS);
         meetingRepository.save(meeting);
 
         runAfterCommit(() ->
@@ -561,10 +591,8 @@ public class MeetingAnalysisService {
         String actorName = defaultString(resolveNameById(actorId), "누군가");
         String scopeSuffix = deleteLinkedTasks ? " (등록된 업무도 함께 삭제됨)" : " (등록된 업무는 유지됨)";
 
-        notificationService.notifyActorAndCounterpart(
-            actorId, "MEETING_ANALYSIS_DELETED", "회의록 분석 결과를 삭제했습니다",
-            "'" + title + "' 회의록의 분석 결과를 삭제했습니다." + scopeSuffix,
-            uploaderId, "MEETING_ANALYSIS_DELETED", "회의록 분석 결과가 삭제되었습니다",
+        notificationService.notifyCounterpart(
+            actorId, uploaderId, "MEETING_ANALYSIS_DELETED", "회의록 분석 결과가 삭제되었습니다",
             actorName + "님이 '" + title + "' 회의록의 분석 결과를 삭제했습니다." + scopeSuffix,
             "meeting", meetingDbId
         );
@@ -586,10 +614,8 @@ public class MeetingAnalysisService {
             }
         }
         String registeredByName = defaultString(resolveNameById(registeredBy), "팀장");
-        notificationService.notifyActorAndCounterpart(
-            registeredBy, "MEETING_TASKS_REGISTERED", "역할분배 및 업무등록이 완료되었습니다",
-            "'" + meeting.getTitle() + "' 회의록의 역할분배 및 업무등록이 완료되었습니다.",
-            meeting.getUploadedBy(), "MEETING_TASKS_REGISTERED_NOTIFY_MEMBER", "역할분배가 완료되었습니다",
+        notificationService.notifyCounterpart(
+            registeredBy, meeting.getUploadedBy(), "MEETING_TASKS_REGISTERED_NOTIFY_MEMBER", "역할분배가 완료되었습니다",
             registeredByName + "님이 '" + meeting.getTitle() + "' 회의록의 역할분배를 완료했습니다. 확인해주세요.",
             "meeting", meetingDbId
         );
@@ -638,10 +664,10 @@ public class MeetingAnalysisService {
             return new MeetingVersionResponse(String.valueOf(version.getId()), "SAVED");
         }
 
-        return triggerAnalysis(version, projectId, request.transcript());
+        return triggerAnalysis(version, projectId, request.transcript(), editorId);
     }
 
-    private MeetingVersionResponse triggerAnalysis(Meeting meeting, String projectId, String text) {
+    private MeetingVersionResponse triggerAnalysis(Meeting meeting, String projectId, String text, Long requestedBy) {
         AiAnalyzeRequest request = new AiAnalyzeRequest(
             projectId,
             meeting.getTitle(),
@@ -656,7 +682,7 @@ public class MeetingAnalysisService {
         meeting.setAnalysisStatus("processing");
         meeting.setAnalysisJobId(jobId);
         meetingRepository.save(meeting);
-        runAnalysisAfterCommit(meeting.getId(), request, jobId);
+        runAnalysisAfterCommit(meeting.getId(), request, jobId, requestedBy);
         return new MeetingVersionResponse(String.valueOf(meeting.getId()), "PROCESSING");
     }
 
@@ -676,7 +702,7 @@ public class MeetingAnalysisService {
             throw new IllegalStateException(MISSING_TRANSCRIPT_MESSAGE);
         }
 
-        return triggerAnalysis(meeting, projectId, text);
+        return triggerAnalysis(meeting, projectId, text, CurrentUser.id());
     }
 
     static final String MISSING_TRANSCRIPT_MESSAGE = "재분석할 회의록 원문이 없습니다.";
@@ -693,17 +719,15 @@ public class MeetingAnalysisService {
         return candidate;
     }
 
-    /** 수정본 저장/분석 시 수정한 본인 + 반대편(팀장 또는 원본 업로더)에게 알린다. */
+    /** 수정본 저장/분석 시 반대편(팀장 또는 원본 업로더)에게만 알린다 — 수정한 본인에게는 보내지 않는다. */
     private void notifyEdited(Meeting original, Meeting version, Long editorId) {
         Long leaderId = projectMemberRepository.findByProjectIdAndRole(original.getProjectId(), ProjectRole.LEADER)
             .map(ProjectMember::getUserId)
             .orElse(null);
         Long counterpartId = editorId != null && editorId.equals(leaderId) ? original.getUploadedBy() : leaderId;
         String editorName = defaultString(resolveNameById(editorId), "누군가");
-        notificationService.notifyActorAndCounterpart(
-            editorId, "MEETING_EDITED", "회의록을 수정했습니다",
-            "'" + original.getTitle() + "' 회의록을 수정했습니다.",
-            counterpartId, "MEETING_EDITED", "회의록이 수정되었습니다",
+        notificationService.notifyCounterpart(
+            editorId, counterpartId, "MEETING_EDITED", "회의록이 수정되었습니다",
             editorName + "님이 '" + original.getTitle() + "' 회의록을 수정했습니다.",
             "meeting", version.getId()
         );
@@ -790,7 +814,7 @@ public class MeetingAnalysisService {
                 "task",
                 task.getId()
             ));
-            notificationRepository.deleteExcessUnreadByUserId(assigneeId);
+            notificationRepository.deleteExcessByUserId(assigneeId);
         }
         return true;
     }
@@ -951,8 +975,8 @@ public class MeetingAnalysisService {
         }
     }
 
-    private void runAnalysisAfterCommit(Long meetingId, AiAnalyzeRequest request, UUID jobId) {
-        runAfterCommit(() -> enqueueSafely(meetingId, request, jobId));
+    private void runAnalysisAfterCommit(Long meetingId, AiAnalyzeRequest request, UUID jobId, Long requestedBy) {
+        runAfterCommit(() -> enqueueSafely(meetingId, request, jobId, requestedBy));
     }
 
     private void runAfterCommit(Runnable operation) {
@@ -976,9 +1000,9 @@ public class MeetingAnalysisService {
         }
     }
 
-    private void enqueueSafely(Long meetingId, AiAnalyzeRequest request, UUID jobId) {
+    private void enqueueSafely(Long meetingId, AiAnalyzeRequest request, UUID jobId, Long requestedBy) {
         try {
-            meetingAnalysisJobPublisher.enqueue(meetingId, request, jobId);
+            meetingAnalysisJobPublisher.enqueue(meetingId, request, jobId, requestedBy);
         } catch (RuntimeException exception) {
             log.warn(
                 "Failed to enqueue meeting analysis job: meetingId={}, cause={}",
@@ -1192,17 +1216,173 @@ public class MeetingAnalysisService {
 
     private String extractPdfTextFromBytes(byte[] bytes) {
         try (PDDocument document = Loader.loadPDF(bytes)) {
-            String text = new PDFTextStripper()
-                .getText(document)
+            String text = extractPdfTextWithOcrFallback(document);
+            if (text.isBlank()) {
+                throw new IllegalArgumentException(
+                    "PDF에서 분석할 텍스트를 추출하지 못했습니다. 스캔 품질이 낮거나 글자가 없는 파일일 수 있습니다."
+                );
+            }
+            return text;
+        } catch (IllegalArgumentException e) {
+            throw e;
+        } catch (Exception e) {
+            // Loader.loadPDF/PDFTextStripper는 손상되거나 암호화된 PDF에서 IOException 외의
+            // 언체크 예외(RuntimeException 계열)도 던질 수 있다. 이걸 못 잡으면 여기서 던져진
+            // 예외가 컨트롤러의 catch(IllegalArgumentException)를 지나쳐 500으로 새어나가고,
+            // 프론트는 이를 ApiRequestError가 아닌 원시 네트워크 오류로 오인해 일반 폴백 문구를 띄운다.
+            throw new IllegalArgumentException("PDF 텍스트 추출에 실패했습니다.");
+        }
+    }
+
+    // 페이지 단위로 텍스트를 뽑고, 글자가 없는 페이지만 OCR로 보완한다.
+    // 문서 전체가 비었을 때만 OCR하면 "본문은 텍스트, 첨부는 스캔 이미지"인 혼합형 PDF에서
+    // 이미지 페이지의 내용이 통째로 빠진 채 정상 분석처럼 보인다.
+    private String extractPdfTextWithOcrFallback(PDDocument document) throws IOException {
+        int totalPages = document.getNumberOfPages();
+        String[] pageTexts = new String[totalPages];
+        List<Integer> blankPages = new ArrayList<>();
+
+        for (int page = 1; page <= totalPages; page++) {
+            PDFTextStripper stripper = new PDFTextStripper();
+            stripper.setStartPage(page);
+            stripper.setEndPage(page);
+            String pageText = stripper.getText(document)
                 .replaceAll("\\s+\\n", "\n")
                 .replaceAll("\\n\\s+", "\n")
                 .trim();
-            if (text.isBlank()) {
-                throw new IllegalArgumentException("PDF에서 분석할 텍스트를 추출하지 못했습니다.");
+            pageTexts[page - 1] = pageText;
+            if (pageText.isBlank()) {
+                blankPages.add(page);
             }
-            return text;
+        }
+        if (blankPages.isEmpty()) {
+            return joinPages(pageTexts, List.of());
+        }
+        return joinPages(pageTexts, ocrBlankPages(document, pageTexts, blankPages));
+    }
+
+    // OCR은 CPU를 오래 잡아먹으므로 동시에 도는 문서 수를 제한한다. 제한이 없으면 업로드 몇 건만으로
+    // 서버 스레드와 tesseract 프로세스가 모두 점유돼 다른 요청까지 멈춘다.
+    // tess4j(JNA) 대신 CLI를 쓰는 이유: 네이티브 라이브러리 로딩 실패가 런타임에만 드러나 디버깅이 어렵기 때문이다.
+    private List<String> ocrBlankPages(PDDocument document, String[] pageTexts, List<Integer> blankPages)
+        throws IOException {
+        List<String> notices = new ArrayList<>();
+        List<Integer> targets = blankPages.size() > OCR_MAX_PAGES
+            ? List.copyOf(blankPages.subList(0, OCR_MAX_PAGES))
+            : blankPages;
+        if (blankPages.size() > targets.size()) {
+            notices.add("글자가 없는 페이지 " + blankPages.size() + "개 중 앞 " + targets.size()
+                + "개만 문자 인식했습니다. 나머지 페이지 내용은 분석에 포함되지 않았습니다.");
+        }
+
+        boolean acquired;
+        try {
+            acquired = OCR_SLOTS.tryAcquire(OCR_SLOT_WAIT_SECONDS, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("문자 인식 대기 중 중단되었습니다.", e);
+        }
+        if (!acquired) {
+            // 조용히 건너뛰면 내용이 빠진 회의록을 정상 분석으로 받아들이게 되므로 명시적으로 실패시킨다.
+            throw new IllegalArgumentException(
+                "서버가 다른 문서를 문자 인식 중입니다. 잠시 후 다시 시도해주세요."
+            );
+        }
+
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(OCR_TOTAL_BUDGET_SECONDS);
+        PDFRenderer renderer = new PDFRenderer(document);
+        List<Integer> failed = new ArrayList<>();
+        List<Integer> skipped = new ArrayList<>();
+        try {
+            for (int page : targets) {
+                // 페이지당 상한(60초)만 두면 30페이지에서 최악 30분간 스레드를 붙잡는다. 문서 전체 예산으로 자른다.
+                if (System.nanoTime() >= deadline) {
+                    skipped.add(page);
+                    continue;
+                }
+                Path imagePath = null;
+                try {
+                    BufferedImage image = renderer.renderImageWithDPI(page - 1, OCR_DPI);
+                    imagePath = Files.createTempFile("workflow-ocr-", ".png");
+                    ImageIO.write(image, "png", imagePath.toFile());
+                    pageTexts[page - 1] = runTesseract(imagePath).trim();
+                } catch (Exception e) {
+                    // 특정 페이지 실패가 문서 전체를 버리게 하지 않되, 누락 사실은 결과에 남긴다.
+                    failed.add(page);
+                    log.warn("PDF OCR 페이지 처리 실패: page={}", page, e);
+                } finally {
+                    deleteQuietly(imagePath);
+                }
+            }
+        } finally {
+            OCR_SLOTS.release();
+        }
+
+        if (!failed.isEmpty()) {
+            notices.add("문자 인식에 실패한 페이지가 있습니다: " + failed + ". 해당 페이지 내용은 분석에 포함되지 않았습니다.");
+        }
+        if (!skipped.isEmpty()) {
+            log.warn("OCR 전체 시간 예산({}초) 초과로 일부 페이지를 건너뜀: {}", OCR_TOTAL_BUDGET_SECONDS, skipped);
+            notices.add("문자 인식 시간이 " + OCR_TOTAL_BUDGET_SECONDS + "초를 넘겨 페이지 " + skipped
+                + "를 처리하지 못했습니다. 해당 페이지 내용은 분석에 포함되지 않았습니다.");
+        }
+        return notices;
+    }
+
+    private String joinPages(String[] pageTexts, List<String> notices) {
+        String body = String.join("\n", Arrays.stream(pageTexts).filter(t -> !t.isBlank()).toList())
+            .replaceAll("\\n{3,}", "\n\n")
+            .trim();
+        if (body.isBlank() || notices.isEmpty()) {
+            return body;
+        }
+        return body + "\n\n[알림] " + String.join(" ", notices);
+    }
+
+    private void deleteQuietly(Path path) {
+        if (path == null) {
+            return;
+        }
+        try {
+            Files.deleteIfExists(path);
         } catch (IOException ignored) {
-            throw new IllegalArgumentException("PDF 텍스트 추출에 실패했습니다.");
+            // 임시 파일 정리 실패는 분석 결과에 영향을 주지 않는다.
+        }
+    }
+
+    private String runTesseract(Path imagePath) throws IOException, InterruptedException {
+        // 결과를 stdout 파이프로 받지 않고 tesseract가 직접 파일에 쓰게 한다.
+        // 파이프로 받으면 (1) readAllBytes()가 EOF까지 블로킹해 아래 waitFor 타임아웃이 영영
+        // 실행되지 않고, (2) 소비하지 않는 stderr 버퍼가 가득 차면 tesseract가 멈춰 교착에 빠진다.
+        // 두 스트림을 모두 버리고 파일로 주고받으면 두 문제가 함께 사라진다.
+        Path outputBase = Files.createTempFile("workflow-ocr-out-", "");
+        Files.deleteIfExists(outputBase); // tesseract가 <base>.txt를 새로 만든다
+        Path outputText = Path.of(outputBase + ".txt");
+
+        try {
+            Process process = new ProcessBuilder(
+                "tesseract", imagePath.toString(), outputBase.toString(), "-l", OCR_LANGUAGES
+            )
+                .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                .redirectError(ProcessBuilder.Redirect.DISCARD)
+                .start();
+
+            if (!process.waitFor(OCR_PAGE_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                process.destroyForcibly();
+                // 종료를 기다리지 않고 빠져나가면 아직 살아 있는 tesseract가 방금 지운 경로에 다시
+                // 파일을 쓰거나 임시 파일이 남는다. 실제 종료를 확인한 뒤 정리 단계로 넘어간다.
+                if (!process.waitFor(OCR_KILL_WAIT_SECONDS, TimeUnit.SECONDS)) {
+                    log.warn("tesseract 강제 종료 후에도 프로세스가 남아 있습니다: pid={}", process.pid());
+                }
+                throw new IOException("tesseract 실행이 " + OCR_PAGE_TIMEOUT_SECONDS + "초를 넘겨 중단했습니다.");
+            }
+            if (process.exitValue() != 0) {
+                throw new IOException("tesseract가 비정상 종료했습니다: exitCode=" + process.exitValue());
+            }
+            return Files.exists(outputText) ? Files.readString(outputText, StandardCharsets.UTF_8) : "";
+        } finally {
+            deleteQuietly(outputText);
+            deleteQuietly(outputBase);
         }
     }
 

@@ -139,8 +139,31 @@ public class ProjectService {
             .toList();
     }
 
+    @Transactional
     public ProjectResponse find(Long projectId) {
-        return toResponse(getProjectOrThrow(projectId));
+        Project project = getProjectOrThrow(projectId);
+        if (project.getInviteCode() == null) {
+            // 초대 코드 발급 이전에 생성된 프로젝트는 코드가 없다 - 조회 시점에 채워 넣어
+            // 마이그레이션 없이 자연스럽게 백필한다.
+            project = ensureInviteCode(project);
+        }
+        return toResponse(project);
+    }
+
+    private Project ensureInviteCode(Project project) {
+        DataIntegrityViolationException lastCollision = null;
+        for (int attempt = 0; attempt < INVITE_CODE_MAX_ATTEMPTS; attempt++) {
+            try {
+                project.setInviteCode(generateInviteCode());
+                return projectRepository.saveAndFlush(project);
+            } catch (DataIntegrityViolationException e) {
+                if (!isInviteCodeConflict(e)) {
+                    throw e;
+                }
+                lastCollision = e;
+            }
+        }
+        throw new DataIntegrityViolationException("프로젝트 초대 코드 생성에 실패했습니다.", lastCollision);
     }
 
     @Transactional

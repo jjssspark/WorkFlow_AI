@@ -20,6 +20,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # migration-guard 워크플로에도 같은 검사가 있지만 그건 별도 워크플로라 배포와
+      # 병렬로 돈다 — 배포를 막지 못한다. 실제 차단은 여기서 한다(deploy가 이 잡에
+      # 의존한다). 중복 버전이 있으면 Flyway가 파일 해석 단계에서 거부해 Spring이
+      # 기동하지 못하므로, gradle 테스트보다 먼저 빠르게 떨어뜨린다.
+      - name: Block duplicate migration versions
+        working-directory: .
+        run: bash .github/scripts/check-duplicate-migration-versions.sh
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin

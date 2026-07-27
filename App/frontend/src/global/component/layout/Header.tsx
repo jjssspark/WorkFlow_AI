@@ -4,7 +4,7 @@ import { ChevronRight, Search, Calendar, Bell, LogOut, Menu } from "lucide-react
 import { TAB_TITLES } from "../../lib/constants/nav";
 import type { Tab } from "../../../board/libs/types/task";
 import {
-  ACTION_REQUIRED_NOTIFICATION_TYPES, fetchNotifications, markNotificationsRead,
+  ACTION_REQUIRED_NOTIFICATION_TYPES, fetchNotifications, markNotificationsRead, meetingNotificationPanelQuery,
   type NotificationResponse,
 } from "../../api/notificationApi";
 import { useAuth } from "../../hooks/useAuth";
@@ -35,6 +35,11 @@ const DETAIL_TITLES: Record<string, string> = {
   "blockers": "블로커 관리", "inprogress": "진행 중 업무",
   "dash-progress": "전체 진행률", "urgent": "마감 임박 업무",
   "workload": "팀원별 업무량", "activity": "최근 활동",
+};
+
+const LEADER_DETAIL_TITLES: Record<string, string> = {
+  roadmap: "로드맵",
+  "completion-approvals": "완료승인 대기",
 };
 
 export function Header({ onOpenMobileMenu }: { onOpenMobileMenu?: () => void }) {
@@ -87,13 +92,19 @@ export function Header({ onOpenMobileMenu }: { onOpenMobileMenu?: () => void }) 
   const segments = location.pathname.split("/").filter(Boolean);
   const activeTab = (segments[0] ?? "dashboard") as Tab;
   const detailPage = segments[1] ?? null;
+  const detailTitle = detailPage
+    ? (activeTab === "leader" ? LEADER_DETAIL_TITLES[detailPage] : DETAIL_TITLES[detailPage])
+    : null;
   const handleLogout = () => {
     logout();
     navigate("/login", { replace: true });
   };
 
   return (
-    <header className="h-14 bg-card border-b border-border flex items-center justify-between px-6 shrink-0 shadow-sm">
+    <header
+      data-global-header
+      className="relative z-40 h-14 bg-card border-b border-border flex items-center justify-between px-6 shrink-0 shadow-sm"
+    >
       <div className="flex items-center gap-2 text-sm min-w-0">
         {isMobile && (
           <button
@@ -113,9 +124,9 @@ export function Header({ onOpenMobileMenu }: { onOpenMobileMenu?: () => void }) 
         <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
         {detailPage ? (
           <>
-            <button onClick={() => navigate("/dashboard")} className="text-muted-foreground hover:text-foreground transition-colors">{TAB_TITLES[activeTab]}</button>
+            <button onClick={() => navigate(`/${activeTab}`)} className="text-muted-foreground hover:text-foreground transition-colors">{TAB_TITLES[activeTab]}</button>
             <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
-            <span className="font-semibold text-foreground">{DETAIL_TITLES[detailPage]}</span>
+            <span className="font-semibold text-foreground">{detailTitle ?? detailPage}</span>
           </>
         ) : (
           <span className="font-semibold text-foreground">{TAB_TITLES[activeTab]}</span>
@@ -159,9 +170,12 @@ export function Header({ onOpenMobileMenu }: { onOpenMobileMenu?: () => void }) 
           {notifOpen && (
             <>
               <div className="fixed inset-0 z-40" onClick={() => setNotifOpen(false)} />
-              <div className="absolute right-0 top-full mt-2 w-80 bg-card border border-border rounded-xl shadow-lg z-50 overflow-hidden">
+              <div
+                data-notification-popover
+                className="absolute right-0 top-full z-50 mt-2 flex w-80 max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-xl border border-border bg-card shadow-xl"
+              >
                 <div className="px-4 py-2.5 border-b border-border text-xs font-semibold text-foreground">알림</div>
-                <div className="max-h-80 overflow-y-auto">
+                <div data-notification-list className="min-h-0 max-h-[calc(100vh-10rem)] overflow-y-auto overscroll-contain">
                   {notifError ? (
                     <div className="px-4 py-6 text-xs text-red-600 text-center">알림을 불러오지 못했습니다. 다시 시도해주세요.</div>
                   ) : notifications.length === 0 ? (
@@ -185,7 +199,7 @@ export function Header({ onOpenMobileMenu }: { onOpenMobileMenu?: () => void }) 
                           <button
                             onClick={() => {
                               setNotifOpen(false);
-                              navigate(`/meetings?meetingId=${n.targetId}`);
+                              navigate(`/meetings?meetingId=${n.targetId}${meetingNotificationPanelQuery(n.type)}`);
                             }}
                             className="mt-1.5 px-2 py-1 rounded bg-blue-600 text-white text-[10px] font-semibold hover:bg-blue-700"
                           >
@@ -212,7 +226,7 @@ export function Header({ onOpenMobileMenu }: { onOpenMobileMenu?: () => void }) 
           )}
         </div>
 
-        {/* 현재 프로젝트 접속 중인 사용자 아바타 (10~30초 간격 폴링) */}
+        {/* 현재 프로젝트 접속 중인 사용자 아바타 (5초 간격 폴링) */}
         {presenceUsers.length > 0 && (
           <div className="flex items-center gap-1.5 ml-1">
             <div className="flex -space-x-2">
