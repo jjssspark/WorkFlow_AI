@@ -1779,11 +1779,6 @@ export function MeetingsView() {
               <ListChecks className="w-4 h-4" />역할 분배 검토 →
             </button>
           )}
-          {currentUserRole === "leader" && (
-            <button onClick={handleConfirmSave} className="w-full py-2 text-xs font-medium text-muted-foreground border border-border rounded-xl hover:bg-muted transition-colors flex items-center justify-center gap-1.5">
-              <FileText className="w-3.5 h-3.5" />회의록 분석결과 저장
-            </button>
-          )}
           {currentUserRole !== "reviewer" && (
             <button onClick={handleConfirmSave} className="w-full py-2 text-xs font-medium text-muted-foreground border border-border rounded-xl hover:bg-muted transition-colors flex items-center justify-center gap-1.5">
               <FileText className="w-3.5 h-3.5" />회의록 저장
@@ -2678,7 +2673,7 @@ export function MeetingsView() {
                 <FileAudio className="w-8 h-8 text-slate-400" />
               </div>
               <div className="text-sm font-semibold text-foreground mb-1">저장된 회의록이 없습니다</div>
-              <div className="text-xs leading-relaxed max-w-sm">회의록 분석 후 '회의록 분석결과 저장'을 눌러 저장하면 이곳에 표시됩니다.</div>
+              <div className="text-xs leading-relaxed max-w-sm">회의록 분석 후 '회의록 저장'을 눌러 저장하면 이곳에 표시됩니다.</div>
             </div>
           ) : (
             <>
