@@ -10,6 +10,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -21,10 +22,16 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 public class NotificationController {
     private final NotificationRepository notificationRepository;
     private final NotificationBroadcaster notificationBroadcaster;
+    private final NotificationService notificationService;
 
-    public NotificationController(NotificationRepository notificationRepository, NotificationBroadcaster notificationBroadcaster) {
+    public NotificationController(
+        NotificationRepository notificationRepository,
+        NotificationBroadcaster notificationBroadcaster,
+        NotificationService notificationService
+    ) {
         this.notificationRepository = notificationRepository;
         this.notificationBroadcaster = notificationBroadcaster;
+        this.notificationService = notificationService;
     }
 
     @Operation(summary = "내 알림 목록 조회", description = "로그인 사용자의 알림을 최신순으로 최대 20건 조회합니다.")
@@ -82,6 +89,26 @@ public class NotificationController {
         notificationRepository.saveAll(owned);
         // 읽은 알림은 보관할 필요가 없으므로 읽음 처리와 함께 바로 정리한다.
         notificationRepository.deleteByUserIdAndReadTrue(userId);
+        return ResponseEntity.ok(ApiResponse.ok(null));
+    }
+
+    @Operation(
+        summary = "진행률 보고서 생성 완료 알림",
+        description = "AI 진행률 보고서 생성에 성공했을 때, 요청한 사용자 본인에게 완료 알림을 남깁니다."
+    )
+    @PostMapping("/progress-report")
+    public ResponseEntity<ApiResponse<Void>> notifyProgressReportReady(
+        @RequestBody ProgressReportNotificationRequest request
+    ) {
+        Long userId = CurrentUser.id();
+        notificationService.notifyAfterCommit(
+            userId,
+            "PROGRESS_REPORT",
+            "진행률 보고서가 생성되었습니다.",
+            request.content(),
+            "project",
+            null
+        );
         return ResponseEntity.ok(ApiResponse.ok(null));
     }
 }

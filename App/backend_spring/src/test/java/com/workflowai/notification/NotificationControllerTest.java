@@ -7,6 +7,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -37,6 +38,9 @@ class NotificationControllerTest {
 
     @MockitoBean
     private NotificationBroadcaster notificationBroadcaster;
+
+    @MockitoBean
+    private NotificationService notificationService;
 
     @AfterEach
     void clearSecurityContext() {
@@ -177,5 +181,25 @@ class NotificationControllerTest {
             .andExpect(request().asyncStarted());
 
         verify(notificationBroadcaster).subscribe(5L);
+    }
+
+    @Test
+    void createsProgressReportReadyNotificationForCurrentUser() throws Exception {
+        authenticateAs(5L);
+
+        mockMvc.perform(post("/api/v1/notifications/progress-report")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"content\":\"보고서 생성 완료\"}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.success").value(true));
+
+        verify(notificationService).notifyAfterCommit(
+            5L,
+            "PROGRESS_REPORT",
+            "진행률 보고서가 생성되었습니다.",
+            "보고서 생성 완료",
+            "project",
+            null
+        );
     }
 }

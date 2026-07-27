@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
-import { AlertCircle, AlertTriangle, Calendar, CheckCheck, Clock, Layers, MessageSquare, Plus, Sparkles } from "lucide-react";
+import { AlertCircle, AlertTriangle, Calendar, CheckCheck, Clock, MessageSquare, Plus, RefreshCw, Sparkles } from "lucide-react";
 import { AiInsightBox } from "../../../ai/components/AiInsightBox";
 import { openAIAssistant } from "../../../ai/libs/utils/openAIAssistant";
 import { useAiInsight } from "../../../ai/libs/hooks/useAiInsight";
@@ -11,6 +11,10 @@ import { useInViewport } from "../../../global/hooks/useInViewport";
 import { useDashboardProgress } from "../../libs/hooks/useDashboardProgress";
 import { useDashboardTasks } from "../../libs/hooks/useDashboardTasks";
 import { updateTaskPosition } from "../../../board/libs/utils/taskApi";
+import { TaskDueDatePopup } from "../../components/TaskDueDatePopup";
+import { TaskDetailPopup } from "../../components/TaskDetailPopup";
+import { AddTaskModal } from "../../../board/components/AddTaskModal";
+import { getProjectMembers, type MemberResponse } from "../../../global/api/projectsApi";
 import type { DashboardTaskDto } from "../../libs/types/dashboard";
 import type { Priority } from "../../../board/libs/types/task";
 import {
@@ -27,9 +31,12 @@ import {
 
 const BLOCKER_PRIORITY_LABEL: Record<Priority, { label: string; cls: string }> = {
   high: { label: "심각도 높음", cls: "bg-red-50 text-red-600" },
-  medium: { label: "중간", cls: "bg-amber-50 text-amber-600" },
-  low: { label: "낮음", cls: "bg-slate-100 text-slate-500" },
+  medium: { label: "심각도 중간", cls: "bg-amber-50 text-amber-600" },
+  low: { label: "심각도 낮음", cls: "bg-slate-100 text-slate-500" },
 };
+const PRIORITY_SORT_ORDER: Record<Priority, number> = { high: 0, medium: 1, low: 2 };
+const RISK_SORT_ORDER: Record<string, number> = { 위험: 0, 주의: 1, 정상: 2 };
+type BlockerSortBy = "duration" | "id" | "priority" | "risk" | "dueDate" | "assignee" | "category";
 
 function BlockerAiSuggestion({ task, projectId, ready }: { task: DashboardTaskDto; projectId: number | null | undefined; ready: boolean }) {
   // 블로커 카드가 몇 개든 화면에 스크롤해서 보여지는 카드만 RAG 질의를 보낸다 -
@@ -54,14 +61,44 @@ function BlockerAiSuggestion({ task, projectId, ready }: { task: DashboardTaskDt
 }
 
 export function BlockersPage() {
-  const { user, currentProjectId } = useAuth();
+  const { user, currentProjectId, currentProject } = useAuth();
+  const isLeader = currentProject?.role === "팀장";
   const { data: tasks, loading, error, refetch } = useDashboardTasks(currentProjectId);
   const [actionError, setActionError] = useState<string | null>(null);
   const [resolvingTaskId, setResolvingTaskId] = useState<string | null>(null);
+  const [dueDateTarget, setDueDateTarget] = useState<DashboardTaskDto | null>(null);
+  const [commentTarget, setCommentTarget] = useState<DashboardTaskDto | null>(null);
+  const [showAddTask, setShowAddTask] = useState(false);
+  const [projectMembers, setProjectMembers] = useState<MemberResponse[]>([]);
+  const [sortBy, setSortBy] = useState<BlockerSortBy>("duration");
   const { data: progress, loading: progressLoading } = useDashboardProgress(currentProjectId);
   const navigate = useNavigate();
   const onBack = () => navigate("/dashboard");
-  const blockedTasks = tasks.filter(task => normalizeTaskStatus(task.status) === "blocked");
+
+  useEffect(() => {
+    if (currentProjectId == null) {
+      setProjectMembers([]);
+      return;
+    }
+    let cancelled = false;
+    getProjectMembers(currentProjectId)
+      .then(result => { if (!cancelled) setProjectMembers(result); })
+      .catch(() => { if (!cancelled) setProjectMembers([]); });
+    return () => { cancelled = true; };
+  }, [currentProjectId]);
+  const delayRiskByTaskId = new Map((progress?.delayRisks ?? []).map(risk => [risk.taskId, risk.result]));
+  const blockedTasks = tasks
+    .filter(task => normalizeTaskStatus(task.status) === "blocked")
+    .sort((a, b) => {
+      if (sortBy === "duration") return (daysSince(b.updatedAt) ?? 0) - (daysSince(a.updatedAt) ?? 0);
+      if (sortBy === "id") return (Number(a.id) || 0) - (Number(b.id) || 0);
+      if (sortBy === "priority") return PRIORITY_SORT_ORDER[normalizePriority(a.priority)] - PRIORITY_SORT_ORDER[normalizePriority(b.priority)];
+      if (sortBy === "risk") return (RISK_SORT_ORDER[delayRiskByTaskId.get(a.id) ?? ""] ?? 3) - (RISK_SORT_ORDER[delayRiskByTaskId.get(b.id) ?? ""] ?? 3);
+      if (sortBy === "dueDate") return (a.dueDate ?? "9999-12-31").localeCompare(b.dueDate ?? "9999-12-31");
+      if (sortBy === "assignee") return (a.assigneeName ?? "").localeCompare(b.assigneeName ?? "");
+      if (sortBy === "category") return (a.category ?? "").localeCompare(b.category ?? "");
+      return 0;
+    });
   const highPriorityCount = blockedTasks.filter(task => normalizePriority(task.priority) === "high").length;
   const riskPredictions = progress?.delayRisks.filter(risk => isDelayRisk(risk.result)) ?? [];
   const riskTaskIds = new Set(riskPredictions.map(risk => risk.taskId));
@@ -112,19 +149,25 @@ export function BlockersPage() {
           <h1 className="text-xl font-bold text-foreground">블로커 관리</h1>
           <p className="text-sm text-muted-foreground mt-0.5">막힌 업무를 파악하고 해결 담당자와 기한을 지정해 위험을 제거합니다.</p>
         </div>
-        <button onClick={() => navigate("/board?openAdd=1")} className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-border bg-card text-foreground rounded-lg hover:bg-muted transition-colors">
-          <Plus className="w-3.5 h-3.5" /> 업무 추가
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={() => refetch()} disabled={loading} className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-border bg-card text-foreground rounded-lg hover:bg-muted transition-colors disabled:opacity-50">
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} /> {loading ? "새로고침 중..." : "새로고침"}
+          </button>
+          {isLeader && (
+            <button onClick={() => setShowAddTask(true)} className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-border bg-card text-foreground rounded-lg hover:bg-muted transition-colors">
+              <Plus className="w-3.5 h-3.5" /> 업무 추가
+            </button>
+          )}
+        </div>
       </div>
 
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700">{error}</div>}
       {actionError && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700">{actionError}</div>}
 
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-3 gap-3">
         <DetailStatCard label="현재 블로커" value={loading ? "..." : blockedTasks.length} sub="해결 대기" color="#EF4444" icon={AlertTriangle} />
         <DetailStatCard label="심각도 높음" value={loading ? "..." : highPriorityCount} sub="즉시 조치 필요" color="#EF4444" icon={AlertCircle} />
-        <DetailStatCard label="평균 지연" value={loading ? "..." : `${averageDelayDays}일`} sub={overdueRiskDelayDays.length === 0 ? "지연 대상 없음" : `주의·위험 ${overdueRiskDelayDays.length}건 기준`} color="#F59E0B" icon={Clock} iconBorder />
-        <DetailStatCard label="AI 위험 감지" value={loading ? "..." : riskPredictions.length} sub="전체 업무 예측 결과" color="#7048E8" icon={Layers} />
+        <DetailStatCard label="평균 지연" value={loading ? "..." : `${averageDelayDays}일`} sub={overdueRiskDelayDays.length === 0 ? "지연 대상 없음" : `주의·위험 ${overdueRiskDelayDays.length}건 기준`} color="#F59E0B" icon={Clock} />
       </div>
 
       <AiInsightBox
@@ -135,8 +178,20 @@ export function BlockersPage() {
         formatAnswer={answer => `${aiInsightFallback} ${answer}`}
       />
 
+      <div className="flex items-center justify-end">
+        <select value={sortBy} onChange={e => setSortBy(e.target.value as BlockerSortBy)} className="text-xs border border-border rounded-lg px-3 py-2 bg-card text-foreground outline-none cursor-pointer">
+          <option value="duration">지속시간순</option>
+          <option value="id">ID순</option>
+          <option value="priority">심각도순</option>
+          <option value="risk">지연 위험도순</option>
+          <option value="dueDate">마감일순</option>
+          <option value="assignee">담당자순</option>
+          <option value="category">카테고리순</option>
+        </select>
+      </div>
+
       <div className="space-y-4">
-        {blockedTasks.map((task, index) => {
+        {!loading && blockedTasks.map((task, index) => {
           const assignee = taskAssignee(task, index);
           const priority = normalizePriority(task.priority);
           const priorityTag = BLOCKER_PRIORITY_LABEL[priority];
@@ -198,10 +253,10 @@ export function BlockersPage() {
                   >
                     <CheckCheck className="w-3.5 h-3.5" /> {resolvingTaskId === task.id ? "처리 중..." : "해결 완료"}
                   </button>
-                  <button onClick={() => navigate("/board")} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-border bg-card text-foreground rounded-lg hover:bg-muted transition-colors">
-                    <Calendar className="w-3.5 h-3.5" /> 마감 조정
+                  <button onClick={() => setDueDateTarget(task)} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-border bg-card text-foreground rounded-lg hover:bg-muted transition-colors">
+                    <Calendar className="w-3.5 h-3.5" /> 마감일 조정
                   </button>
-                  <button onClick={() => navigate("/board")} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-border bg-card text-foreground rounded-lg hover:bg-muted transition-colors">
+                  <button onClick={() => setCommentTarget(task)} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-border bg-card text-foreground rounded-lg hover:bg-muted transition-colors">
                     <MessageSquare className="w-3.5 h-3.5" /> 댓글
                   </button>
                   <button onClick={() => openAIAssistant(`블로커 업무 '${task.title}'의 해결 방법을 추천해줘. 현재 ${statusDays}일째 지속 중이고 담당자는 ${assignee.name}, 우선순위는 ${priority}야. 업무 설명: ${task.description || "등록된 설명 없음"}`)} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg ml-auto transition-opacity hover:opacity-80" style={{ background: "rgba(112,72,232,0.12)", color: "#7048E8" }}>
@@ -218,6 +273,30 @@ export function BlockersPage() {
           </div>
         )}
       </div>
+
+      {dueDateTarget && currentProjectId != null && (
+        <TaskDueDatePopup
+          task={dueDateTarget}
+          projectId={currentProjectId}
+          onClose={() => setDueDateTarget(null)}
+          onChanged={() => { setDueDateTarget(null); refetch(); }}
+        />
+      )}
+      {commentTarget && currentProjectId != null && (
+        <TaskDetailPopup
+          task={commentTarget}
+          projectId={currentProjectId}
+          focusComments
+          onClose={() => setCommentTarget(null)}
+        />
+      )}
+      <AddTaskModal
+        open={showAddTask}
+        initialStatus="blocked"
+        projectMembers={projectMembers}
+        onClose={() => { setShowAddTask(false); refetch(); }}
+        onCreated={() => refetch()}
+      />
     </div>
   );
 }

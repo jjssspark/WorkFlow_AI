@@ -32,9 +32,9 @@ jobs:
       - name: Run tests
         run: ./gradlew test --no-daemon
 
-      # ApplicationContextLoadTest는 Docker가 없으면 조용히 건너뛴다(로컬 개발 편의).
-      # CI에서까지 건너뛰면 방어선이 사라지므로, 실제로 실행됐는지 명시적으로 확인한다.
-      - name: Verify context load test actually ran
+      # 컨텍스트/운영 스키마 테스트는 Docker가 없으면 조용히 건너뛴다(로컬 개발 편의).
+      # CI에서까지 건너뛰면 방어선이 사라지므로, 둘 다 실행됐는지 명시적으로 확인한다.
+      - name: Verify container-backed tests actually ran
         if: always()
         run: python3 ci/verify-context-test-ran.py
 
