@@ -971,12 +971,16 @@ export function MeetingsView() {
       setAnalysisPhase("queued");
       setAnalyzeProgressTarget(28);
       pollMeetingStatus(response.meetingId, title, uploadedAt);
-    }).catch(() => {
+    }).catch((error: unknown) => {
       setAnalysisRequestPending(false);
       setAnalysisResult(null);
       setSelTodos([]);
       setAnalysisSource(null);
-      setAnalysisError("분석 서버 연결에 실패했습니다. Spring Boot와 FastAPI 서버가 실행 중인지 확인한 뒤 다시 시도해주세요.");
+      setAnalysisError(
+        error instanceof ApiRequestError
+          ? error.message
+          : "분석 서버 연결에 실패했습니다. Spring Boot와 FastAPI 서버가 실행 중인지 확인한 뒤 다시 시도해주세요."
+      );
       setUploadFlow("results");
     });
   };
