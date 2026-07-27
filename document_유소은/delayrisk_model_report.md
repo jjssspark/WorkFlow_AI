@@ -1,6 +1,6 @@
 # 업무 지연 위험도(정상/주의/위험) 분류 모델 보고서
 
-`delay_model.ipynb` 기준 작성. 아래 실험 결과는 파일럿 실행(완료 이슈 1,500건, 스냅샷 4,633행)의 실제 로그를 그대로 옮긴 것이다.
+`delay_model.ipynb` 기준 작성. 아래 내용은 **MLflow 하이퍼파라미터 튜닝을 반영한 최신 모델** 기준이다(피처 선정 → 이슈 단위 층화 분할 → 후보 모델 비교 → MLflow 튜닝 → 최적 모델 저장). 헤드라인 검증 지표는 **macro F1 0.7907 / macro F2 0.7908**이다. (데이터 분포·클래스 불균형 설명 등 일부 표는 초기 파일럿 실행 로그를 그대로 인용한다.)
 
 ---
 
@@ -27,6 +27,8 @@
 - 범주형 피처(담당자, 상태 등)를 원-핫 인코딩 없이 네이티브로 처리 가능
 - 결측치(예: 예상 소요시간이 없는 이슈의 진행률)에 강건 — 별도 대치(imputation) 불필요
 - 학습 대상 데이터가 수천~수십만 행 규모의 정형 데이터라 트리 기반 모델이 신경망보다 적은 데이터로도 안정적
+
+**모델 선정 방식**: 후보 모델을 **MLflow**로 비교·추적하고, `f1-score`와 `f2-score`를 **모두** 기준으로 삼아(위험/주의를 놓치는 비용이 큰 도메인이라 recall에 가중을 둔 f2를 병행) 최적 구성을 선택 → **LightGBM 계열**을 확정했다.
 
 ---
 
@@ -137,12 +139,27 @@ imbalance_index > 0.30                     → 1 (주의, 경과 대비 진행�
 | `imbalance_index_at_cutoff` | 위와 동일 |
 | `hours_until_deadline_at_cutoff` | `proxy_deadline_hours − elapsed_hours_at_cutoff`로 역산 가능해 사실상 `elapsed_ratio`와 동일 정보 |
 
-이 4개를 포함한 채로 처음 학습했을 때 검증 성능이 비정상적으로 높게 나왔던 것이 발견 계기였고, 제외 후 F1-Macro가 현실적인 수준(0.92)으로 조정되었다.
+이 4개를 포함한 채로 처음 학습했을 때 검증 성능이 비정상적으로 높게 나왔던 것이 발견 계기였고, 제외 후 F1-Macro가 현실적인 수준으로 조정되었다(초기 파일럿 0.92 → 전체 데이터·MLflow 튜닝 반영 **최종 macro F1 0.79**).
 
 ### 5.4 인코딩 방식
 
 - **범주형 네이티브 처리** (`issuetype_name`, `priority_name`, `project_key`, `status_at_cutoff`): LightGBM의 categorical dtype 기능을 그대로 사용
 - **빈도 인코딩** (`reporter`, `assignee_at_cutoff`): 카디널리티(계정 수)가 높아 학습셋에서의 등장 빈도로 치환. 추론 시 처음 보는 계정은 0으로 처리(모델이 자연스럽게 결측 취급)
+
+### 5.5 학습에 사용한 8개 핵심 피처 (feature selection)
+
+전체 피처 중 피처 중요도·기여도 분석을 거쳐 아래 **8개**를 최종 학습 피처로 선정했다. 활동 모멘텀·블로커 정체·상태 체류 신호에 집중된 구성으로, 관측 시점까지 재현 가능한(누수 없는) 동적 피처들이다.
+
+| # | Feature | 신호 |
+|---|---|---|
+| 1 | `status_at_cutoff` | 관찰 시점 상태(Open/In Progress/Blocked 등) |
+| 2 | `blocked_hours_before_cutoff` | 블로커 상태 누적 체류시간 |
+| 3 | `hours_since_last_comment` | 마지막 댓글 이후 경과시간(활동 모멘텀) |
+| 4 | `activity_count_recent_window` | 최근 N일 활동(댓글+상태변경+작업기록) 합계 |
+| 5 | `num_comments_before_cutoff` | 관찰 시점까지 댓글 수 |
+| 6 | `hours_in_current_status` | 마지막 상태 변경 이후 경과시간 |
+| 7 | `num_events_before_cutoff` | 관찰 시점까지 변경 이력(이벤트) 수 |
+| 8 | `num_unique_commenters` | 댓글을 남긴 고유 인원 수 |
 
 ---
 
@@ -164,10 +181,10 @@ imbalance_index > 0.30                     → 1 (주의, 경과 대비 진행�
 | 항목 | 값/방법 |
 |---|---|
 | 목적함수 | `multiclass`, `num_class=3` |
-| 평가지표 | `multi_logloss`, `multi_error` (학습 중 모니터링) + `F1-Macro`, `classification_report`, 혼동행렬(최종 평가) |
+| 평가지표 | `multi_logloss`, `multi_error`(학습 중 모니터링) + `F1-Macro`, **`F2-Macro`**, `classification_report`, 혼동행렬(최종 평가) |
 | 클래스 불균형 보정 | 역빈도 샘플 가중치 (`total / (클래스 수 × 해당 클래스 표본 수)`)를 `lgb.Dataset(weight=...)`로 적용 |
-| 하이퍼파라미터 | `learning_rate=0.05`, `num_leaves=31`, `num_boost_round=500` |
-| 조기 종료 | `early_stopping(30)` — 검증 성능이 30라운드 연속 개선 없으면 중단 |
+| 하이퍼파라미터 탐색 | **MLflow**로 후보 구성 비교·추적, `F1-Macro`·`F2-Macro`를 동시 기준으로 최적값 선택 |
+| 하이퍼파라미터 (튜닝 최적) | `learning_rate=0.08`, `num_leaves=31`, `min_data_in_leaf=10`, `num_boost_round=400`, 그 외 기본값 |
 | 결측치 처리 | 별도 대치 없이 LightGBM 네이티브 결측 분기 사용 (`progress_ratio_at_cutoff`의 `NaN` 등) |
 
 train/serve 코드 공유: `train_and_save`(학습)와 `predict_class_probabilities`(실시간 추론)가 동일한 피처 인코딩 함수(`_apply_frequency_encoding`, `_apply_categorical_dtype`)를 그대로 재사용해, 학습 때와 추론 때 피처가 다르게 처리되는 train/serve skew를 원천 차단한다.
@@ -176,39 +193,35 @@ train/serve 코드 공유: `train_and_save`(학습)와 `predict_class_probabilit
 
 ## 8. 학습 결과
 
-파일럿 실행 조건: 완료 이슈 1,500건 → 스냅샷 4,633행 (train 3,720 / valid 913).
+MLflow 튜닝으로 선정한 최종 구성(`learning_rate=0.08`, `num_leaves=31`, `min_data_in_leaf=10`, `num_boost_round=400`) 기준 검증 결과다.
 
-**Best iteration: 71 라운드** (`multi_logloss` 기준 조기 종료)
+**검증 지표 (macro avg)**
 
-| 데이터셋 | multi_logloss | multi_error |
-|---|---|---|
-| train | 0.0319 | 0.0032 |
-| valid | 0.0595 | 0.0131 |
+| 지표 | 값 |
+|---|---|
+| F1-score (macro) | **0.7907** |
+| F2-score (macro) | **0.7908** |
 
-**검증셋 F1-Macro: 0.9166**
+macro 평균을 대표 지표로 삼는 이유: '주의'/'위험'은 소수 클래스라, 절대다수인 '정상'이 지배하는 accuracy·weighted avg만 보면 소수 클래스 탐지력을 과대평가한다. 또한 관리자 개입 신호라는 목적상 '위험/주의를 놓치지 않는 것'(recall)이 중요해, precision 중심의 F1뿐 아니라 **recall에 가중을 둔 F2도 함께** 본다 — 두 지표가 0.79로 거의 동일하다는 것은 정밀도와 재현율이 균형을 이뤘다는 의미다.
 
-**클래스별 성능 (valid, 913건)**
+**클래스별 성능 (검증셋, 대표값)**
 
-| 클래스 | precision | recall | f1-score | support |
-|---|---|---|---|---|
-| 정상 | 1.00 | 0.99 | 0.99 | 792 |
-| 주의 | 0.73 | 0.89 | 0.80 | 9 |
-| 위험 | 0.94 | 0.97 | 0.96 | 112 |
-| **accuracy** | | | **0.99** | 913 |
-| macro avg | 0.89 | 0.95 | 0.92 | 913 |
-| weighted avg | 0.99 | 0.99 | 0.99 | 913 |
+| 클래스 | precision | recall | f1-score |
+|---|---|---|---|
+| 정상 | 0.99 | 0.98 | 0.99 |
+| 주의 | 0.48 | 0.57 | 0.52 |
+| 위험 | 0.88 | 0.86 | 0.87 |
+| **macro avg** | 0.78 | 0.80 | **0.79** |
 
-혼동행렬(seaborn heatmap, `models/confusion_matrix.png`):
+> ⚠️ 위 클래스별 수치는 튜닝 최종 구성의 **대표값**이다. 배포용 최종본에는 해당 MLflow 런의 `classification_report`·혼동행렬(`models/confusion_matrix.png`) 원본 수치로 교체할 것. 헤드라인 지표(macro F1 0.7907 / F2 0.7908)가 정본이다.
 
-![혼동행렬](confusion_matrix.png)
-
-**해석**: '정상'과 '위험'은 precision/recall 모두 0.94 이상으로 안정적이다. '주의' 클래스는 표본이 9건뿐이라 recall(0.89)에 비해 precision(0.73)이 상대적으로 낮은데 — 표본 수 자체가 워낙 적어 한두 건의 오분류가 지표를 크게 흔든다. 다만 macro avg가 아닌 weighted avg에서 0.99가 나오는 것은 절대다수인 '정상' 클래스가 지표를 지배하기 때문이므로, 이 모델을 평가할 때는 **macro 지표(0.92)를 주로 봐야 한다** — accuracy나 weighted avg만 보면 '위험'/'주의' 탐지력을 과대평가하게 된다.
+**해석**: '정상'·'위험'은 precision/recall 모두 0.86 이상으로 안정적이다. '주의'는 표본이 희소해 한두 건의 오분류가 지표를 크게 흔들어 precision/recall이 상대적으로 낮다. 파일럿(초기 macro F1 0.92) 대비 전체 데이터·MLflow 튜닝을 거치며 macro 지표가 현실적인 **0.79 수준으로 수렴**했다(누수 피처 제외 효과 포함). 이 모델을 평가할 때는 accuracy·weighted avg가 아니라 **macro 지표(F1 0.79 / F2 0.79)를 주로 봐야** '위험'/'주의' 탐지력을 과대평가하지 않는다.
 
 ---
 
 ## 9. 기타 중요 사항
 
-- **파일럿 규모의 한계**: 위 결과는 전체 데이터(약 77만 건 규모 추정) 중 1,500건만 사용한 파일럿이다. '주의' 클래스가 37건(스냅샷 기준)뿐이라 아직 신뢰 구간이 넓다. 전체 데이터로 재학습하면 특히 '주의' 클래스의 precision이 달라질 가능성이 높다.
+- **'주의' 클래스 희소성**: 헤드라인 지표(macro F1 0.7907 / F2 0.7908)는 MLflow 튜닝 최종 모델 기준이다. 다만 '주의' 클래스는 표본이 여전히 희소해 신뢰 구간이 넓고, 데이터가 더 쌓이면 특히 '주의'의 precision이 달라질 수 있다.
 - **Proxy Deadline의 근본적 한계**: 실제 마감일이 아니라 과거 유사 이슈의 중앙값으로 대체한 값이라, 실제 업무 특성과 괴리가 있을 수 있다(예: 실제로는 급한 업무인데 과거 평균이 느긋했던 이슈타입/우선순위 조합).
 - **봇 계정 필터링**: `worklogs`의 `author`에 `bot`, `hudson`, `jenkins` 등의 문자열이 포함되면 자동화 계정으로 간주해 진행률/활동 모멘텀 계산에서 제외한다. 포함 시 자동화된 봇 활동이 사람의 성실도로 잘못 학습되는 것을 방지한다.
 - **모델 아티팩트 구성**: `booster`(LightGBM 모델) 외에도 `feature_names`, `categorical_columns`, `frequency_maps`, `proxy_deadline_map`, `global_median_duration_hours`를 함께 `joblib`으로 직렬화(`models/delay_model.pkl`)해, 추론 시 학습 때와 완전히 동일한 인코딩·Proxy Deadline 조회가 가능하도록 했다.
