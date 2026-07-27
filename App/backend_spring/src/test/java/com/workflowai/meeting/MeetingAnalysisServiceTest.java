@@ -126,7 +126,7 @@ class MeetingAnalysisServiceTest {
         verify(meetingRepository, atLeastOnce()).save(meetingCaptor.capture());
         assertThat(meetingCaptor.getAllValues().get(0).getAnalysisStatus()).isEqualTo("processing");
         assertThat(meetingCaptor.getAllValues().get(0).getAnalysisJobId()).isNotNull();
-        verify(meetingAnalysisJobPublisher).enqueue(any(), any(AiAnalyzeRequest.class), any(UUID.class));
+        verify(meetingAnalysisJobPublisher).enqueue(any(), any(AiAnalyzeRequest.class), any(UUID.class), any());
     }
 
     @Test
@@ -181,7 +181,7 @@ class MeetingAnalysisServiceTest {
         );
 
         ArgumentCaptor<AiAnalyzeRequest> requestCaptor = ArgumentCaptor.forClass(AiAnalyzeRequest.class);
-        verify(meetingAnalysisJobPublisher).enqueue(any(), requestCaptor.capture(), any(UUID.class));
+        verify(meetingAnalysisJobPublisher).enqueue(any(), requestCaptor.capture(), any(UUID.class), any());
         assertThat(requestCaptor.getValue().text()).contains("Meeting minutes body");
         assertThat(requestCaptor.getValue().text()).doesNotContain("텍스트 추출 예정");
     }
@@ -202,7 +202,7 @@ class MeetingAnalysisServiceTest {
 
         assertThat(response.transcript()).isEmpty();
         ArgumentCaptor<AiAnalyzeRequest> requestCaptor = ArgumentCaptor.forClass(AiAnalyzeRequest.class);
-        verify(meetingAnalysisJobPublisher).enqueue(any(), requestCaptor.capture(), any(UUID.class));
+        verify(meetingAnalysisJobPublisher).enqueue(any(), requestCaptor.capture(), any(UUID.class), any());
         assertThat(requestCaptor.getValue().text()).isEmpty();
         assertThat(requestCaptor.getValue().source_type()).isEqualTo("audio");
     }
@@ -222,7 +222,7 @@ class MeetingAnalysisServiceTest {
         );
 
         ArgumentCaptor<AiAnalyzeRequest> requestCaptor = ArgumentCaptor.forClass(AiAnalyzeRequest.class);
-        verify(meetingAnalysisJobPublisher).enqueue(any(), requestCaptor.capture(), any(UUID.class));
+        verify(meetingAnalysisJobPublisher).enqueue(any(), requestCaptor.capture(), any(UUID.class), any());
         assertThat(requestCaptor.getValue().source_type()).isEqualTo("audio");
     }
 
@@ -254,9 +254,9 @@ class MeetingAnalysisServiceTest {
             "demo-project", file, "7차 정기회의", "2026-07-15", "정기회의", "document", List.of("김민준"), null
         );
 
-        verify(meetingAnalysisJobPublisher, never()).enqueue(any(), any(), any());
+        verify(meetingAnalysisJobPublisher, never()).enqueue(any(), any(), any(), any());
         TransactionSynchronizationManager.getSynchronizations().forEach(TransactionSynchronization::afterCommit);
-        verify(meetingAnalysisJobPublisher).enqueue(eq(12L), any(AiAnalyzeRequest.class), any(UUID.class));
+        verify(meetingAnalysisJobPublisher).enqueue(eq(12L), any(AiAnalyzeRequest.class), any(UUID.class), any());
     }
 
     @Test
@@ -269,7 +269,7 @@ class MeetingAnalysisServiceTest {
             return meeting;
         });
         doThrow(new IllegalStateException("redis unavailable"))
-            .when(meetingAnalysisJobPublisher).enqueue(any(), any(), any());
+            .when(meetingAnalysisJobPublisher).enqueue(any(), any(), any(), any());
 
         MockMultipartFile file = new MockMultipartFile("file", "notes.txt", "text/plain", "회의 내용".getBytes());
         service.analyze(
@@ -293,7 +293,7 @@ class MeetingAnalysisServiceTest {
             return meeting;
         });
         doThrow(new IllegalStateException("redis unavailable"))
-            .when(meetingAnalysisJobPublisher).enqueue(any(), any(), any());
+            .when(meetingAnalysisJobPublisher).enqueue(any(), any(), any(), any());
         TransactionSynchronizationManager.initSynchronization();
 
         MockMultipartFile file = new MockMultipartFile("file", "notes.txt", "text/plain", "회의 내용".getBytes());
@@ -700,7 +700,7 @@ class MeetingAnalysisServiceTest {
         MeetingAnalysisService service = newService();
 
         assertThatThrownBy(() -> service.retry("demo-project", "3")).isInstanceOf(IllegalStateException.class);
-        verify(meetingAnalysisJobPublisher, never()).enqueue(any(), any(), any());
+        verify(meetingAnalysisJobPublisher, never()).enqueue(any(), any(), any(), any());
     }
 
     @Test
@@ -767,7 +767,7 @@ class MeetingAnalysisServiceTest {
         assertThat(meeting.getTranscript()).isEqualTo("재분석할 회의 내용");
         verify(meetingAnalysisJobPublisher).enqueue(eq(4L), eq(new AiAnalyzeRequest(
             "demo-project", "정기회의", meeting.getMeetingDate().toString(), "정기회의", "document", "x.txt", "재분석할 회의 내용", List.of()
-        )), eq(meeting.getAnalysisJobId()));
+        )), eq(meeting.getAnalysisJobId()), any());
         Files.deleteIfExists(textFile);
     }
 
@@ -780,7 +780,7 @@ class MeetingAnalysisServiceTest {
         when(meetingRepository.findByIdAndProjectId(8L, 1L)).thenReturn(Optional.of(meeting));
         when(meetingAttendeeRepository.findByMeetingId(8L)).thenReturn(List.of());
         doThrow(new IllegalStateException("redis unavailable"))
-            .when(meetingAnalysisJobPublisher).enqueue(any(), any(), any());
+            .when(meetingAnalysisJobPublisher).enqueue(any(), any(), any(), any());
         MeetingAnalysisService service = newService();
 
         service.retry("demo-project", "8");
@@ -810,7 +810,7 @@ class MeetingAnalysisServiceTest {
         assertThat(response.errorMessage()).isEqualTo(MeetingAnalysisPersistence.REUPLOAD_REQUIRED_ERROR_MESSAGE);
         verify(meetingAnalysisPersistence).saveAnalysisFailure(6L, MeetingAnalysisPersistence.REUPLOAD_REQUIRED_ERROR_MESSAGE);
         verify(meetingAnalysisRepository, never()).save(any());
-        verify(meetingAnalysisJobPublisher, never()).enqueue(any(), any(), any());
+        verify(meetingAnalysisJobPublisher, never()).enqueue(any(), any(), any(), any());
         Files.deleteIfExists(audioFile);
     }
 
@@ -835,7 +835,7 @@ class MeetingAnalysisServiceTest {
         verify(meetingAnalysisJobPublisher).enqueue(eq(9L), eq(new AiAnalyzeRequest(
             "demo-project", "정기회의", meeting.getMeetingDate().toString(), "정기회의", "audio", "recording.mp3",
             "이전에 분석된 원문 내용", List.of()
-        )), eq(meeting.getAnalysisJobId()));
+        )), eq(meeting.getAnalysisJobId()), any());
         Files.deleteIfExists(audioFile);
     }
 
@@ -855,7 +855,7 @@ class MeetingAnalysisServiceTest {
         assertThat(response.errorMessage()).isEqualTo(MeetingAnalysisPersistence.REUPLOAD_READ_ERROR_MESSAGE);
         verify(meetingAnalysisPersistence).saveAnalysisFailure(7L, MeetingAnalysisPersistence.REUPLOAD_READ_ERROR_MESSAGE);
         verify(meetingAnalysisRepository, never()).save(any());
-        verify(meetingAnalysisJobPublisher, never()).enqueue(any(), any(), any());
+        verify(meetingAnalysisJobPublisher, never()).enqueue(any(), any(), any(), any());
         Files.deleteIfExists(emptyFile);
     }
 
@@ -1061,7 +1061,7 @@ class MeetingAnalysisServiceTest {
             .filter(m -> m.getOriginalMeetingId() != null).findFirst().orElseThrow();
         assertThat(savedVersion.getTitle()).isEqualTo("정기회의_수정본");
         assertThat(savedVersion.getAnalysisStatus()).isEqualTo("pending");
-        verify(meetingAnalysisJobPublisher, never()).enqueue(any(), any(), any());
+        verify(meetingAnalysisJobPublisher, never()).enqueue(any(), any(), any(), any());
     }
 
     @Test
@@ -1151,7 +1151,7 @@ class MeetingAnalysisServiceTest {
             new MeetingVersionRequest("수정된 본문", true));
 
         assertThat(response.status()).isEqualTo("PROCESSING");
-        verify(meetingAnalysisJobPublisher).enqueue(any(), any(), any());
+        verify(meetingAnalysisJobPublisher).enqueue(any(), any(), any(), any());
     }
 
     @Test
@@ -1209,7 +1209,7 @@ class MeetingAnalysisServiceTest {
         assertThat(response.status()).isEqualTo("PROCESSING");
         assertThat(version.getAnalysisStatus()).isEqualTo("processing");
         verify(meetingRepository).save(any(Meeting.class));
-        verify(meetingAnalysisJobPublisher).enqueue(any(), any(), any());
+        verify(meetingAnalysisJobPublisher).enqueue(any(), any(), any(), any());
     }
 
     @Test

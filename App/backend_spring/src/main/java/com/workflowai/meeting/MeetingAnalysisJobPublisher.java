@@ -32,12 +32,12 @@ public class MeetingAnalysisJobPublisher {
         this.objectMapper = objectMapper;
     }
 
-    public String enqueue(Long meetingId, AiAnalyzeRequest request) {
-        return enqueue(meetingId, request, UUID.randomUUID());
+    public String enqueue(Long meetingId, AiAnalyzeRequest request, Long requestedBy) {
+        return enqueue(meetingId, request, UUID.randomUUID(), requestedBy);
     }
 
-    public String enqueue(Long meetingId, AiAnalyzeRequest request, UUID jobId) {
-        MeetingAnalysisJob job = new MeetingAnalysisJob(jobId.toString(), meetingId, request);
+    public String enqueue(Long meetingId, AiAnalyzeRequest request, UUID jobId, Long requestedBy) {
+        MeetingAnalysisJob job = new MeetingAnalysisJob(jobId.toString(), meetingId, request, requestedBy);
         String payload = serialize(job);
         if (payload.getBytes(StandardCharsets.UTF_8).length > MAX_PAYLOAD_BYTES) {
             throw new IllegalStateException(ENQUEUE_FAILURE_MESSAGE);

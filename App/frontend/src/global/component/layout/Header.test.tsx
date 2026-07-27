@@ -38,11 +38,14 @@ describe("Header (mobile)", () => {
   });
 });
 
-vi.mock("../../api/notificationApi", () => ({
-  fetchNotifications: vi.fn(),
-  markNotificationsRead: vi.fn(),
-  ACTION_REQUIRED_NOTIFICATION_TYPES: new Set(["MEETING_ANALYSIS_COMPLETED_NOTIFY_LEADER", "MEETING_SAVED_NOTIFY_LEADER", "MEETING_EDITED"]),
-}));
+vi.mock("../../api/notificationApi", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../api/notificationApi")>();
+  return {
+    ...actual,
+    fetchNotifications: vi.fn(),
+    markNotificationsRead: vi.fn(),
+  };
+});
 
 // 첫 번째 describe("Header (mobile)")는 실제 AuthProvider(비로그인 상태)로도 문제없이 렌더링돼야
 // 하므로, 이 모킹이 파일 전체에 적용되더라도 깨지지 않도록 기본값을 비로그인 상태로 둔다.
