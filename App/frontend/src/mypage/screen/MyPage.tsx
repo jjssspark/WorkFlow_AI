@@ -1,11 +1,12 @@
 import { useNavigate } from "react-router";
 import { useAuth } from "../../global/hooks/useAuth";
 import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import {
   User, Shield, Settings, Bell, LogOut, Github, ChevronRight,
   FileText, CheckCircle2, Clock, AlertTriangle, Star, Download,
   MessageSquare, GitCommit, GitPullRequest, GitMerge, FileAudio,
-  Package, Sparkles, Check, X, Eye, EyeOff, Edit, BarChart3,
+  Package, Sparkles, X, Eye, EyeOff, Edit, BarChart3,
   Calendar, Layers, ArrowRight, AlertCircle, Users, RefreshCw,
   Link2, Target, Award
 } from "lucide-react";
@@ -21,9 +22,17 @@ import { useMyTasks } from "../libs/hooks/useMyTasks";
 import { useReviewerProjects } from "../libs/hooks/useReviewerProjects";
 import { getDueToday, getDueThisWeek } from "../libs/utils/taskWidgets";
 import { getDoneCount, getInProgressCount, getBlockedCount, getTasksByStatus, formatDueDate } from "../../board/libs/utils/taskService";
+import type { ProjectRoleKo } from "../../global/api/authTypes";
 
 // ─── local types ──────────────────────────────────────────────────────────────
 export type MyPageRole = "member" | "reviewer";
+
+// Sidebar/Header의 역할 배지와 동일한 배색을 써서 마이페이지 프로필 카드도 같은 UI 언어를 따른다.
+const ROLE_COLORS: Record<ProjectRoleKo, string> = {
+  "팀장": "#3B5BDB",
+  "팀원": "#10B981",
+  "심사자": "#7048E8",
+};
 
 type EvalStatus = "pending" | "evaluating" | "done" | "published";
 const EVAL_STATUS_META: Record<EvalStatus, { label: string; cls: string }> = {
@@ -34,9 +43,10 @@ const EVAL_STATUS_META: Record<EvalStatus, { label: string; cls: string }> = {
 };
 
 // ─── Member My Page ───────────────────────────────────────────────────────────
-function MemberMyPage({ name, email, onLogout, projectId, userId, avatarUrl, affiliation, field, githubUsername }: {
+function MemberMyPage({ name, email, onLogout, projectId, userId, avatarUrl, affiliation, field, githubUsername, role, projectTitle }: {
   name: string; email: string; onLogout: () => void; projectId: number | null; userId: number | null;
   avatarUrl: string | null; affiliation: string | null; field: string[] | null; githubUsername: string | null;
+  role: ProjectRoleKo; projectTitle: string | null;
 }) {
   const navigate = useNavigate();
   const [taskView, setTaskView] = useState<"all"|"today"|"week">("all");
@@ -85,7 +95,7 @@ function MemberMyPage({ name, email, onLogout, projectId, userId, avatarUrl, aff
             <div>
               <div className="flex items-center gap-2 mb-1">
                 <span className="text-lg font-bold text-foreground">{name}</span>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 border border-purple-200">팀원</span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full text-white" style={{ background: ROLE_COLORS[role] }}>{role}</span>
               </div>
               <div className="text-xs text-muted-foreground">{email}</div>
               <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
@@ -96,7 +106,7 @@ function MemberMyPage({ name, email, onLogout, projectId, userId, avatarUrl, aff
             </div>
             <div className="text-right">
               <div className="text-xs text-muted-foreground mb-1">참여 프로젝트</div>
-              <div className="text-sm font-semibold text-foreground">{MEMBER_USER.project}</div>
+              <div className="text-sm font-semibold text-foreground">{projectTitle ?? "참여 중인 프로젝트 없음"}</div>
               {githubUsername ? (
                 <a
                   href={`https://github.com/${githubUsername}`}
@@ -192,20 +202,24 @@ function MemberMyPage({ name, email, onLogout, projectId, userId, avatarUrl, aff
                     ))}
                   </div>
                 </div>
-                <div className="divide-y divide-border">
+                <div className="p-3 space-y-2">
                   {visibleTasks.length === 0 && (
                     <div className="px-5 py-6 text-center text-xs text-muted-foreground">담당 중인 업무가 없습니다.</div>
                   )}
                   {visibleTasks.map(task => (
-                    <div key={task.id} className="flex items-center gap-3 px-5 py-3 hover:bg-muted/30 transition-colors">
+                    <button
+                      key={task.id}
+                      type="button"
+                      onClick={() => goToTaskOnBoard(task.id)}
+                      className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-border bg-muted/30 hover:bg-muted hover:border-slate-300 transition-colors text-left"
+                    >
                       <span className="font-mono text-[10px] text-muted-foreground w-12">{task.id}</span>
                       <div className="flex-1 min-w-0">
                         <div className="text-xs font-semibold text-foreground truncate">{task.title}</div>
                         <div className="text-[10px] text-muted-foreground mt-0.5">{task.category} · 마감 {formatDueDate(task.dueDate)}</div>
                       </div>
                       <StatusBadge status={task.status} />
-                      <button className="text-[10px] font-medium text-blue-600 hover:text-blue-700 shrink-0">상태 변경</button>
-                    </div>
+                    </button>
                   ))}
                 </div>
               </div>
@@ -224,11 +238,8 @@ function MemberMyPage({ name, email, onLogout, projectId, userId, avatarUrl, aff
                         key={task.id}
                         type="button"
                         onClick={() => goToTaskOnBoard(task.id)}
-                        className="w-full flex items-center gap-2 p-2.5 rounded-lg bg-muted/50 hover:bg-muted transition-colors text-left"
+                        className="w-full flex items-center p-2.5 rounded-lg border border-border bg-muted/30 hover:bg-muted hover:border-slate-300 transition-colors text-left"
                       >
-                        <div className="w-4 h-4 rounded border border-border flex items-center justify-center shrink-0">
-                          {task.status==="done" && <Check className="w-2.5 h-2.5 text-emerald-500" />}
-                        </div>
                         <span className="text-xs text-foreground flex-1 truncate">{task.title}</span>
                       </button>
                     ))
@@ -237,7 +248,7 @@ function MemberMyPage({ name, email, onLogout, projectId, userId, avatarUrl, aff
               </div>
               <div className="bg-card rounded-xl border border-border shadow-sm p-4">
                 <SectionTitle>이번 주 마감</SectionTitle>
-                <div className="space-y-2.5">
+                <div className="space-y-2">
                   {thisWeekNotDone.length === 0 ? (
                     <div className="text-xs text-muted-foreground text-center py-3">이번 주 마감인 업무가 없습니다.</div>
                   ) : (
@@ -248,7 +259,7 @@ function MemberMyPage({ name, email, onLogout, projectId, userId, avatarUrl, aff
                           key={task.id}
                           type="button"
                           onClick={() => goToTaskOnBoard(task.id)}
-                          className="w-full flex items-center justify-between text-xs hover:bg-muted/50 rounded-lg px-1 py-0.5 -mx-1 transition-colors text-left"
+                          className="w-full flex items-center justify-between text-xs p-2.5 rounded-lg border border-border bg-muted/30 hover:bg-muted hover:border-slate-300 transition-colors text-left"
                         >
                           <span className="text-foreground truncate flex-1">{task.title}</span>
                           <span className={`font-bold ml-2 shrink-0 ${isDueToday?"text-amber-600":"text-muted-foreground"}`}>{formatDueDate(task.dueDate)}</span>
@@ -326,6 +337,65 @@ type ReviewerPanelTab = "summary" | "deliverables" | "contrib" | "ai-evidence" |
 
 const REVIEWER_AVATAR_COLOR = "#3B5BDB";
 
+interface PrintReport {
+  title: string;
+  headers: string[];
+  rows: string[][];
+}
+
+/**
+ * 새 창(window.open)으로 인쇄 대화상자를 여는 방식은 팝업 차단에 걸리면 조용히 아무 일도 일어나지
+ * 않는다. 대신 같은 탭 안에서 React 포털로 인쇄 전용 뷰를 body에 직접 붙이고, @media print로
+ * 나머지 화면(#root)은 숨기고 이 뷰만 보이게 한 뒤 window.print()를 호출한다 — 팝업이 전혀 없어
+ * 팝업 차단의 영향을 받지 않는다. 사용자가 인쇄 대화상자에서 "PDF로 저장"을 고르면 실제 PDF가 만들어진다.
+ */
+function PrintReportPortal({ report, onDone }: { report: PrintReport; onDone: () => void }) {
+  useEffect(() => {
+    const id = requestAnimationFrame(() => window.print());
+    const handleAfterPrint = () => onDone();
+    window.addEventListener("afterprint", handleAfterPrint);
+    return () => {
+      cancelAnimationFrame(id);
+      window.removeEventListener("afterprint", handleAfterPrint);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return createPortal(
+    <div id="mypage-print-report">
+      <style>{`
+        #mypage-print-report { display: none; }
+        @media print {
+          body > #root { display: none !important; }
+          #mypage-print-report {
+            display: block !important;
+            font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;
+            padding: 32px; color: #1C2333;
+          }
+          #mypage-print-report h1 { font-size: 20px; margin-bottom: 4px; }
+          #mypage-print-report .meta { color: #8892A4; font-size: 12px; margin-bottom: 16px; }
+          #mypage-print-report table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+          #mypage-print-report th, #mypage-print-report td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #eee; font-size: 12px; }
+          #mypage-print-report th { color: #8892A4; font-weight: 600; }
+        }
+      `}</style>
+      <h1>{report.title}</h1>
+      <div className="meta">발급일: {new Date().toLocaleDateString("ko-KR")}</div>
+      <table>
+        <thead>
+          <tr>{report.headers.map(h => <th key={h}>{h}</th>)}</tr>
+        </thead>
+        <tbody>
+          {report.rows.map((row, i) => (
+            <tr key={i}>{row.map((cell, j) => <td key={j}>{cell}</td>)}</tr>
+          ))}
+        </tbody>
+      </table>
+    </div>,
+    document.body
+  );
+}
+
 function ReviewerMyPage({ name, email, onLogout, avatarUrl }: { name: string; email: string; onLogout: () => void; avatarUrl: string | null }) {
   const navigate = useNavigate();
   const initials = name ? name[0] : "심";
@@ -334,6 +404,7 @@ function ReviewerMyPage({ name, email, onLogout, avatarUrl }: { name: string; em
   const [panelTab, setPanelTab] = useState<ReviewerPanelTab>("summary");
   const [scores, setScores] = useState<Record<string,string>>({ "1":"92","2":"88","3":"85","4":"72" });
   const [publicFlags, setPublicFlags] = useState<Record<string,boolean>>({ "1":true,"2":false,"3":false,"4":false });
+  const [printReport, setPrintReport] = useState<PrintReport | null>(null);
 
   useEffect(() => {
     if (selectedProjectId === null && projects.length > 0) {
@@ -349,6 +420,31 @@ function ReviewerMyPage({ name, email, onLogout, avatarUrl }: { name: string; em
     published: projects.filter(p => p.evalStatus === "published").length,
   };
 
+  const handleTeamPdf = () => {
+    if (!team) return;
+    setPrintReport({
+      title: `${team.title} 팀 리포트`,
+      headers: ["항목", "값"],
+      rows: [
+        ["팀장", team.leaderName ?? "미배정"],
+        ["팀원 수", `${team.memberCount}명`],
+        ["진행률", `${team.progressPercent}%`],
+        ["평가 상태", EVAL_STATUS_META[team.evalStatus].label],
+        ["GitHub 연동", team.githubConnected ? "연결됨" : "미연결"],
+        ["산출물 제출", `${team.deliverablesSubmitted} / ${team.deliverablesTotal}개`],
+      ],
+    });
+  };
+
+  const handleScorePdf = () => {
+    if (!team) return;
+    setPrintReport({
+      title: `${team.title} 평가 리포트`,
+      headers: ["이름", "역할", "점수", "공개 여부"],
+      rows: CONTRIB_REPORTS.map(r => [r.name, r.role, `${scores[r.memberId] ?? "-"} / 100`, publicFlags[r.memberId] ? "공개" : "비공개"]),
+    });
+  };
+
   const PANEL_TABS: { id: ReviewerPanelTab; label: string }[] = [
     { id:"summary",       label:"팀 요약" },
     { id:"deliverables",  label:"산출물" },
@@ -359,6 +455,7 @@ function ReviewerMyPage({ name, email, onLogout, avatarUrl }: { name: string; em
 
   return (
     <div className="h-full flex flex-col overflow-hidden" style={{ fontFamily:"'Inter','Noto Sans KR',sans-serif" }}>
+      {printReport && <PrintReportPortal report={printReport} onDone={() => setPrintReport(null)} />}
 
       {/* ── Reviewer Profile ── */}
       <div className="shrink-0 px-6 pt-5 pb-4 border-b border-border">
@@ -470,7 +567,7 @@ function ReviewerMyPage({ name, email, onLogout, avatarUrl }: { name: string; em
                   <div className="flex items-center gap-2">
                     <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${EVAL_STATUS_META[team.evalStatus].cls}`}>{EVAL_STATUS_META[team.evalStatus].label}</span>
                     <button className="flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-700"><Shield className="w-3 h-3" />대시보드 열람</button>
-                    <button className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground border border-border px-2 py-1 rounded-lg hover:bg-muted transition-colors"><FileText className="w-3 h-3" />PDF 다운로드</button>
+                    <button onClick={handleTeamPdf} className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground border border-border px-2 py-1 rounded-lg hover:bg-muted transition-colors"><FileText className="w-3 h-3" />PDF 다운로드</button>
                   </div>
                 </div>
                 <div className="text-xs text-muted-foreground">{team.leaderName ?? "팀장 미배정"} 팀장 · {team.memberCount}명 · GitHub {team.githubConnected?"연결됨":"미연결"} · 산출물 {team.deliverablesSubmitted}/{team.deliverablesTotal}개 제출</div>
@@ -634,7 +731,7 @@ function ReviewerMyPage({ name, email, onLogout, avatarUrl }: { name: string; em
                   <button className="flex-1 py-2.5 text-sm font-bold text-white rounded-xl hover:opacity-90 transition-opacity" style={{ background:"linear-gradient(135deg,#3B5BDB,#4F6EF7)" }}>
                     평가 완료 처리
                   </button>
-                  <button className="flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border border-border bg-card text-foreground rounded-xl hover:bg-muted transition-colors">
+                  <button onClick={handleScorePdf} className="flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border border-border bg-card text-foreground rounded-xl hover:bg-muted transition-colors">
                     <FileText className="w-4 h-4" />리포트 PDF
                   </button>
                 </div>
@@ -667,6 +764,7 @@ export function MyPage() {
     ? <MemberMyPage
         name={name} email={email} onLogout={handleLogout} projectId={currentProjectId} userId={user?.id ?? null}
         avatarUrl={user?.avatarUrl ?? null} affiliation={user?.affiliation ?? null} field={user?.field ?? null} githubUsername={user?.githubUsername ?? null}
+        role={currentProject?.role ?? "팀원"} projectTitle={currentProject?.projectTitle ?? null}
       />
     : <ReviewerMyPage name={name} email={email} onLogout={handleLogout} avatarUrl={user?.avatarUrl ?? null} />;
 }
