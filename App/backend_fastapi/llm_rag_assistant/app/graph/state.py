@@ -34,7 +34,15 @@ ALL_TOOLS: frozenset[str] = MEMBER_TOOLS | LEADER_TOOLS
 # 권한(LEADER_TOOLS)과는 별개의 축이라 파생시키지 않고 따로 나열한다. 예전에는 MEMBER_TOOLS에서
 # 파생했는데, 그러면 권한 재배치만으로 실행 가능 목록이 딸려 바뀌어 카드가 통째로 사라진다.
 SUPPORTED_TOOLS: frozenset[str] = frozenset(
-    {"change_status", "add_comment", "toggle_checklist", "set_due_date", "rename_task"}
+    {
+        "change_status",
+        "add_comment",
+        "toggle_checklist",
+        "set_due_date",
+        "rename_task",
+        "change_assignee",
+        "delete_task",
+    }
 )
 
 _VALID_STATUSES: frozenset[str] = frozenset({"todo", "inprogress", "blocked", "done"})

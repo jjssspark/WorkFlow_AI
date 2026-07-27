@@ -66,6 +66,29 @@ def test_rename_task_accepts_title_at_column_limit() -> None:
     assert len(action.args["title"]) == 200
 
 
+def test_change_assignee_is_supported_and_leader_only() -> None:
+    assert "change_assignee" in SUPPORTED_TOOLS
+    assert requires_leader("change_assignee") is True
+
+
+def test_change_assignee_rejects_empty_name() -> None:
+    # 이름이 비면 프론트의 부분 일치가 모든 멤버에 걸려 아무나 배정될 수 있다.
+    with pytest.raises(ValidationError):
+        Action(tool="change_assignee", task_ref="WF-1", args={"assignee_name": "   "})
+
+
+def test_delete_task_is_supported_and_leader_only() -> None:
+    assert "delete_task" in SUPPORTED_TOOLS
+    assert requires_leader("delete_task") is True
+
+
+# 한때 SUPPORTED_TOOLS == ALL_TOOLS를 단언했으나 뺐다. 도구를 백엔드에 먼저 넣고 실행기를
+# 뒤이어 붙이는 정상적인 단계적 개발을 그 단언이 막는다. 실행기 미구현 도구가 사용자에게
+# 새어나가는 것은 이 단언이 아니라 그래프 prepare 노드가 막고 있고
+# (test_assistant_graph.test_tool_outside_supported_set_is_blocked_even_for_leader),
+# 아래 부분집합 단언이 반대 방향(실행기에만 있고 도구 목록엔 없는 오타)을 잡는다.
+
+
 def test_supported_tools_survive_permission_changes() -> None:
     # SUPPORTED_TOOLS를 권한 집합에서 파생시키면 권한 재배치만으로 카드가 통째로 사라진다.
     # 권한이 전부 팀장으로 옮겨간 뒤에도 실행 가능 목록은 그대로여야 한다.
