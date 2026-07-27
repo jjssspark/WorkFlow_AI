@@ -668,7 +668,12 @@ export function MeetingsView() {
   // 다만 수정본(버전)은 바로 아래 분기에서 예외적으로 "저장된 회의록" 탭으로 보낸다.
   useEffect(() => {
     const targetMeetingId = searchParams.get("meetingId");
-    if (!targetMeetingId || deepLinkHandledIdRef.current === targetMeetingId) return;
+    if (!targetMeetingId) return;
+    // panel 값까지 키에 포함시켜야, 같은 meetingId를 이미 한 번 열어본 뒤 다른 panel로
+    // 다시 딥링크가 와도(예: 요약 알림 → 나중에 역할분배 알림) 무시되지 않고 반영된다.
+    const panel = searchParams.get("panel") ?? "";
+    const deepLinkKey = `${targetMeetingId}:${panel}`;
+    if (deepLinkHandledIdRef.current === deepLinkKey) return;
     setSelected(targetMeetingId);
     const target = meetings.find(item => item.id === targetMeetingId);
     if (!target) return;
@@ -677,10 +682,10 @@ export function MeetingsView() {
     // 온 사용자를 그리로 보내면 안 된다. 원본 회의록은 기존대로 분석/업로드 탭으로 보낸다.
     setHomeTab(target.originalMeetingId ? "saved" : "analyze");
     // 역할분배를 요청하는 알림("바로가기")은 요약 탭이 아니라 역할분배 검토(To-Do) 탭으로 바로 연결한다.
-    if (searchParams.get("panel") === "todos") {
+    if (panel === "todos") {
       setPanelTab("todos");
     }
-    deepLinkHandledIdRef.current = targetMeetingId;
+    deepLinkHandledIdRef.current = deepLinkKey;
   }, [searchParams, meetings]);
 
   // 참석자 체크 목록은 현재 프로젝트의 실제 멤버만 보여준다.
