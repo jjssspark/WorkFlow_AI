@@ -46,8 +46,14 @@ public class S3StorageClient {
         // 아직 설정하지 않은 환경(로컬/CI 등)에서도 앱 자체는 뜰 수 있도록, 검증을 빈 생성 시점이
         // 아니라 실제 요청 시점으로 미룬다(resolveCredentials는 호출될 때만 실행됨).
         AwsCredentialsProvider credentialsProvider = () -> AwsBasicCredentials.create(accessKey, secretKey);
-        S3Configuration serviceConfiguration =
-            S3Configuration.builder().pathStyleAccessEnabled(pathStyleAccess).build();
+        // OCI Object Storage는 AWS SDK v2 PutObject 기본값인 aws-chunked 전송 인코딩을 지원하지
+        // 않는다(요청을 인증 실패로 거부함) - Supabase/OCI가 둘 다 "S3 호환"이어도 세부 동작까지
+        // 완전히 같지는 않다는 걸 실측으로 확인했다. chunkedEncodingEnabled를 꺼서 일반 PUT으로
+        // 보내야 두 프로바이더 모두에서 동작한다.
+        S3Configuration serviceConfiguration = S3Configuration.builder()
+            .pathStyleAccessEnabled(pathStyleAccess)
+            .chunkedEncodingEnabled(false)
+            .build();
 
         var clientBuilder = S3Client.builder()
             .region(Region.of(region))
