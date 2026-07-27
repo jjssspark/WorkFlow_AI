@@ -31,6 +31,11 @@ export function useMeetingRecorder(): UseMeetingRecorder {
   // stop()이 진행 중인지. 종료 버튼 연속 클릭으로 stop()이 겹치면 뒤 호출이
   // 앞 호출의 Blob 생성 전에 chunksRef를 비워 빈 녹음이 저장되므로 이를 막는다.
   const isStoppingRef = useRef<boolean>(false);
+  // stop()이 대기 중인 Promise의 resolve. 오류 경로에서도 반드시 매듭지어야 한다.
+  const pendingStopResolveRef = useRef<((value: RecordedAudio | null) => void) | null>(null);
+  const mimeTypeRef = useRef<string>("audio/webm");
+  // 권한 요청 등 비동기 대기 중에 언마운트됐는지. 뒤늦게 받은 스트림을 반납하는 데 쓴다.
+  const isUnmountedRef = useRef<boolean>(false);
 
   const stopTimer = useCallback(() => {
     if (timerRef.current) {
@@ -47,25 +52,44 @@ export function useMeetingRecorder(): UseMeetingRecorder {
 
   // Cleanup on unmount
   useEffect(() => {
+    isUnmountedRef.current = false;
     return () => {
+      isUnmountedRef.current = true;
       stopTimer();
       stopStreamTracks();
     };
   }, [stopTimer, stopStreamTracks]);
+
+  const buildRecordedAudio = useCallback((): RecordedAudio | null => {
+    if (chunksRef.current.length === 0) return null;
+    return { blob: new Blob(chunksRef.current, { type: mimeTypeRef.current }), mimeType: mimeTypeRef.current };
+  }, []);
+
+  // 대기 중인 stop()을 반드시 매듭짓는다. 빠뜨리면 종료 요청이 영구 대기하고,
+  // isStoppingRef가 잠긴 채 남아 이후 녹음마저 종료할 수 없게 된다.
+  const settlePendingStop = useCallback((value: RecordedAudio | null) => {
+    const resolvePendingStop = pendingStopResolveRef.current;
+    pendingStopResolveRef.current = null;
+    isStoppingRef.current = false;
+    resolvePendingStop?.(value);
+  }, []);
 
   // 실패 시에도 마이크를 반드시 끈다. 트랙을 살려두면 브라우저 녹음 표시가 남고,
   // 곧바로 다시 start()하면 streamRef가 덮어써져 이전 스트림이 영영 정리되지 않는다.
   const failWithError = useCallback((message: string) => {
     stopTimer();
     stopStreamTracks();
+    // 오류 시점까지 모인 청크는 살려서 돌려준다 — 녹음이 통째로 사라지지 않게.
+    const salvaged = buildRecordedAudio();
     mediaRecorderRef.current = null;
     streamRef.current = null;
     chunksRef.current = [];
     startedAtRef.current = null;
     isBusyRef.current = false;
+    settlePendingStop(salvaged);
     setStatus("error");
     setError(message);
-  }, [stopTimer, stopStreamTracks]);
+  }, [stopTimer, stopStreamTracks, buildRecordedAudio, settlePendingStop]);
 
   const start = useCallback(async () => {
     // Synchronous guard using ref to prevent same-tick race
@@ -76,9 +100,17 @@ export function useMeetingRecorder(): UseMeetingRecorder {
     setError(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // 권한 대기 중 언마운트됐다면 뒤늦게 받은 스트림을 즉시 반납한다. 그러지 않으면
+      // 정리 주체가 사라진 채 마이크가 계속 켜지고 타이머도 남는다.
+      if (isUnmountedRef.current) {
+        stream.getTracks().forEach(track => track.stop());
+        isBusyRef.current = false;
+        return;
+      }
       streamRef.current = stream;
       chunksRef.current = [];
       const recorder = new MediaRecorder(stream);
+      mimeTypeRef.current = recorder.mimeType || "audio/webm";
       recorder.ondataavailable = event => {
         if (event.data.size > 0) chunksRef.current.push(event.data);
       };
@@ -124,14 +156,16 @@ export function useMeetingRecorder(): UseMeetingRecorder {
     }
 
     isStoppingRef.current = true;
-    const mimeType = recorder.mimeType || "audio/webm";
     try {
-      const result = await new Promise<RecordedAudio>(resolve => {
-        recorder.onstop = () => {
-          resolve({ blob: new Blob(chunksRef.current, { type: mimeType }), mimeType });
-        };
+      const result = await new Promise<RecordedAudio | null>(resolve => {
+        pendingStopResolveRef.current = resolve;
+        recorder.onstop = () => settlePendingStop(buildRecordedAudio());
         recorder.stop();
       });
+
+      // 오류 경로(failWithError)가 먼저 매듭지었다면 정리와 상태 설정이 이미 끝났다.
+      // 여기서 status를 "stopped"로 덮어쓰면 사용자에게 오류가 가려진다.
+      if (mediaRecorderRef.current === null) return result;
 
       stopTimer();
       stopStreamTracks();
@@ -143,9 +177,12 @@ export function useMeetingRecorder(): UseMeetingRecorder {
       setStatus("stopped");
       return result;
     } finally {
+      // 정상 경로는 settlePendingStop이 이미 해제했지만, recorder.stop()이 동기적으로
+      // 던지는 경우까지 대비해 안전망으로 한 번 더 해제한다.
+      pendingStopResolveRef.current = null;
       isStoppingRef.current = false;
     }
-  }, [stopTimer, stopStreamTracks]);
+  }, [stopTimer, stopStreamTracks, buildRecordedAudio, settlePendingStop]);
 
   return { status, elapsedSeconds, error, start, stop };
 }
