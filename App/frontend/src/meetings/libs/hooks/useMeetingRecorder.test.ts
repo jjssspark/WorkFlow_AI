@@ -297,6 +297,27 @@ describe("useMeetingRecorder", () => {
     expect(result.current.status).toBe("stopped");
   });
 
+  it("녹음 중 오류로 중단되면 대기 중인 stop()이 없어도 살려낸 원본을 콜백으로 넘긴다", async () => {
+    // 녹음 중 오류는 대개 대기 중인 stop()이 없다. 이때 살려낸 원본을 전달하지 않으면
+    // 긴 회의 녹음이 통째로 사라진다.
+    const onSalvaged = vi.fn();
+    const { result } = renderHook(() => useMeetingRecorder({ onSalvaged }));
+    await act(async () => {
+      await result.current.start();
+    });
+
+    const recorder = MockMediaRecorder.instances[MockMediaRecorder.instances.length - 1];
+    act(() => {
+      // 오류 직전까지 녹음된 청크가 있는 상황
+      recorder.ondataavailable?.({ data: new Blob(["chunk"], { type: recorder.mimeType }) });
+      recorder.onerror?.();
+    });
+
+    expect(result.current.status).toBe("error");
+    expect(onSalvaged).toHaveBeenCalledTimes(1);
+    expect(onSalvaged.mock.calls[0][0].blob.size).toBeGreaterThan(0);
+  });
+
   it("마이크 권한 대기 중 언마운트되면 뒤늦게 받은 스트림을 즉시 반납한다", async () => {
     const mockTrack = { stop: vi.fn() };
     let resolveStream: (stream: MediaStream) => void = () => {};

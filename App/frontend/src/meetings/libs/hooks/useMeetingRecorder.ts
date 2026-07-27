@@ -15,9 +15,19 @@ export interface UseMeetingRecorder {
   stop: () => Promise<RecordedAudio | null>;
 }
 
+export interface UseMeetingRecorderOptions {
+  // 오류로 녹음이 중단됐을 때 그때까지 모인 원본을 넘겨받는다. 녹음 중 오류는 대개
+  // 대기 중인 stop()이 없으므로, 이 콜백이 원본을 잃지 않는 유일한 전달 경로다.
+  onSalvaged?: (audio: RecordedAudio) => void;
+}
+
 const TIMER_INTERVAL_MS = 1000;
 
-export function useMeetingRecorder(): UseMeetingRecorder {
+export function useMeetingRecorder(options: UseMeetingRecorderOptions = {}): UseMeetingRecorder {
+  const onSalvagedRef = useRef(options.onSalvaged);
+  useEffect(() => {
+    onSalvagedRef.current = options.onSalvaged;
+  });
   const [status, setStatus] = useState<RecorderStatus>("idle");
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -81,12 +91,16 @@ export function useMeetingRecorder(): UseMeetingRecorder {
     stopStreamTracks();
     // 오류 시점까지 모인 청크는 살려서 돌려준다 — 녹음이 통째로 사라지지 않게.
     const salvaged = buildRecordedAudio();
+    const hadPendingStop = pendingStopResolveRef.current !== null;
     mediaRecorderRef.current = null;
     streamRef.current = null;
     chunksRef.current = [];
     startedAtRef.current = null;
     isBusyRef.current = false;
     settlePendingStop(salvaged);
+    // 대기 중인 stop()이 없으면(녹음 중 오류가 난 대부분의 경우) 위 resolve가 아무에게도
+    // 닿지 않는다. 콜백으로 넘겨야 원본이 저장 모달까지 도달한다.
+    if (!hadPendingStop && salvaged) onSalvagedRef.current?.(salvaged);
     setStatus("error");
     setError(message);
   }, [stopTimer, stopStreamTracks, buildRecordedAudio, settlePendingStop]);
@@ -146,13 +160,15 @@ export function useMeetingRecorder(): UseMeetingRecorder {
     if (!recorder || recorder.state === "inactive") {
       stopTimer();
       stopStreamTracks();
+      // 기저 recorder가 스스로 멈춘 경우에도 모인 청크가 있으면 버리지 않고 돌려준다.
+      const salvaged = buildRecordedAudio();
       mediaRecorderRef.current = null;
       streamRef.current = null;
       chunksRef.current = [];
       startedAtRef.current = null;
       isBusyRef.current = false;
-      setStatus("idle");
-      return null;
+      setStatus(salvaged ? "stopped" : "idle");
+      return salvaged;
     }
 
     isStoppingRef.current = true;

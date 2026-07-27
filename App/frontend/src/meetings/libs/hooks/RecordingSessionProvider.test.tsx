@@ -79,6 +79,48 @@ describe("RecordingSessionProvider", () => {
     }
   });
 
+  it("녹음 종료 후 저장 전(pendingBlob 보유) 구간에도 새로고침 경고가 유지된다", async () => {
+    // 저장 모달에서 제목·참석자를 입력하는 동안 새로고침하면 메모리의 원본이 사라진다.
+    // 이 구간이 경고 대상에서 빠지면 사용자가 긴 회의 녹음을 조용히 잃는다.
+    const { result } = renderHook(() => useRecordingSession(), {
+      wrapper: ({ children }) => <RecordingSessionProvider>{children}</RecordingSessionProvider>,
+    });
+
+    await act(async () => {
+      await result.current.startRecording();
+    });
+    act(() => {
+      result.current.requestStop();
+    });
+    await waitFor(() => expect(result.current.pendingBlob).not.toBeNull());
+    expect(result.current.status).not.toBe("recording");
+
+    const unloadEvent = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(unloadEvent);
+    expect(unloadEvent.defaultPrevented).toBe(true);
+  });
+
+  it("저장이 끝나 pendingBlob이 비면 새로고침 경고를 해제한다", async () => {
+    const { result } = renderHook(() => useRecordingSession(), {
+      wrapper: ({ children }) => <RecordingSessionProvider>{children}</RecordingSessionProvider>,
+    });
+
+    await act(async () => {
+      await result.current.startRecording();
+    });
+    act(() => {
+      result.current.requestStop();
+    });
+    await waitFor(() => expect(result.current.pendingBlob).not.toBeNull());
+    act(() => {
+      result.current.clearPendingBlob();
+    });
+
+    const unloadEvent = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(unloadEvent);
+    expect(unloadEvent.defaultPrevented).toBe(false);
+  });
+
   it("clearPendingBlob()을 호출하면 pendingBlob이 null로 초기화된다", async () => {
     const { result } = renderHook(() => useRecordingSession(), {
       wrapper: ({ children }) => <RecordingSessionProvider>{children}</RecordingSessionProvider>,
