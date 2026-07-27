@@ -522,7 +522,7 @@ describe("MeetingsView 삭제 플로우 분리", () => {
     expect(await screen.findByRole("button", { name: "분석 결과 + To-Do 삭제" })).toBeDisabled();
   });
 
-  it("'분석 결과만 삭제'를 누르면 deleteMeetingAnalysis를 호출하고 목록에서 카드가 사라지지 않는다", async () => {
+  it("'분석 결과만 삭제'를 누르면 분석/업로드 목록에서 카드가 바로 사라진다", async () => {
     fetchMeetings.mockResolvedValue([
       { meetingId: "1", title: "분석완료 회의", meetingDate: "2026-07-19", meetingType: "정기회의", analysisStatus: "completed", savedAt: null, originalMeetingId: null, tasksRegistered: false },
     ]);
@@ -539,8 +539,41 @@ describe("MeetingsView 삭제 플로우 분리", () => {
 
     await waitFor(() => expect(deleteMeetingAnalysis).toHaveBeenCalledWith("1", "1", false));
     expect(deleteMeeting).not.toHaveBeenCalled();
-    expect(await screen.findByText("분석 결과가 삭제되었습니다.")).toBeInTheDocument();
-    expect(screen.getByText("분석완료 회의")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("분석완료 회의")).not.toBeInTheDocument());
+  });
+
+  it("'분석 결과 + To-Do 삭제'를 눌러도 분석/업로드 목록에서 카드가 바로 사라진다", async () => {
+    fetchMeetings.mockResolvedValue([
+      { meetingId: "1", title: "분석완료 회의", meetingDate: "2026-07-19", meetingType: "정기회의", analysisStatus: "completed", savedAt: null, originalMeetingId: null, tasksRegistered: true, hasGeneratedTodos: true },
+    ]);
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={["/meetings"]}>
+        <MeetingsView />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(fetchMeetings).toHaveBeenCalled());
+    await user.click(await screen.findByLabelText("분석완료 회의 분석 결과 삭제"));
+    await user.click(await screen.findByRole("button", { name: "분석 결과 + To-Do 삭제" }));
+
+    await waitFor(() => expect(deleteMeetingAnalysis).toHaveBeenCalledWith("1", "1", true));
+    await waitFor(() => expect(screen.queryByText("분석완료 회의")).not.toBeInTheDocument());
+  });
+
+  // 서버가 분석 삭제를 'failed'로 표시하던 시절에는 새로고침하면 '분석 실패'로 되살아났다.
+  it("서버가 analysis_deleted로 내려주면 새로고침해도 분석/업로드 목록에 다시 나타나지 않는다", async () => {
+    fetchMeetings.mockResolvedValue([
+      { meetingId: "1", title: "분석삭제된 회의", meetingDate: "2026-07-19", meetingType: "정기회의", analysisStatus: "analysis_deleted", savedAt: "2026-07-19T10:00:00", originalMeetingId: null, tasksRegistered: false },
+    ]);
+    render(
+      <MemoryRouter initialEntries={["/meetings"]}>
+        <MeetingsView />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(fetchMeetings).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByText("분석삭제된 회의")).not.toBeInTheDocument());
   });
 
   it("분석 전(pending/processing/failed) 회의록의 삭제 버튼은 기존처럼 전체 삭제(deleteMeeting) 확인 모달을 띄운다", async () => {
