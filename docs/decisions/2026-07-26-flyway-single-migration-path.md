@@ -117,3 +117,14 @@ Postgres로 이관할 때 도구를 다시 갈아야 한다.
 
 현재 운영 baseline은 `20260721.1`, `flyway_schema_history` 9행이다. 장애 당시 장부 백업은
 Supabase의 `flyway_schema_history_bak_20260726`(16행)에 있다.
+
+## 후속 보강
+
+- `V20260726_1`: `users.is_admin`, `faculty_id`, `reviewer_rejection_reason`
+- `V20260727_1`: 중복됐던 RAG 실패 이력 마이그레이션 버전을 이동
+- `V20260727_2`: `tasks.done_date`와 기존 완료 업무 백필
+- `V20260727_3`: 사용자 프로필·약관·개인정보 동의 컬럼
+
+당시 "어디에도 정의 없음"으로 분류했던 관리자·업무 완료일 컬럼과 init 전용이던 사용자
+프로필·동의 컬럼은 위 신규 V파일로 운영 baseline 이후 경로에 편입했다. 적용 검증과 API
+롤아웃 계약은 [FS3 스키마·API 변경 배포 계약](2026-07-26-fs3-schema-api-rollout.md)을 따른다.

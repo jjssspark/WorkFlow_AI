@@ -7,6 +7,7 @@ on:
   pull_request:
     paths:
       - 'App/backend_spring/src/main/resources/db/migration/**'
+      - '.github/scripts/check-migration-changes.sh'
       - '.github/workflows/migration-guard.yml'
 
 jobs:
@@ -21,30 +22,4 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          set -eu
-          MIGRATION_DIR='App/backend_spring/src/main/resources/db/migration'
-          changed=$(git diff --name-status "$BASE_SHA...$HEAD_SHA" -- "$MIGRATION_DIR")
-
-          if [ -z "$changed" ]; then
-            echo "마이그레이션 디렉터리 변경 없음."
-            exit 0
-          fi
-
-          echo "$changed"
-          echo
-
-          # A(추가) 외의 상태를 모은다. R(rename)은 R100 처럼 유사도가 붙어 나온다.
-          violations=$(printf '%s\n' "$changed" | grep -vE '^A[[:space:]]' || true)
-
-          if [ -n "$violations" ]; then
-            echo '::error::이미 적용된 마이그레이션 파일을 수정/삭제/이름변경할 수 없습니다.'
-            printf '%s\n' "$violations"
-            echo
-            echo '적용된 V파일을 고치면 Flyway 체크섬이 어긋나 운영 Spring이 기동하지 못합니다.'
-            echo '변경이 필요하면 기존 파일을 고치지 말고 새 V파일을 추가하세요.'
-            echo '예: V20260727_1__fix_evaluation_scores_public_flags.sql'
-            exit 1
-          fi
-
-          echo '신규 마이그레이션 추가만 감지됨 — 통과.'
+        run: bash .github/scripts/check-migration-changes.sh "$BASE_SHA" "$HEAD_SHA"
