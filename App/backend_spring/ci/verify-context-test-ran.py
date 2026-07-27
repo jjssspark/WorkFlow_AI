@@ -16,6 +16,7 @@ SUITES = (
     # 여기 등록하지 않으면 러너에 Docker가 없을 때 아무 경고 없이 초록불이 된다.
     "com.workflowai.common.HealthReadinessIntegrationTest",
     "com.workflowai.common.ErrorEnvelopeIntegrationTest",
+    "com.workflowai.assistant.AssistantThreadIntegrationTest",
 )
 REPORT_DIR = Path("build/test-results/test")
 
