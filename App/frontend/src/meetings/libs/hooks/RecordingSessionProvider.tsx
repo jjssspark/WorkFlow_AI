@@ -38,6 +38,11 @@ export function RecordingSessionProvider({ children }: { children: ReactNode }) 
 
   useEffect(() => {
     if (status !== "recording") return;
+    // 녹음 원본은 의도적으로 메모리에만 둔다(디스크에 저장하지 않음).
+    // IndexedDB 등에 임시 저장하면 새로고침 복구는 되지만 회의 음성이 사용자 기기에
+    // 남아 삭제 정책·공용 PC 잔존 등 개인정보 위험이 더 커진다. 그 대가로 새로고침·탭
+    // 종료 시 복구가 불가능하므로, 아래 경고가 유일한 방어선이다 — 지우지 말 것.
+    // 복구가 필요해지면 저장 위치·보관 기간·삭제 시점을 함께 설계해 별도로 도입한다.
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
       event.preventDefault();
       event.returnValue = "";
