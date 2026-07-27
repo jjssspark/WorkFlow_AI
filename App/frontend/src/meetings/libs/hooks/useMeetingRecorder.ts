@@ -25,7 +25,9 @@ export function useMeetingRecorder(): UseMeetingRecorder {
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const isStartingRef = useRef<boolean>(false);
+  const startedAtRef = useRef<number | null>(null);
+  // 세션이 점유 중인지를 나타낸다 — start() 중복 호출을 막고, stop()/에러에서 해제된다.
+  const isBusyRef = useRef<boolean>(false);
 
   const stopTimer = useCallback(() => {
     if (timerRef.current) {
@@ -48,10 +50,17 @@ export function useMeetingRecorder(): UseMeetingRecorder {
     };
   }, [stopTimer, stopStreamTracks]);
 
+  const failWithError = useCallback((message: string) => {
+    stopTimer();
+    isBusyRef.current = false;
+    setStatus("error");
+    setError(message);
+  }, [stopTimer]);
+
   const start = useCallback(async () => {
     // Synchronous guard using ref to prevent same-tick race
-    if (isStartingRef.current) return;
-    isStartingRef.current = true;
+    if (isBusyRef.current) return;
+    isBusyRef.current = true;
 
     setStatus("requesting-permission");
     setError(null);
@@ -63,24 +72,41 @@ export function useMeetingRecorder(): UseMeetingRecorder {
       recorder.ondataavailable = event => {
         if (event.data.size > 0) chunksRef.current.push(event.data);
       };
+      // 녹음 도중 기저 MediaRecorder가 실패하는 경우(장치 분리 등)도 시작 실패와 동일하게 처리한다.
+      recorder.onerror = () => {
+        failWithError("녹음 중 오류가 발생했습니다. 다시 시도해주세요.");
+      };
       mediaRecorderRef.current = recorder;
       recorder.start();
+      // 백그라운드 탭 throttle로 tick이 밀려도 표시 시간이 어긋나지 않도록
+      // 카운터 증가 대신 시작 시각과의 차이로 계산한다.
+      startedAtRef.current = Date.now();
       setElapsedSeconds(0);
       timerRef.current = setInterval(() => {
-        setElapsedSeconds(prev => prev + 1);
+        if (startedAtRef.current === null) return;
+        setElapsedSeconds(Math.floor((Date.now() - startedAtRef.current) / 1000));
       }, TIMER_INTERVAL_MS);
       setStatus("recording");
     } catch {
-      isStartingRef.current = false;
-      setStatus("error");
-      setError("마이크 권한을 확인할 수 없습니다. 브라우저 설정에서 마이크 접근을 허용해주세요.");
+      failWithError("마이크 권한을 확인할 수 없습니다. 브라우저 설정에서 마이크 접근을 허용해주세요.");
     }
-  }, []);
+  }, [failWithError]);
 
   const stop = useCallback(async (): Promise<RecordedAudio | null> => {
     const recorder = mediaRecorderRef.current;
     const stream = streamRef.current;
-    if (!recorder || recorder.state === "inactive") return null;
+    // 멈출 대상이 없으면(기저 recorder가 스스로 inactive가 된 경우 포함) 훅이 잠기지 않도록
+    // busy 가드와 status를 idle로 되돌린 뒤 반환한다.
+    if (!recorder || recorder.state === "inactive") {
+      stopTimer();
+      stopStreamTracks();
+      mediaRecorderRef.current = null;
+      streamRef.current = null;
+      chunksRef.current = [];
+      isBusyRef.current = false;
+      setStatus("idle");
+      return null;
+    }
 
     const mimeType = recorder.mimeType || "audio/webm";
     const result = await new Promise<RecordedAudio>(resolve => {
@@ -95,10 +121,10 @@ export function useMeetingRecorder(): UseMeetingRecorder {
     mediaRecorderRef.current = null;
     streamRef.current = null;
     chunksRef.current = [];
-    isStartingRef.current = false;
+    isBusyRef.current = false;
     setStatus("stopped");
     return result;
-  }, [stopTimer]);
+  }, [stopTimer, stopStreamTracks]);
 
   return { status, elapsedSeconds, error, start, stop };
 }
