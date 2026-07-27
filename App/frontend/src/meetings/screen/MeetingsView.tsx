@@ -1574,6 +1574,9 @@ export function MeetingsView() {
   // PDF 캡처용 숨김 영역: 화면에는 보이지 않고 html2canvas가 이 DOM을 캡처해 PDF로 저장한다.
   // renderResults() 화면뿐 아니라 사이드바 재조회 상세 화면에서도 PDF 버튼을 쓰므로,
   // 캡처 대상 DOM이 항상 마운트되도록 별도 함수로 분리해 양쪽에서 렌더링한다.
+  // Tailwind 클래스/CSS 변수 대신 인라인 스타일을 쓰는 이유: html2canvas는 oklch() 같은
+  // 최신 CSS 색상 함수를 파싱하지 못해, Tailwind의 CSS 변수 기반 색상을 쓰면 내보낸 PDF에서
+  // 색이 검게 깨진다. 이 영역에서는 인라인 리터럴 색상값을 유지할 것.
   const renderPdfCaptureArea = () => (
     <div style={{ position: "fixed", top: 0, left: "-10000px", width: "760px" }}>
       <div ref={pdfCaptureRef} style={{ background: "#ffffff", padding: "40px", width: "760px", fontFamily: "'Malgun Gothic','Apple SD Gothic Neo',sans-serif", color: "#1a1a1a" }}>
@@ -2418,6 +2421,7 @@ export function MeetingsView() {
                   <FileText className="w-3.5 h-3.5" />{isExportingPdf ? "PDF 생성 중..." : "PDF로 저장"}
                 </button>
               </div>
+              {pdfExportMessage && <div className="text-[10px] text-amber-600 text-right mb-1">{pdfExportMessage}</div>}
               <h2 className="text-lg font-bold text-foreground">{meeting.title}</h2>
               <div className="text-xs text-muted-foreground mt-0.5">{meeting.date} · {meeting.duration}</div>
               {(meeting.uploadedAt || meeting.analyzedAt) && (

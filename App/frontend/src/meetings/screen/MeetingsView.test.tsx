@@ -701,4 +701,37 @@ describe("MeetingsView PDF 내보내기", () => {
 
     await waitFor(() => expect(mockPdfSave).toHaveBeenCalled());
   });
+
+  // 상세 패널의 PDF 버튼에는 pdfExportMessage 출력 자리가 없어서 실패가 조용히 묻혔다.
+  it("사이드바 상세 화면에서 PDF 생성이 실패하면 오류 메시지를 화면에 보여준다", async () => {
+    const html2canvas = (await import("html2canvas")).default;
+    vi.mocked(html2canvas).mockRejectedValueOnce(new Error("canvas failure"));
+
+    fetchMeetings.mockResolvedValue([
+      { meetingId: "1", title: "분석완료 회의", meetingDate: "2026-07-19", meetingType: "정기회의", analysisStatus: "completed", savedAt: "2026-07-19T10:00:00", originalMeetingId: null, tasksRegistered: false },
+    ]);
+    fetchMeeting.mockResolvedValue({
+      meetingId: "1",
+      projectId: "1",
+      status: "COMPLETED",
+      sourceType: "document",
+      fileName: "meeting.txt",
+      analysisSource: "FASTAPI",
+      analysis: baseResult("1"),
+      errorMessage: null,
+      attendees: [],
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/meetings"]}>
+        <MeetingsView />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(fetchMeetings).toHaveBeenCalled());
+
+    fireEvent.click(await screen.findByRole("button", { name: "PDF로 저장" }));
+
+    expect(await screen.findByText(/PDF 생성 중 오류가 발생했습니다/)).toBeInTheDocument();
+  });
 });
