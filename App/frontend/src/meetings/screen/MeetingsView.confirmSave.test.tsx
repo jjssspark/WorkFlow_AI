@@ -22,6 +22,18 @@ vi.mock("../../global/api/projectsApi", () => ({
   ]),
 }));
 
+vi.mock("../libs/hooks/RecordingSessionProvider", () => ({
+  useRecordingSession: () => ({
+    status: "idle",
+    elapsedSeconds: 0,
+    error: null,
+    startRecording: vi.fn(),
+    requestStop: vi.fn(),
+    pendingBlob: null,
+    clearPendingBlob: vi.fn(),
+  }),
+}));
+
 const analyzeMeeting = vi.fn();
 const confirmMeetingSave = vi.fn();
 const fetchMeeting = vi.fn();
