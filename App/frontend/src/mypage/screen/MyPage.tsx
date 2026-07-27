@@ -142,22 +142,6 @@ function MemberMyPage({ name, email, onLogout, projectId, userId, avatarUrl, aff
         </div>
       </div>
 
-      {/* ── AI Recommendation ── */}
-      <div className="rounded-xl p-4 flex items-start gap-3 border border-purple-200" style={{ background:"rgba(112,72,232,0.05)" }}>
-        <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" style={{ background:"linear-gradient(135deg,#7048E8,#4F6EF7)" }}>
-          <Sparkles className="w-3.5 h-3.5 text-white" />
-        </div>
-        <div className="flex-1">
-          <div className="text-xs font-semibold text-foreground mb-0.5">오늘 집중할 업무 AI 추천</div>
-          <div className="text-xs text-muted-foreground leading-relaxed">
-            <strong className="text-foreground">TF-07 관리자 대시보드 통계 모듈</strong>을 오늘 완료하면 이번 주 마감 업무를 모두 처리할 수 있습니다. PR 제출 전 팀장에게 리뷰를 요청하세요.
-          </div>
-        </div>
-        <button className="text-xs font-semibold px-2.5 py-1 rounded-lg shrink-0 transition-opacity hover:opacity-80" style={{ background:"rgba(112,72,232,0.15)", color:"#7048E8" }}>
-          자세히
-        </button>
-      </div>
-
       {/* ── Main grid ── */}
       <div className="grid grid-cols-3 gap-4">
         {loadState === "loading" && (
