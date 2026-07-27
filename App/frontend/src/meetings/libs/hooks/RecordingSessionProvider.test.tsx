@@ -51,6 +51,38 @@ describe("RecordingSessionProvider", () => {
     await waitFor(() => expect(result.current.pendingBlob).not.toBeNull());
   });
 
+  // elapsedSeconds가 매초 갱신되는 동안에도 status/startRecording만 쓰는 소비자가
+  // 매초 리렌더에 끌려들어가지 않도록, 콜백 identity가 tick 사이에 유지돼야 한다.
+  it("녹음 중 elapsedSeconds가 갱신돼도 콜백 identity는 유지된다", async () => {
+    vi.useFakeTimers();
+    try {
+      const { result } = renderHook(() => useRecordingSession(), {
+        wrapper: ({ children }) => <RecordingSessionProvider>{children}</RecordingSessionProvider>,
+      });
+
+      await act(async () => {
+        await result.current.startRecording();
+      });
+
+      const before = {
+        startRecording: result.current.startRecording,
+        requestStop: result.current.requestStop,
+        clearPendingBlob: result.current.clearPendingBlob,
+      };
+
+      act(() => {
+        vi.advanceTimersByTime(3000);
+      });
+
+      expect(result.current.elapsedSeconds).toBe(3);
+      expect(result.current.startRecording).toBe(before.startRecording);
+      expect(result.current.requestStop).toBe(before.requestStop);
+      expect(result.current.clearPendingBlob).toBe(before.clearPendingBlob);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("clearPendingBlob()을 호출하면 pendingBlob이 null로 초기화된다", async () => {
     const { result } = renderHook(() => useRecordingSession(), {
       wrapper: ({ children }) => <RecordingSessionProvider>{children}</RecordingSessionProvider>,
