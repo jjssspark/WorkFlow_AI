@@ -63,7 +63,10 @@ export function LoginScreen() {
       tokenStore.clear();
       tokenStore.setTokens(tokens.accessToken, tokens.refreshToken, tokens.testSessionId ?? null);
       const me = await refreshMe();
-      navigate(me?.user.isAdmin ? "/admin/reviewers" : "/projects", { replace: true });
+      // 로그인 화면 히스토리 엔트리를 replace로 지워버리면 로그인 직후 뒤로가기를 눌러도
+      // 로그인 화면으로 못 돌아가고 이 화면(/projects 등)이 다시 뜬다. 뒤로가기가 로그인
+      // 화면으로 돌아갈 수 있도록 push로 이동한다.
+      navigate(me?.user.isAdmin ? "/admin/reviewers" : "/projects");
     } catch (error) {
       if (error instanceof ApiRequestError && error.code === "REVIEWER_APPLICATION_REJECTED") {
         setRejectedMessage(error.message);

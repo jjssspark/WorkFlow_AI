@@ -21,24 +21,21 @@ class NotificationRepositoryTest {
     @Autowired
     private NotificationRepository notificationRepository;
 
-    private Notification save(Long userId, String title, LocalDateTime createdAt, boolean read) {
+    private Notification save(Long userId, String title, LocalDateTime createdAt) {
         Notification notification = new Notification(userId, "TEST", title, "content", null, null);
         ReflectionTestUtils.setField(notification, "createdAt", createdAt);
-        if (read) {
-            notification.markRead();
-        }
         return notificationRepository.save(notification);
     }
 
     @Test
-    void deleteExcessUnreadByUserIdKeepsOnlyTheMostRecentTwentyUnread() {
+    void deleteExcessByUserIdKeepsOnlyTheMostRecentTwenty() {
         Long userId = 99L;
         LocalDateTime base = LocalDateTime.now().minusDays(1);
         for (int i = 0; i < 25; i++) {
-            save(userId, "title" + i, base.plusSeconds(i), false);
+            save(userId, "title" + i, base.plusSeconds(i));
         }
 
-        notificationRepository.deleteExcessUnreadByUserId(userId);
+        notificationRepository.deleteExcessByUserId(userId);
 
         List<Notification> remaining = notificationRepository.findTop20ByUserIdOrderByCreatedAtDesc(userId);
         assertThat(remaining).hasSize(20);
@@ -48,64 +45,47 @@ class NotificationRepositoryTest {
     }
 
     @Test
-    void deleteExcessUnreadByUserIdDoesNothingWhenAtOrBelowLimit() {
+    void deleteExcessByUserIdDoesNothingWhenAtOrBelowLimit() {
         Long userId = 100L;
         for (int i = 0; i < 10; i++) {
-            save(userId, "title" + i, LocalDateTime.now().minusSeconds(i), false);
+            save(userId, "title" + i, LocalDateTime.now().minusSeconds(i));
         }
 
-        notificationRepository.deleteExcessUnreadByUserId(userId);
+        notificationRepository.deleteExcessByUserId(userId);
 
         assertThat(notificationRepository.findTop20ByUserIdOrderByCreatedAtDesc(userId)).hasSize(10);
     }
 
     @Test
-    void deleteExcessUnreadByUserIdDoesNotAffectOtherUsers() {
+    void deleteExcessByUserIdDoesNotAffectOtherUsers() {
         Long targetUser = 101L;
         Long otherUser = 102L;
         LocalDateTime base = LocalDateTime.now().minusDays(1);
         for (int i = 0; i < 25; i++) {
-            save(targetUser, "title" + i, base.plusSeconds(i), false);
+            save(targetUser, "title" + i, base.plusSeconds(i));
         }
-        save(otherUser, "other", LocalDateTime.now(), false);
+        save(otherUser, "other", LocalDateTime.now());
 
-        notificationRepository.deleteExcessUnreadByUserId(targetUser);
+        notificationRepository.deleteExcessByUserId(targetUser);
 
         assertThat(notificationRepository.findTop20ByUserIdOrderByCreatedAtDesc(otherUser)).hasSize(1);
     }
 
     @Test
-    void deleteExcessUnreadByUserIdNeverDeletesReadNotificationsRegardlessOfAge() {
+    void deleteExcessByUserIdDeletesReadNotificationsTooWhenOverLimit() {
         Long userId = 103L;
         LocalDateTime base = LocalDateTime.now().minusDays(1);
-        // 아주 오래된 읽은 알림 5건 + 안 읽은 알림 25건
-        for (int i = 0; i < 5; i++) {
-            save(userId, "read" + i, base.minusDays(10).plusSeconds(i), true);
-        }
         for (int i = 0; i < 25; i++) {
-            save(userId, "unread" + i, base.plusSeconds(i), false);
+            Notification notification = save(userId, "title" + i, base.plusSeconds(i));
+            if (i < 5) {
+                notification.markRead();
+                notificationRepository.save(notification);
+            }
         }
 
-        notificationRepository.deleteExcessUnreadByUserId(userId);
+        notificationRepository.deleteExcessByUserId(userId);
 
-        long readCount = notificationRepository.findTop20ByUserIdOrderByCreatedAtDesc(userId).stream()
-            .filter(Notification::isRead)
-            .count();
-        assertThat(readCount).isZero(); // 읽은 알림 5건은 findTop20 안에 안 잡힐 만큼 안읽은 알림이 많으므로 별도 확인
-        assertThat(notificationRepository.count()).isEqualTo(5 + 20); // 읽은 5건은 그대로, 안읽은 건 20건만 남음
-    }
-
-    @Test
-    void deleteByUserIdAndReadTrueRemovesOnlyReadNotifications() {
-        Long userId = 104L;
-        save(userId, "read1", LocalDateTime.now(), true);
-        save(userId, "read2", LocalDateTime.now(), true);
-        save(userId, "unread1", LocalDateTime.now(), false);
-
-        notificationRepository.deleteByUserIdAndReadTrue(userId);
-
-        List<Notification> remaining = notificationRepository.findTop20ByUserIdOrderByCreatedAtDesc(userId);
-        assertThat(remaining).hasSize(1);
-        assertThat(remaining.get(0).getTitle()).isEqualTo("unread1");
+        // 읽음 여부와 무관하게 최신 20건만 남고, 오래된 5건(읽은 것 포함)은 삭제된다.
+        assertThat(notificationRepository.count()).isEqualTo(20);
     }
 }

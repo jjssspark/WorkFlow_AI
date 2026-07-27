@@ -137,6 +137,7 @@ public class MeetingAnalysisService {
         String resolvedSourceType = isAudioUpload ? "audio" : defaultString(sourceType, "document");
 
         UUID jobId = UUID.randomUUID();
+        Long uploaderId = CurrentUser.id();
         Meeting newMeeting = new Meeting(
             projectDbId,
             resolvedTitle,
@@ -146,7 +147,7 @@ public class MeetingAnalysisService {
             LocalDate.parse(resolvedDate),
             meetingKind,
             fileName,
-            CurrentUser.id(),
+            uploaderId,
             file == null ? null : file.getSize()
         );
         newMeeting.setAnalysisJobId(jobId);
@@ -176,7 +177,7 @@ public class MeetingAnalysisService {
             text,
             resolvedParticipantNames
         );
-        runAnalysisAfterCommit(meeting.getId(), request, jobId);
+        runAnalysisAfterCommit(meeting.getId(), request, jobId, uploaderId);
 
         String meetingId = String.valueOf(meeting.getId());
         return new MeetingAnalysisResponse(
@@ -327,7 +328,7 @@ public class MeetingAnalysisService {
         meeting.setAnalysisJobId(jobId);
         meetingRepository.save(meeting);
 
-        runAnalysisAfterCommit(id, request, jobId);
+        runAnalysisAfterCommit(id, request, jobId, CurrentUser.id());
 
         return new MeetingAnalysisResponse(
             meetingId,
@@ -348,12 +349,16 @@ public class MeetingAnalysisService {
         List<Meeting> meetings = meetingRepository.findByProjectIdOrderByCreatedAtDesc(projectDbId);
 
         List<Long> meetingIds = meetings.stream().map(Meeting::getId).toList();
-        Set<Long> meetingIdsWithRegisteredTasks = meetingIds.isEmpty()
-            ? Set.of()
-            : meetingActionItemRepository.findByMeetingIdIn(meetingIds).stream()
-                .filter(item -> item.getCreatedTaskId() != null)
-                .map(MeetingActionItem::getMeetingId)
-                .collect(Collectors.toSet());
+        List<MeetingActionItem> actionItems = meetingIds.isEmpty()
+            ? List.of()
+            : meetingActionItemRepository.findByMeetingIdIn(meetingIds);
+        Set<Long> meetingIdsWithRegisteredTasks = actionItems.stream()
+            .filter(item -> item.getCreatedTaskId() != null)
+            .map(MeetingActionItem::getMeetingId)
+            .collect(Collectors.toSet());
+        Set<Long> meetingIdsWithGeneratedTodos = actionItems.stream()
+            .map(MeetingActionItem::getMeetingId)
+            .collect(Collectors.toSet());
 
         return meetings.stream()
             .map(m -> new MeetingSummary(
@@ -364,7 +369,8 @@ public class MeetingAnalysisService {
                 m.getAnalysisStatus(),
                 m.getSavedAt() == null ? null : m.getSavedAt().toString(),
                 m.getOriginalMeetingId() == null ? null : String.valueOf(m.getOriginalMeetingId()),
-                meetingIdsWithRegisteredTasks.contains(m.getId())
+                meetingIdsWithRegisteredTasks.contains(m.getId()),
+                meetingIdsWithGeneratedTodos.contains(m.getId())
             ))
             .toList();
     }
@@ -487,10 +493,8 @@ public class MeetingAnalysisService {
         );
         deleteUploadedFile(filePath);
 
-        notificationService.notifyActorAndCounterpart(
-            actorId, "MEETING_DELETED", "회의록을 삭제했습니다",
-            "'" + title + "' 회의록을 삭제했습니다." + scopeSuffix,
-            uploaderId, "MEETING_DELETED", "회의록이 삭제되었습니다",
+        notificationService.notifyCounterpart(
+            actorId, uploaderId, "MEETING_DELETED", "회의록이 삭제되었습니다",
             actorName + "님이 '" + title + "' 회의록을 삭제했습니다." + scopeSuffix,
             "meeting", meetingDbId
         );
@@ -561,10 +565,8 @@ public class MeetingAnalysisService {
         String actorName = defaultString(resolveNameById(actorId), "누군가");
         String scopeSuffix = deleteLinkedTasks ? " (등록된 업무도 함께 삭제됨)" : " (등록된 업무는 유지됨)";
 
-        notificationService.notifyActorAndCounterpart(
-            actorId, "MEETING_ANALYSIS_DELETED", "회의록 분석 결과를 삭제했습니다",
-            "'" + title + "' 회의록의 분석 결과를 삭제했습니다." + scopeSuffix,
-            uploaderId, "MEETING_ANALYSIS_DELETED", "회의록 분석 결과가 삭제되었습니다",
+        notificationService.notifyCounterpart(
+            actorId, uploaderId, "MEETING_ANALYSIS_DELETED", "회의록 분석 결과가 삭제되었습니다",
             actorName + "님이 '" + title + "' 회의록의 분석 결과를 삭제했습니다." + scopeSuffix,
             "meeting", meetingDbId
         );
@@ -586,10 +588,8 @@ public class MeetingAnalysisService {
             }
         }
         String registeredByName = defaultString(resolveNameById(registeredBy), "팀장");
-        notificationService.notifyActorAndCounterpart(
-            registeredBy, "MEETING_TASKS_REGISTERED", "역할분배 및 업무등록이 완료되었습니다",
-            "'" + meeting.getTitle() + "' 회의록의 역할분배 및 업무등록이 완료되었습니다.",
-            meeting.getUploadedBy(), "MEETING_TASKS_REGISTERED_NOTIFY_MEMBER", "역할분배가 완료되었습니다",
+        notificationService.notifyCounterpart(
+            registeredBy, meeting.getUploadedBy(), "MEETING_TASKS_REGISTERED_NOTIFY_MEMBER", "역할분배가 완료되었습니다",
             registeredByName + "님이 '" + meeting.getTitle() + "' 회의록의 역할분배를 완료했습니다. 확인해주세요.",
             "meeting", meetingDbId
         );
@@ -638,10 +638,10 @@ public class MeetingAnalysisService {
             return new MeetingVersionResponse(String.valueOf(version.getId()), "SAVED");
         }
 
-        return triggerAnalysis(version, projectId, request.transcript());
+        return triggerAnalysis(version, projectId, request.transcript(), editorId);
     }
 
-    private MeetingVersionResponse triggerAnalysis(Meeting meeting, String projectId, String text) {
+    private MeetingVersionResponse triggerAnalysis(Meeting meeting, String projectId, String text, Long requestedBy) {
         AiAnalyzeRequest request = new AiAnalyzeRequest(
             projectId,
             meeting.getTitle(),
@@ -656,7 +656,7 @@ public class MeetingAnalysisService {
         meeting.setAnalysisStatus("processing");
         meeting.setAnalysisJobId(jobId);
         meetingRepository.save(meeting);
-        runAnalysisAfterCommit(meeting.getId(), request, jobId);
+        runAnalysisAfterCommit(meeting.getId(), request, jobId, requestedBy);
         return new MeetingVersionResponse(String.valueOf(meeting.getId()), "PROCESSING");
     }
 
@@ -676,7 +676,7 @@ public class MeetingAnalysisService {
             throw new IllegalStateException(MISSING_TRANSCRIPT_MESSAGE);
         }
 
-        return triggerAnalysis(meeting, projectId, text);
+        return triggerAnalysis(meeting, projectId, text, CurrentUser.id());
     }
 
     static final String MISSING_TRANSCRIPT_MESSAGE = "재분석할 회의록 원문이 없습니다.";
@@ -693,17 +693,15 @@ public class MeetingAnalysisService {
         return candidate;
     }
 
-    /** 수정본 저장/분석 시 수정한 본인 + 반대편(팀장 또는 원본 업로더)에게 알린다. */
+    /** 수정본 저장/분석 시 반대편(팀장 또는 원본 업로더)에게만 알린다 — 수정한 본인에게는 보내지 않는다. */
     private void notifyEdited(Meeting original, Meeting version, Long editorId) {
         Long leaderId = projectMemberRepository.findByProjectIdAndRole(original.getProjectId(), ProjectRole.LEADER)
             .map(ProjectMember::getUserId)
             .orElse(null);
         Long counterpartId = editorId != null && editorId.equals(leaderId) ? original.getUploadedBy() : leaderId;
         String editorName = defaultString(resolveNameById(editorId), "누군가");
-        notificationService.notifyActorAndCounterpart(
-            editorId, "MEETING_EDITED", "회의록을 수정했습니다",
-            "'" + original.getTitle() + "' 회의록을 수정했습니다.",
-            counterpartId, "MEETING_EDITED", "회의록이 수정되었습니다",
+        notificationService.notifyCounterpart(
+            editorId, counterpartId, "MEETING_EDITED", "회의록이 수정되었습니다",
             editorName + "님이 '" + original.getTitle() + "' 회의록을 수정했습니다.",
             "meeting", version.getId()
         );
@@ -790,7 +788,7 @@ public class MeetingAnalysisService {
                 "task",
                 task.getId()
             ));
-            notificationRepository.deleteExcessUnreadByUserId(assigneeId);
+            notificationRepository.deleteExcessByUserId(assigneeId);
         }
         return true;
     }
@@ -951,8 +949,8 @@ public class MeetingAnalysisService {
         }
     }
 
-    private void runAnalysisAfterCommit(Long meetingId, AiAnalyzeRequest request, UUID jobId) {
-        runAfterCommit(() -> enqueueSafely(meetingId, request, jobId));
+    private void runAnalysisAfterCommit(Long meetingId, AiAnalyzeRequest request, UUID jobId, Long requestedBy) {
+        runAfterCommit(() -> enqueueSafely(meetingId, request, jobId, requestedBy));
     }
 
     private void runAfterCommit(Runnable operation) {
@@ -976,9 +974,9 @@ public class MeetingAnalysisService {
         }
     }
 
-    private void enqueueSafely(Long meetingId, AiAnalyzeRequest request, UUID jobId) {
+    private void enqueueSafely(Long meetingId, AiAnalyzeRequest request, UUID jobId, Long requestedBy) {
         try {
-            meetingAnalysisJobPublisher.enqueue(meetingId, request, jobId);
+            meetingAnalysisJobPublisher.enqueue(meetingId, request, jobId, requestedBy);
         } catch (RuntimeException exception) {
             log.warn(
                 "Failed to enqueue meeting analysis job: meetingId={}, cause={}",
@@ -1201,7 +1199,13 @@ public class MeetingAnalysisService {
                 throw new IllegalArgumentException("PDF에서 분석할 텍스트를 추출하지 못했습니다.");
             }
             return text;
-        } catch (IOException ignored) {
+        } catch (IllegalArgumentException e) {
+            throw e;
+        } catch (Exception e) {
+            // Loader.loadPDF/PDFTextStripper는 손상되거나 암호화된 PDF에서 IOException 외의
+            // 언체크 예외(RuntimeException 계열)도 던질 수 있다. 이걸 못 잡으면 여기서 던져진
+            // 예외가 컨트롤러의 catch(IllegalArgumentException)를 지나쳐 500으로 새어나가고,
+            // 프론트는 이를 ApiRequestError가 아닌 원시 네트워크 오류로 오인해 일반 폴백 문구를 띄운다.
             throw new IllegalArgumentException("PDF 텍스트 추출에 실패했습니다.");
         }
     }

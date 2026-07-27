@@ -3,11 +3,32 @@ name: Migration guard
 # 이미 DB에 적용된 V파일을 사후 수정하면 Flyway 체크섬 검증이 깨져 운영 Spring이
 # 크래시루프에 빠진다(2026-07-26, 41분 중단). 수정은 머지 전에 막고, 변경이 필요하면
 # 새 V파일을 추가하도록 유도한다.
+#
+# push 트리거가 함께 있는 이유: 버전 번호 중복은 한 PR 안에서는 보이지 않는다.
+# 서로 다른 두 PR이 같은 번호를 잡으면 각각은 통과하고, 먼저 열린 PR의 체크는 base가
+# 움직여도 자동으로 다시 돌지 않는다. 그래서 아무도 모른 채 dev/main이 배포 불가
+# 상태가 된다(2026-07-27, V20260726_1 두 개). PR 시점 검사만으로는 못 잡으므로
+# 머지 직후에도 한 번 더 본다.
+#
+# 다만 이 워크플로의 push 실행은 배포를 막지 못한다 — deploy-oci는 별도 워크플로라
+# 병렬로 돈다. 실제 차단은 deploy-oci의 test 잡이 같은 스크립트를 호출해서 한다
+# (deploy가 test에 의존한다). 여기 push 검사는 "어느 브랜치가 언제 깨졌는지" 즉시
+# 알리는 용도다.
 on:
   pull_request:
     paths:
       - 'App/backend_spring/src/main/resources/db/migration/**'
       - '.github/scripts/check-migration-changes.sh'
+      - '.github/scripts/check-duplicate-migration-versions.sh'
+      - '.github/workflows/migration-guard.yml'
+  push:
+    branches:
+      - dev
+      - main
+    paths:
+      - 'App/backend_spring/src/main/resources/db/migration/**'
+      - '.github/scripts/check-migration-changes.sh'
+      - '.github/scripts/check-duplicate-migration-versions.sh'
       - '.github/workflows/migration-guard.yml'
 
 jobs:
@@ -18,8 +39,18 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Verify migration guard script itself (approved/blocked rename scenarios)
+        if: github.event_name == 'pull_request'
+        run: bash .github/scripts/check-migration-changes.test.sh
+
+      # 이 검사는 "무엇이 바뀌었나"를 보므로 PR 에서만 의미가 있다.
       - name: Block modification of existing migration files
+        if: github.event_name == 'pull_request'
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: bash .github/scripts/check-migration-changes.sh "$BASE_SHA" "$HEAD_SHA"
+
+      # 이 검사는 "현재 트리 전체"를 본다. PR 과 push 양쪽에서 돈다.
+      - name: Block duplicate migration versions
+        run: bash .github/scripts/check-duplicate-migration-versions.sh

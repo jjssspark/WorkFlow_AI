@@ -312,6 +312,39 @@ describe("MeetingsView 홈 탭", () => {
     expect(screen.getByRole("button", { name: "저장된 회의록" })).not.toHaveClass("border-blue-600");
   });
 
+  it("panel=todos 쿼리파라미터가 있으면 클릭 없이 바로 '역할 분배 검토' 탭으로 연결된다", async () => {
+    // 팀장에게 역할분배를 요청하는 알림의 "바로가기"가 붙이는 panel=todos 쿼리를 재현한다.
+    fetchMeeting.mockResolvedValue({
+      meetingId: "1",
+      projectId: "1",
+      status: "COMPLETED",
+      sourceType: "document",
+      fileName: "meeting.txt",
+      analysisSource: "FASTAPI",
+      errorMessage: null,
+      attendees: [],
+      analysis: {
+        summary: "요약",
+        decisions: [],
+        risks: [],
+        keywords: [],
+        meeting_meta: { title: "저장된 정기회의", meeting_date: "2026-07-19", participants: [] },
+        todos: [],
+      },
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/meetings?meetingId=1&panel=todos"]}>
+        <MeetingsView />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(fetchMeetings).toHaveBeenCalled());
+    // "생성된 To-Do"는 panelTab==="todos"일 때만 보이는 문구다 — 기본값인 요약 탭이 아니라
+    // 클릭 없이 바로 이 탭으로 연결됐는지 확인한다.
+    expect(await screen.findByText(/생성된 To-Do/)).toBeInTheDocument();
+  });
+
   it("'업무로 등록'을 누르면 바로 등록하지 않고 '역할 분배 검토' 화면을 먼저 보여준다", async () => {
     const user = userEvent.setup();
     fetchMeeting.mockResolvedValue({
@@ -456,6 +489,40 @@ describe("MeetingsView 삭제 플로우 분리", () => {
     expect(screen.getByText("분석 결과 + To-Do 삭제")).toBeInTheDocument();
   });
 
+  it("To-Do가 생성된 분석 결과는 '분석 결과 + To-Do 삭제' 버튼이 활성화된다", async () => {
+    fetchMeetings.mockResolvedValue([
+      { meetingId: "1", title: "분석완료 회의", meetingDate: "2026-07-19", meetingType: "정기회의", analysisStatus: "completed", savedAt: null, originalMeetingId: null, tasksRegistered: false, hasGeneratedTodos: true },
+    ]);
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={["/meetings"]}>
+        <MeetingsView />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(fetchMeetings).toHaveBeenCalled());
+    await user.click(await screen.findByLabelText("분석완료 회의 분석 결과 삭제"));
+
+    expect(await screen.findByRole("button", { name: "분석 결과 + To-Do 삭제" })).toBeEnabled();
+  });
+
+  it("To-Do가 생성되지 않은 분석 결과(팀원이 분석한 경우 등)는 '분석 결과 + To-Do 삭제' 버튼이 비활성화된다", async () => {
+    fetchMeetings.mockResolvedValue([
+      { meetingId: "1", title: "분석완료 회의", meetingDate: "2026-07-19", meetingType: "정기회의", analysisStatus: "completed", savedAt: null, originalMeetingId: null, tasksRegistered: false, hasGeneratedTodos: false },
+    ]);
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={["/meetings"]}>
+        <MeetingsView />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(fetchMeetings).toHaveBeenCalled());
+    await user.click(await screen.findByLabelText("분석완료 회의 분석 결과 삭제"));
+
+    expect(await screen.findByRole("button", { name: "분석 결과 + To-Do 삭제" })).toBeDisabled();
+  });
+
   it("'분석 결과만 삭제'를 누르면 deleteMeetingAnalysis를 호출하고 목록에서 카드가 사라지지 않는다", async () => {
     fetchMeetings.mockResolvedValue([
       { meetingId: "1", title: "분석완료 회의", meetingDate: "2026-07-19", meetingType: "정기회의", analysisStatus: "completed", savedAt: null, originalMeetingId: null, tasksRegistered: false },
@@ -515,8 +582,75 @@ describe("MeetingsView 삭제 플로우 분리", () => {
     await user.click(await screen.findByRole("button", { name: "분석 결과만 삭제" }));
 
     await waitFor(() => expect(deleteMeetingAnalysis).toHaveBeenCalledWith("1", "1", false));
-    expect(await screen.findByText("삭제 확인이 지연되고 있습니다. 최신 상태를 다시 불러옵니다.")).toBeInTheDocument();
+    // 지연 문구로 사용자를 불안하게 만들지 않고 조용히 서버 상태만 다시 맞춘다.
+    expect(screen.queryByText("삭제 확인이 지연되고 있습니다. 최신 상태를 다시 불러옵니다.")).not.toBeInTheDocument();
     await waitFor(() => expect(fetchMeetings).toHaveBeenCalledTimes(2));
+  });
+
+  it("전체 삭제 요청이 타임아웃돼도 서버가 실제로 삭제를 끝냈다면 재조회 후 목록에서 사라진다", async () => {
+    fetchMeetings
+      .mockResolvedValueOnce([
+        { meetingId: "2", title: "분석중 회의", meetingDate: "2026-07-20", meetingType: "정기회의", analysisStatus: "processing", savedAt: null, originalMeetingId: null, tasksRegistered: false },
+      ])
+      // 클라이언트가 타임아웃으로 실패를 봤지만, 서버는 실제로 삭제를 끝낸 상황을 재현한다.
+      .mockResolvedValueOnce([]);
+    deleteMeeting.mockRejectedValue(new ApiRequestError("요청이 너무 오래 걸려 중단되었습니다.", 0, "REQUEST_TIMEOUT"));
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={["/meetings"]}>
+        <MeetingsView />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(fetchMeetings).toHaveBeenCalledTimes(1));
+    await user.click(await screen.findByLabelText("분석중 회의 회의록 삭제"));
+    await user.click(screen.getByText("삭제"));
+
+    await waitFor(() => expect(deleteMeeting).toHaveBeenCalledWith("1", "2", false));
+    expect(screen.queryByText("삭제 확인이 지연되고 있습니다. 최신 상태를 다시 불러옵니다.")).not.toBeInTheDocument();
+    await waitFor(() => expect(fetchMeetings).toHaveBeenCalledTimes(2));
+    // 서버 재조회 결과에 없는 항목이 로컬 캐시 때문에 되살아나면 안 된다.
+    await waitFor(() => expect(screen.queryByText("분석중 회의")).not.toBeInTheDocument());
+  });
+
+  it("삭제를 누르면 서버 응답을 기다리지 않고 목록에서 즉시 사라진다", async () => {
+    fetchMeetings.mockResolvedValue([
+      { meetingId: "2", title: "분석중 회의", meetingDate: "2026-07-20", meetingType: "정기회의", analysisStatus: "processing", savedAt: null, originalMeetingId: null, tasksRegistered: false },
+    ]);
+    // 서버 응답이 끝내 오지 않아도 화면에서는 즉시 사라져야 한다.
+    deleteMeeting.mockReturnValue(new Promise(() => {}));
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={["/meetings"]}>
+        <MeetingsView />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(fetchMeetings).toHaveBeenCalled());
+    await user.click(await screen.findByLabelText("분석중 회의 회의록 삭제"));
+    await user.click(screen.getByText("삭제"));
+
+    await waitFor(() => expect(screen.queryByText("분석중 회의")).not.toBeInTheDocument());
+  });
+
+  it("서버 삭제가 권한 오류로 실패하면 목록에 되돌려 놓는다", async () => {
+    fetchMeetings.mockResolvedValue([
+      { meetingId: "2", title: "분석중 회의", meetingDate: "2026-07-20", meetingType: "정기회의", analysisStatus: "processing", savedAt: null, originalMeetingId: null, tasksRegistered: false },
+    ]);
+    deleteMeeting.mockRejectedValue(new ApiRequestError("권한이 없습니다.", 403));
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={["/meetings"]}>
+        <MeetingsView />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(fetchMeetings).toHaveBeenCalled());
+    await user.click(await screen.findByLabelText("분석중 회의 회의록 삭제"));
+    await user.click(screen.getByText("삭제"));
+
+    expect(await screen.findByText("본인이 업로드한 회의록만 삭제할 수 있습니다.")).toBeInTheDocument();
+    expect(await screen.findByText("분석중 회의")).toBeInTheDocument();
   });
 
   it("'저장된 회의록' 탭의 새 삭제 버튼은 원본 삭제(deleteMeeting)를 호출한다", async () => {

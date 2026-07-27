@@ -24,8 +24,17 @@ public class EvaluationScore {
     @Column(name = "user_id", nullable = false)
     private Long userId;
 
+    // AI가 산정한 기여 점수(ContributorsView 왼쪽 테이블/기여도 API 값)의 스냅샷.
+    // 학점 계산기의 최종 총합(totalScore)과는 별개 컬럼이다 — 과거엔 하나의 score
+    // 컬럼을 공유해서, 학점 계산기 저장 시 여기 저장돼 있던 기여 점수가 총합으로
+    // 덮어써지는 버그가 있었다(코드 리뷰로 발견, 2026-07-24).
     @Column(nullable = false, precision = 5, scale = 2)
     private BigDecimal score;
+
+    // 학점 계산기가 계산해 저장하는 최종 총합(기여 점수 × 비율 + 심사자 점수 × 비율).
+    // 저장 전(계산기 미사용)에는 null.
+    @Column(name = "total_score", precision = 5, scale = 2)
+    private BigDecimal totalScore;
 
     // 세 공개 플래그는 서로 독립적이다 — 심사자가 초/중반에는 기여 점수만 먼저 공개해
     // 진행 상황을 알리고, 최종 확정 시점에만 총합/학점을 공개하는 워크플로를 지원한다.
@@ -93,6 +102,14 @@ public class EvaluationScore {
 
     public void setScore(BigDecimal score) {
         this.score = score;
+    }
+
+    public BigDecimal getTotalScore() {
+        return totalScore;
+    }
+
+    public void setTotalScore(BigDecimal totalScore) {
+        this.totalScore = totalScore;
     }
 
     public boolean isContributionPublic() {

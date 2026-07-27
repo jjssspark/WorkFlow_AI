@@ -66,7 +66,7 @@ public class MeetingAnalysisPersistence {
 
     @Transactional
     public void saveAnalysisSuccess(Long meetingId, MeetingAnalysisResult result, String analysisSource) {
-        persistAnalysisSuccess(meetingId, result, analysisSource, null, false);
+        persistAnalysisSuccess(meetingId, result, analysisSource, null, false, null);
     }
 
     @Transactional
@@ -88,9 +88,10 @@ public class MeetingAnalysisPersistence {
         Long meetingId,
         MeetingAnalysisResult result,
         String analysisSource,
-        UUID jobId
+        UUID jobId,
+        Long requestedBy
     ) {
-        persistAnalysisSuccess(meetingId, result, analysisSource, jobId, true);
+        persistAnalysisSuccess(meetingId, result, analysisSource, jobId, true, requestedBy);
     }
 
     private void persistAnalysisSuccess(
@@ -98,7 +99,8 @@ public class MeetingAnalysisPersistence {
         MeetingAnalysisResult result,
         String analysisSource,
         UUID jobId,
-        boolean fenced
+        boolean fenced,
+        Long requestedBy
     ) {
         Meeting meeting = meetingRepository.findByIdForUpdate(meetingId).orElseThrow(
             () -> new IllegalStateException("Meeting not found: " + meetingId));
@@ -171,29 +173,26 @@ public class MeetingAnalysisPersistence {
         meeting.setAnalysisStatus("completed");
         meetingRepository.save(meeting);
 
-        notifyAnalysisCompleted(meeting, meetingId);
+        notifyAnalysisCompleted(meeting, meetingId, requestedBy);
     }
 
     /**
-     * 업로더 본인에게는 항상 알리고, 업로더가 팀장이 아니면 팀장에게도 "역할분배를 진행해달라"는
-     * 별도 알림을 보낸다. 업로더==팀장이면 중복이므로 업로더 알림 1건만 나간다.
+     * 분석을 실제로 트리거한 사용자(requestedBy) 본인에게는 알리지 않는다 — 본인은 분석 화면에서
+     * 결과를 바로 확인하고 있기 때문이다. 그 사람이 팀장이 아닐 때만 팀장에게 "역할분배를
+     * 진행해달라"고 알린다. requestedBy가 없는 레거시 경로는 원본 업로더를 행위자로 간주한다.
      */
-    private void notifyAnalysisCompleted(Meeting meeting, Long meetingId) {
-        Long uploaderId = meeting.getUploadedBy();
-        if (uploaderId == null) {
+    private void notifyAnalysisCompleted(Meeting meeting, Long meetingId, Long requestedBy) {
+        Long actorId = requestedBy != null ? requestedBy : meeting.getUploadedBy();
+        if (actorId == null) {
             return;
         }
-        notifyBestEffort(
-            uploaderId, "MEETING_ANALYSIS_COMPLETED", "회의 분석이 완료되었습니다.",
-            "'" + meeting.getTitle() + "' 회의록 분석이 완료되었습니다.", meetingId
-        );
-        String uploaderName = userRepository.findById(uploaderId).map(User::getName).orElse("누군가");
+        String actorName = userRepository.findById(actorId).map(User::getName).orElse("누군가");
         projectMemberRepository.findByProjectIdAndRole(meeting.getProjectId(), com.workflowai.project.ProjectRole.LEADER)
             .map(com.workflowai.project.ProjectMember::getUserId)
-            .filter(leaderId -> !leaderId.equals(uploaderId))
+            .filter(leaderId -> !leaderId.equals(actorId))
             .ifPresent(leaderId -> notifyBestEffort(
                 leaderId, "MEETING_ANALYSIS_COMPLETED_NOTIFY_LEADER", "회의록 분석이 완료되었습니다.",
-                uploaderName + "님이 '" + meeting.getTitle() + "' 회의록 분석을 완료했습니다. 역할분배 및 업무등록을 진행해주세요.", meetingId
+                actorName + "님이 '" + meeting.getTitle() + "' 회의록 분석을 완료했습니다. 역할분배 및 업무등록을 진행해주세요.", meetingId
             ));
     }
 

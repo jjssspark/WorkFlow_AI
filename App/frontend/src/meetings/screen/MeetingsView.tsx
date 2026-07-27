@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from "react-router";
 import { CatTag } from "../../board/components/CatTag";
 import { PriorityBadge } from "../../board/components/PriorityBadge";
 import { getCat } from "../../board/libs/utils/taskService";
-import { getStoredMeetings, getSavedMeetings, saveSavedMeetings, getStoredTasks, saveStoredTasks, saveStoredMeetings, getDeletedMeetingIds, markDeletedMeeting } from "../../board/libs/utils/localStore";
+import { getStoredMeetings, getSavedMeetings, saveSavedMeetings, getStoredTasks, saveStoredTasks, saveStoredMeetings, getDeletedMeetingIds, markDeletedMeeting, unmarkDeletedMeeting } from "../../board/libs/utils/localStore";
 import { addActivity } from "../../board/libs/utils/activityStore";
 import { CATEGORIES } from "../../board/libs/mock/tasks";
 import type { Meeting, UploadFlow, UploadType, GenTodo, SavedMeetingRecord, ExportablePdfData } from "../libs/types/meeting";
@@ -436,9 +436,6 @@ export function MeetingsView() {
   const [newTodoError, setNewTodoError] = useState<string | null>(null);
   const [saveMeetingMessage, setSaveMeetingMessage] = useState<string | null>(null);
   const [saveMeetingError, setSaveMeetingError] = useState<string | null>(null);
-  const [reanalyzingMeetingId, setReanalyzingMeetingId] = useState<string | null>(null);
-  const [reanalyzeMessage, setReanalyzeMessage] = useState<string | null>(null);
-  const [reanalyzeError, setReanalyzeError] = useState<string | null>(null);
   const [originalViewMessage, setOriginalViewMessage] = useState<string | null>(null);
   const [originalPreview, setOriginalPreview] = useState<{ kind: "text"; content: string; fileName: string } | { kind: "unsupported"; fileName: string } | null>(null);
   const [pdfExportMessage, setPdfExportMessage] = useState<string | null>(null);
@@ -637,6 +634,7 @@ export function MeetingsView() {
             savedAt: dto.savedAt,
             originalMeetingId: dto.originalMeetingId,
             tasksRegistered: dto.tasksRegistered,
+            hasGeneratedTodos: dto.hasGeneratedTodos,
           };
           // 목록 API는 요약만 내려주므로, 이미 상세 분석 결과를 캐시해둔 회의록은 그 결과를 보존한다.
           // 그렇지 않으면 탭을 옮겼다가 돌아올 때마다 상세 조회를 다시 하게 되어 화면이 늦게 뜬다.
@@ -670,7 +668,12 @@ export function MeetingsView() {
   // 다만 수정본(버전)은 바로 아래 분기에서 예외적으로 "저장된 회의록" 탭으로 보낸다.
   useEffect(() => {
     const targetMeetingId = searchParams.get("meetingId");
-    if (!targetMeetingId || deepLinkHandledIdRef.current === targetMeetingId) return;
+    if (!targetMeetingId) return;
+    // panel 값까지 키에 포함시켜야, 같은 meetingId를 이미 한 번 열어본 뒤 다른 panel로
+    // 다시 딥링크가 와도(예: 요약 알림 → 나중에 역할분배 알림) 무시되지 않고 반영된다.
+    const panel = searchParams.get("panel") ?? "";
+    const deepLinkKey = `${targetMeetingId}:${panel}`;
+    if (deepLinkHandledIdRef.current === deepLinkKey) return;
     setSelected(targetMeetingId);
     const target = meetings.find(item => item.id === targetMeetingId);
     if (!target) return;
@@ -678,7 +681,11 @@ export function MeetingsView() {
     // 아직 분석 전/실패 상태인 버전에 대해 빈 안내 문구만 보여주므로, 수정 알림("바로가기")으로
     // 온 사용자를 그리로 보내면 안 된다. 원본 회의록은 기존대로 분석/업로드 탭으로 보낸다.
     setHomeTab(target.originalMeetingId ? "saved" : "analyze");
-    deepLinkHandledIdRef.current = targetMeetingId;
+    // 역할분배를 요청하는 알림("바로가기")은 요약 탭이 아니라 역할분배 검토(To-Do) 탭으로 바로 연결한다.
+    if (panel === "todos") {
+      setPanelTab("todos");
+    }
+    deepLinkHandledIdRef.current = deepLinkKey;
   }, [searchParams, meetings]);
 
   // 참석자 체크 목록은 현재 프로젝트의 실제 멤버만 보여준다.
@@ -833,6 +840,15 @@ export function MeetingsView() {
     setTimeout(() => setSaveMeetingMessage(null), 2500);
   };
 
+  const markMeetingSavedLocally = (meetingId: string) => {
+    const savedAt = new Date().toISOString();
+    setMeetings(prev => {
+      const next = prev.map(item => item.id === meetingId ? { ...item, savedAt } : item);
+      saveStoredMeetings(next, projectId);
+      return next;
+    });
+  };
+
   // 서버 저장확정(saved_at 확정 + MEETING_SAVED/_NOTIFY_LEADER 알림)을 먼저 시도하고,
   // 성공했을 때만 로컬 상태 반영(handleSaveMeeting)과 성공 메시지를 보여준다 — 순서를 바꾸면
   // 서버 저장이 실패해도 로컬은 이미 "저장됨"으로 보여 화면과 실제 상태가 어긋난다.
@@ -842,6 +858,11 @@ export function MeetingsView() {
     try {
       await confirmMeetingSave(projectId, selected);
       handleSaveMeeting();
+      // "저장된 회의록" 목록은 meetings의 savedAt으로 걸러진다(savedMeetingsList).
+      // 서버 재조회 결과를 기다리면 저장 직후엔 목록이 비어 보여 새로고침해야 뜨므로,
+      // 서버 저장이 확정된 시점에 로컬 meetings의 savedAt도 즉시 채운다.
+      markMeetingSavedLocally(selected);
+      void refreshMeetingsFromServer();
     } catch (error) {
       const status = error instanceof ApiRequestError ? ` (${error.status})` : "";
       setSaveMeetingError(`서버 저장에 실패했습니다${status}. 잠시 후 다시 시도해주세요.`);
@@ -866,20 +887,38 @@ export function MeetingsView() {
 
   // pending/failed 상태인 버전(수정본)을 편집 화면 없이 그 자리에서 재분석한다.
   // 새 버전을 만들지 않고 이미 저장된 transcript로 분석만 재실행하므로 fetchMeeting 조회가 필요 없다.
+  // 신규 업로드(startAnalysis)/재시도(runRetryAnalysis)와 동일하게 uploadFlow를 "analyzing"으로
+  // 바꿔 분석 화면을 띄우고 pollMeetingStatus로 완료까지 진행해야, 재분석이 실제로 실행되고 있다는
+  // 것이 화면에 보인다. 토스트 메시지만 띄우고 끝나면 "화면은 안 뜨고 알림만 온다"는 문제가 생긴다.
   const handleReanalyzeVersion = async (meetingId: string) => {
-    setReanalyzingMeetingId(meetingId);
-    setReanalyzeError(null);
+    const title = meetings.find(m => m.id === meetingId)?.title ?? "";
+    const uploadedAt = new Date().toISOString();
+    setMeetTitle(title);
+    setAnalysisResult(null);
+    setSelTodos([]);
+    setAnalysisSource(null);
+    setAnalysisError(null);
+    setAnalyzeStage(0);
+    setAnalyzeProgress(0);
+    setAnalyzeProgressTarget(8);
+    setAnalysisElapsedSeconds(0);
+    setPollAttemptCount(0);
+    setAnalysisPhase("uploading");
+    setAnalysisRequestPending(true);
+    setUploadFlow("analyzing");
+
     try {
-      await reanalyzeMeeting(projectId, meetingId);
-      setReanalyzeMessage("AI 재분석을 요청했습니다.");
-      setTimeout(() => setReanalyzeMessage(null), 2500);
-      void refreshMeetingsFromServer();
+      const response = await reanalyzeMeeting(projectId, meetingId);
+      setAnalysisRequestPending(false);
+      setActiveMeetingId(response.meetingId);
+      setAnalysisPhase("queued");
+      setAnalyzeProgressTarget(28);
+      pollMeetingStatus(response.meetingId, title, uploadedAt);
     } catch (error) {
+      setAnalysisRequestPending(false);
       const status = error instanceof ApiRequestError ? ` (${error.status})` : "";
-      setReanalyzeError(`재분석 요청에 실패했습니다${status}. 잠시 후 다시 시도해주세요.`);
-      setTimeout(() => setReanalyzeError(null), 4000);
-    } finally {
-      setReanalyzingMeetingId(null);
+      setAnalysisError(`재분석 요청에 실패했습니다${status}. 잠시 후 다시 시도해주세요.`);
+      setUploadFlow("results");
     }
   };
 
@@ -1127,6 +1166,18 @@ export function MeetingsView() {
     }
   };
 
+  // 낙관적 삭제가 서버에서 실패했을 때 화면과 로컬 캐시를 삭제 이전 상태로 되돌린다.
+  const restoreMeetingToLocalState = (
+    meetingsSnapshot: Meeting[],
+    savedSnapshot: SavedMeetingRecord[]
+  ) => {
+    setMeetings(() => {
+      saveStoredMeetings(meetingsSnapshot, projectId);
+      return meetingsSnapshot;
+    });
+    saveSavedMeetings(savedSnapshot, projectId);
+  };
+
   const removeLinkedLocalTasks = async (target: Meeting) => {
     const matchesMeeting = (task: Task) =>
       task.sourceMeetingTitle === target.id || task.sourceMeetingTitle === target.title;
@@ -1156,6 +1207,16 @@ export function MeetingsView() {
     setDeletingMeetingId(target.id);
     setMeetingListError(null);
     setDeleteMessage(null);
+
+    // 서버 DELETE 응답(최대 10초)을 기다린 뒤에 목록을 갱신하면 그동안 삭제한 항목이 그대로 남아
+    // "삭제가 안 된다, 새로고침해야 사라진다"로 보인다. 먼저 화면에서 지우고, 서버 삭제가
+    // 진짜 실패한 경우(권한/인증/서버 오류)에만 스냅샷으로 되돌린다.
+    const meetingsSnapshot = meetings;
+    const savedSnapshot = getSavedMeetings(projectId);
+    removeMeetingFromLocalState(target.id);
+    setDeleteMessage(deleteLinkedTasks ? "회의록과 연동 업무가 삭제되었습니다." : "회의록이 삭제되었습니다.");
+    setTimeout(() => setDeleteMessage(null), 2500);
+
     try {
       if (isServerMeetingId(target.id)) {
         await deleteMeeting(projectId, target.id, deleteLinkedTasks);
@@ -1163,9 +1224,6 @@ export function MeetingsView() {
       if (deleteLinkedTasks) {
         await removeLinkedLocalTasks(target);
       }
-      removeMeetingFromLocalState(target.id);
-      setDeleteMessage(deleteLinkedTasks ? "회의록과 연동 업무가 삭제되었습니다." : "회의록이 삭제되었습니다.");
-      setTimeout(() => setDeleteMessage(null), 2500);
     } catch (error) {
       const message = error instanceof Error ? error.message : "";
       const isMissingMeeting =
@@ -1173,20 +1231,19 @@ export function MeetingsView() {
           ? error.status === 404 || error.code === "MEETING_NOT_FOUND"
           : message.includes("회의록을 찾을 수 없습니다");
       if (isMissingMeeting) {
+        // 서버에 이미 없으므로 낙관적 제거가 결과적으로 옳다. 되돌리지 않는다.
         if (deleteLinkedTasks) {
           await removeLinkedLocalTasks(target);
         }
-        removeMeetingFromLocalState(target.id);
-        setDeleteMessage("서버에 없는 회의록이라 목록에서 제거했습니다.");
-        setTimeout(() => setDeleteMessage(null), 2500);
       } else if (error instanceof ApiRequestError && error.code === "REQUEST_TIMEOUT") {
-        // 클라이언트가 타임아웃으로 요청을 포기해도 서버는 처리를 계속할 수 있어, 실제로는
-        // 삭제가 이미 끝났을 수 있다. "삭제 안 됐다"고 단정하지 말고 서버 상태를 다시 조회해
-        // 화면을 실제 상태와 맞춘다.
-        setMeetingListError("삭제 확인이 지연되고 있습니다. 최신 상태를 다시 불러옵니다.");
-        setTimeout(() => setMeetingListError(null), 6000);
+        // 클라이언트가 타임아웃으로 요청을 포기해도 서버는 처리를 계속해 삭제가 이미 끝났을 수 있다.
+        // 화면에서는 이미 지운 상태이므로 사용자에게 "지연" 문구를 띄우지 않고, 조용히 서버 상태만
+        // 다시 조회해 실제로 삭제되지 않았다면 목록이 스스로 복구되게 한다.
         void refreshMeetingsFromServer();
       } else {
+        setDeleteMessage(null);
+        unmarkDeletedMeeting(target.id, projectId);
+        restoreMeetingToLocalState(meetingsSnapshot, savedSnapshot);
         const statusCode = error instanceof ApiRequestError ? error.status : null;
         const isAuthError = statusCode === 401 || message.includes("인증이 만료") || message.includes("다시 로그인");
         const isPermissionError = statusCode === 403;
@@ -1245,9 +1302,8 @@ export function MeetingsView() {
       const status = statusCode ? ` (${statusCode})` : "";
       if (error instanceof ApiRequestError && error.code === "REQUEST_TIMEOUT") {
         // handleDeleteMeeting과 동일한 이유: 클라이언트 타임아웃 후에도 서버는 삭제를 끝냈을 수 있으므로
-        // 실패로 단정하지 않고 서버 상태를 다시 조회해 화면을 맞춘다.
-        setMeetingListError("삭제 확인이 지연되고 있습니다. 최신 상태를 다시 불러옵니다.");
-        setTimeout(() => setMeetingListError(null), 6000);
+        // 실패로 단정하지 않고 조용히 서버 상태를 다시 조회해 화면을 맞춘다(지연 문구는 띄우지 않는다).
+        updateMeetingAfterAnalysisDelete(target.id);
         void refreshMeetingsFromServer();
         return;
       }
@@ -1404,9 +1460,11 @@ export function MeetingsView() {
               </button>
               <button
                 type="button"
+                disabled={!deleteTarget.hasGeneratedTodos}
                 onClick={() => void handleDeleteAnalysisResult(deleteTarget, true)}
-                className="px-4 py-2 text-sm font-semibold text-white rounded-xl hover:opacity-90 transition-opacity"
+                className="px-4 py-2 text-sm font-semibold text-white rounded-xl hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:opacity-40"
                 style={{ background: "linear-gradient(135deg,#EF4444,#DC2626)" }}
+                title={deleteTarget.hasGeneratedTodos ? undefined : "이 분석 결과는 생성된 To-Do가 없습니다."}
               >
                 분석 결과 + To-Do 삭제
               </button>
@@ -2575,8 +2633,6 @@ export function MeetingsView() {
             </div>
           ) : (
             <>
-            {reanalyzeMessage && <div className="text-[10px] text-emerald-600 mb-2">{reanalyzeMessage}</div>}
-            {reanalyzeError && <div className="text-[10px] text-red-600 mb-2">{reanalyzeError}</div>}
             <div className="space-y-2 max-w-2xl">
               {savedMeetingsList.map(m => {
                 const isPendingVersion = Boolean(m.originalMeetingId) && (m.status === "pending" || m.status === "failed");
@@ -2603,7 +2659,6 @@ export function MeetingsView() {
                       {currentUserRole !== "reviewer" && (
                         <button
                           type="button"
-                          disabled={reanalyzingMeetingId === m.id}
                           onClick={event => {
                             event.stopPropagation();
                             if (isPendingVersion) {

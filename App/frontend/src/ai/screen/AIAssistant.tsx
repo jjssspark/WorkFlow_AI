@@ -10,11 +10,15 @@ import { ConfirmActionCard } from "../components/ConfirmActionCard";
 import type { ExecutionResult } from "../libs/utils/actionExecutor";
 import { confirmAction } from "../libs/utils/confirmAction";
 import { shouldShowSources } from "../libs/utils/sourceVisibility";
+import { MAX_QUESTION_LENGTH } from "../libs/utils/ragApi";
 
 const NO_PROJECT_MESSAGE = "아직 연결된 프로젝트가 없습니다. 프로젝트를 만들고 회의록을 업로드한 뒤 다시 질문해주세요.";
 
 const CHAT_SESSION_KEY_PREFIX = "ai-assistant-chat-session";
 const CHAT_SESSION_TTL_MS = 5 * 60 * 1000;
+
+// 남은 글자 수를 미리 알려주기 시작하는 지점. 상한에 닿고 나서야 표시하면 이미 입력이 막힌 뒤라 늦다.
+const QUESTION_LENGTH_HINT_FROM = MAX_QUESTION_LENGTH - 100;
 
 type ChatSession = { messages: ChatMsg[]; savedAt: number };
 
@@ -344,8 +348,19 @@ export function AIAssistant({
               onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input); } }}
               placeholder="프로젝트에 대해 무엇이든 물어보세요..."
               rows={1}
+              maxLength={MAX_QUESTION_LENGTH}
               className="w-full text-sm bg-transparent outline-none resize-none text-foreground placeholder-muted-foreground"
             />
+            {input.length >= QUESTION_LENGTH_HINT_FROM && (
+              <div
+                role="status"
+                className={`text-[10px] text-right mt-1 ${
+                  input.length >= MAX_QUESTION_LENGTH ? "text-destructive" : "text-muted-foreground"
+                }`}
+              >
+                {input.length} / {MAX_QUESTION_LENGTH}
+              </div>
+            )}
           </div>
           <button onClick={() => send(input)} disabled={!input.trim() || loading} aria-label="전송"
             className="w-9 h-9 rounded-xl flex items-center justify-center transition-opacity disabled:opacity-40 text-white"

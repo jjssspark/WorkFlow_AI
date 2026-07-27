@@ -139,7 +139,12 @@ async def test_sync_assignee_can_clear_assignee_to_none() -> None:
 
 
 @pytest.mark.asyncio
-async def test_ingest_content_blank_content_removes_existing_source(cache_epoch_advance) -> None:
+async def test_ingest_content_blank_content_leaves_existing_index_untouched(cache_epoch_advance) -> None:
+    """빈 콘텐츠는 삭제 신호가 아니다. 기존 인덱스를 건드리지 않고 그대로 둬야 한다.
+
+    이전에는 선삭제가 그대로 실행돼 빈 요청 한 번으로 해당 문서가 RAG에서 사라졌다.
+    삭제 의도는 delete_source로만 표현한다.
+    """
     conn = _FakeConn()
     pool = _FakePool(conn)
 
@@ -148,9 +153,9 @@ async def test_ingest_content_blank_content_removes_existing_source(cache_epoch_
     assert result.chunk_ids == []
     assert result.chunk_count == 0
     assert conn.calls == []
-    assert "DELETE FROM document_chunks" in conn.executed[1][0]
-    assert conn.executed[1][1] == (1, "task", 1)
-    assert cache_epoch_advance.await_count == 2
+    assert conn.executed == []
+    # 인덱스가 안 바뀌었으므로 답변 캐시를 버릴 이유도 없다.
+    assert cache_epoch_advance.await_count == 0
 
 
 @pytest.mark.asyncio
