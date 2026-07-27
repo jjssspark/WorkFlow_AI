@@ -71,6 +71,18 @@ class ProjectControllerSecurityTest {
             .andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
     }
 
+    @Test
+    void unfinalizeEvaluationReturns403WhenCallerIsNotReviewer() throws Exception {
+        when(projectAccess.hasRole(eq(1L), eq("REVIEWER"))).thenReturn(false);
+
+        mockMvc.perform(
+                post("/api/v1/projects/1/unfinalize-evaluation")
+                    .with(user("member"))
+            )
+            .andExpect(status().isForbidden())
+            .andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
+    }
+
     @SpringBootConfiguration
     @EnableMethodSecurity
     @Import(ProjectController.class)
