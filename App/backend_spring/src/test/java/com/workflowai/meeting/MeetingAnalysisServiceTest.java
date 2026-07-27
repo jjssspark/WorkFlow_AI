@@ -418,6 +418,38 @@ class MeetingAnalysisServiceTest {
     }
 
     @Test
+    void findByProjectMarksHasGeneratedTodosTrueWhenAnActionItemExistsEvenIfNotRegistered() {
+        mockMember(1L);
+        Meeting meeting = new Meeting(1L, "정기회의", "document", "/tmp/x.txt", "completed", LocalDate.now(), "정기회의", "x.txt", null, 5L);
+        ReflectionTestUtils.setField(meeting, "id", 10L);
+        when(meetingRepository.findByProjectIdOrderByCreatedAtDesc(1L)).thenReturn(List.of(meeting));
+
+        MeetingActionItem unregisteredItem = new MeetingActionItem(10L, "할일", "설명", "BACKEND", null, 2L, null, "HIGH", "근거");
+        when(meetingActionItemRepository.findByMeetingIdIn(List.of(10L))).thenReturn(List.of(unregisteredItem));
+        MeetingAnalysisService service = newService();
+
+        List<MeetingSummary> result = service.findByProject("demo-project");
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).hasGeneratedTodos()).isTrue();
+    }
+
+    @Test
+    void findByProjectMarksHasGeneratedTodosFalseWhenNoActionItemWasGenerated() {
+        mockMember(1L);
+        Meeting meeting = new Meeting(1L, "정기회의", "document", "/tmp/x.txt", "completed", LocalDate.now(), "정기회의", "x.txt", null, 5L);
+        ReflectionTestUtils.setField(meeting, "id", 10L);
+        when(meetingRepository.findByProjectIdOrderByCreatedAtDesc(1L)).thenReturn(List.of(meeting));
+        when(meetingActionItemRepository.findByMeetingIdIn(List.of(10L))).thenReturn(List.of());
+        MeetingAnalysisService service = newService();
+
+        List<MeetingSummary> result = service.findByProject("demo-project");
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).hasGeneratedTodos()).isFalse();
+    }
+
+    @Test
     void deleteRejectsWhenCurrentUserIsNotLeader() {
         // 컨트롤러의 @PreAuthorize에만 기대지 않고 서비스 레이어에서도 팀장 권한을 재확인한다.
         // 존재하지 않는 회의록에 대해 403을 먼저 주지 않도록, 권한 검사 전에 회의록 존재를 확인하므로
