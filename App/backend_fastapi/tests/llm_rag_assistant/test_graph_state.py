@@ -4,7 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from llm_rag_assistant.app.graph.state import (
-    LEADER_TOOLS,
+    ALL_TOOLS,
     MEMBER_TOOLS,
     SUPPORTED_TOOLS,
     Action,
@@ -23,26 +23,53 @@ def test_action_rejects_unknown_tool() -> None:
         Action(tool="drop_database", task_ref="WF-250", args={})
 
 
-def test_member_and_leader_tool_sets_are_disjoint() -> None:
-    assert MEMBER_TOOLS.isdisjoint(LEADER_TOOLS)
+def test_member_tool_set_is_empty() -> None:
+    # 어시스턴트로 하는 업무 변경은 전부 팀장 전용이다. 멤버 전용 도구는 남아 있지 않다.
+    assert MEMBER_TOOLS == frozenset()
 
 
-def test_requires_leader_flags_only_leader_tools() -> None:
-    assert requires_leader("delete_task") is True
-    assert requires_leader("set_due_date") is True
-    assert requires_leader("add_comment") is False
-    assert requires_leader("change_status") is False
+def test_every_tool_requires_leader() -> None:
+    # 도구가 새로 추가돼도 권한 부여를 잊지 않도록 전체를 훑는다.
+    assert all(requires_leader(tool) for tool in ALL_TOOLS)
+
+
+def test_requires_leader_covers_previously_member_tools() -> None:
+    # 예전에 멤버도 쓸 수 있던 도구들이 팀장 전용으로 옮겨졌는지 개별로 못 박는다.
+    assert requires_leader("change_status") is True
+    assert requires_leader("add_comment") is True
+    assert requires_leader("toggle_checklist") is True
 
 
 def test_supported_tools_are_a_subset_of_all_tools() -> None:
     # 실행기가 수행 가능한 도구는 전체 도구의 부분집합이어야 한다.
-    assert SUPPORTED_TOOLS <= MEMBER_TOOLS | LEADER_TOOLS
+    assert SUPPORTED_TOOLS <= ALL_TOOLS
 
 
-def test_set_due_date_is_supported_but_still_leader_only() -> None:
-    # set_due_date는 실행기가 지원하지만 여전히 팀장 전용이다(멤버는 권한 단계에서 막힌다).
-    assert "set_due_date" in SUPPORTED_TOOLS
-    assert requires_leader("set_due_date") is True
+def test_rename_task_is_supported_and_leader_only() -> None:
+    assert "rename_task" in SUPPORTED_TOOLS
+    assert requires_leader("rename_task") is True
+
+
+def test_rename_task_rejects_empty_title() -> None:
+    with pytest.raises(ValidationError):
+        Action(tool="rename_task", task_ref="WF-1", args={"title": "   "})
+
+
+def test_rename_task_rejects_title_over_column_limit() -> None:
+    # tasks.title은 VARCHAR(200)이라 더 긴 제목은 DB가 거절해 원인 모를 500이 된다.
+    with pytest.raises(ValidationError):
+        Action(tool="rename_task", task_ref="WF-1", args={"title": "가" * 201})
+
+
+def test_rename_task_accepts_title_at_column_limit() -> None:
+    action = Action(tool="rename_task", task_ref="WF-1", args={"title": "가" * 200})
+    assert len(action.args["title"]) == 200
+
+
+def test_supported_tools_survive_permission_changes() -> None:
+    # SUPPORTED_TOOLS를 권한 집합에서 파생시키면 권한 재배치만으로 카드가 통째로 사라진다.
+    # 권한이 전부 팀장으로 옮겨간 뒤에도 실행 가능 목록은 그대로여야 한다.
+    assert {"change_status", "add_comment", "toggle_checklist", "set_due_date"} <= SUPPORTED_TOOLS
 
 
 def test_action_rejects_empty_task_ref() -> None:

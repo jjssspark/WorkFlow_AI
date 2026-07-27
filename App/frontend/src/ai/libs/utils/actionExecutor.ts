@@ -11,6 +11,10 @@ export interface ExecutionResult {
 
 const VALID_STATUSES: TaskStatus[] = ["todo", "inprogress", "blocked", "done"];
 
+// tasks.title은 VARCHAR(200)이다. 그래프(state.py _TITLE_MAX_LENGTH)와 같은 값이라야
+// 계획 단계를 통과한 제목이 여기서 다시 거부되지 않는다.
+const TITLE_MAX_LENGTH = 200;
+
 function toMessage(error: unknown): string {
   return error instanceof Error ? error.message : "요청을 처리하지 못했습니다.";
 }
@@ -79,8 +83,19 @@ export async function executeAction(card: ActionCard, projectId: number): Promis
         await updateTask(taskId, { dueDate: date }, projectId);
         return { ok: true };
       }
+      case "rename_task": {
+        const title = String(card.args.title ?? "").trim();
+        if (!title) return { ok: false, error: "새 제목이 비어 있습니다." };
+        // 그래프(state.py)와 같은 길이 검증. 백엔드를 우회한 값이 DB 제약에 걸려
+        // 원인 모를 500으로 보이지 않게 한다.
+        if (title.length > TITLE_MAX_LENGTH) {
+          return { ok: false, error: `제목이 너무 깁니다(${TITLE_MAX_LENGTH}자 이내).` };
+        }
+        await updateTask(taskId, { title }, projectId);
+        return { ok: true };
+      }
       default:
-        // 나머지 팀장 전용 도구(rename_task·change_assignee·delete_task)는 아직 미구현이다.
+        // 나머지 팀장 전용 도구(change_assignee·delete_task)는 아직 미구현이다.
         // 그래프 SUPPORTED_TOOLS에도 없어 카드 자체가 오지 않지만, 방어적으로 거부한다.
         return { ok: false, error: "아직 지원하지 않는 작업입니다." };
     }
