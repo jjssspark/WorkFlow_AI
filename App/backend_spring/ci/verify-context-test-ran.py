@@ -12,6 +12,10 @@ from pathlib import Path
 SUITES = (
     "com.workflowai.ApplicationContextLoadTest",
     "com.workflowai.migration.ProductionSchemaMigrationTest",
+    # 통합 테스트(PostgresRedisIntegrationTest 상속)도 Docker가 없으면 통째로 건너뛴다.
+    # 여기 등록하지 않으면 러너에 Docker가 없을 때 아무 경고 없이 초록불이 된다.
+    "com.workflowai.common.HealthReadinessIntegrationTest",
+    "com.workflowai.common.ErrorEnvelopeIntegrationTest",
 )
 REPORT_DIR = Path("build/test-results/test")
 
