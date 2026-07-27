@@ -691,6 +691,14 @@ describe("MeetingsView PDF 내보내기", () => {
     expect(pdfButton).not.toBeDisabled();
     fireEvent.click(pdfButton);
 
+    // buildExportDataFromMeeting이 meeting.todos("곽진아: 인증과 권한 구조 (07.12)")를
+    // parseMeetingTodoLine으로 정확히 파싱해 넘겼는지 검증한다. html2canvas는 DOM 내용과
+    // 무관하게 항상 고정된 캔버스를 반환하도록 목업돼 있으므로, 클릭이 pdf.save까지
+    // 도달하는지만으로는 assigneeName/title이 뒤바뀌는 회귀를 잡을 수 없다. 대신 캡처
+    // 영역 템플릿이 렌더링하는 "{title} - {assigneeName} ({dueDate})" 조합 텍스트가
+    // (클릭 직후 pdfExportData가 채워진 시점에) DOM에 실제로 나타나는지 확인한다.
+    expect(screen.getByText("인증과 권한 구조 - 곽진아 (07.12)")).toBeInTheDocument();
+
     await waitFor(() => expect(mockPdfSave).toHaveBeenCalled());
   });
 });
