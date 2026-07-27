@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi, beforeEach } from "vitest";
@@ -65,6 +65,23 @@ vi.mock("../libs/hooks/RecordingSessionProvider", () => ({
     pendingBlob: null,
     clearPendingBlob: vi.fn(),
   }),
+}));
+
+const mockPdfSave = vi.fn();
+vi.mock("html2canvas", () => ({
+  default: vi.fn().mockResolvedValue({
+    width: 100,
+    height: 100,
+    toDataURL: () => "data:image/png;base64,",
+  }),
+}));
+vi.mock("jspdf", () => ({
+  default: vi.fn().mockImplementation(() => ({
+    internal: { pageSize: { getWidth: () => 595, getHeight: () => 842 } },
+    addImage: vi.fn(),
+    addPage: vi.fn(),
+    save: mockPdfSave,
+  })),
 }));
 
 const baseResult = (assignee_id: string | null): MeetingAiResult => ({
@@ -640,5 +657,40 @@ describe("MeetingsView PDF 내보내기", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: /PDF 저장/ })).toBeInTheDocument(), { timeout: 5000 });
 
     expect(screen.getByRole("button", { name: /PDF 저장/ })).not.toBeDisabled();
+  });
+
+  it("사이드바에서 다시 연 회의록 상세 화면에도 PDF 버튼이 있고, 클릭하면 meeting.todos를 파싱해 내보낸다", async () => {
+    // fetchMeetings로 이미 분석 완료된 회의록을 받으면 목록의 첫 항목이 자동 선택되고,
+    // beforeEach에서 목업한 fetchMeeting(analysis 포함)이 상세 조회 effect에서 호출되어
+    // meeting.summary가 채워진 상세 패널(사이드바 재조회 화면)이 뜬다.
+    fetchMeetings.mockResolvedValue([
+      { meetingId: "1", title: "분석완료 회의", meetingDate: "2026-07-19", meetingType: "정기회의", analysisStatus: "completed", savedAt: "2026-07-19T10:00:00", originalMeetingId: null, tasksRegistered: false },
+    ]);
+    // 목록의 meetingId("1")와 일치해야 상세 조회 effect가 이 회의록에 분석 결과를 반영한다.
+    fetchMeeting.mockResolvedValue({
+      meetingId: "1",
+      projectId: "1",
+      status: "COMPLETED",
+      sourceType: "document",
+      fileName: "meeting.txt",
+      analysisSource: "FASTAPI",
+      analysis: baseResult("1"),
+      errorMessage: null,
+      attendees: [],
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/meetings"]}>
+        <MeetingsView />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(fetchMeetings).toHaveBeenCalled());
+
+    const pdfButton = await screen.findByRole("button", { name: "PDF로 저장" });
+    expect(pdfButton).not.toBeDisabled();
+    fireEvent.click(pdfButton);
+
+    await waitFor(() => expect(mockPdfSave).toHaveBeenCalled());
   });
 });
