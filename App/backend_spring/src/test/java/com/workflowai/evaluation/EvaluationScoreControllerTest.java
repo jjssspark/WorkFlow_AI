@@ -1,6 +1,9 @@
 package com.workflowai.evaluation;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -9,7 +12,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workflowai.common.GlobalExceptionHandler;
+import com.workflowai.notification.NotificationService;
+import com.workflowai.project.Project;
 import com.workflowai.project.ProjectMemberRepository;
+import com.workflowai.project.ProjectRepository;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
@@ -33,11 +39,19 @@ class EvaluationScoreControllerTest {
     @Mock
     private ProjectMemberRepository projectMemberRepository;
 
+    @Mock
+    private ProjectRepository projectRepository;
+
+    @Mock
+    private NotificationService notificationService;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     private MockMvc mockMvc() {
         return MockMvcBuilders
-            .standaloneSetup(new EvaluationScoreController(evaluationScoreRepository, projectMemberRepository))
+            .standaloneSetup(new EvaluationScoreController(
+                evaluationScoreRepository, projectMemberRepository, projectRepository, notificationService
+            ))
             .setControllerAdvice(new GlobalExceptionHandler())
             .build();
     }
@@ -225,6 +239,123 @@ class EvaluationScoreControllerTest {
                 .content(objectMapper.writeValueAsString(request)))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.grade").value("A"));
+    }
+
+    @Test
+    void upsertSendsContributionScorePublishedNotificationWhenTogglingOffToOn() throws Exception {
+        // 기여도 점수 공개 토글이 false→true로 바뀌는 순간에만 학생 본인에게 알림을 보낸다.
+        EvaluationScore existing = new EvaluationScore(1L, 3L, new BigDecimal("60.00"), false);
+        when(projectMemberRepository.existsByProjectIdAndUserId(1L, 3L)).thenReturn(true);
+        when(evaluationScoreRepository.findByProjectIdAndUserId(1L, 3L)).thenReturn(Optional.of(existing));
+        when(evaluationScoreRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        Project project = new Project("캡스톤디자인 2024", "capstone", "설명");
+        when(projectRepository.findById(1L)).thenReturn(Optional.of(project));
+
+        EvaluationScoreRequest request = new EvaluationScoreRequest(
+            1L, 3L, null, null, true, null, null, null, null, null
+        );
+
+        mockMvc().perform(post("/api/v1/projects/1/evaluations")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isOk());
+
+        verify(notificationService).notifyAfterCommit(
+            3L, "CONTRIBUTION_SCORE_PUBLISHED", "기여도 점수가 공개되었습니다.",
+            "심사자가 '캡스톤디자인 2024' 프로젝트의 기여도 점수를 공개했습니다.", "evaluation", 1L
+        );
+    }
+
+    @Test
+    void upsertSendsGradePublishedNotificationWhenTogglingFinalPublicOffToOn() throws Exception {
+        // 학점(총합) 공개 토글이 false→true로 바뀌는 순간에만 학생 본인에게 알림을 보낸다.
+        EvaluationScore existing = new EvaluationScore(1L, 3L, new BigDecimal("60.00"), false);
+        when(projectMemberRepository.existsByProjectIdAndUserId(1L, 3L)).thenReturn(true);
+        when(evaluationScoreRepository.findByProjectIdAndUserId(1L, 3L)).thenReturn(Optional.of(existing));
+        when(evaluationScoreRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        Project project = new Project("캡스톤디자인 2024", "capstone", "설명");
+        when(projectRepository.findById(1L)).thenReturn(Optional.of(project));
+
+        EvaluationScoreRequest request = new EvaluationScoreRequest(
+            1L, 3L, null, null, null, true, null, null, null, null
+        );
+
+        mockMvc().perform(post("/api/v1/projects/1/evaluations")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isOk());
+
+        verify(notificationService).notifyAfterCommit(
+            3L, "GRADE_PUBLISHED", "학점이 공개되었습니다.",
+            "심사자가 '캡스톤디자인 2024' 프로젝트의 학점을 공개했습니다.", "evaluation", 1L
+        );
+    }
+
+    @Test
+    void upsertDoesNotSendNotificationWhenAlreadyPublicAndSavedAgain() throws Exception {
+        // 이미 공개된 상태에서 다시 true로 저장해도(예: 다른 필드만 갱신하는 호출) 중복 알림이 가면 안 된다.
+        EvaluationScore existing = new EvaluationScore(1L, 3L, new BigDecimal("60.00"), true);
+        when(projectMemberRepository.existsByProjectIdAndUserId(1L, 3L)).thenReturn(true);
+        when(evaluationScoreRepository.findByProjectIdAndUserId(1L, 3L)).thenReturn(Optional.of(existing));
+        when(evaluationScoreRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        EvaluationScoreRequest request = new EvaluationScoreRequest(
+            1L, 3L, null, null, true, null, null, null, null, null
+        );
+
+        mockMvc().perform(post("/api/v1/projects/1/evaluations")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isOk());
+
+        verify(notificationService, never()).notifyAfterCommit(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void upsertDoesNotSendNotificationWhenTogglingOnToOff() throws Exception {
+        // 공개→비공개 전환 시에는 알림을 보내지 않는다.
+        EvaluationScore existing = new EvaluationScore(1L, 3L, new BigDecimal("60.00"), true);
+        when(projectMemberRepository.existsByProjectIdAndUserId(1L, 3L)).thenReturn(true);
+        when(evaluationScoreRepository.findByProjectIdAndUserId(1L, 3L)).thenReturn(Optional.of(existing));
+        when(evaluationScoreRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        EvaluationScoreRequest request = new EvaluationScoreRequest(
+            1L, 3L, null, null, false, null, null, null, null, null
+        );
+
+        mockMvc().perform(post("/api/v1/projects/1/evaluations")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isOk());
+
+        verify(notificationService, never()).notifyAfterCommit(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void upsertSendsBothNotificationsWhenContributionAndFinalBothToggleOnInOneCall() throws Exception {
+        // 한 호출에서 기여도 점수와 학점 공개가 동시에 false→true로 바뀌면 두 알림이 모두 발송된다.
+        EvaluationScore existing = new EvaluationScore(1L, 3L, new BigDecimal("60.00"), false);
+        when(projectMemberRepository.existsByProjectIdAndUserId(1L, 3L)).thenReturn(true);
+        when(evaluationScoreRepository.findByProjectIdAndUserId(1L, 3L)).thenReturn(Optional.of(existing));
+        when(evaluationScoreRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        Project project = new Project("캡스톤디자인 2024", "capstone", "설명");
+        when(projectRepository.findById(1L)).thenReturn(Optional.of(project));
+
+        EvaluationScoreRequest request = new EvaluationScoreRequest(
+            1L, 3L, null, null, true, true, null, null, null, null
+        );
+
+        mockMvc().perform(post("/api/v1/projects/1/evaluations")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isOk());
+
+        verify(notificationService).notifyAfterCommit(
+            eq(3L), eq("CONTRIBUTION_SCORE_PUBLISHED"), any(), any(), eq("evaluation"), eq(1L)
+        );
+        verify(notificationService).notifyAfterCommit(
+            eq(3L), eq("GRADE_PUBLISHED"), any(), any(), eq("evaluation"), eq(1L)
+        );
     }
 
     @Test
