@@ -11,6 +11,7 @@ public record RoadmapTaskDto(
     String startDate,
     String dueDate,
     String priority,
+    String description,
     double position
 ) {
 }

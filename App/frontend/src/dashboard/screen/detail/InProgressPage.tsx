@@ -258,9 +258,11 @@ export function InProgressPage() {
                   <button onClick={() => setCommentTarget(task)} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-border bg-card text-foreground rounded-lg hover:bg-muted transition-colors">
                     <MessageSquare className="w-3.5 h-3.5" /> 댓글
                   </button>
+                  {/* "AI에게 질문" 기능 미사용 처리 (주석 처리)
                   <button onClick={() => openAIAssistant(`진행 중 업무 '${task.title}'을 점검해줘. 마지막 업데이트는 ${formatRelativeDate(task.updatedAt)}이고 ${statusDays}일째 현재 상태이며, 마감일은 ${formatDashboardDueDate(task.dueDate)}, 지연 위험도 예측값은 ${isDanger ? "위험" : isCaution ? "주의" : "정상"}이야. 다음 액션을 추천해줘.`)} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg ml-auto transition-opacity hover:opacity-80" style={{ background: "rgba(112,72,232,0.12)", color: "#7048E8" }}>
                     <Sparkles className="w-3.5 h-3.5" /> AI에게 질문
                   </button>
+                  */}
                 </div>
               </div>
             </div>

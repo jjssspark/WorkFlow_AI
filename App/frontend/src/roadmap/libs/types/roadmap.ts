@@ -16,6 +16,7 @@ export interface RoadmapTask {
   startDate: string | null;
   dueDate: string | null;
   priority: string | null;
+  description?: string | null;
   position: number;
 }
 

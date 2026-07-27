@@ -62,6 +62,10 @@ describe("daysSince / formatRelativeDate", () => {
     expect(daysSince("2026-07-18T12:00:00")).toBe(3);
   });
 
+  it("daysSince parses a date-only completion date as KST midnight", () => {
+    expect(daysSince("2026-07-18")).toBe(3);
+  });
+
   it("daysSince returns null when given null", () => {
     expect(daysSince(null)).toBeNull();
   });

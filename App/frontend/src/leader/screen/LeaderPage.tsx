@@ -1,8 +1,8 @@
 import { NavLink, Outlet } from "react-router";
 
 const TABS = [
-  { path: "completion-approvals", label: "완료승인 대기" },
   { path: "roadmap", label: "로드맵" },
+  { path: "completion-approvals", label: "완료승인 대기" },
 ];
 
 export function LeaderPage() {
