@@ -91,4 +91,19 @@ describe("usePendingApprovalCount", () => {
 
     expect(result.current).toBe(1);
   });
+
+  it("keeps the latest published count when the initial fetch fails afterward", async () => {
+    let rejectFetch: (error: Error) => void = () => {};
+    vi.mocked(fetchPendingApprovalTasks).mockReturnValue(
+      new Promise((_, reject) => { rejectFetch = reject; }),
+    );
+    const { result } = renderHook(() => usePendingApprovalCount(1));
+
+    act(() => publishPendingApprovalCount(1, 3));
+    expect(result.current).toBe(3);
+
+    act(() => rejectFetch(new Error("늦은 초기 조회 실패")));
+    await waitFor(() => expect(fetchPendingApprovalTasks).toHaveBeenCalled());
+    expect(result.current).toBe(3);
+  });
 });
