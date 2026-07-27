@@ -680,7 +680,8 @@ class MeetingAnalysisServiceTest {
         verify(taskRepository).clearSourceMeetingId(8L);
         verify(meetingRepository, never()).delete(any());
         verify(meetingAttendeeRepository, never()).deleteByMeetingId(any());
-        assertThat(meeting.getAnalysisStatus()).isEqualTo("failed");
+        // 분석이 실제로 실패한 "failed"와 구분해야 프론트가 분석/업로드 목록에서 뺄 수 있다.
+        assertThat(meeting.getAnalysisStatus()).isEqualTo("analysis_deleted");
         assertThat(meeting.getFilePath()).isEqualTo(file.toString());
         assertThat(meeting.getTranscript()).isEqualTo("원문 그대로 남아야 함");
         assertThat(Files.exists(file)).isTrue();
@@ -816,6 +817,25 @@ class MeetingAnalysisServiceTest {
         verify(meetingAnalysisJobPublisher).enqueue(eq(4L), eq(new AiAnalyzeRequest(
             "demo-project", "정기회의", meeting.getMeetingDate().toString(), "정기회의", "document", "x.txt", "재분석할 회의 내용", List.of()
         )), eq(meeting.getAnalysisJobId()), any());
+        Files.deleteIfExists(textFile);
+    }
+
+    // 분석 결과를 지운 회의록은 analysis_deleted 상태가 되는데, 여기서도 재분석이 가능해야 한다.
+    // retry()가 "failed"만 허용하면 사용자는 지운 뒤 다시 분석할 방법이 없어진다.
+    @Test
+    void retryAllowsMeetingWhoseAnalysisWasDeleted() throws Exception {
+        mockMember(1L);
+        Path textFile = Files.createTempFile("meeting-notes", ".txt");
+        Files.writeString(textFile, "재분석할 회의 내용");
+        Meeting meeting = new Meeting(1L, "정기회의", "document", textFile.toString(), "analysis_deleted", LocalDate.now(), "정기회의", "x.txt", null, 5L);
+        when(meetingRepository.findByIdAndProjectId(4L, 1L)).thenReturn(Optional.of(meeting));
+        when(meetingAttendeeRepository.findByMeetingId(4L)).thenReturn(List.of());
+        MeetingAnalysisService service = newService();
+
+        MeetingAnalysisResponse response = service.retry("demo-project", "4");
+
+        assertThat(response.status()).isEqualTo("PROCESSING");
+        assertThat(meeting.getAnalysisStatus()).isEqualTo("processing");
         Files.deleteIfExists(textFile);
     }
 

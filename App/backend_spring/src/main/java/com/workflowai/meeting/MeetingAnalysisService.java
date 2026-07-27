@@ -66,6 +66,9 @@ public class MeetingAnalysisService {
     private static final long OCR_SLOT_WAIT_SECONDS = 5;
     // 동시에 OCR을 도는 문서 수 제한. 없으면 업로드 몇 건만으로 CPU와 스레드가 모두 점유된다.
     private static final Semaphore OCR_SLOTS = new Semaphore(2);
+    // 분석 결과를 사용자가 지운 상태. 분석이 실제로 실패한 "failed"와 구분해야 프론트가
+    // 분석/업로드 목록에서 빼면서도 재분석 가능한 항목으로 다룰 수 있다.
+    static final String ANALYSIS_DELETED_STATUS = "analysis_deleted";
     // 전역 멀티파트 한도(100MB)보다 낮게 둔다 - STT 단계에서 파일 전체를 메모리에 올리므로(Files.readAllBytes),
     // 큐 워커의 OOM 위험을 줄이기 위해 오디오는 더 보수적인 한도를 별도로 둔다.
     private static final long MAX_AUDIO_FILE_SIZE_BYTES = 30L * 1024 * 1024;
@@ -279,7 +282,9 @@ public class MeetingAnalysisService {
         Meeting meeting = requireProjectMeeting(projectId, meetingId);
         if (meeting == null) return null;
         Long id = parseLongOrNull(meetingId);
-        if (!"failed".equals(meeting.getAnalysisStatus())) {
+        // 분석 결과를 지운 회의록(ANALYSIS_DELETED_STATUS)도 보존된 transcript로 재분석할 수 있어야 한다.
+        String analysisStatus = meeting.getAnalysisStatus();
+        if (!"failed".equals(analysisStatus) && !ANALYSIS_DELETED_STATUS.equals(analysisStatus)) {
             throw new IllegalStateException("MEETING_NOT_FAILED");
         }
 
@@ -560,7 +565,10 @@ public class MeetingAnalysisService {
             taskRepository.clearSourceMeetingId(meetingDbId);
         }
 
-        meeting.setAnalysisStatus("failed");
+        // "분석 실패"와 같은 값을 쓰면 프론트가 둘을 구분하지 못해, 분석 결과를 지운 회의록이
+        // '분석 실패'로 분석/업로드 목록에 그대로 남는다(새로고침해도 되살아난다).
+        // 재분석은 여전히 가능해야 하므로 retry()가 이 상태도 허용한다.
+        meeting.setAnalysisStatus(ANALYSIS_DELETED_STATUS);
         meetingRepository.save(meeting);
 
         runAfterCommit(() ->
