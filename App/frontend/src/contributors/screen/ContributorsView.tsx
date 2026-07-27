@@ -13,6 +13,7 @@ import {
   EyeOff,
   MessageSquare,
   RefreshCw,
+  RotateCcw,
   Search,
   ShieldCheck,
   Sparkles,
@@ -20,10 +21,12 @@ import {
 } from "lucide-react";
 import { fetchAttendanceSummary, type MeetingAttendanceSummaryDto } from "../../meetings/libs/utils/meetingAiApi";
 import { fetchContributionReport, fetchContributionScore, type MemberContributionDto, type ContributionMemberScoreDto } from "../libs/utils/contributorsApi";
+import { downloadCalculatorCsv } from "../libs/utils/calculatorCsv";
 import { fetchTasks } from "../../board/libs/utils/taskApi";
 import type { Task } from "../../board/libs/types/task";
 import {
   finalizeEvaluation,
+  unfinalizeEvaluation,
   getProject,
   getProjectMembers,
   type MemberResponse,
@@ -116,19 +119,25 @@ export function ContributorsView() {
     }
     getProject(currentProjectId).then(setProject).catch(() => setProject(null));
   }, [currentProjectId]);
-  // "평가 확정" 버튼 상태 — 클릭 시 finalize-evaluation 호출, 성공하면 project를 갱신해
-  // 배지가 "평가 중" → "평가 완료"로 즉시 바뀌게 한다.
+  // "평가 확정" / "평가 확정 취소" 버튼 상태 — 클릭 시 finalize/unfinalize-evaluation을
+  // 호출하고, 성공하면 project를 갱신해 배지가 즉시 바뀌게 한다. 이 토글은 심사자 홈의
+  // 진행 상태 표시(평가 중/공개 완료)만 전환하며, 팀원별 점수 공개 여부(공개 배지들)와는
+  // 완전히 독립적이다 — 심사자에 따라 점수를 아예 공개하지 않고 이 상태만 관리용으로
+  // 쓸 수도 있으므로 확인 팝업 없이 즉시 토글한다.
   const [isFinalizing, setIsFinalizing] = useState(false);
   const [finalizeError, setFinalizeError] = useState<string | null>(null);
-  const handleFinalizeEvaluation = async () => {
+  const handleToggleFinalize = async () => {
     if (currentProjectId == null) return;
+    const isPublishedNow = resolveEvalStatus(project?.evalStatus) === "PUBLISHED";
     setIsFinalizing(true);
     setFinalizeError(null);
     try {
-      const updated = await finalizeEvaluation(currentProjectId);
+      const updated = isPublishedNow
+        ? await unfinalizeEvaluation(currentProjectId)
+        : await finalizeEvaluation(currentProjectId);
       setProject(updated);
     } catch {
-      setFinalizeError("평가를 확정하지 못했습니다.");
+      setFinalizeError(isPublishedNow ? "평가 확정 취소에 실패했습니다." : "평가를 확정하지 못했습니다.");
     } finally {
       setIsFinalizing(false);
     }
@@ -513,6 +522,23 @@ export function ContributorsView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mergedReports, evaluationDrafts, contributionRatio, calculatorSort]);
 
+  // "CSV 저장" 버튼 — 학점 계산기 테이블(화면에 보이는 정렬 순서 그대로)을 CSV로 내려받는다.
+  // 서버 호출 없이 이미 렌더링된 calculatorRows/finalPublicFlags를 그대로 직렬화한다.
+  const handleDownloadCsv = () => {
+    downloadCalculatorCsv(
+      calculatorRows.map((row) => ({
+        name: row.name,
+        role: row.role,
+        score: row.score,
+        reviewerScore: row.draft.reviewerScore,
+        total: row.total,
+        grade: row.draft.grade,
+        isFinalPublic: finalPublicFlags[row.memberId] ?? false,
+      })),
+      project?.title ?? "프로젝트",
+    );
+  };
+
   return (
     <div
       className="h-full overflow-y-auto bg-background"
@@ -565,19 +591,35 @@ export function ContributorsView() {
               <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingReport ? "animate-spin" : ""}`} />
               {isRefreshingReport ? "새로고침 중..." : "리포트 새로고침"}
             </button>
-            <button className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border bg-card text-xs font-semibold text-foreground hover:bg-muted transition-colors">
-              <Download className="w-3.5 h-3.5" />
-              PDF 저장
-            </button>
             <button
               type="button"
-              onClick={handleFinalizeEvaluation}
-              disabled={isFinalizing || isPublished || currentProjectId == null}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={handleDownloadCsv}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border bg-card text-xs font-semibold text-foreground hover:bg-muted transition-colors"
             >
-              <CheckCircle2 className="w-3.5 h-3.5" />
-              {isFinalizing ? "확정 중..." : isPublished ? "평가 완료됨" : "평가 확정"}
+              <Download className="w-3.5 h-3.5" />
+              CSV 저장
             </button>
+            {isPublished ? (
+              <button
+                type="button"
+                onClick={handleToggleFinalize}
+                disabled={isFinalizing || currentProjectId == null}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border bg-card text-xs font-semibold text-foreground hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                {isFinalizing ? "취소 중..." : "평가 확정 취소"}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleToggleFinalize}
+                disabled={isFinalizing || currentProjectId == null}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                {isFinalizing ? "확정 중..." : "평가 확정"}
+              </button>
+            )}
           </div>
         </section>
 
