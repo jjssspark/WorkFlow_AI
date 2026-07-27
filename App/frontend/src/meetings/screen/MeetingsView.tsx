@@ -13,6 +13,7 @@ import { MeetingEditPanel } from "../components/MeetingEditPanel";
 import type { MeetingAiResult } from "../libs/types/meetingAiTypes";
 import { deleteTask, DEMO_PROJECT_ID } from "../../board/libs/utils/taskApi";
 import { useAuth } from "../../global/hooks/useAuth";
+import { useRecordingSession } from "../libs/hooks/RecordingSessionProvider";
 import type { ProjectRoleKo } from "../../global/api/authTypes";
 import { ApiRequestError } from "../../global/api/apiClient";
 import { getProjectMembers, type MemberResponse } from "../../global/api/projectsApi";
@@ -389,6 +390,7 @@ const buildMeetingFromAnalysisResponse = (
 
 export function MeetingsView() {
   const { currentProjectId, currentProject } = useAuth();
+  const { status: recordingStatus, startRecording } = useRecordingSession();
   const currentUserRole = deriveCurrentUserRole(currentProject?.role);
   const projectId = String(currentProjectId ?? DEMO_PROJECT_ID);
   const navigate = useNavigate();
@@ -2343,8 +2345,13 @@ export function MeetingsView() {
             style={{ background:"linear-gradient(135deg,#7048E8 0%,#4F6EF7 100%)" }}>
             <Upload className="w-4 h-4" />회의록 업로드
           </button>
-          <button className="p-2 rounded-lg border border-border bg-card hover:bg-muted transition-colors">
-            <Mic className="w-4 h-4 text-muted-foreground" />
+          <button
+            type="button"
+            onClick={startRecording}
+            disabled={recordingStatus === "recording" || recordingStatus === "requesting-permission"}
+            title="회의 녹음 시작"
+            className="p-2 rounded-lg border border-border bg-card hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+            <Mic className={`w-4 h-4 ${recordingStatus === "recording" ? "text-red-500" : "text-muted-foreground"}`} />
           </button>
         </div>
         <div className="flex-1 overflow-y-auto p-3 space-y-2">
