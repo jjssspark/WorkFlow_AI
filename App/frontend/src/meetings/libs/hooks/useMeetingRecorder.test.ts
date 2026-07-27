@@ -218,16 +218,70 @@ describe("useMeetingRecorder", () => {
     // unmount
     unmount();
 
-    // unmount 후 타이머가 동작하지 않아야 함
-    const previousElapsed = result.current.elapsedSeconds;
-    act(() => {
-      vi.advanceTimersByTime(2000);
-    });
-
-    // interval이 실제로 해제됐는지 검증 — 해제되지 않았다면 elapsedSeconds가 계속 증가한다
-    expect(result.current.elapsedSeconds).toBe(previousElapsed);
+    // interval이 실제로 해제됐는지 검증한다. 언마운트 뒤에는 result.current가 더 이상
+    // 갱신되지 않으므로 elapsedSeconds 비교로는 정리 실패를 잡을 수 없다 — 남은 타이머 수로 확인한다.
+    expect(vi.getTimerCount()).toBe(0);
 
     // 트랙이 stop 호출되었는지 확인
     expect(mockTrack.stop).toHaveBeenCalled();
+  });
+
+  it("종료 버튼을 연속으로 눌러 stop()이 겹쳐 호출돼도 녹음 내용이 유실되지 않는다", async () => {
+    // 실제 MediaRecorder는 stop() 시 state를 동기적으로 inactive로 바꾸고 onstop은 이후에 발화한다.
+    // 그 간극에 두 번째 stop()이 chunksRef를 비우면 첫 호출이 빈 Blob을 만든다.
+    class DeferredStopRecorder extends MockMediaRecorder {
+      stop() {
+        this.state = "inactive";
+        this.ondataavailable?.({ data: new Blob(["chunk"], { type: this.mimeType }) });
+        // 가짜 타이머는 queueMicrotask까지 가로채므로 네이티브 promise 마이크로태스크를 쓴다.
+        void Promise.resolve().then(() => this.onstop?.());
+      }
+    }
+    vi.stubGlobal("MediaRecorder", DeferredStopRecorder);
+
+    const { result } = renderHook(() => useMeetingRecorder());
+    await act(async () => {
+      await result.current.start();
+    });
+
+    let first: Awaited<ReturnType<typeof result.current.stop>> = null;
+    let second: Awaited<ReturnType<typeof result.current.stop>> = null;
+    await act(async () => {
+      const firstCall = result.current.stop();
+      const secondCall = result.current.stop();
+      [first, second] = await Promise.all([firstCall, secondCall]);
+    });
+
+    expect(second).toBeNull();
+    expect(first).not.toBeNull();
+    expect(first!.blob.size).toBeGreaterThan(0);
+  });
+
+  it("녹음 중 MediaRecorder 오류가 나면 마이크 트랙을 정리하고 다시 녹음할 수 있다", async () => {
+    const mockTrack = { stop: vi.fn() };
+    const getUserMedia = vi
+      .fn()
+      .mockResolvedValue({ getTracks: () => [mockTrack] } as unknown as MediaStream);
+    vi.stubGlobal("navigator", { ...globalThis.navigator, mediaDevices: { getUserMedia } });
+
+    const { result } = renderHook(() => useMeetingRecorder());
+    await act(async () => {
+      await result.current.start();
+    });
+
+    act(() => {
+      MockMediaRecorder.instances[MockMediaRecorder.instances.length - 1].onerror?.();
+    });
+
+    expect(result.current.status).toBe("error");
+    // 마이크가 꺼져야 브라우저 녹음 표시가 사라진다
+    expect(mockTrack.stop).toHaveBeenCalled();
+
+    // 오류 이후에도 잠기지 않고 새 스트림으로 다시 시작할 수 있어야 한다
+    await act(async () => {
+      await result.current.start();
+    });
+    expect(getUserMedia).toHaveBeenCalledTimes(2);
+    expect(result.current.status).toBe("recording");
   });
 });
