@@ -24,7 +24,6 @@ class NotificationBroadcasterTest {
         "내용",
         "task",
         "42",
-        "7",
         false,
         "2026-07-26T00:00:00Z");
   }

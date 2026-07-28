@@ -551,12 +551,8 @@ class MeetingAnalysisServiceTest {
 
         service.delete("demo-project", "12", false);
 
-        // 회의록 행은 방금 지워져 meetingId로는 소속 프로젝트를 되짚을 수 없다. 클라이언트가
-        // "지금 보고 있는 프로젝트의 알림"만 띄우려면 target이 프로젝트를 가리켜야 한다.
+        // targetType/targetId까지 검증해야 프론트가 "바로가기"를 붙일 수 있는 알림임이 보장된다.
         verify(notificationService).notifyAfterCommit(
-            eq(uploaderId), eq("MEETING_DELETED"), any(), any(), eq("project"), eq(1L));
-        verify(notificationService).notifyAfterCommit(
-            eq(51L), eq("MEETING_DELETED"), any(), any(), eq("project"), eq(1L));
             eq(uploaderId), eq(1L), eq("MEETING_DELETED"), any(), any(), eq("meeting"), eq(12L));
         verify(notificationService).notifyAfterCommit(
             eq(51L), eq(1L), eq("MEETING_DELETED"), any(), any(), eq("meeting"), eq(12L));

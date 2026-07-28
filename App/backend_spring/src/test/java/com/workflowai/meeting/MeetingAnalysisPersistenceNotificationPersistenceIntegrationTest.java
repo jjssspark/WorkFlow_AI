@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.workflowai.common.DemoDataService;
 import com.workflowai.notification.NotificationAsyncSender;
 import com.workflowai.notification.NotificationBroadcaster;
-import com.workflowai.notification.NotificationProjectResolver;
 import com.workflowai.notification.NotificationRepository;
 import com.workflowai.notification.NotificationService;
 import com.workflowai.project.ProjectMember;
@@ -68,9 +67,6 @@ class MeetingAnalysisPersistenceNotificationPersistenceIntegrationTest {
 
     @MockBean
     private NotificationBroadcaster notificationBroadcaster;
-
-    @MockBean
-    private NotificationProjectResolver notificationProjectResolver;
 
     private Long saveTestMeeting() {
         Meeting meeting = new Meeting(1L, "정기회의", "document", null, "processing", LocalDate.now(), "정기회의", "a.txt", 10L, null);

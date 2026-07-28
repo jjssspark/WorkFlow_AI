@@ -28,18 +28,15 @@ public class NotificationController {
     private final NotificationRepository notificationRepository;
     private final NotificationBroadcaster notificationBroadcaster;
     private final NotificationService notificationService;
-    private final NotificationProjectResolver projectResolver;
 
     public NotificationController(
         NotificationRepository notificationRepository,
         NotificationBroadcaster notificationBroadcaster,
-        NotificationService notificationService,
-        NotificationProjectResolver projectResolver
+        NotificationService notificationService
     ) {
         this.notificationRepository = notificationRepository;
         this.notificationBroadcaster = notificationBroadcaster;
         this.notificationService = notificationService;
-        this.projectResolver = projectResolver;
     }
 
     @Operation(summary = "내 알림 목록 조회", description = "현재 프로젝트의 알림을 최신순으로 최대 20건 조회합니다.")
@@ -52,7 +49,7 @@ public class NotificationController {
         List<NotificationDto> notifications = notificationRepository
             .findTop20ByUserIdAndProjectIdOrderByCreatedAtDesc(userId, projectId)
             .stream()
-            .map(n -> NotificationDto.from(n, projectResolver.resolve(n)))
+            .map(NotificationDto::from)
             .toList();
         return ResponseEntity.ok(ApiResponse.ok(notifications));
     }

@@ -24,18 +24,14 @@ class NotificationAsyncSenderTest {
     private PlatformTransactionManager transactionManager;
     @Mock
     private NotificationBroadcaster broadcaster;
-    @Mock
-    private NotificationProjectResolver projectResolver;
 
     private NotificationAsyncSender newSender() {
-        return new NotificationAsyncSender(notificationRepository, transactionManager, broadcaster, projectResolver);
+        return new NotificationAsyncSender(notificationRepository, transactionManager, broadcaster);
     }
 
     @Test
     void sendSafelyBroadcastsTheSavedNotificationToTheOwningUser() {
         when(notificationRepository.save(any(Notification.class))).thenAnswer(inv -> inv.getArgument(0));
-        // 클라이언트가 현재 보고 있는 프로젝트의 알림만 띄우려면 push payload에도 projectId가 있어야 한다.
-        when(projectResolver.resolve(any(Notification.class))).thenReturn(7L);
         NotificationAsyncSender sender = newSender();
 
         sender.sendSafely(5L, 42L, "TASK_ASSIGNED", "새 업무 배정", "'로그인 API' 업무가 배정되었습니다.", "task", 42L);
@@ -47,8 +43,6 @@ class NotificationAsyncSenderTest {
         assertThat(dto.title()).isEqualTo("새 업무 배정");
         assertThat(dto.targetType()).isEqualTo("task");
         assertThat(dto.targetId()).isEqualTo("42");
-        assertThat(dto.projectId()).isEqualTo("7");
-        verify(notificationRepository).deleteExcessByUserId(5L);
         verify(notificationRepository).deleteExcessByUserIdAndProjectId(5L, 42L);
     }
 

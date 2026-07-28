@@ -59,7 +59,6 @@ class NotificationControllerTest {
     private NotificationService notificationService;
 
     @MockitoBean
-    private NotificationProjectResolver notificationProjectResolver;
     private ProjectMemberRepository projectMemberRepository;
 
     @MockitoBean
@@ -85,10 +84,6 @@ class NotificationControllerTest {
     @Test
     void listsNotificationsForCurrentUser() throws Exception {
         authenticateAs(5L);
-        Notification n = new Notification(5L, "TASK_ASSIGNED", "새 업무 배정", "'로그인 API' 업무가 배정되었습니다.", "task", 42L);
-        when(notificationRepository.findTop20ByUserIdOrderByCreatedAtDesc(5L)).thenReturn(List.of(n));
-        // 클라이언트는 지금 보고 있는 프로젝트의 알림만 띄우므로 목록에도 projectId가 실려야 한다.
-        when(notificationProjectResolver.resolve(n)).thenReturn(7L);
         stubMember(1L, 5L, true);
         Notification n = new Notification(5L, 1L, "TASK_ASSIGNED", "새 업무 배정", "'로그인 API' 업무가 배정되었습니다.", "task", 42L);
         when(notificationRepository.findTop20ByUserIdAndProjectIdOrderByCreatedAtDesc(5L, 1L)).thenReturn(List.of(n));
@@ -97,8 +92,7 @@ class NotificationControllerTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.success").value(true))
             .andExpect(jsonPath("$.data[0].type").value("TASK_ASSIGNED"))
-            .andExpect(jsonPath("$.data[0].title").value("새 업무 배정"))
-            .andExpect(jsonPath("$.data[0].projectId").value("7"));
+            .andExpect(jsonPath("$.data[0].title").value("새 업무 배정"));
     }
 
     @Test
