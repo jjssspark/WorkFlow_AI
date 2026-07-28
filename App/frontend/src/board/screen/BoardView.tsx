@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import { DndProvider } from "react-dnd";
 import { HTML5Backend } from "react-dnd-html5-backend";
@@ -14,7 +14,7 @@ import { EditTaskModal } from "../components/EditTaskModal";
 import {
   fetchTasks, updateTaskPosition, deleteTask, requestTaskCompletion, cancelTaskCompletion, DEMO_PROJECT_ID,
 } from "../libs/utils/taskApi";
-import { NEXT_STATUS, quickMoveTargetStatus } from "../libs/utils/taskActions";
+import { NEXT_STATUS, quickMoveTargetStatus, runTaskMoveOnce } from "../libs/utils/taskActions";
 import { reorderTasks } from "../libs/utils/taskService";
 import { useAuth } from "../../global/hooks/useAuth";
 import { getProjectMembers, type MemberResponse } from "../../global/api/projectsApi";
@@ -41,6 +41,7 @@ export function BoardView() {
   const [toast, setToast] = useState<string | null>(null);
   const [workResultOpen, setWorkResultOpen] = useState(false);
   const [completionConfirmTaskId, setCompletionConfirmTaskId] = useState<string | null>(null);
+  const movingTaskIdsRef = useRef(new Set<string>());
 
   const selTask = selId ? tasks.find((t) => t.id === selId) ?? null : null;
 
@@ -150,18 +151,21 @@ export function BoardView() {
   // 업무를 targetStatus 컬럼의 insertAtIndex 위치로 옮긴다(같은 컬럼 안 재정렬 + 다른 컬럼으로 이동 모두 이 함수 하나로 처리).
   // 배열 재배치/position 계산 자체는 reorderTasks()에 위임하고, 여기서는 낙관적 업데이트 + API 호출 + 롤백만 담당한다.
   const moveTask = async (taskId: string, targetStatus: TaskStatus, insertAtIndex: number) => {
+    // 체크리스트 여러 항목을 빠르게 완료하면 상태 prop이 갱신되기 전에 자동 이동이 연속 호출될 수 있다.
+    // 동일 업무의 첫 이동 요청이 끝날 때까지 후속 요청을 막아 API와 알림이 중복 생성되지 않게 한다.
     const dragged = tasks.find((t) => t.id === taskId);
     const result = reorderTasks(tasks, taskId, targetStatus, insertAtIndex);
     if (!dragged || !result) return;
     const prevTasks = tasks;
-    setTasks(result.next);
-
-    try {
-      await updateTaskPosition(taskId, targetStatus, result.newPosition, projectId);
-    } catch {
-      setTasks(prevTasks);
-      showToast("이동에 실패했습니다. 다시 시도해주세요.");
-    }
+    await runTaskMoveOnce(movingTaskIdsRef.current, taskId, async () => {
+      setTasks(result.next);
+      try {
+        await updateTaskPosition(taskId, targetStatus, result.newPosition, projectId);
+      } catch {
+        setTasks(prevTasks);
+        showToast("이동에 실패했습니다. 다시 시도해주세요.");
+      }
+    });
   };
 
   const handleSelectTask = (id: string) => {

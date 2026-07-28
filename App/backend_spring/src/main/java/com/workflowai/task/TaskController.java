@@ -235,7 +235,7 @@ public class TaskController {
         @RequestBody TaskPositionUpdateRequest request
     ) {
         Long projectDbId = demoDataService.resolveProjectId(projectId);
-        Task task = taskRepository.findById(taskId).orElse(null);
+        Task task = taskRepository.findByIdForUpdate(taskId).orElse(null);
         if (task == null || !task.getProjectId().equals(projectDbId)) {
             return ResponseEntity.status(404).body(ApiResponse.fail("TASK_NOT_FOUND", "업무를 찾을 수 없습니다."));
         }

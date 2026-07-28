@@ -85,3 +85,22 @@ const QUICK_MOVE: Partial<Record<string, Partial<Record<TaskStatus, TaskStatus>>
 export function quickMoveTargetStatus(label: string, status: TaskStatus): TaskStatus | null {
   return QUICK_MOVE[label]?.[status] ?? null;
 }
+
+/**
+ * 같은 업무의 비동기 상태 이동을 한 번만 실행한다.
+ * 첫 요청이 끝나기 전에 들어온 후속 호출은 false를 반환하고 action을 실행하지 않는다.
+ */
+export async function runTaskMoveOnce(
+  movingTaskIds: Set<string>,
+  taskId: string,
+  action: () => Promise<void>,
+): Promise<boolean> {
+  if (movingTaskIds.has(taskId)) return false;
+  movingTaskIds.add(taskId);
+  try {
+    await action();
+    return true;
+  } finally {
+    movingTaskIds.delete(taskId);
+  }
+}

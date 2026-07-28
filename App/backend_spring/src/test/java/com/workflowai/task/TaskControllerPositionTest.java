@@ -100,7 +100,7 @@ class TaskControllerPositionTest {
     void memberCanMoveOwnTask() throws Exception {
         authenticateAs(3L);
         when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
-        when(taskRepository.findById(anyLong())).thenReturn(Optional.of(existingTask()));
+        when(taskRepository.findByIdForUpdate(anyLong())).thenReturn(Optional.of(existingTask()));
         when(projectMemberRepository.findByProjectIdAndUserId(1L, 3L))
             .thenReturn(Optional.of(new ProjectMember(1L, 3L, ProjectRole.MEMBER)));
         when(taskRepository.save(any(Task.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -116,7 +116,7 @@ class TaskControllerPositionTest {
     void memberCannotMoveOthersTask() throws Exception {
         authenticateAs(2L);
         when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
-        when(taskRepository.findById(anyLong())).thenReturn(Optional.of(existingTask()));
+        when(taskRepository.findByIdForUpdate(anyLong())).thenReturn(Optional.of(existingTask()));
         when(projectMemberRepository.findByProjectIdAndUserId(1L, 2L))
             .thenReturn(Optional.of(new ProjectMember(1L, 2L, ProjectRole.MEMBER)));
 
@@ -131,7 +131,7 @@ class TaskControllerPositionTest {
     void leaderCanMoveAnyonesTask() throws Exception {
         authenticateAs(1L);
         when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
-        when(taskRepository.findById(anyLong())).thenReturn(Optional.of(existingTask()));
+        when(taskRepository.findByIdForUpdate(anyLong())).thenReturn(Optional.of(existingTask()));
         when(projectMemberRepository.findByProjectIdAndUserId(1L, 1L))
             .thenReturn(Optional.of(new ProjectMember(1L, 1L, ProjectRole.LEADER)));
         when(taskRepository.save(any(Task.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -147,7 +147,7 @@ class TaskControllerPositionTest {
     void notifiesAssigneeAndLeadersOnStatusChange() throws Exception {
         authenticateAs(1L);
         when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
-        when(taskRepository.findById(anyLong())).thenReturn(Optional.of(existingTask()));
+        when(taskRepository.findByIdForUpdate(anyLong())).thenReturn(Optional.of(existingTask()));
         when(projectMemberRepository.findByProjectIdAndUserId(1L, 1L))
             .thenReturn(Optional.of(new ProjectMember(1L, 1L, ProjectRole.LEADER)));
         when(taskRepository.save(any(Task.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -169,7 +169,7 @@ class TaskControllerPositionTest {
     void leaderNotificationIncludesMemberNameTaskAndNewStatus() throws Exception {
         authenticateAs(3L);
         when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
-        when(taskRepository.findById(anyLong())).thenReturn(Optional.of(existingTask()));
+        when(taskRepository.findByIdForUpdate(anyLong())).thenReturn(Optional.of(existingTask()));
         when(projectMemberRepository.findByProjectIdAndUserId(1L, 3L))
             .thenReturn(Optional.of(new ProjectMember(1L, 3L, ProjectRole.MEMBER)));
         when(taskRepository.save(any(Task.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -197,6 +197,41 @@ class TaskControllerPositionTest {
     }
 
     @Test
+    void repeatedMoveToSameStatusCreatesOnlyOneLeaderNotification() throws Exception {
+        authenticateAs(3L);
+        Task task = existingTask();
+        when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
+        when(taskRepository.findByIdForUpdate(42L)).thenReturn(Optional.of(task));
+        when(projectMemberRepository.findByProjectIdAndUserId(1L, 3L))
+            .thenReturn(Optional.of(new ProjectMember(1L, 3L, ProjectRole.MEMBER)));
+        when(taskRepository.save(any(Task.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(projectMemberRepository.findAllByProjectId(1L)).thenReturn(List.of(
+            new ProjectMember(1L, 1L, ProjectRole.LEADER),
+            new ProjectMember(1L, 3L, ProjectRole.MEMBER)
+        ));
+        when(userRepository.findById(3L))
+            .thenReturn(Optional.of(new User("member@example.com", "김민준", "local", "member-3")));
+
+        for (int i = 0; i < 2; i++) {
+            mockMvc.perform(patch("/api/v1/projects/demo-project/tasks/42/position")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"status\":\"inprogress\",\"position\":1.0}"))
+                .andExpect(status().isOk());
+        }
+
+        verify(taskRepository, times(2)).findByIdForUpdate(42L);
+        verify(notificationService, times(1)).notifyAfterCommit(
+            eq(1L),
+            eq(1L),
+            eq("STATUS_CHANGED"),
+            eq("업무 상태가 변경되었습니다."),
+            eq("김민준님이 '원래 제목' 업무를 '진행 중' 상태로 변경했습니다."),
+            eq("task"),
+            any()
+        );
+    }
+
+    @Test
     void blocksMovingTaskWhilePendingApproval() throws Exception {
         // 완료 승인 대기 중인 업무는 팀장이라도 승인/반려/취소 전에는 이동할 수 없어야 한다 -
         // 그렇지 않으면 pendingApproval=true인 채로 status만 바뀌어 정합성이 깨진다.
@@ -204,7 +239,7 @@ class TaskControllerPositionTest {
         Task task = existingTask();
         task.requestCompletion();
         when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
-        when(taskRepository.findById(anyLong())).thenReturn(Optional.of(task));
+        when(taskRepository.findByIdForUpdate(anyLong())).thenReturn(Optional.of(task));
         when(projectMemberRepository.findByProjectIdAndUserId(1L, 1L))
             .thenReturn(Optional.of(new ProjectMember(1L, 1L, ProjectRole.LEADER)));
 
@@ -221,7 +256,7 @@ class TaskControllerPositionTest {
     void doesNotNotifyWhenStatusUnchanged() throws Exception {
         authenticateAs(3L);
         when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
-        when(taskRepository.findById(anyLong())).thenReturn(Optional.of(existingTask()));
+        when(taskRepository.findByIdForUpdate(anyLong())).thenReturn(Optional.of(existingTask()));
         when(projectMemberRepository.findByProjectIdAndUserId(1L, 3L))
             .thenReturn(Optional.of(new ProjectMember(1L, 3L, ProjectRole.MEMBER)));
         when(taskRepository.save(any(Task.class))).thenAnswer(inv -> inv.getArgument(0));

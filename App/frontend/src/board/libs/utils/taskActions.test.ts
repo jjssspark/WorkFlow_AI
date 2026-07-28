@@ -1,5 +1,11 @@
-import { describe, expect, it } from "vitest";
-import { STATUS_ACTIONS, visibleSecondaryActions, quickMoveTargetStatus, canMoveTask } from "./taskActions";
+import { describe, expect, it, vi } from "vitest";
+import {
+  STATUS_ACTIONS,
+  visibleSecondaryActions,
+  quickMoveTargetStatus,
+  canMoveTask,
+  runTaskMoveOnce,
+} from "./taskActions";
 import type { Task } from "../types/task";
 
 describe("visibleSecondaryActions", () => {
@@ -83,5 +89,26 @@ describe("canMoveTask", () => {
   it("blocks a non-leader with no known user id", () => {
     expect(canMoveTask(false, task, null)).toBe(false);
     expect(canMoveTask(false, task, undefined)).toBe(false);
+  });
+});
+
+describe("runTaskMoveOnce", () => {
+  it("같은 업무의 첫 요청이 끝나기 전에는 후속 action을 실행하지 않는다", async () => {
+    const movingTaskIds = new Set<string>();
+    let resolveFirst!: () => void;
+    const firstFinished = new Promise<void>((resolve) => {
+      resolveFirst = resolve;
+    });
+    const action = vi.fn().mockImplementation(() => firstFinished);
+
+    const first = runTaskMoveOnce(movingTaskIds, "42", action);
+    const duplicate = runTaskMoveOnce(movingTaskIds, "42", action);
+
+    await expect(duplicate).resolves.toBe(false);
+    expect(action).toHaveBeenCalledTimes(1);
+
+    resolveFirst();
+    await expect(first).resolves.toBe(true);
+    expect(movingTaskIds).not.toContain("42");
   });
 });

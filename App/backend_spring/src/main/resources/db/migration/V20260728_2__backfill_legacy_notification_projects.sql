@@ -9,35 +9,6 @@ WHERE project_id IS NULL
   AND target_type = 'project'
   AND target_id IS NOT NULL;
 
--- 알림 생성 당시 가입해 있던 프로젝트가 정확히 하나였으면 해당 프로젝트로 안전하게 역산할 수 있다.
-UPDATE notifications n
-SET project_id = candidate.project_id
-FROM (
-    SELECT n2.id AS notification_id, MIN(pm.project_id) AS project_id
-    FROM notifications n2
-    JOIN project_members pm
-      ON pm.user_id = n2.user_id
-     AND pm.created_at <= n2.created_at
-    WHERE n2.project_id IS NULL
-    GROUP BY n2.id
-    HAVING COUNT(DISTINCT pm.project_id) = 1
-) candidate
-WHERE n.id = candidate.notification_id
-  AND n.project_id IS NULL;
-
--- 가입 시각 정보만으로 판단할 수 없더라도 현재 소속 프로젝트가 하나뿐이면 오귀속 가능성이 없다.
-UPDATE notifications n
-SET project_id = candidate.project_id
-FROM (
-    SELECT n2.id AS notification_id, MIN(pm.project_id) AS project_id
-    FROM notifications n2
-    JOIN project_members pm ON pm.user_id = n2.user_id
-    WHERE n2.project_id IS NULL
-    GROUP BY n2.id
-    HAVING COUNT(DISTINCT pm.project_id) = 1
-) candidate
-WHERE n.id = candidate.notification_id
-  AND n.project_id IS NULL;
-
--- 여러 프로젝트 중 어느 것인지 결정할 근거가 없는 행은 NULL로 보존한다.
--- 임의 귀속하면 다른 프로젝트 화면에 잘못된 알림을 노출하므로 삭제하거나 추정하지 않는다.
+-- project_members는 탈퇴 이력을 보존하지 않으므로 현재/생성 당시 소속 프로젝트 수만으로는
+-- 과거 알림의 프로젝트를 안전하게 추론할 수 없다. 원본 target으로 확정할 수 없는 행은
+-- NULL로 보존하며, 임의 귀속하거나 삭제하지 않는다.
