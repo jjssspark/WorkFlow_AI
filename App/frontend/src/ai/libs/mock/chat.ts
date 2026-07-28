@@ -4,7 +4,7 @@ export function buildChatInit(userName: string): ChatMsg[] {
   return [
     {
       role: "assistant",
-      content: `안녕하세요 ${userName}님! WorkFlow AI 어시스턴트입니다.\n\n현재 프로젝트에 대해 무엇이든 물어보세요. 회의록, 업무, 일정, GitHub 기록을 바탕으로 답변드릴게요.`,
+      content: `안녕하세요 ${userName}님! WorkFlow AI 어시스턴트입니다.\n\n현재 프로젝트에 대해 무엇이든 물어보세요. 회의록, 업무, 일정을 바탕으로 답변드릴게요.`,
     },
   ];
 }
