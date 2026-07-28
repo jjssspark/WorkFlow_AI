@@ -9,4 +9,6 @@ public interface ActivityRepository extends JpaRepository<Activity, Long> {
     List<Activity> findTop50ByProjectIdOrderByCreatedAtDesc(Long projectId);
 
     List<Activity> findByTargetIdOrderByCreatedAtDesc(Long targetId);
+
+    List<Activity> findTop10ByActorIdAndTypeInOrderByCreatedAtDesc(Long actorId, List<String> types);
 }
