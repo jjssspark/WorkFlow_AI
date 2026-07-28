@@ -39,8 +39,17 @@ import org.junit.jupiter.api.Test;
  * 그러면 확인 카드가 화면에서 사라지는데 서버 로그에는 아무것도 남지 않는다. 사용자에게는
  * "어시스턴트가 갑자기 아무것도 못 하게 됨"으로 보인다.
  *
- * <p>기대 필드명의 출처는 llm_rag_assistant/app/schema/assistant_schema.py다. 상수로 못
- * 박아둔 것은 한쪽만 고칠 때 이 테스트가 실패해 반대편을 상기시키게 하기 위해서다.
+ * <p>기대 필드명의 출처는 llm_rag_assistant/app/schema/assistant_schema.py다. 스키마 파일을
+ * 여기서 파싱하는 대신 상수로 복제했는데, 그것만으로는 한쪽 방향의 드리프트를 못 잡는다.
+ * 파이썬 스키마만 고치면 이 테스트는 자기 상수와 비교하므로 그대로 통과한다.
+ *
+ * <p>그래서 <b>같은 필드 집합을 파이썬 쪽에도 못 박아 두었다.</b> 한쪽만 고치면 반대편이
+ * 깨져 나머지 한쪽을 상기시킨다.
+ *
+ * <pre>
+ *   backend_fastapi/tests/llm_rag_assistant/test_assistant_router_graph_integration.py
+ *     test_wire_field_names_match_what_spring_sends_and_reads
+ * </pre>
  */
 class FastApiAssistantClientWireContractTest {
 

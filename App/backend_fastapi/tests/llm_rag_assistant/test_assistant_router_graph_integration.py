@@ -30,6 +30,7 @@ IT-032 명세가 요구하는 것이 정확히 이 문장이다.
 from __future__ import annotations
 
 import pytest
+import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from langgraph.checkpoint.memory import InMemorySaver
 
@@ -57,13 +58,16 @@ def _fake_embedding(text: str) -> list[float]:
     return vector
 
 
-@pytest.fixture
-def assistant_client(pgvector_pool, monkeypatch):
+@pytest_asyncio.fixture
+async def assistant_client(pgvector_pool, monkeypatch):
     """실제 그래프·실제 DB에 연결된 어시스턴트 엔드포인트 클라이언트."""
 
     async def _override_pool():
         yield pgvector_pool
 
+    # clear()로 끝내면 app이 프로세스 전역이라 다른 모듈이 걸어둔 override까지 지운다.
+    # 이 픽스처가 실패로 중단돼도 원래 상태로만 되돌리도록 스냅샷을 뜬다.
+    original_overrides = dict(app.dependency_overrides)
     app.dependency_overrides[get_pool] = _override_pool
     app.dependency_overrides[verify_internal_api_key] = lambda: None
 
@@ -82,9 +86,13 @@ def assistant_client(pgvector_pool, monkeypatch):
     monkeypatch.setattr(task_resolver, "embed_text", _embed)
     monkeypatch.setattr(ingestion_service, "embed_text", _embed)
 
-    yield AsyncClient(transport=ASGITransport(app=app), base_url="http://assistant-graph-test")
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://assistant-graph-test"
+    ) as client:
+        yield client
 
     app.dependency_overrides.clear()
+    app.dependency_overrides.update(original_overrides)
 
 
 def _plan(*actions):
@@ -114,8 +122,18 @@ async def _create_project(pool, title: str) -> int:
         )
 
 
+def _ok(response):
+    """200이 아니면 여기서 끊는다.
+
+    본문만 보고 넘어가면 422(스키마 불일치)나 500(그래프 예외)이 "키가 없다"는
+    엉뚱한 KeyError로 둔갑해, 진짜 원인이 응답 본문에 적혀 있는데도 안 보인다.
+    """
+    assert response.status_code == 200, f"{response.status_code}: {response.text}"
+    return response.json()
+
+
 async def _command(client: AsyncClient, project_id: int, question: str, role: str = "LEADER"):
-    return await client.post(
+    return _ok(await client.post(
         "/ai/assistant/command",
         json={
             "project_id": project_id,
@@ -124,14 +142,51 @@ async def _command(client: AsyncClient, project_id: int, question: str, role: st
             "user_role": role,
             "history": [],
         },
-    )
+    ))
 
 
 async def _resume(client: AsyncClient, thread_id: str, step_id: str, ok: bool = True, error=None):
-    return await client.post(
+    return _ok(await client.post(
         "/ai/assistant/resume",
         json={"thread_id": thread_id, "step_id": step_id, "ok": ok, "error": error},
+    ))
+
+
+def test_wire_field_names_match_what_spring_sends_and_reads() -> None:
+    """스프링 쪽 계약 테스트가 못 박아 둔 필드명을 이쪽에서도 못 박는다.
+
+    FastApiAssistantClientWireContractTest는 자바가 만든 JSON을 자바 상수와 비교한다.
+    그것만으로는 한쪽 방향의 드리프트를 못 잡는다. 여기 스키마를 고치고 자바를 안 고치면
+    자바 테스트는 그대로 통과한다(자기 상수와 비교하니까). 그 반대도 마찬가지다.
+
+    그래서 같은 필드 집합을 양쪽에 각각 못 박는다. 한쪽만 고치면 반대편 테스트가 깨져
+    나머지 한쪽을 상기시킨다. 스키마 파일을 자바가 파싱하게 만드는 것보다 이쪽이 싸고,
+    "두 파일을 같이 고쳐야 한다"는 사실 자체를 실패 메시지로 알려준다.
+
+    두 파일은 서로를 주석으로 가리킨다:
+      backend_spring/src/test/java/com/workflowai/assistant/FastApiAssistantClientWireContractTest.java
+    """
+    from llm_rag_assistant.app.schema.assistant_schema import (
+        ActionCard,
+        AssistantCommandRequest,
+        AssistantResponse,
+        AssistantResumeRequest,
     )
+
+    # 나가는 방향 - 이름이 어긋나면 FastAPI가 422로 거부한다(스프링에서 503으로 위장됨).
+    assert set(AssistantCommandRequest.model_fields) == {
+        "project_id", "question", "user_id", "user_role", "history",
+    }
+    assert set(AssistantResumeRequest.model_fields) == {"thread_id", "step_id", "ok", "error"}
+
+    # 돌아오는 방향 - 이름이 어긋나도 예외가 없다. 스프링에서 조용히 null이 되어
+    # 확인 카드만 화면에서 사라진다.
+    assert set(AssistantResponse.model_fields) == {
+        "type", "message", "sources", "thread_id", "card",
+    }
+    assert set(ActionCard.model_fields) == {
+        "step_id", "tool", "task_id", "title", "summary", "args",
+    }
 
 
 @pytest.mark.asyncio
@@ -151,12 +206,10 @@ async def test_command_returns_a_confirm_card_and_resume_completes_it(
         _plan(_action("set_due_date", "결제 모듈 구현", date="2026-07-29")),
     )
 
-    command_response = await _command(
+    body = await _command(
         assistant_client, project_id, "결제 모듈 구현 업무 마감을 내일로 바꿔줘"
     )
 
-    assert command_response.status_code == 200
-    body = command_response.json()
     assert body["type"] == "confirm"
     card = body["card"]
     assert card is not None, "확인 카드가 없으면 프론트가 실행 버튼을 띄울 수 없다"
@@ -167,10 +220,8 @@ async def test_command_returns_a_confirm_card_and_resume_completes_it(
     assert body["thread_id"]
 
     # 프론트가 Spring API로 실제 변경을 마치고 성공을 알려오는 지점이다.
-    resume_response = await _resume(assistant_client, body["thread_id"], card["step_id"])
+    resumed = await _resume(assistant_client, body["thread_id"], card["step_id"])
 
-    assert resume_response.status_code == 200
-    resumed = resume_response.json()
     assert resumed["type"] == "done"
     assert resumed["message"] == "1개 작업을 완료했습니다."
     assert resumed["card"] is None
@@ -200,18 +251,18 @@ async def test_each_step_of_a_multi_action_plan_needs_its_own_confirmation(
         ),
     )
 
-    first = (await _command(
+    first = await _command(
         assistant_client, project_id, "제목을 결제 연동 검수로 바꾸고 마감을 내일로 바꿔줘"
-    )).json()
+    )
     assert first["type"] == "confirm"
     assert first["card"]["tool"] == "rename_task"
 
-    second = (await _resume(assistant_client, first["thread_id"], first["card"]["step_id"])).json()
+    second = await _resume(assistant_client, first["thread_id"], first["card"]["step_id"])
     assert second["type"] == "confirm", "두 번째 단계도 승인을 다시 받아야 한다"
     assert second["card"]["tool"] == "set_due_date"
     assert second["card"]["step_id"] != first["card"]["step_id"]
 
-    final = (await _resume(assistant_client, first["thread_id"], second["card"]["step_id"])).json()
+    final = await _resume(assistant_client, first["thread_id"], second["card"]["step_id"])
     assert final["type"] == "done"
     assert final["message"] == "2개 작업을 완료했습니다."
 
@@ -238,16 +289,16 @@ async def test_member_role_from_the_request_body_blocks_the_card(
         _plan(_action("set_due_date", "결제 모듈 구현", date="2026-07-29")),
     )
 
-    blocked = (await _command(
+    blocked = await _command(
         assistant_client, project_id, "결제 모듈 구현 업무 마감을 내일로 바꿔줘", role="MEMBER"
-    )).json()
+    )
 
     assert blocked["type"] == "done"
     assert blocked["card"] is None
 
-    allowed = (await _command(
+    allowed = await _command(
         assistant_client, project_id, "결제 모듈 구현 업무 마감을 내일로 바꿔줘", role="LEADER"
-    )).json()
+    )
 
     assert allowed["type"] == "confirm"
     assert allowed["card"] is not None
