@@ -38,7 +38,15 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const dispatchTaskMove = useCallback((event: TaskMoveEvent) => {
-    taskMoveListenersRef.current.forEach((listener) => listener(event));
+    // 한 리스너가 throw 하면 Set.forEach가 중단되어 이후 리스너가 이벤트를 못 받고, 예외가
+    // SSE 스트림 처리 코드까지 전파된다. 리스너별로 격리해서 나머지는 항상 호출되도록 한다.
+    taskMoveListenersRef.current.forEach((listener) => {
+      try {
+        listener(event);
+      } catch (error) {
+        console.error("task-move 리스너 처리 중 오류", error);
+      }
+    });
   }, []);
 
   // 60초 폴백 폴링(refreshUnreadCount) 중에 프로젝트를 전환하면, 이전 프로젝트로 나간 요청이

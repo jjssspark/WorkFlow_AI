@@ -218,4 +218,50 @@ describe("NotificationProvider", () => {
 
     expect(getByTestId("stream-connected").textContent).toBe("true");
   });
+
+  it("연결된 상태에서 얼리리턴 조건(비로그인)이 되면 isStreamConnected가 다시 false가 된다", async () => {
+    mockUseAuth.mockReturnValue(authenticatedAuth());
+    const { getByTestId, rerender } = render(<NotificationProvider><Probe /></NotificationProvider>);
+    await waitFor(() => expect(subscribeNotificationStream).toHaveBeenCalled());
+
+    act(() => {
+      streamHandlers!.onConnectedChange?.(true);
+    });
+    expect(getByTestId("stream-connected").textContent).toBe("true");
+
+    // 연결되어 있던 도중 로그아웃 등으로 effect가 얼리리턴하면, 남아있던 true가 아니라
+    // 반드시 false로 리셋되어야 한다.
+    mockUseAuth.mockReturnValue({ isAuthenticated: false });
+    rerender(<NotificationProvider><Probe /></NotificationProvider>);
+
+    expect(getByTestId("stream-connected").textContent).toBe("false");
+  });
+
+  it("리스너 중 하나가 예외를 던져도 이후 등록된 다른 리스너는 정상적으로 이벤트를 받는다", async () => {
+    mockUseAuth.mockReturnValue(authenticatedAuth());
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const throwingListener = vi.fn(() => {
+      throw new Error("boom");
+    });
+    const okListener = vi.fn();
+
+    render(
+      <NotificationProvider>
+        <Probe onTaskMoveEvents={throwingListener} />
+        <Probe onTaskMoveEvents={okListener} />
+      </NotificationProvider>
+    );
+    await waitFor(() => expect(subscribeNotificationStream).toHaveBeenCalled());
+
+    const event: TaskMoveEvent = { taskId: "42", projectId: String(CURRENT_PROJECT_ID), status: "inprogress", position: 1 };
+    act(() => {
+      streamHandlers!.onTaskMove?.(event);
+    });
+
+    expect(throwingListener).toHaveBeenCalledWith(event);
+    expect(okListener).toHaveBeenCalledWith(event);
+    expect(consoleErrorSpy).toHaveBeenCalled();
+
+    consoleErrorSpy.mockRestore();
+  });
 });
