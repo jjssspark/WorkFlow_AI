@@ -26,10 +26,19 @@ allowed_status='^A[[:space:]]'
 # 여부와 무관하게 이 고정된 목록만 허용해, "guard 도입 이전 base면 rename을 통째로
 # 허용" 같은 정책 우회 여지를 남기지 않는다. source 파일들은 이미 merge되어 더 이상
 # base에 존재하지 않으므로 이 예외를 다시 악용할 수 없다.
+#
+# 20260728_1: 두 브랜치가 독립적으로 V20260728_2를 잡아(backfill_legacy_notification_projects,
+# notifications_delete_orphaned_null_project_id) 같은 문제가 재발했다. 파일명 순서와 무관하게
+# 실행 순서 의존성이 있다 - delete_orphaned는 "백필 이후에도 NULL로 남는 행"을 지우는데,
+# target_type='project' 행을 채우는 쪽은 backfill_legacy다. delete가 backfill보다 먼저 돌면
+# 채워질 기회가 있던 행까지 지워진다. backfill을 20260728_2에 그대로 두고 delete만
+# 20260728_3으로 옮겨, backfill 다음에 실행되도록 한다. 두 파일 모두 flyway_schema_history에
+# 아직 기록되지 않아(운영 DB에는 20260728.1까지만 적용됨) 순서 변경이 안전하다.
 approved_renames=(
   "R100	$migration_dir/V20260726_1__rag_assignee_sync_failures.sql	$migration_dir/V20260727_1__rag_assignee_sync_failures.sql"
   "R100	$migration_dir/V20260726_2__task_done_date.sql	$migration_dir/V20260727_2__task_done_date.sql"
   "R100	$migration_dir/V20260726_3__user_profile_and_agreements.sql	$migration_dir/V20260727_3__user_profile_and_agreements.sql"
+  "R100	$migration_dir/V20260728_2__notifications_delete_orphaned_null_project_id.sql	$migration_dir/V20260728_3__notifications_delete_orphaned_null_project_id.sql"
 )
 
 is_approved_rename() {
