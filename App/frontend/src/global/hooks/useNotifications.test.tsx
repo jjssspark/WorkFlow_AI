@@ -151,6 +151,24 @@ describe("NotificationProvider", () => {
     expect(toast.custom).toHaveBeenCalledOnce();
   });
 
+  /**
+   * 응답에 projectId 필드가 아예 없는 경우(구버전 백엔드, 직렬화 변경)에도 null과 똑같이
+   * 다뤄야 한다. 과거 === null 비교라 undefined가 걸러져, 알림이 조용히 전부 사라졌다.
+   */
+  it("projectId 필드가 없는 알림도 그대로 띄운다", async () => {
+    mockUseAuth.mockReturnValue({ isAuthenticated: true });
+    render(<NotificationProvider><Probe /></NotificationProvider>);
+    await waitFor(() => expect(subscribeNotificationStream).toHaveBeenCalled());
+
+    const withoutProjectId = { ...sampleNotification(), id: "89" };
+    delete (withoutProjectId as Partial<NotificationResponse>).projectId;
+    act(() => {
+      streamHandlers!.onNotification(withoutProjectId as NotificationResponse);
+    });
+
+    expect(toast.custom).toHaveBeenCalledOnce();
+  });
+
   it("진입 화면에서 놓친 알림을 프로젝트에 들어온 뒤 띄운다", async () => {
     mockUseAuth.mockReturnValue({ isAuthenticated: true });
     fetchNotifications.mockResolvedValue(notificationsOf(2));

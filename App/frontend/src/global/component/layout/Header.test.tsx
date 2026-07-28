@@ -155,7 +155,7 @@ describe("Header 알림", () => {
     expect(markNotificationsRead).not.toHaveBeenCalled();
 
     resolveFetch!([
-      { id: "1", type: "TASK_ASSIGNED", title: "제목", content: null, targetType: null, targetId: null, read: false, createdAt: new Date().toISOString() },
+      { id: "1", type: "TASK_ASSIGNED", title: "제목", content: null, targetType: null, targetId: null, projectId: null, read: false, createdAt: new Date().toISOString() },
     ]);
     await waitFor(() => expect(markNotificationsRead).toHaveBeenCalledWith(["1"]));
   });
@@ -174,7 +174,7 @@ describe("Header 알림", () => {
     const refreshUnreadCount = vi.fn();
     mockUseNotifications.mockReturnValue({ unreadCount: 3, refreshUnreadCount });
     vi.mocked(fetchNotifications).mockResolvedValue([
-      { id: "1", type: "TASK_ASSIGNED", title: "제목", content: null, targetType: null, targetId: null, read: false, createdAt: new Date().toISOString() },
+      { id: "1", type: "TASK_ASSIGNED", title: "제목", content: null, targetType: null, targetId: null, projectId: null, read: false, createdAt: new Date().toISOString() },
     ]);
     vi.mocked(markNotificationsRead).mockRejectedValue(new Error("network error"));
 
@@ -189,7 +189,7 @@ describe("Header 알림", () => {
 
   it("액션필요 알림에는 바로가기 버튼이 보이고 클릭 시 meetingId로 이동한다", async () => {
     vi.mocked(fetchNotifications).mockResolvedValue([
-      { id: "1", type: "MEETING_SAVED_NOTIFY_LEADER", title: "회의록이 저장됐습니다", content: null, targetType: "meeting", targetId: "7", read: false, createdAt: new Date().toISOString() },
+      { id: "1", type: "MEETING_SAVED_NOTIFY_LEADER", title: "회의록이 저장됐습니다", content: null, targetType: "meeting", targetId: "7", projectId: null, read: false, createdAt: new Date().toISOString() },
     ]);
     vi.mocked(markNotificationsRead).mockResolvedValue(undefined);
 
@@ -204,7 +204,7 @@ describe("Header 알림", () => {
 
   it("수정 알림(MEETING_EDITED)에도 바로가기 버튼이 보이고 클릭 시 meetingId로 이동한다", async () => {
     vi.mocked(fetchNotifications).mockResolvedValue([
-      { id: "1", type: "MEETING_EDITED", title: "회의록을 수정했습니다", content: null, targetType: "meeting", targetId: "9", read: false, createdAt: new Date().toISOString() },
+      { id: "1", type: "MEETING_EDITED", title: "회의록을 수정했습니다", content: null, targetType: "meeting", targetId: "9", projectId: null, read: false, createdAt: new Date().toISOString() },
     ]);
     vi.mocked(markNotificationsRead).mockResolvedValue(undefined);
 
@@ -219,7 +219,7 @@ describe("Header 알림", () => {
 
   it("액션불필요 알림에는 바로가기 버튼이 없다", async () => {
     vi.mocked(fetchNotifications).mockResolvedValue([
-      { id: "1", type: "MEETING_SAVED", title: "회의록이 저장됐습니다", content: null, targetType: "meeting", targetId: "7", read: false, createdAt: new Date().toISOString() },
+      { id: "1", type: "MEETING_SAVED", title: "회의록이 저장됐습니다", content: null, targetType: "meeting", targetId: "7", projectId: null, read: false, createdAt: new Date().toISOString() },
     ]);
     vi.mocked(markNotificationsRead).mockResolvedValue(undefined);
 
@@ -232,7 +232,7 @@ describe("Header 알림", () => {
 
   it("평가 공개 알림(evaluation)에도 바로가기 버튼이 보이고 클릭 시 마이페이지로 이동한다", async () => {
     vi.mocked(fetchNotifications).mockResolvedValue([
-      { id: "1", type: "CONTRIBUTION_SCORE_PUBLISHED", title: "기여도 점수가 공개되었습니다.", content: "심사자가 '캡스톤디자인 2024' 프로젝트의 기여도 점수를 공개했습니다.", targetType: "evaluation", targetId: "5", read: false, createdAt: new Date().toISOString() },
+      { id: "1", type: "CONTRIBUTION_SCORE_PUBLISHED", title: "기여도 점수가 공개되었습니다.", content: "심사자가 '캡스톤디자인 2024' 프로젝트의 기여도 점수를 공개했습니다.", targetType: "evaluation", targetId: "5", projectId: null, read: false, createdAt: new Date().toISOString() },
     ]);
     vi.mocked(markNotificationsRead).mockResolvedValue(undefined);
 
@@ -249,7 +249,7 @@ describe("Header 알림", () => {
   // 내용이 없고, 전체 삭제된 회의록은 딥링크 대상 자체가 사라진다.
   it("분석 결과 삭제 알림에는 바로가기 버튼이 없다", async () => {
     vi.mocked(fetchNotifications).mockResolvedValue([
-      { id: "1", type: "MEETING_ANALYSIS_DELETED", title: "회의록 분석 결과가 삭제되었습니다", content: "김민준님이 '정기회의' 회의록의 분석 결과를 삭제했습니다. (등록된 업무는 유지됨)", targetType: "meeting", targetId: "7", read: false, createdAt: new Date().toISOString() },
+      { id: "1", type: "MEETING_ANALYSIS_DELETED", title: "회의록 분석 결과가 삭제되었습니다", content: "김민준님이 '정기회의' 회의록의 분석 결과를 삭제했습니다. (등록된 업무는 유지됨)", targetType: "meeting", targetId: "7", projectId: null, read: false, createdAt: new Date().toISOString() },
     ]);
     vi.mocked(markNotificationsRead).mockResolvedValue(undefined);
 
@@ -263,7 +263,7 @@ describe("Header 알림", () => {
 
   it("회의록 삭제 알림에도 바로가기 버튼이 없다", async () => {
     vi.mocked(fetchNotifications).mockResolvedValue([
-      { id: "1", type: "MEETING_DELETED", title: "회의록이 삭제되었습니다", content: "김민준님이 '정기회의' 회의록을 삭제했습니다. (등록된 업무는 유지됨)", targetType: "project", targetId: "1", read: false, createdAt: new Date().toISOString() },
+      { id: "1", type: "MEETING_DELETED", title: "회의록이 삭제되었습니다", content: "김민준님이 '정기회의' 회의록을 삭제했습니다. (등록된 업무는 유지됨)", targetType: "project", targetId: "1", projectId: null, read: false, createdAt: new Date().toISOString() },
     ]);
     vi.mocked(markNotificationsRead).mockResolvedValue(undefined);
 

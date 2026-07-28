@@ -58,7 +58,11 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   const belongsToActiveProject = useCallback((notification: NotificationResponse) => {
     const activeId = activeProjectIdRef.current;
     if (activeId === null) return false;
-    return notification.projectId === null || Number(notification.projectId) === activeId;
+    // == null로 undefined까지 받는다. 응답에 projectId 필드가 아예 없으면(구버전 백엔드나
+    // 직렬화 변경) === null은 false가 되고 Number(undefined)는 NaN이라 어떤 프로젝트와도
+    // 일치하지 않는다. 그러면 "프로젝트에 매이지 않은 알림은 그대로 띄운다"는 의도가 정반대로
+    // 뒤집혀 알림이 통째로 사라진다.
+    return notification.projectId == null || Number(notification.projectId) === activeId;
   }, []);
 
   const showToast = useCallback((notification: NotificationResponse) => {
