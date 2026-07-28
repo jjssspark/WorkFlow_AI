@@ -93,22 +93,44 @@ describe("canMoveTask", () => {
 });
 
 describe("runTaskMoveOnce", () => {
-  it("같은 업무의 첫 요청이 끝나기 전에는 후속 action을 실행하지 않는다", async () => {
-    const movingTaskIds = new Set<string>();
+  it("같은 업무를 같은 목적지로 옮기는 중복 요청은 첫 요청이 끝나기 전에는 실행하지 않는다", async () => {
+    const movingMoves = new Set<string>();
     let resolveFirst!: () => void;
     const firstFinished = new Promise<void>((resolve) => {
       resolveFirst = resolve;
     });
     const action = vi.fn().mockImplementation(() => firstFinished);
 
-    const first = runTaskMoveOnce(movingTaskIds, "42", action);
-    const duplicate = runTaskMoveOnce(movingTaskIds, "42", action);
+    const first = runTaskMoveOnce(movingMoves, "42", "inprogress", action);
+    const duplicate = runTaskMoveOnce(movingMoves, "42", "inprogress", action);
 
     await expect(duplicate).resolves.toBe(false);
     expect(action).toHaveBeenCalledTimes(1);
 
     resolveFirst();
     await expect(first).resolves.toBe(true);
-    expect(movingTaskIds).not.toContain("42");
+    expect(movingMoves.size).toBe(0);
+  });
+
+  it("같은 업무라도 목적지가 다르면 첫 요청이 끝나기 전이어도 폐기하지 않고 실행한다", async () => {
+    const movingMoves = new Set<string>();
+    let resolveFirst!: () => void;
+    const firstFinished = new Promise<void>((resolve) => {
+      resolveFirst = resolve;
+    });
+    const firstAction = vi.fn().mockImplementation(() => firstFinished);
+    const secondAction = vi.fn().mockResolvedValue(undefined);
+
+    const first = runTaskMoveOnce(movingMoves, "42", "inprogress", firstAction);
+    const second = runTaskMoveOnce(movingMoves, "42", "blocked", secondAction);
+
+    await expect(second).resolves.toBe(true);
+    expect(secondAction).toHaveBeenCalledTimes(1);
+    // 두 번째(다른 목적지) 요청이 끝났어도, 아직 진행 중인 첫 요청의 가드는 남아 있어야 한다.
+    expect(movingMoves.has("42:inprogress")).toBe(true);
+
+    resolveFirst();
+    await expect(first).resolves.toBe(true);
+    expect(movingMoves.size).toBe(0);
   });
 });

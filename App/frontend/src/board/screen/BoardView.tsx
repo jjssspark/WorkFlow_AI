@@ -157,7 +157,7 @@ export function BoardView() {
     const result = reorderTasks(tasks, taskId, targetStatus, insertAtIndex);
     if (!dragged || !result) return;
     const prevTasks = tasks;
-    await runTaskMoveOnce(movingTaskIdsRef.current, taskId, async () => {
+    await runTaskMoveOnce(movingTaskIdsRef.current, taskId, targetStatus, async () => {
       setTasks(result.next);
       try {
         await updateTaskPosition(taskId, targetStatus, result.newPosition, projectId);

@@ -86,21 +86,33 @@ export function quickMoveTargetStatus(label: string, status: TaskStatus): TaskSt
   return QUICK_MOVE[label]?.[status] ?? null;
 }
 
+/** taskId+목적지 상태 조합을 키로 묶는다. 같은 업무라도 목적지가 다르면 서로 다른 가드로 취급한다. */
+function moveKey(taskId: string, targetStatus: TaskStatus): string {
+  return `${taskId}:${targetStatus}`;
+}
+
 /**
- * 같은 업무의 비동기 상태 이동을 한 번만 실행한다.
- * 첫 요청이 끝나기 전에 들어온 후속 호출은 false를 반환하고 action을 실행하지 않는다.
+ * 같은 업무를 같은 목적지 상태로 옮기는 중복 요청을 한 번만 실행한다.
+ * 첫 요청이 끝나기 전에 들어온 동일 (업무, 목적지) 후속 호출은 false를 반환하고 action을 실행하지 않는다.
+ *
+ * 목적지가 다르면(예: 첫 요청이 아직 끝나지 않았는데 사용자가 다른 컬럼으로 다시 드래그) 폐기하지
+ * 않고 그대로 실행한다 - taskId만으로 잠그면 사용자가 마음을 바꿔 다른 상태로 옮긴 의도된 조작까지
+ * 조용히 사라진다. 이 함수가 막으려는 건 체크리스트 자동 완료 등으로 같은 이동이 중복 호출되는
+ * 경우뿐이다.
  */
 export async function runTaskMoveOnce(
-  movingTaskIds: Set<string>,
+  movingMoves: Set<string>,
   taskId: string,
+  targetStatus: TaskStatus,
   action: () => Promise<void>,
 ): Promise<boolean> {
-  if (movingTaskIds.has(taskId)) return false;
-  movingTaskIds.add(taskId);
+  const key = moveKey(taskId, targetStatus);
+  if (movingMoves.has(key)) return false;
+  movingMoves.add(key);
   try {
     await action();
     return true;
   } finally {
-    movingTaskIds.delete(taskId);
+    movingMoves.delete(key);
   }
 }
