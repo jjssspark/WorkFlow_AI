@@ -10,6 +10,7 @@ import com.workflowai.project.Project;
 import com.workflowai.project.ProjectRepository;
 import java.time.LocalDateTime;
 import java.util.List;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -19,6 +20,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionStatus;
 
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -30,8 +33,21 @@ class ReviewerActivityServiceTest {
     @Mock
     private ProjectRepository projectRepository;
 
+    @Mock
+    private PlatformTransactionManager transactionManager;
+
+    @Mock
+    private TransactionStatus transactionStatus;
+
     @InjectMocks
     private ReviewerActivityService reviewerActivityService;
+
+    // record()가 TransactionTemplate(REQUIRES_NEW)으로 트랜잭션을 직접 관리하므로,
+    // getTransaction()이 뭐라도 반환해야 execute 콜백까지 도달한다.
+    @BeforeEach
+    void setUp() {
+        when(transactionManager.getTransaction(any())).thenReturn(transactionStatus);
+    }
 
     private Project projectWith(long id, String title) {
         Project project = new Project(title, "캡스톤디자인", null);
