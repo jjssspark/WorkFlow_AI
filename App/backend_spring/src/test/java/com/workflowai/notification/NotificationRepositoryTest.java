@@ -88,4 +88,21 @@ class NotificationRepositoryTest {
         // 읽음 여부와 무관하게 최신 20건만 남고, 오래된 5건(읽은 것 포함)은 삭제된다.
         assertThat(notificationRepository.count()).isEqualTo(20);
     }
+
+    @Test
+    void projectScopedQueryDoesNotMixNotificationsFromOtherProjects() {
+        Notification projectOne = new Notification(
+            200L, "TASK_ASSIGNED", "프로젝트 1", "content", "task", 1L, 1L
+        );
+        Notification projectTwo = new Notification(
+            200L, "TASK_ASSIGNED", "프로젝트 2", "content", "task", 2L, 2L
+        );
+        notificationRepository.saveAll(List.of(projectOne, projectTwo));
+
+        List<Notification> result =
+            notificationRepository.findTop20ByUserIdAndProjectIdOrderByCreatedAtDesc(200L, 1L);
+
+        assertThat(result).extracting(Notification::getProjectId).containsExactly(1L);
+        assertThat(result).extracting(Notification::getTitle).containsExactly("프로젝트 1");
+    }
 }

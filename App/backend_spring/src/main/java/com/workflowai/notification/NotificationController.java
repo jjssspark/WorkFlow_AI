@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -36,10 +37,14 @@ public class NotificationController {
 
     @Operation(summary = "내 알림 목록 조회", description = "로그인 사용자의 알림을 최신순으로 최대 20건 조회합니다.")
     @GetMapping
-    public ResponseEntity<ApiResponse<List<NotificationDto>>> getNotifications() {
+    public ResponseEntity<ApiResponse<List<NotificationDto>>> getNotifications(
+        @RequestParam(required = false) Long projectId
+    ) {
         Long userId = CurrentUser.id();
-        List<NotificationDto> notifications = notificationRepository
-            .findTop20ByUserIdOrderByCreatedAtDesc(userId)
+        List<Notification> found = projectId == null
+            ? notificationRepository.findTop20ByUserIdOrderByCreatedAtDesc(userId)
+            : notificationRepository.findTop20ByUserIdAndProjectIdOrderByCreatedAtDesc(userId, projectId);
+        List<NotificationDto> notifications = found
             .stream()
             .map(NotificationDto::from)
             .toList();
@@ -48,9 +53,13 @@ public class NotificationController {
 
     @Operation(summary = "안 읽은 알림 개수 조회")
     @GetMapping("/unread-count")
-    public ResponseEntity<ApiResponse<UnreadCountResponse>> getUnreadCount() {
+    public ResponseEntity<ApiResponse<UnreadCountResponse>> getUnreadCount(
+        @RequestParam(required = false) Long projectId
+    ) {
         Long userId = CurrentUser.id();
-        long count = notificationRepository.countByUserIdAndReadFalse(userId);
+        long count = projectId == null
+            ? notificationRepository.countByUserIdAndReadFalse(userId)
+            : notificationRepository.countByUserIdAndProjectIdAndReadFalse(userId, projectId);
         return ResponseEntity.ok(ApiResponse.ok(new UnreadCountResponse(count)));
     }
 
@@ -105,7 +114,8 @@ public class NotificationController {
             "진행률 보고서가 생성되었습니다.",
             request.content(),
             "project",
-            null
+            request.projectId(),
+            request.projectId()
         );
         return ResponseEntity.ok(ApiResponse.ok(null));
     }

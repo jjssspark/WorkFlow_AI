@@ -120,7 +120,7 @@ class TaskControllerCompletionApprovalTest {
 
         assertThat(task.isPendingApproval()).isTrue();
         verify(activityService).record(eq(1L), eq(3L), eq("COMPLETION_REQUESTED"), any(), any());
-        verify(notificationService).notifyAfterCommit(eq(9L), eq("COMPLETION_REQUESTED"), any(), any(), eq("task"), any());
+        verify(notificationService).notifyAfterCommit(eq(9L), eq("COMPLETION_REQUESTED"), any(), any(), eq("task"), any(), eq(1L));
     }
 
     @Test
@@ -218,7 +218,7 @@ class TaskControllerCompletionApprovalTest {
 
         assertThat(task.getStatus()).isEqualTo("done");
         assertThat(task.isPendingApproval()).isFalse();
-        verify(notificationService).notifyAfterCommit(eq(3L), eq("COMPLETION_APPROVED"), any(), any(), eq("task"), any());
+        verify(notificationService).notifyAfterCommit(eq(3L), eq("COMPLETION_APPROVED"), any(), any(), eq("task"), any(), eq(1L));
     }
 
     @Test
@@ -235,6 +235,6 @@ class TaskControllerCompletionApprovalTest {
             .andExpect(jsonPath("$.data.pendingApproval").value(false));
 
         assertThat(task.getStatus()).isEqualTo("inprogress");
-        verify(notificationService).notifyAfterCommit(eq(3L), eq("COMPLETION_REJECTED"), any(), any(), eq("task"), any());
+        verify(notificationService).notifyAfterCommit(eq(3L), eq("COMPLETION_REJECTED"), any(), any(), eq("task"), any(), eq(1L));
     }
 }

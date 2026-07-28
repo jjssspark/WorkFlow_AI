@@ -69,7 +69,7 @@ export function Header({ onOpenMobileMenu }: { onOpenMobileMenu?: () => void }) 
     // id만 넘기면 그 뒤에 도착하는 알림은 이 요청과 무관하므로 안전하다.
     let list: NotificationResponse[];
     try {
-      list = await fetchNotifications();
+      list = await fetchNotifications(currentProjectId);
     } catch (err) {
       console.error("알림 목록을 불러오지 못했습니다.", err);
       setNotifError(true);
@@ -200,6 +200,17 @@ export function Header({ onOpenMobileMenu }: { onOpenMobileMenu?: () => void }) 
                             onClick={() => {
                               setNotifOpen(false);
                               navigate(`/meetings?meetingId=${n.targetId}${meetingNotificationPanelQuery(n.type)}`);
+                            }}
+                            className="mt-1.5 px-2 py-1 rounded bg-blue-600 text-white text-[10px] font-semibold hover:bg-blue-700"
+                          >
+                            바로가기
+                          </button>
+                        )}
+                        {n.targetType === "task" && n.targetId && (
+                          <button
+                            onClick={() => {
+                              setNotifOpen(false);
+                              navigate(`/board?taskId=${encodeURIComponent(n.targetId)}`);
                             }}
                             className="mt-1.5 px-2 py-1 rounded bg-blue-600 text-white text-[10px] font-semibold hover:bg-blue-700"
                           >

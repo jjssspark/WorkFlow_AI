@@ -34,6 +34,9 @@ public class Notification {
     @Column(name = "target_id")
     private Long targetId;
 
+    @Column(name = "project_id")
+    private Long projectId;
+
     @Column(name = "is_read", nullable = false)
     private boolean read;
 
@@ -44,12 +47,19 @@ public class Notification {
     }
 
     public Notification(Long userId, String type, String title, String content, String targetType, Long targetId) {
+        this(userId, type, title, content, targetType, targetId, null);
+    }
+
+    public Notification(
+        Long userId, String type, String title, String content, String targetType, Long targetId, Long projectId
+    ) {
         this.userId = userId;
         this.type = type;
         this.title = title;
         this.content = content;
         this.targetType = targetType;
         this.targetId = targetId;
+        this.projectId = projectId;
         this.read = false;
         this.createdAt = LocalDateTime.now();
     }
@@ -80,6 +90,10 @@ public class Notification {
 
     public Long getTargetId() {
         return targetId;
+    }
+
+    public Long getProjectId() {
+        return projectId;
     }
 
     public boolean isRead() {

@@ -38,14 +38,27 @@ public class NotificationAsyncSender {
 
     @Async("notificationExecutor")
     public void sendAsync(Long userId, String type, String title, String content, String targetType, Long targetId) {
-        sendSafely(userId, type, title, content, targetType, targetId);
+        sendAsync(userId, type, title, content, targetType, targetId, null);
+    }
+
+    @Async("notificationExecutor")
+    public void sendAsync(
+        Long userId, String type, String title, String content, String targetType, Long targetId, Long projectId
+    ) {
+        sendSafely(userId, type, title, content, targetType, targetId, projectId);
     }
 
     public void sendSafely(Long userId, String type, String title, String content, String targetType, Long targetId) {
+        sendSafely(userId, type, title, content, targetType, targetId, null);
+    }
+
+    public void sendSafely(
+        Long userId, String type, String title, String content, String targetType, Long targetId, Long projectId
+    ) {
         try {
             Notification saved = requiresNewTransaction.execute(status -> {
                 Notification created = notificationRepository.save(
-                    new Notification(userId, type, title, content, targetType, targetId));
+                    new Notification(userId, type, title, content, targetType, targetId, projectId));
                 notificationRepository.deleteExcessByUserId(userId);
                 return created;
             });

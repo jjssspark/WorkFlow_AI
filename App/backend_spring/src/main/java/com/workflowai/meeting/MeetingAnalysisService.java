@@ -519,7 +519,7 @@ public class MeetingAnalysisService {
         notificationService.notifyCounterpart(
             actorId, uploaderId, "MEETING_DELETED", "회의록이 삭제되었습니다",
             actorName + "님이 '" + title + "' 회의록을 삭제했습니다." + scopeSuffix,
-            "meeting", meetingDbId
+            "meeting", meetingDbId, meeting.getProjectId()
         );
         return new MeetingDeleteResponse(meetingId, "DELETED");
     }
@@ -594,7 +594,7 @@ public class MeetingAnalysisService {
         notificationService.notifyCounterpart(
             actorId, uploaderId, "MEETING_ANALYSIS_DELETED", "회의록 분석 결과가 삭제되었습니다",
             actorName + "님이 '" + title + "' 회의록의 분석 결과를 삭제했습니다." + scopeSuffix,
-            "meeting", meetingDbId
+            "meeting", meetingDbId, meeting.getProjectId()
         );
         return new MeetingDeleteResponse(meetingId, "DELETED");
     }
@@ -617,7 +617,7 @@ public class MeetingAnalysisService {
         notificationService.notifyCounterpart(
             registeredBy, meeting.getUploadedBy(), "MEETING_TASKS_REGISTERED_NOTIFY_MEMBER", "역할분배가 완료되었습니다",
             registeredByName + "님이 '" + meeting.getTitle() + "' 회의록의 역할분배를 완료했습니다. 확인해주세요.",
-            "meeting", meetingDbId
+            "meeting", meetingDbId, meeting.getProjectId()
         );
         return new TaskRegisterResponse(meetingId, registeredCount, "REGISTERED");
     }
@@ -729,7 +729,7 @@ public class MeetingAnalysisService {
         notificationService.notifyCounterpart(
             editorId, counterpartId, "MEETING_EDITED", "회의록이 수정되었습니다",
             editorName + "님이 '" + original.getTitle() + "' 회의록을 수정했습니다.",
-            "meeting", version.getId()
+            "meeting", version.getId(), original.getProjectId()
         );
     }
 

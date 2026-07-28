@@ -235,7 +235,10 @@ export function DashProgressPage() {
     setGeneratingReport(true);
     try {
       const { answer } = await queryRag(currentProjectId, insightPrompt);
-      await notifyProgressReportReady(answer.length > 200 ? `${answer.slice(0, 200)}...` : answer);
+      await notifyProgressReportReady(
+        answer.length > 200 ? `${answer.slice(0, 200)}...` : answer,
+        currentProjectId
+      );
     } catch {
       // 알림 전송 실패는 조용히 무시한다 — 보고서 자체는 이미 AI 어시스턴트 패널에 표시된다.
     } finally {

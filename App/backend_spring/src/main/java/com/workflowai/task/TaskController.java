@@ -203,7 +203,7 @@ public class TaskController {
         if (task.getAssigneeId() != null && !task.getAssigneeId().equals(createdBy)) {
             notificationService.notifyAfterCommit(
                 task.getAssigneeId(), "TASK_ASSIGNED", "새 업무가 배정되었습니다.",
-                "'" + task.getTitle() + "' 업무가 배정되었습니다.", "task", task.getId()
+                "'" + task.getTitle() + "' 업무가 배정되었습니다.", "task", task.getId(), projectDbId
             );
         }
         String ragContent = buildRagContent(task);
@@ -260,10 +260,12 @@ public class TaskController {
                 "'" + task.getTitle() + "' 상태를 '" + label + "'(으)로 변경했습니다."
             );
             String notificationContent = "'" + task.getTitle() + "' 업무가 '" + label + "'(으)로 이동했습니다.";
+            String leaderNotificationContent =
+                userName(moveActorId) + "님이 '" + task.getTitle() + "' 업무를 '" + label + "' 상태로 변경했습니다.";
             if (task.getAssigneeId() != null && !task.getAssigneeId().equals(moveActorId)) {
                 notificationService.notifyAfterCommit(
                     task.getAssigneeId(), "STATUS_CHANGED", "담당 업무 상태가 변경되었습니다.",
-                    notificationContent, "task", task.getId()
+                    notificationContent, "task", task.getId(), projectDbId
                 );
             }
             projectMemberRepository.findAllByProjectId(projectDbId).stream()
@@ -273,7 +275,7 @@ public class TaskController {
                 .filter(leaderId -> !leaderId.equals(task.getAssigneeId()))
                 .forEach(leaderId -> notificationService.notifyAfterCommit(
                     leaderId, "STATUS_CHANGED", "업무 상태가 변경되었습니다.",
-                    notificationContent, "task", task.getId()
+                    leaderNotificationContent, "task", task.getId(), projectDbId
                 ));
         }
         return ResponseEntity.ok(ApiResponse.ok(TaskListItem.from(task)));
@@ -364,7 +366,7 @@ public class TaskController {
             if (task.getAssigneeId() != null && !task.getAssigneeId().equals(actorId)) {
                 notificationService.notifyAfterCommit(
                     task.getAssigneeId(), "TASK_ASSIGNED", "업무 담당자로 지정되었습니다.",
-                    "'" + task.getTitle() + "' 업무 담당자로 지정되었습니다.", "task", task.getId()
+                    "'" + task.getTitle() + "' 업무 담당자로 지정되었습니다.", "task", task.getId(), projectDbId
                 );
             }
         }
@@ -386,7 +388,7 @@ public class TaskController {
             if (task.getAssigneeId() != null && !task.getAssigneeId().equals(actorId)) {
                 notificationService.notifyAfterCommit(
                     task.getAssigneeId(), "TASK_UPDATED", "담당 업무 정보가 수정되었습니다.",
-                    "'" + task.getTitle() + "' 업무 정보가 수정되었습니다.", "task", task.getId()
+                    "'" + task.getTitle() + "' 업무 정보가 수정되었습니다.", "task", task.getId(), projectDbId
                 );
             }
         }
@@ -446,7 +448,7 @@ public class TaskController {
             // 대상이 사라져도 알림 내용 자체는 그대로 유효하다.
             notificationService.notifyAfterCommit(
                 task.getAssigneeId(), "TASK_DELETED", "담당 업무가 삭제되었습니다.",
-                "'" + task.getTitle() + "' 업무가 삭제되었습니다.", "task", task.getId()
+                "'" + task.getTitle() + "' 업무가 삭제되었습니다.", "task", task.getId(), projectDbId
             );
         }
         ragIngestService.recordDeleteSourceIntent(projectDbId, "task", taskId);
@@ -482,7 +484,7 @@ public class TaskController {
         if (task.getAssigneeId() != null && !task.getAssigneeId().equals(actorId)) {
             notificationService.notifyAfterCommit(
                 task.getAssigneeId(), "TASK_NUDGE", NUDGE_TITLES.get(request.kind()),
-                String.format(messageTemplate, task.getTitle()), "task", task.getId()
+                String.format(messageTemplate, task.getTitle()), "task", task.getId(), projectDbId
             );
         }
         return ResponseEntity.ok(ApiResponse.ok(null));
@@ -540,7 +542,7 @@ public class TaskController {
             .map(com.workflowai.project.ProjectMember::getUserId)
             .forEach(leaderId -> notificationService.notifyAfterCommit(
                 leaderId, "COMPLETION_REQUESTED", "완료 승인 요청이 도착했습니다.",
-                "'" + task.getTitle() + "' 업무의 완료 승인을 요청했습니다.", "task", task.getId()
+                "'" + task.getTitle() + "' 업무의 완료 승인을 요청했습니다.", "task", task.getId(), projectDbId
             ));
         return ResponseEntity.ok(ApiResponse.ok(TaskListItem.from(task)));
     }
@@ -576,7 +578,7 @@ public class TaskController {
             .map(com.workflowai.project.ProjectMember::getUserId)
             .forEach(leaderId -> notificationService.notifyAfterCommit(
                 leaderId, "COMPLETION_CANCELLED", "완료 승인 요청이 취소되었습니다.",
-                "'" + task.getTitle() + "' 업무의 완료 승인 요청이 취소되었습니다.", "task", task.getId()
+                "'" + task.getTitle() + "' 업무의 완료 승인 요청이 취소되었습니다.", "task", task.getId(), projectDbId
             ));
         return ResponseEntity.ok(ApiResponse.ok(TaskListItem.from(task)));
     }
@@ -607,7 +609,7 @@ public class TaskController {
         if (task.getAssigneeId() != null && !task.getAssigneeId().equals(approverId)) {
             notificationService.notifyAfterCommit(
                 task.getAssigneeId(), "COMPLETION_APPROVED", "완료 승인이 완료되었습니다.",
-                "'" + task.getTitle() + "' 업무가 완료로 승인되었습니다.", "task", task.getId()
+                "'" + task.getTitle() + "' 업무가 완료로 승인되었습니다.", "task", task.getId(), projectDbId
             );
         }
         return ResponseEntity.ok(ApiResponse.ok(TaskListItem.from(task)));
@@ -639,7 +641,7 @@ public class TaskController {
         if (task.getAssigneeId() != null && !task.getAssigneeId().equals(rejecterId)) {
             notificationService.notifyAfterCommit(
                 task.getAssigneeId(), "COMPLETION_REJECTED", "완료 요청이 반려되었습니다.",
-                "'" + task.getTitle() + "' 업무의 완료 요청이 반려되었습니다.", "task", task.getId()
+                "'" + task.getTitle() + "' 업무의 완료 요청이 반려되었습니다.", "task", task.getId(), projectDbId
             );
         }
         return ResponseEntity.ok(ApiResponse.ok(TaskListItem.from(task)));

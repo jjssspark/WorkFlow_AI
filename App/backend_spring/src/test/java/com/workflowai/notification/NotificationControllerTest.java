@@ -69,6 +69,22 @@ class NotificationControllerTest {
     }
 
     @Test
+    void listsOnlyNotificationsForRequestedProject() throws Exception {
+        authenticateAs(5L);
+        Notification n = new Notification(
+            5L, "TASK_ASSIGNED", "업무 배정", "프로젝트 업무", "task", 42L, 7L
+        );
+        when(notificationRepository.findTop20ByUserIdAndProjectIdOrderByCreatedAtDesc(5L, 7L))
+            .thenReturn(List.of(n));
+
+        mockMvc.perform(get("/api/v1/notifications").param("projectId", "7"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data[0].projectId").value("7"));
+
+        verify(notificationRepository).findTop20ByUserIdAndProjectIdOrderByCreatedAtDesc(5L, 7L);
+    }
+
+    @Test
     void returnsUnreadCount() throws Exception {
         authenticateAs(5L);
         when(notificationRepository.countByUserIdAndReadFalse(5L)).thenReturn(3L);
@@ -76,6 +92,16 @@ class NotificationControllerTest {
         mockMvc.perform(get("/api/v1/notifications/unread-count"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.count").value(3));
+    }
+
+    @Test
+    void returnsUnreadCountForRequestedProject() throws Exception {
+        authenticateAs(5L);
+        when(notificationRepository.countByUserIdAndProjectIdAndReadFalse(5L, 7L)).thenReturn(2L);
+
+        mockMvc.perform(get("/api/v1/notifications/unread-count").param("projectId", "7"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.count").value(2));
     }
 
     @Test
@@ -188,7 +214,7 @@ class NotificationControllerTest {
 
         mockMvc.perform(post("/api/v1/notifications/progress-report")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"content\":\"보고서 생성 완료\"}"))
+                .content("{\"content\":\"보고서 생성 완료\",\"projectId\":7}"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.success").value(true));
 
@@ -198,7 +224,8 @@ class NotificationControllerTest {
             "진행률 보고서가 생성되었습니다.",
             "보고서 생성 완료",
             "project",
-            null
+            7L,
+            7L
         );
     }
 }

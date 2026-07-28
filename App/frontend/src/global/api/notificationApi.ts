@@ -8,6 +8,7 @@ export interface NotificationResponse {
   content: string | null;
   targetType: string | null;
   targetId: string | null;
+  projectId?: string | null;
   read: boolean;
   createdAt: string;
 }
@@ -23,12 +24,14 @@ export function meetingNotificationPanelQuery(type: string): string {
   return type === "MEETING_ANALYSIS_COMPLETED_NOTIFY_LEADER" ? "&panel=todos" : "";
 }
 
-export function fetchNotifications(): Promise<NotificationResponse[]> {
-  return apiFetch<NotificationResponse[]>("/notifications");
+export function fetchNotifications(projectId?: number | null): Promise<NotificationResponse[]> {
+  const query = projectId == null ? "" : `?projectId=${projectId}`;
+  return apiFetch<NotificationResponse[]>(`/notifications${query}`);
 }
 
-export async function fetchUnreadNotificationCount(): Promise<number> {
-  const { count } = await apiFetch<{ count: number }>("/notifications/unread-count");
+export async function fetchUnreadNotificationCount(projectId?: number | null): Promise<number> {
+  const query = projectId == null ? "" : `?projectId=${projectId}`;
+  const { count } = await apiFetch<{ count: number }>(`/notifications/unread-count${query}`);
   return count;
 }
 
@@ -162,9 +165,9 @@ function parseEvent(rawEvent: string, onNotification: (notification: Notificatio
 }
 
 /** AI 진행률 보고서 생성에 성공했을 때, 요청한 본인에게 완료 알림을 남긴다. */
-export async function notifyProgressReportReady(content: string): Promise<void> {
+export async function notifyProgressReportReady(content: string, projectId: number): Promise<void> {
   await apiFetch<null>("/notifications/progress-report", {
     method: "POST",
-    body: JSON.stringify({ content }),
+    body: JSON.stringify({ content, projectId }),
   });
 }

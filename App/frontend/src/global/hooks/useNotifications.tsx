@@ -22,17 +22,17 @@ interface NotificationsState {
 const NotificationsContext = createContext<NotificationsState | null>(null);
 
 export function NotificationProvider({ children }: { children: ReactNode }) {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, currentProjectId } = useAuth();
   const [unreadCount, setUnreadCount] = useState(0);
 
   const refreshUnreadCount = useCallback(async () => {
     try {
-      const count = await fetchUnreadNotificationCount();
+      const count = await fetchUnreadNotificationCount(currentProjectId);
       setUnreadCount(count);
     } catch (err) {
       console.error("안 읽은 알림 개수를 불러오지 못했습니다.", err);
     }
-  }, []);
+  }, [currentProjectId]);
 
   const showToast = useCallback((notification: NotificationResponse) => {
     toast.custom(
@@ -42,9 +42,12 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const handleNotification = useCallback((notification: NotificationResponse) => {
+    if (currentProjectId != null && notification.projectId !== String(currentProjectId)) {
+      return;
+    }
     setUnreadCount((prev) => prev + 1);
     showToast(notification);
-  }, [showToast]);
+  }, [currentProjectId, showToast]);
 
   /**
    * 자리를 비운 사이 쌓인(=아직 안 읽은) 알림을 접속 직후 카톡처럼 띄운다. SSE는 접속 이후에
@@ -52,14 +55,14 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
    */
   const showPendingNotifications = useCallback(async () => {
     try {
-      const notifications = await fetchNotifications();
+      const notifications = await fetchNotifications(currentProjectId);
       // 목록이 최신순이라 그대로 띄우면 가장 오래된 게 맨 위에 남는다 - 뒤집어서 최신이 위로 오게 한다.
       const pending = notifications.filter((n) => !n.read).slice(0, MAX_PENDING_TOASTS).reverse();
       pending.forEach(showToast);
     } catch (err) {
       console.error("미확인 알림을 불러오지 못했습니다.", err);
     }
-  }, [showToast]);
+  }, [currentProjectId, showToast]);
 
   useEffect(() => {
     if (!isAuthenticated) {

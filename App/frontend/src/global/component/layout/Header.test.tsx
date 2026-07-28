@@ -178,6 +178,23 @@ describe("Header 알림", () => {
     expect(mockNavigate).toHaveBeenCalledWith("/meetings?meetingId=9");
   });
 
+  it("업무 알림의 바로가기를 누르면 해당 업무 상세 딥링크로 이동한다", async () => {
+    vi.mocked(fetchNotifications).mockResolvedValue([
+      {
+        id: "1", type: "TASK_ASSIGNED", title: "새 업무가 배정되었습니다.", content: null,
+        targetType: "task", targetId: "42", projectId: "1", read: false,
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    vi.mocked(markNotificationsRead).mockResolvedValue(undefined);
+
+    renderHeader();
+    await openBell();
+    await userEvent.click(await screen.findByRole("button", { name: "바로가기" }));
+
+    expect(mockNavigate).toHaveBeenCalledWith("/board?taskId=42");
+  });
+
   it("액션불필요 알림에는 바로가기 버튼이 없다", async () => {
     vi.mocked(fetchNotifications).mockResolvedValue([
       { id: "1", type: "MEETING_SAVED", title: "회의록이 저장됐습니다", content: null, targetType: "meeting", targetId: "7", read: false, createdAt: new Date().toISOString() },

@@ -137,7 +137,7 @@ class TaskControllerUpdateTest {
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.error.code").value("INVALID_ASSIGNEE_ID"));
 
-        verify(notificationService, never()).notifyAfterCommit(any(), any(), any(), any(), any(), any());
+        verify(notificationService, never()).notifyAfterCommit(any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -218,7 +218,7 @@ class TaskControllerUpdateTest {
                 .content("{\"assigneeId\":\"5\"}"))
             .andExpect(status().isOk());
 
-        verify(notificationService).notifyAfterCommit(eq(5L), eq("TASK_ASSIGNED"), any(), any(), eq("task"), any());
+        verify(notificationService).notifyAfterCommit(eq(5L), eq("TASK_ASSIGNED"), any(), any(), eq("task"), any(), eq(1L));
     }
 
     @Test
@@ -250,7 +250,7 @@ class TaskControllerUpdateTest {
             .andExpect(status().isOk());
 
         // existingTask()의 담당자는 3L
-        verify(notificationService).notifyAfterCommit(eq(3L), eq("TASK_UPDATED"), any(), any(), eq("task"), any());
+        verify(notificationService).notifyAfterCommit(eq(3L), eq("TASK_UPDATED"), any(), any(), eq("task"), any(), eq(1L));
         verify(ragIngestService).ingestBestEffort(1L, "task", null, "새 제목 - 원래 설명", 3L);
     }
 
@@ -265,6 +265,6 @@ class TaskControllerUpdateTest {
                 .content("{}"))
             .andExpect(status().isOk());
 
-        verify(notificationService, never()).notifyAfterCommit(any(), any(), any(), any(), any(), any());
+        verify(notificationService, never()).notifyAfterCommit(any(), any(), any(), any(), any(), any(), any());
     }
 }

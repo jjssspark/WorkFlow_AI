@@ -545,7 +545,7 @@ class MeetingAnalysisServiceTest {
 
         verify(notificationService).notifyCounterpart(
             eq(CURRENT_USER_ID), eq(uploaderId), eq("MEETING_DELETED"), any(), any(),
-            eq("meeting"), eq(12L)
+            eq("meeting"), eq(12L), eq(1L)
         );
     }
 
@@ -737,7 +737,7 @@ class MeetingAnalysisServiceTest {
 
         verify(notificationService).notifyCounterpart(
             eq(CURRENT_USER_ID), eq(uploaderId), eq("MEETING_ANALYSIS_DELETED"), any(), any(),
-            eq("meeting"), eq(12L)
+            eq("meeting"), eq(12L), eq(1L)
         );
     }
 
@@ -1181,7 +1181,7 @@ class MeetingAnalysisServiceTest {
 
         verify(notificationService).notifyCounterpart(
             eq(99L), eq(10L), eq("MEETING_TASKS_REGISTERED_NOTIFY_MEMBER"), any(), any(),
-            eq("meeting"), eq(5L)
+            eq("meeting"), eq(5L), eq(1L)
         );
     }
 
@@ -1205,7 +1205,7 @@ class MeetingAnalysisServiceTest {
         assertThat(response.status()).isEqualTo("SAVED");
         assertThat(meeting.getSavedAt()).isNotNull();
         verify(notificationService, never()).notifyCounterpart(
-            any(), any(), any(), any(), any(), any(), any()
+            any(), any(), any(), any(), any(), any(), any(), any()
         );
     }
 

@@ -9,7 +9,11 @@ import org.springframework.data.repository.query.Param;
 public interface NotificationRepository extends JpaRepository<Notification, Long> {
     List<Notification> findTop20ByUserIdOrderByCreatedAtDesc(Long userId);
 
+    List<Notification> findTop20ByUserIdAndProjectIdOrderByCreatedAtDesc(Long userId, Long projectId);
+
     long countByUserIdAndReadFalse(Long userId);
+
+    long countByUserIdAndProjectIdAndReadFalse(Long userId, Long projectId);
 
     List<Notification> findByUserIdAndReadFalse(Long userId);
 

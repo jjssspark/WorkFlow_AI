@@ -61,6 +61,15 @@ describe("NotificationToast", () => {
     expect(mockNavigate).toHaveBeenCalledWith("/meetings?meetingId=7");
   });
 
+  it("업무 알림의 바로가기를 누르면 해당 업무 상세 딥링크로 이동한다", async () => {
+    renderToast({ targetType: "task", targetId: "42", projectId: "1" });
+
+    await userEvent.click(screen.getByRole("button", { name: "바로가기" }));
+
+    expect(markNotificationsRead).toHaveBeenCalledWith(["1"]);
+    expect(mockNavigate).toHaveBeenCalledWith("/board?taskId=42");
+  });
+
   it("닫기(X) 버튼을 누르면 토스트만 닫고, 읽음 처리나 이동은 하지 않는다", async () => {
     renderToast({ type: "MEETING_SAVED_NOTIFY_LEADER", targetType: "meeting", targetId: "7" });
 

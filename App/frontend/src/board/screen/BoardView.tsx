@@ -128,12 +128,15 @@ export function BoardView() {
     if (!taskId) return;
     if (tasks.some((t) => t.id === taskId)) {
       setSelId(taskId);
+      setWorkResultOpen(false);
+    } else {
+      showToast("삭제되었거나 현재 프로젝트에서 찾을 수 없는 업무입니다.");
     }
     const next = new URLSearchParams(searchParams);
     next.delete("taskId");
+    FILTER_PARAMS.forEach((key) => next.delete(key));
     setSearchParams(next, { replace: true });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadState, tasks]);
+  }, [loadState, tasks, searchParams, setSearchParams]);
 
   const handleTaskCreated = (task: Task) => {
     setTasks((prev) => [task, ...prev]);

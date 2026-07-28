@@ -99,7 +99,7 @@ class TaskCommentControllerFeedbackTest {
             .andExpect(jsonPath("$.success").value(true))
             .andExpect(jsonPath("$.data.type").value("FEEDBACK"));
 
-        verify(notificationService).notifyAfterCommit(eq(1L), eq("TASK_COMMENT"), any(), any(), eq("task"), any());
+        verify(notificationService).notifyAfterCommit(eq(1L), eq("TASK_COMMENT"), any(), any(), eq("task"), any(), eq(1L));
     }
 
     @Test
@@ -154,7 +154,7 @@ class TaskCommentControllerFeedbackTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.type").value("COMMENT"));
 
-        verify(notificationService).notifyAfterCommit(eq(1L), eq("TASK_COMMENT"), any(), any(), eq("task"), any());
+        verify(notificationService).notifyAfterCommit(eq(1L), eq("TASK_COMMENT"), any(), any(), eq("task"), any(), eq(1L));
     }
 
     @Test
@@ -175,6 +175,6 @@ class TaskCommentControllerFeedbackTest {
             .andExpect(status().isOk());
 
         verify(notificationService, org.mockito.Mockito.never())
-            .notifyAfterCommit(any(), any(), any(), any(), any(), any());
+            .notifyAfterCommit(any(), any(), any(), any(), any(), any(), any());
     }
 }
