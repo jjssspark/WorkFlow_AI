@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     # 그 값은 ai_contribution_report가 이미 쓰고 있어서, 한쪽 모델을 바꾸면 다른 쪽이 조용히
     # 끌려간다(compose 기본값도 gemma2로 서로 다르다).
     rag_ollama_model: str = "gemma4:e2b"
+    # ollama가 답변 후 모델을 메모리에 붙들고 있을 시간. 기본값(5분)이면 잠깐만 안 물어봐도
+    # 모델이 내려가서, 다음 질문에 로드 시간(로컬 실측 약 11초)이 통째로 붙는다.
+    # 어시스턴트는 회의 중 띄엄띄엄 쓰는 화면이라 5분 간격을 넘기기 쉬워 더 길게 잡는다.
+    rag_ollama_keep_alive: str = "30m"
 
     # Spring(RagController)만 RAG 라우터를 호출할 수 있도록 검증하는 서비스 간 공유 시크릿.
     # 미설정 시 llm_rag_assistant/app/security.py가 모든 요청을 거부한다(fail-closed).

@@ -529,6 +529,34 @@ async def test_generate_answer_uses_ollama_when_rag_provider_is_ollama(
 
 
 @pytest.mark.asyncio
+async def test_ollama_generation_asks_the_model_to_stay_loaded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ollama는 keep_alive를 안 주면 기본 5분 뒤 모델을 메모리에서 내린다.
+
+    내려간 뒤 첫 질문은 모델 로드(로컬 실측 약 11초)가 답변 생성 앞에 통째로 붙어,
+    같은 질문이 웜 33초 / 콜드 44.6초로 갈렸다(2026-07-28). 회의록 분석(main.py)과
+    체크리스트(checklist_pipeline.py)는 이미 keep_alive를 넘기고 있어 RAG만 빠져 있었다.
+    """
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pw@localhost:5432/workflow")
+    monkeypatch.setenv("RAG_PROVIDER", "ollama")
+    monkeypatch.setenv("RAG_OLLAMA_KEEP_ALIVE", "30m")
+    get_settings.cache_clear()
+    mock_client = _mock_ollama_client("답변")
+
+    try:
+        with patch(
+            "llm_rag_assistant.app.services.generation_service.ollama.AsyncClient",
+            return_value=mock_client,
+        ):
+            await generate_answer("질문", [])
+    finally:
+        get_settings.cache_clear()
+
+    assert mock_client.chat.call_args.kwargs["keep_alive"] == "30m"
+
+
+@pytest.mark.asyncio
 async def test_ollama_path_does_not_require_an_hf_token(monkeypatch: pytest.MonkeyPatch) -> None:
     """HF 크레딧이 끊겨도 로컬 생성으로 답이 나가야 폴백 경로로서 의미가 있다."""
     monkeypatch.setenv("DATABASE_URL", "postgresql://user:pw@localhost:5432/workflow")

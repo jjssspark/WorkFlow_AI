@@ -10,6 +10,11 @@ RUN ./gradlew bootJar --no-daemon -x test
 
 # 2단계(runtime): 빌드 결과(jar)만 가져와서 실행 — JDK가 아니라 더 가벼운 JRE 사용
 FROM eclipse-temurin:21-jre
+# 스캔본 PDF(텍스트 레이어가 없는 이미지 PDF)는 PDFBox로 글자를 뽑을 수 없어 OCR이 필요하다.
+# 한국어 회의록이 주 대상이므로 kor 학습 데이터를 함께 설치한다.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-kor tesseract-ocr-eng \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /app/build/libs/*.jar app.jar
 EXPOSE 8080

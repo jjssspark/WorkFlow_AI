@@ -3,6 +3,7 @@ import { tokenStore } from "./tokenStore";
 
 export interface NotificationResponse {
   id: string;
+  projectId: string | null;
   type: string;
   title: string;
   content: string | null;
@@ -18,18 +19,37 @@ export const ACTION_REQUIRED_NOTIFICATION_TYPES = new Set([
   "MEETING_EDITED",
 ]);
 
+/**
+ * 회의록으로 딥링크할 수 있어 "바로가기" 버튼을 붙일 알림 타입.
+ *
+ * 삭제 알림은 할 일이 아니라 통보라서 ACTION_REQUIRED에 넣으면 안 되지만("할 일" 배지가 붙는다),
+ * 어떤 회의록이 지워졌는지는 확인할 수 있어야 하므로 바로가기 대상에는 포함한다. 전체 삭제된
+ * 회의록은 열 대상이 이미 없어 회의록 화면까지만 이동한다.
+ */
+export const MEETING_SHORTCUT_NOTIFICATION_TYPES = new Set([
+  ...ACTION_REQUIRED_NOTIFICATION_TYPES,
+  "MEETING_DELETED",
+  "MEETING_ANALYSIS_DELETED",
+]);
+
 /** 팀장에게 역할분배를 요청하는 알림은 "바로가기"를 누르면 역할분배 검토 탭으로 바로 이동해야 한다. */
 export function meetingNotificationPanelQuery(type: string): string {
   return type === "MEETING_ANALYSIS_COMPLETED_NOTIFY_LEADER" ? "&panel=todos" : "";
 }
 
-export function fetchNotifications(): Promise<NotificationResponse[]> {
-  return apiFetch<NotificationResponse[]>("/notifications");
+export function fetchNotifications(projectId: number): Promise<NotificationResponse[]> {
+  return apiFetch<NotificationResponse[]>(`/notifications?projectId=${projectId}`);
 }
 
-export async function fetchUnreadNotificationCount(): Promise<number> {
-  const { count } = await apiFetch<{ count: number }>("/notifications/unread-count");
+export async function fetchUnreadNotificationCount(projectId: number): Promise<number> {
+  const { count } = await apiFetch<{ count: number }>(`/notifications/unread-count?projectId=${projectId}`);
   return count;
+}
+
+/** 프로젝트 전환 뱃지용. projectId 문자열을 키로 하는 미읽음 개수 맵. */
+export async function fetchProjectUnreadCounts(): Promise<Record<string, number>> {
+  const { counts } = await apiFetch<{ counts: Record<string, number> }>("/notifications/unread-counts");
+  return counts;
 }
 
 // 서버가 이 id들만 읽음 처리한다. "전체 읽음"이 아니라 방금 화면에 보여준 것만 넘겨야,
@@ -162,9 +182,9 @@ function parseEvent(rawEvent: string, onNotification: (notification: Notificatio
 }
 
 /** AI 진행률 보고서 생성에 성공했을 때, 요청한 본인에게 완료 알림을 남긴다. */
-export async function notifyProgressReportReady(content: string): Promise<void> {
+export async function notifyProgressReportReady(projectId: number, content: string): Promise<void> {
   await apiFetch<null>("/notifications/progress-report", {
     method: "POST",
-    body: JSON.stringify({ content }),
+    body: JSON.stringify({ projectId, content }),
   });
 }

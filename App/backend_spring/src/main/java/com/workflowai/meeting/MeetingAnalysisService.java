@@ -15,12 +15,15 @@ import com.workflowai.task.Task;
 import com.workflowai.task.TaskRepository;
 import com.workflowai.user.User;
 import com.workflowai.user.UserRepository;
+import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
@@ -28,11 +31,15 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
+import javax.imageio.ImageIO;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.rendering.PDFRenderer;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -48,6 +55,17 @@ import org.springframework.web.multipart.MultipartFile;
 public class MeetingAnalysisService {
     private static final Logger log = LoggerFactory.getLogger(MeetingAnalysisService.class);
     private static final Set<String> AUDIO_FILE_EXTENSIONS = Set.of(".mp3", ".wav", ".m4a", ".ogg", ".webm");
+    // 스캔본 PDF OCR 설정. 페이지가 많은 회의 자료 전체를 인식하면 분석 요청이 몇 분씩 걸리므로 상한을 둔다.
+    private static final int OCR_MAX_PAGES = 30;
+    private static final int OCR_DPI = 200;
+    private static final String OCR_LANGUAGES = "kor+eng";
+    private static final long OCR_PAGE_TIMEOUT_SECONDS = 60;
+    // 페이지당 상한만으로는 30페이지 문서 하나가 최악 30분간 스레드를 붙잡는다. 문서 전체 예산으로 자른다.
+    private static final long OCR_TOTAL_BUDGET_SECONDS = 180;
+    private static final long OCR_KILL_WAIT_SECONDS = 5;
+    private static final long OCR_SLOT_WAIT_SECONDS = 5;
+    // 동시에 OCR을 도는 문서 수 제한. 없으면 업로드 몇 건만으로 CPU와 스레드가 모두 점유된다.
+    private static final Semaphore OCR_SLOTS = new Semaphore(2);
     // 분석 결과를 사용자가 지운 상태. 분석이 실제로 실패한 "failed"와 구분해야 프론트가
     // 분석/업로드 목록에서 빼면서도 재분석 가능한 항목으로 다룰 수 있다.
     static final String ANALYSIS_DELETED_STATUS = "analysis_deleted";
@@ -474,10 +492,10 @@ public class MeetingAnalysisService {
             meetingActionItemRepository.clearMeetingId(meetingDbId);
             taskRepository.clearSourceMeetingId(meetingDbId);
         }
-        // 삭제는 팀장 전용이라 actorId가 항상 팀장이다 — 반대편(counterpart)은 팀장 자신이 아니라
-        // 원본 업로더로 잡아야, 팀장이 남이 올린 회의록을 지웠을 때 그 업로더에게도 알림이 간다.
+        // 삭제는 팀장 전용이라 actorId가 항상 팀장이다. 회의록이 사라지는 것은 팀 전원에게 영향을
+        // 주므로 업로더 한 명이 아니라 팀 전원에게 알린다(예전에는 업로더만 받아서 나머지 팀원은
+        // 알림을 아예 받지 못했다).
         Long actorId = CurrentUser.id();
-        Long uploaderId = meeting.getUploadedBy();
         String title = meeting.getTitle();
         String actorName = defaultString(resolveNameById(actorId), "누군가");
         String scopeSuffix = deleteLinkedTasks ? " (등록된 업무도 함께 삭제됨)" : " (등록된 업무는 유지됨)";
@@ -498,12 +516,34 @@ public class MeetingAnalysisService {
         );
         deleteUploadedFile(filePath);
 
-        notificationService.notifyCounterpart(
-            actorId, uploaderId, "MEETING_DELETED", "회의록이 삭제되었습니다",
+        notifyProjectTeamExceptActor(
+            projectDbId, actorId, "MEETING_DELETED", "회의록이 삭제되었습니다",
             actorName + "님이 '" + title + "' 회의록을 삭제했습니다." + scopeSuffix,
-            "meeting", meetingDbId
+            meetingDbId
         );
         return new MeetingDeleteResponse(meetingId, "DELETED");
+    }
+
+    /**
+     * 회의록/분석 결과 삭제는 팀 전원이 보던 내용이 사라지는 일이라 팀 전원에게 알린다.
+     * 행위자 본인은 방금 자기가 한 일의 결과를 화면에서 이미 보고 있으므로 제외하고, 심사자는
+     * 팀원이 아니므로(팀원 수/목록 집계에서도 제외된다) 대상에서 뺀다.
+     *
+     * targetType을 "meeting"으로 고정해 프론트가 "바로가기" 버튼을 붙일 수 있게 한다. 전체 삭제된
+     * 회의록은 딥링크로 열 대상이 이미 없으므로, 프론트에서 해당 회의록을 못 찾으면 회의록 화면까지만
+     * 이동하고 조용히 멈춘다.
+     */
+    private void notifyProjectTeamExceptActor(
+        Long projectDbId, Long actorId, String type, String title, String content, Long meetingDbId
+    ) {
+        projectMemberRepository.findAllByProjectId(projectDbId).stream()
+            .filter(member -> member.getRole() != ProjectRole.REVIEWER)
+            .map(ProjectMember::getUserId)
+            .filter(userId -> userId != null && !userId.equals(actorId))
+            .distinct()
+            .forEach(userId ->
+                notificationService.notifyAfterCommit(userId, projectDbId, type, title, content, "meeting", meetingDbId)
+            );
     }
 
     /**
@@ -568,15 +608,14 @@ public class MeetingAnalysisService {
         );
 
         Long actorId = CurrentUser.id();
-        Long uploaderId = meeting.getUploadedBy();
         String title = meeting.getTitle();
         String actorName = defaultString(resolveNameById(actorId), "누군가");
         String scopeSuffix = deleteLinkedTasks ? " (등록된 업무도 함께 삭제됨)" : " (등록된 업무는 유지됨)";
 
-        notificationService.notifyCounterpart(
-            actorId, uploaderId, "MEETING_ANALYSIS_DELETED", "회의록 분석 결과가 삭제되었습니다",
+        notifyProjectTeamExceptActor(
+            projectDbId, actorId, "MEETING_ANALYSIS_DELETED", "회의록 분석 결과가 삭제되었습니다",
             actorName + "님이 '" + title + "' 회의록의 분석 결과를 삭제했습니다." + scopeSuffix,
-            "meeting", meetingDbId
+            meetingDbId
         );
         return new MeetingDeleteResponse(meetingId, "DELETED");
     }
@@ -597,7 +636,8 @@ public class MeetingAnalysisService {
         }
         String registeredByName = defaultString(resolveNameById(registeredBy), "팀장");
         notificationService.notifyCounterpart(
-            registeredBy, meeting.getUploadedBy(), "MEETING_TASKS_REGISTERED_NOTIFY_MEMBER", "역할분배가 완료되었습니다",
+            registeredBy, meeting.getUploadedBy(), meeting.getProjectId(),
+            "MEETING_TASKS_REGISTERED_NOTIFY_MEMBER", "역할분배가 완료되었습니다",
             registeredByName + "님이 '" + meeting.getTitle() + "' 회의록의 역할분배를 완료했습니다. 확인해주세요.",
             "meeting", meetingDbId
         );
@@ -709,7 +749,7 @@ public class MeetingAnalysisService {
         Long counterpartId = editorId != null && editorId.equals(leaderId) ? original.getUploadedBy() : leaderId;
         String editorName = defaultString(resolveNameById(editorId), "누군가");
         notificationService.notifyCounterpart(
-            editorId, counterpartId, "MEETING_EDITED", "회의록이 수정되었습니다",
+            editorId, counterpartId, original.getProjectId(), "MEETING_EDITED", "회의록이 수정되었습니다",
             editorName + "님이 '" + original.getTitle() + "' 회의록을 수정했습니다.",
             "meeting", version.getId()
         );
@@ -717,7 +757,11 @@ public class MeetingAnalysisService {
 
     private boolean registerSingleTask(Long meetingId, MeetingTodo todo, Long createdBy) {
         Long assigneeId = resolveAssignee(todo.assignee_id());
-        LocalDate dueDate = parseDateOrNull(todo.due_date());
+        // 연도 없는 날짜("07/31")는 회의 날짜의 연도로 채워야 업무보드 마감일과 어긋나지 않는다.
+        Meeting meetingForDate = meetingRepository.findById(meetingId).orElse(null);
+        LocalDate dateReference = meetingForDate == null ? null : meetingForDate.getMeetingDate();
+        LocalDate dueDate = parseDateOrNull(todo.due_date(), dateReference);
+        LocalDate startDate = parseDateOrNull(todo.start_date(), dateReference);
 
         Optional<MeetingActionItem> existingItem =
             meetingActionItemRepository.findFirstByMeetingIdAndTitle(meetingId, todo.title());
@@ -742,15 +786,19 @@ public class MeetingAnalysisService {
             projectRepository.findById(taskProjectId)
                 .ifPresent(project -> ProjectSchedulePolicy.validate(project, null, dueDate, "업무"));
         }
-        double position = taskRepository.findTopByProjectIdAndStatusOrderByPositionDesc(taskProjectId, "todo")
-            .map(t -> t.getPosition() + 1)
+        // 보드는 position 오름차순으로 그리므로, 최댓값+1을 주면 새 업무가 맨 아래에 쌓인다.
+        // 최근에 등록한 업무일수록 위에 보여야 하므로 현재 최솟값보다 작은 값을 준다.
+        double position = taskRepository.findTopByProjectIdAndStatusOrderByPositionAsc(taskProjectId, "todo")
+            .map(t -> t.getPosition() - 1)
             .orElse(0.0);
         Task task = taskRepository.save(new Task(
             taskProjectId,
+            null,
             todo.title(),
             defaultString(todo.category(), "ETC"),
             "todo",
             assigneeId,
+            startDate,
             dueDate,
             defaultString(todo.priority(), "MEDIUM"),
             todo.description(),
@@ -790,13 +838,14 @@ public class MeetingAnalysisService {
         if (assigneeId != null) {
             notificationRepository.save(new Notification(
                 assigneeId,
+                task.getProjectId(),
                 "TASK_ASSIGNED",
                 "새 업무가 배정되었습니다",
                 "'" + todo.title() + "' 업무가 배정되었습니다.",
                 "task",
                 task.getId()
             ));
-            notificationRepository.deleteExcessByUserId(assigneeId);
+            notificationRepository.deleteExcessByUserIdAndProjectId(assigneeId, task.getProjectId());
         }
         return true;
     }
@@ -896,6 +945,37 @@ public class MeetingAnalysisService {
     private String resolveNameById(Long userId) {
         if (userId == null) return null;
         return userRepository.findById(userId).map(User::getName).orElse(null);
+    }
+
+    /**
+     * 저장된 회의록 음성 파일을 재생용으로 읽는다.
+     *
+     * <p>filePath는 업로드 시 uploadsDir 아래로만 기록되지만, DB 값이 조작되는 경우까지 막기 위해
+     * 실제 경로가 uploadsDir 안에 있는지 다시 확인한다.
+     *
+     * <p>normalize()+startsWith()만으로는 uploads 안에 심볼릭 링크를 만들어 바깥 파일을 가리키는
+     * 우회를 막지 못한다. 양쪽 모두 toRealPath()로 링크를 해소한 뒤 비교한다.
+     */
+    public MeetingAudio findAudio(String projectId, String meetingId) {
+        Meeting meeting = requireProjectMeeting(projectId, meetingId);
+        if (meeting == null) return null;
+        if (!"audio".equals(meeting.getFileType())) return null;
+        String storedPath = meeting.getFilePath();
+        if (storedPath == null || storedPath.isBlank()) return null;
+
+        try {
+            Path root = Path.of(uploadsDir).toRealPath();
+            Path target = Path.of(storedPath).toRealPath();
+            if (!target.startsWith(root) || !Files.isRegularFile(target) || !Files.isReadable(target)) {
+                log.warn("회의록 음성 파일 접근을 거부했습니다: meetingId={}, path={}", meetingId, storedPath);
+                return null;
+            }
+            return new MeetingAudio(target, defaultString(meeting.getOriginalFileName(), target.getFileName().toString()));
+        } catch (IOException e) {
+            // 파일이 없거나 링크가 끊긴 경우 등 — 존재 여부를 노출하지 않고 404로 처리한다.
+            log.warn("회의록 음성 파일을 읽을 수 없습니다: meetingId={}", meetingId);
+            return null;
+        }
     }
 
     private String storeUploadedFile(Long meetingId, MultipartFile file) {
@@ -1023,12 +1103,38 @@ public class MeetingAnalysisService {
     }
 
     private LocalDate parseDateOrNull(String date) {
+        return parseDateOrNull(date, null);
+    }
+
+    /**
+     * 회의록 To-Do의 날짜를 파싱한다.
+     *
+     * <p>이전에는 ISO(yyyy-MM-dd)만 받아, 사용자가 "07/31"처럼 연도 없이 입력하거나 LLM이
+     * "2026.07.31"로 돌려주면 조용히 null이 되어 업무보드 마감일이 비어버렸다.
+     * 연도가 없는 입력은 회의 날짜(reference)의 연도로 채운다.
+     */
+    private LocalDate parseDateOrNull(String date, LocalDate reference) {
         if (date == null || date.isBlank()) return null;
+        String normalized = date.trim().replace('.', '-').replace('/', '-').replaceAll("-+", "-");
+        normalized = normalized.replaceAll("-$", "");
         try {
-            return LocalDate.parse(date);
-        } catch (Exception e) {
-            return null;
+            return LocalDate.parse(normalized);
+        } catch (Exception ignored) {
+            // 아래에서 연도 없는 형식(MM-dd)을 시도한다.
         }
+        java.util.regex.Matcher monthDay =
+            java.util.regex.Pattern.compile("^(\\d{1,2})-(\\d{1,2})$").matcher(normalized);
+        if (monthDay.matches()) {
+            int year = (reference == null ? LocalDate.now() : reference).getYear();
+            try {
+                return LocalDate.of(year, Integer.parseInt(monthDay.group(1)), Integer.parseInt(monthDay.group(2)));
+            } catch (Exception e) {
+                log.warn("To-Do 날짜를 해석하지 못했습니다: raw={}", date);
+                return null;
+            }
+        }
+        log.warn("To-Do 날짜를 해석하지 못했습니다: raw={}", date);
+        return null;
     }
 
     private Long parseLongOrNull(String value) {
@@ -1198,13 +1304,11 @@ public class MeetingAnalysisService {
 
     private String extractPdfTextFromBytes(byte[] bytes) {
         try (PDDocument document = Loader.loadPDF(bytes)) {
-            String text = new PDFTextStripper()
-                .getText(document)
-                .replaceAll("\\s+\\n", "\n")
-                .replaceAll("\\n\\s+", "\n")
-                .trim();
+            String text = extractPdfTextWithOcrFallback(document);
             if (text.isBlank()) {
-                throw new IllegalArgumentException("PDF에서 분석할 텍스트를 추출하지 못했습니다.");
+                throw new IllegalArgumentException(
+                    "PDF에서 분석할 텍스트를 추출하지 못했습니다. 스캔 품질이 낮거나 글자가 없는 파일일 수 있습니다."
+                );
             }
             return text;
         } catch (IllegalArgumentException e) {
@@ -1215,6 +1319,158 @@ public class MeetingAnalysisService {
             // 예외가 컨트롤러의 catch(IllegalArgumentException)를 지나쳐 500으로 새어나가고,
             // 프론트는 이를 ApiRequestError가 아닌 원시 네트워크 오류로 오인해 일반 폴백 문구를 띄운다.
             throw new IllegalArgumentException("PDF 텍스트 추출에 실패했습니다.");
+        }
+    }
+
+    // 페이지 단위로 텍스트를 뽑고, 글자가 없는 페이지만 OCR로 보완한다.
+    // 문서 전체가 비었을 때만 OCR하면 "본문은 텍스트, 첨부는 스캔 이미지"인 혼합형 PDF에서
+    // 이미지 페이지의 내용이 통째로 빠진 채 정상 분석처럼 보인다.
+    private String extractPdfTextWithOcrFallback(PDDocument document) throws IOException {
+        int totalPages = document.getNumberOfPages();
+        String[] pageTexts = new String[totalPages];
+        List<Integer> blankPages = new ArrayList<>();
+
+        for (int page = 1; page <= totalPages; page++) {
+            PDFTextStripper stripper = new PDFTextStripper();
+            stripper.setStartPage(page);
+            stripper.setEndPage(page);
+            String pageText = stripper.getText(document)
+                .replaceAll("\\s+\\n", "\n")
+                .replaceAll("\\n\\s+", "\n")
+                .trim();
+            pageTexts[page - 1] = pageText;
+            if (pageText.isBlank()) {
+                blankPages.add(page);
+            }
+        }
+        if (blankPages.isEmpty()) {
+            return joinPages(pageTexts, List.of());
+        }
+        return joinPages(pageTexts, ocrBlankPages(document, pageTexts, blankPages));
+    }
+
+    // OCR은 CPU를 오래 잡아먹으므로 동시에 도는 문서 수를 제한한다. 제한이 없으면 업로드 몇 건만으로
+    // 서버 스레드와 tesseract 프로세스가 모두 점유돼 다른 요청까지 멈춘다.
+    // tess4j(JNA) 대신 CLI를 쓰는 이유: 네이티브 라이브러리 로딩 실패가 런타임에만 드러나 디버깅이 어렵기 때문이다.
+    private List<String> ocrBlankPages(PDDocument document, String[] pageTexts, List<Integer> blankPages)
+        throws IOException {
+        List<String> notices = new ArrayList<>();
+        List<Integer> targets = blankPages.size() > OCR_MAX_PAGES
+            ? List.copyOf(blankPages.subList(0, OCR_MAX_PAGES))
+            : blankPages;
+        if (blankPages.size() > targets.size()) {
+            notices.add("글자가 없는 페이지 " + blankPages.size() + "개 중 앞 " + targets.size()
+                + "개만 문자 인식했습니다. 나머지 페이지 내용은 분석에 포함되지 않았습니다.");
+        }
+
+        boolean acquired;
+        try {
+            acquired = OCR_SLOTS.tryAcquire(OCR_SLOT_WAIT_SECONDS, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("문자 인식 대기 중 중단되었습니다.", e);
+        }
+        if (!acquired) {
+            // 조용히 건너뛰면 내용이 빠진 회의록을 정상 분석으로 받아들이게 되므로 명시적으로 실패시킨다.
+            throw new IllegalArgumentException(
+                "서버가 다른 문서를 문자 인식 중입니다. 잠시 후 다시 시도해주세요."
+            );
+        }
+
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(OCR_TOTAL_BUDGET_SECONDS);
+        PDFRenderer renderer = new PDFRenderer(document);
+        List<Integer> failed = new ArrayList<>();
+        List<Integer> skipped = new ArrayList<>();
+        try {
+            for (int page : targets) {
+                // 페이지당 상한(60초)만 두면 30페이지에서 최악 30분간 스레드를 붙잡는다. 문서 전체 예산으로 자른다.
+                if (System.nanoTime() >= deadline) {
+                    skipped.add(page);
+                    continue;
+                }
+                Path imagePath = null;
+                try {
+                    BufferedImage image = renderer.renderImageWithDPI(page - 1, OCR_DPI);
+                    imagePath = Files.createTempFile("workflow-ocr-", ".png");
+                    ImageIO.write(image, "png", imagePath.toFile());
+                    pageTexts[page - 1] = runTesseract(imagePath).trim();
+                } catch (Exception e) {
+                    // 특정 페이지 실패가 문서 전체를 버리게 하지 않되, 누락 사실은 결과에 남긴다.
+                    failed.add(page);
+                    log.warn("PDF OCR 페이지 처리 실패: page={}", page, e);
+                } finally {
+                    deleteQuietly(imagePath);
+                }
+            }
+        } finally {
+            OCR_SLOTS.release();
+        }
+
+        if (!failed.isEmpty()) {
+            notices.add("문자 인식에 실패한 페이지가 있습니다: " + failed + ". 해당 페이지 내용은 분석에 포함되지 않았습니다.");
+        }
+        if (!skipped.isEmpty()) {
+            log.warn("OCR 전체 시간 예산({}초) 초과로 일부 페이지를 건너뜀: {}", OCR_TOTAL_BUDGET_SECONDS, skipped);
+            notices.add("문자 인식 시간이 " + OCR_TOTAL_BUDGET_SECONDS + "초를 넘겨 페이지 " + skipped
+                + "를 처리하지 못했습니다. 해당 페이지 내용은 분석에 포함되지 않았습니다.");
+        }
+        return notices;
+    }
+
+    private String joinPages(String[] pageTexts, List<String> notices) {
+        String body = String.join("\n", Arrays.stream(pageTexts).filter(t -> !t.isBlank()).toList())
+            .replaceAll("\\n{3,}", "\n\n")
+            .trim();
+        if (body.isBlank() || notices.isEmpty()) {
+            return body;
+        }
+        return body + "\n\n[알림] " + String.join(" ", notices);
+    }
+
+    private void deleteQuietly(Path path) {
+        if (path == null) {
+            return;
+        }
+        try {
+            Files.deleteIfExists(path);
+        } catch (IOException ignored) {
+            // 임시 파일 정리 실패는 분석 결과에 영향을 주지 않는다.
+        }
+    }
+
+    private String runTesseract(Path imagePath) throws IOException, InterruptedException {
+        // 결과를 stdout 파이프로 받지 않고 tesseract가 직접 파일에 쓰게 한다.
+        // 파이프로 받으면 (1) readAllBytes()가 EOF까지 블로킹해 아래 waitFor 타임아웃이 영영
+        // 실행되지 않고, (2) 소비하지 않는 stderr 버퍼가 가득 차면 tesseract가 멈춰 교착에 빠진다.
+        // 두 스트림을 모두 버리고 파일로 주고받으면 두 문제가 함께 사라진다.
+        Path outputBase = Files.createTempFile("workflow-ocr-out-", "");
+        Files.deleteIfExists(outputBase); // tesseract가 <base>.txt를 새로 만든다
+        Path outputText = Path.of(outputBase + ".txt");
+
+        try {
+            Process process = new ProcessBuilder(
+                "tesseract", imagePath.toString(), outputBase.toString(), "-l", OCR_LANGUAGES
+            )
+                .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                .redirectError(ProcessBuilder.Redirect.DISCARD)
+                .start();
+
+            if (!process.waitFor(OCR_PAGE_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                process.destroyForcibly();
+                // 종료를 기다리지 않고 빠져나가면 아직 살아 있는 tesseract가 방금 지운 경로에 다시
+                // 파일을 쓰거나 임시 파일이 남는다. 실제 종료를 확인한 뒤 정리 단계로 넘어간다.
+                if (!process.waitFor(OCR_KILL_WAIT_SECONDS, TimeUnit.SECONDS)) {
+                    log.warn("tesseract 강제 종료 후에도 프로세스가 남아 있습니다: pid={}", process.pid());
+                }
+                throw new IOException("tesseract 실행이 " + OCR_PAGE_TIMEOUT_SECONDS + "초를 넘겨 중단했습니다.");
+            }
+            if (process.exitValue() != 0) {
+                throw new IOException("tesseract가 비정상 종료했습니다: exitCode=" + process.exitValue());
+            }
+            return Files.exists(outputText) ? Files.readString(outputText, StandardCharsets.UTF_8) : "";
+        } finally {
+            deleteQuietly(outputText);
+            deleteQuietly(outputBase);
         }
     }
 

@@ -148,3 +148,52 @@ def test_set_due_date_rejects_nonexistent_calendar_date() -> None:
 def test_delete_task_needs_no_args() -> None:
     action = Action(tool="delete_task", task_ref="WF-1", args={})
     assert action.tool == "delete_task"
+
+
+def test_completion_tools_are_supported_and_leader_only() -> None:
+    """완료 승인/반려는 팀장만 쓸 수 있고 실행기도 수행할 수 있어야 한다.
+
+    권한(LEADER_TOOLS)과 실행 가능(SUPPORTED_TOOLS)은 별개의 축이다. 한쪽만 넣으면
+    카드가 아예 안 나오거나, 카드는 뜨는데 실행 단계에서 거부된다.
+    """
+    for tool in ("approve_completion", "reject_completion"):
+        assert requires_leader(tool) is True
+        assert tool in SUPPORTED_TOOLS
+        assert Action(tool=tool, task_ref="WF-1", args={}).tool == tool
+
+
+def test_nudge_task_is_supported_and_leader_only() -> None:
+    assert requires_leader("nudge_task") is True
+    assert "nudge_task" in SUPPORTED_TOOLS
+
+
+def test_nudge_task_rejects_unknown_kind() -> None:
+    """재촉 알림은 한 번 나가면 회수할 수 없다. 카드가 뜨기 전에 막아야 한다.
+
+    Spring도 400 INVALID_NUDGE_KIND로 거부하지만, 그때는 이미 사용자가 확인 카드를
+    누른 뒤다. 잘못된 값이 카드까지 가지 않게 파싱 단계에서 끊는다.
+    """
+    for bad in ("HURRY", "start", "", None):
+        with pytest.raises(ValidationError):
+            Action(tool="nudge_task", task_ref="WF-1", args={"kind": bad})
+    with pytest.raises(ValidationError):
+        Action(tool="nudge_task", task_ref="WF-1", args={})
+
+
+def test_nudge_task_accepts_the_three_kinds_spring_declares() -> None:
+    # Spring TaskController.NUDGE_MESSAGE_TEMPLATES의 키와 같아야 한다.
+    for kind in ("START", "PROGRESS", "URGENT"):
+        action = Action(tool="nudge_task", task_ref="WF-1", args={"kind": kind})
+        assert action.args["kind"] == kind
+
+
+def test_member_tool_set_is_still_empty_after_adding_leader_tools() -> None:
+    """도구를 늘리면서 '대화로 하는 변경은 전부 팀장 전용' 원칙이 새지 않았는지 본다.
+
+    완료 요청/취소(팀원 동작)를 넣고 싶은 유혹이 있는 자리다. 그건 MEMBER_TOOLS를 여는
+    별개의 결정이므로, 슬쩍 들어오면 이 테스트가 막는다.
+    """
+    assert MEMBER_TOOLS == frozenset()
+    assert SUPPORTED_TOOLS <= ALL_TOOLS
+    assert "request_completion" not in ALL_TOOLS
+    assert "cancel_completion" not in ALL_TOOLS

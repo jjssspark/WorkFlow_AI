@@ -6,7 +6,8 @@ import { ContributorsView } from "./ContributorsView";
 import { fetchTasks } from "../../board/libs/utils/taskApi";
 import { fetchAttendanceSummary, fetchAttendanceDetail } from "../../meetings/libs/utils/meetingAiApi";
 import { fetchContributionScore } from "../libs/utils/contributorsApi";
-import { finalizeEvaluation, getProject, getProjectMembers } from "../../global/api/projectsApi";
+import { downloadCalculatorCsv } from "../libs/utils/calculatorCsv";
+import { finalizeEvaluation, unfinalizeEvaluation, getProject, getProjectMembers } from "../../global/api/projectsApi";
 import {
   getEvaluationScores,
   getEvaluationSettings,
@@ -38,10 +39,15 @@ vi.mock("../libs/utils/contributorsApi", () => ({
   fetchContributionReport: vi.fn(),
 }));
 
+vi.mock("../libs/utils/calculatorCsv", () => ({
+  downloadCalculatorCsv: vi.fn(),
+}));
+
 vi.mock("../../global/api/projectsApi", () => ({
   getProject: vi.fn(),
   getProjectMembers: vi.fn(),
   finalizeEvaluation: vi.fn(),
+  unfinalizeEvaluation: vi.fn(),
 }));
 
 vi.mock("../../global/api/evaluationApi", () => ({
@@ -212,6 +218,30 @@ describe("ContributorsView 학점 계산기", () => {
     });
     vi.mocked(getEvaluationSettings).mockResolvedValue({ projectId: 1, contributionRatio: 40 });
     vi.mocked(upsertEvaluationSettings).mockResolvedValue({ projectId: 1, contributionRatio: 70 });
+  });
+
+  it("'CSV 저장' 버튼을 누르면 학점 계산기 행(이름/역할/기여점수/심사자점수/총합/학점/공개여부)을 그대로 downloadCalculatorCsv에 전달한다", async () => {
+    renderView();
+    const user = userEvent.setup();
+
+    const heading = await screen.findByText("학점 계산기");
+    const aside = heading.closest(".grade-calculator-card") as HTMLElement;
+    const reviewerScoreInput = within(aside).getByPlaceholderText("-");
+    await user.type(reviewerScoreInput, "90");
+    await waitFor(() => expect(within(aside).getByText("78.00")).toBeInTheDocument());
+
+    const csvButton = screen.getByRole("button", { name: "CSV 저장" });
+    await user.click(csvButton);
+
+    expect(downloadCalculatorCsv).toHaveBeenCalledWith(
+      [
+        {
+          name: "김민준", role: "팀장", score: 60, reviewerScore: "90",
+          total: 78, grade: "", isFinalPublic: false,
+        },
+      ],
+      "스마트 주차 관리 시스템",
+    );
   });
 
   it("기여 점수를 보여주고, 심사자 점수를 입력하면 비율(기여 40%/심사자 60%)로 총합을 계산한다", async () => {
@@ -410,5 +440,91 @@ describe("ContributorsView 학점 계산기", () => {
 
     await user.click(sortButton); // desc: 총합이 큰 순 → 이서연(66.00), 김민준(42.00)
     expect(getRowOrder()).toEqual(["이서연", "김민준"]);
+  });
+});
+
+describe("ContributorsView 평가 확정 토글", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.mocked(getProjectMembers).mockResolvedValue([
+      { userId: 1, name: "김민준", email: "kim@test.com", role: "팀장" },
+    ]);
+    vi.mocked(fetchContributionScore).mockResolvedValue({
+      members: [
+        {
+          assigneeId: "1", workloadComponent: 17.5, taskComponent: 80.0, meetingComponent: 80.0,
+          contributionScore: 60.0, anomalyType: "배정량 불균형", taskCountActiveRel: 0.3, taskCountTotalRel: 0.3,
+          difficultyAvgRel: 0.9, overdueCount: 0,
+        },
+      ],
+      note: null,
+      teamMeanCompletion: 0.6,
+    });
+    vi.mocked(fetchAttendanceSummary).mockResolvedValue([]);
+    vi.mocked(fetchTasks).mockResolvedValue([]);
+    vi.mocked(getEvaluationScores).mockResolvedValue([]);
+    vi.mocked(getEvaluationSettings).mockResolvedValue({ projectId: 1, contributionRatio: 40 });
+    vi.mocked(upsertEvaluationSettings).mockResolvedValue({ projectId: 1, contributionRatio: 40 });
+  });
+
+  it("evalStatus가 PUBLISHED이면 '평가 확정 취소' 버튼을 보여준다", async () => {
+    vi.mocked(getProject).mockResolvedValue({
+      id: 1, title: "스마트 주차 관리 시스템", type: null, deadline: null, description: null,
+      startDate: null, midCheckDate: null, memberLimit: null, deliverables: null, techStack: null,
+      goals: null, inviteCode: null, createdBy: null, memberCount: 1, taskProgress: 0,
+      evalStatus: "PUBLISHED",
+    });
+    renderView();
+
+    expect(await screen.findByRole("button", { name: "평가 확정 취소" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "평가 확정" })).not.toBeInTheDocument();
+  });
+
+  it("'평가 확정 취소' 클릭 시 확인 다이얼로그 없이 바로 unfinalizeEvaluation을 호출해 배지를 '평가 중'으로 되돌린다 (점수 공개 여부와 무관한 진행 상태 전용 토글)", async () => {
+    vi.mocked(getProject).mockResolvedValue({
+      id: 1, title: "스마트 주차 관리 시스템", type: null, deadline: null, description: null,
+      startDate: null, midCheckDate: null, memberLimit: null, deliverables: null, techStack: null,
+      goals: null, inviteCode: null, createdBy: null, memberCount: 1, taskProgress: 0,
+      evalStatus: "PUBLISHED",
+    });
+    vi.mocked(unfinalizeEvaluation).mockResolvedValue({
+      id: 1, title: "스마트 주차 관리 시스템", type: null, deadline: null, description: null,
+      startDate: null, midCheckDate: null, memberLimit: null, deliverables: null, techStack: null,
+      goals: null, inviteCode: null, createdBy: null, memberCount: 1, taskProgress: 0,
+      evalStatus: "EVALUATING",
+    });
+    const confirmSpy = vi.spyOn(window, "confirm");
+    renderView();
+    const user = userEvent.setup();
+
+    const cancelButton = await screen.findByRole("button", { name: "평가 확정 취소" });
+    await user.click(cancelButton);
+
+    expect(confirmSpy).not.toHaveBeenCalled();
+    await waitFor(() => expect(unfinalizeEvaluation).toHaveBeenCalledWith(1));
+    expect(await screen.findByRole("button", { name: "평가 확정" })).toBeInTheDocument();
+  });
+
+  it("evalStatus가 EVALUATING이면 '평가 확정' 버튼을 보여주고 클릭 시 finalizeEvaluation을 호출한다", async () => {
+    vi.mocked(getProject).mockResolvedValue({
+      id: 1, title: "스마트 주차 관리 시스템", type: null, deadline: null, description: null,
+      startDate: null, midCheckDate: null, memberLimit: null, deliverables: null, techStack: null,
+      goals: null, inviteCode: null, createdBy: null, memberCount: 1, taskProgress: 0,
+      evalStatus: "EVALUATING",
+    });
+    vi.mocked(finalizeEvaluation).mockResolvedValue({
+      id: 1, title: "스마트 주차 관리 시스템", type: null, deadline: null, description: null,
+      startDate: null, midCheckDate: null, memberLimit: null, deliverables: null, techStack: null,
+      goals: null, inviteCode: null, createdBy: null, memberCount: 1, taskProgress: 0,
+      evalStatus: "PUBLISHED",
+    });
+    renderView();
+    const user = userEvent.setup();
+
+    const confirmButton = await screen.findByRole("button", { name: "평가 확정" });
+    await user.click(confirmButton);
+
+    await waitFor(() => expect(finalizeEvaluation).toHaveBeenCalledWith(1));
+    expect(await screen.findByRole("button", { name: "평가 확정 취소" })).toBeInTheDocument();
   });
 });
