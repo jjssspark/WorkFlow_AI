@@ -12,21 +12,28 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workflowai.security.ProjectAccess;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
-import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
+import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.web.bind.annotation.ExceptionHandler;
-import org.springframework.web.bind.annotation.RestControllerAdvice;
+import testsupport.AccessDeniedEnvelopeAdvice;
 
+// MethodSecurityTestConfig에는 일부러 @SpringBootConfiguration을 붙이지 않는다. 붙이면 같은
+// 패키지(com.workflowai.project)의 @SpringBootTest가 설정 클래스 자동 탐지에서 실제 앱의 메인
+// 클래스 대신 이 클래스를 더 가까운 후보로 집어, ProjectService조차 없는 빈 컨텍스트가 뜬다.
+// TaskControllerSecurityTest가 같은 이유로 이미 @ContextConfiguration을 쓰고 있다.
+//
+// 권한 거부 응답 대역도 com.workflowai 밖(testsupport)의 것을 쓴다. @RestControllerAdvice는
+// @Component라, 이 패키지 안에 두면 @SpringBootTest의 컴포넌트 스캔에 걸려 통합 테스트의 실제
+// 컨텍스트에까지 등록되고 SecurityConfig보다 먼저 403을 만든다(IT-002에서 확인된 문제).
 @WebMvcTest(ProjectController.class)
 @AutoConfigureMockMvc(addFilters = false)
+@ContextConfiguration(classes = ProjectControllerSecurityTest.MethodSecurityTestConfig.class)
 class ProjectControllerSecurityTest {
 
     @Autowired
@@ -71,22 +78,12 @@ class ProjectControllerSecurityTest {
             .andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
     }
 
-    @SpringBootConfiguration
     @EnableMethodSecurity
     @Import(ProjectController.class)
     static class MethodSecurityTestConfig {
         @Bean
-        AccessDeniedResponseAdvice accessDeniedResponseAdvice() {
-            return new AccessDeniedResponseAdvice();
-        }
-    }
-
-    @RestControllerAdvice
-    static class AccessDeniedResponseAdvice {
-        @ExceptionHandler(AccessDeniedException.class)
-        org.springframework.http.ResponseEntity<com.workflowai.common.ApiResponse<Void>> handleAccessDenied() {
-            return org.springframework.http.ResponseEntity.status(403)
-                .body(com.workflowai.common.ApiResponse.fail("FORBIDDEN", "권한이 없습니다."));
+        AccessDeniedEnvelopeAdvice accessDeniedResponseAdvice() {
+            return new AccessDeniedEnvelopeAdvice();
         }
     }
 }
