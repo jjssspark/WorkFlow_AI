@@ -130,4 +130,39 @@ describe("NotificationProvider", () => {
     await waitFor(() => expect(fetchNotifications).toHaveBeenCalled());
     expect(toast.custom).not.toHaveBeenCalled();
   });
+
+  it("프로젝트 전환 전에 나간 미읽음 개수 요청이 전환 후에 뒤늦게 응답해도 최신 상태를 덮어쓰지 않는다", async () => {
+    let resolveFirst!: (value: number) => void;
+    let resolveSecond!: (value: number) => void;
+    const firstRequest = new Promise<number>((resolve) => { resolveFirst = resolve; });
+    const secondRequest = new Promise<number>((resolve) => { resolveSecond = resolve; });
+
+    fetchUnreadNotificationCount
+      .mockReset()
+      .mockImplementationOnce(() => firstRequest)
+      .mockImplementationOnce(() => secondRequest);
+
+    mockUseAuth.mockReturnValue(authenticatedAuth({ currentProjectId: 12 }));
+    const { getByTestId, rerender } = render(<NotificationProvider><Probe /></NotificationProvider>);
+
+    await waitFor(() => expect(fetchUnreadNotificationCount).toHaveBeenCalledTimes(1));
+    expect(fetchUnreadNotificationCount).toHaveBeenNthCalledWith(1, 12);
+
+    // 프로젝트 12의 요청이 아직 응답하지 않은 채로 프로젝트 34로 전환한다.
+    mockUseAuth.mockReturnValue(authenticatedAuth({ currentProjectId: 34 }));
+    rerender(<NotificationProvider><Probe /></NotificationProvider>);
+
+    await waitFor(() => expect(fetchUnreadNotificationCount).toHaveBeenCalledTimes(2));
+    expect(fetchUnreadNotificationCount).toHaveBeenNthCalledWith(2, 34);
+
+    // 새 프로젝트(34)의 응답이 먼저 도착한다.
+    resolveSecond(5);
+    await waitFor(() => expect(getByTestId("count").textContent).toBe("5"));
+
+    // 이전 프로젝트(12)로 나갔던 요청이 전환 이후에야 뒤늦게 응답한다 - 이미 프로젝트 34를 보고
+    // 있으므로 이 응답은 버려져야 하고, 화면의 미읽음 개수는 34의 값(5)을 계속 유지해야 한다.
+    resolveFirst(99);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(getByTestId("count").textContent).toBe("5");
+  });
 });

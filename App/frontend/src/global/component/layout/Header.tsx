@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { ChevronRight, Search, Calendar, Bell, LogOut, Menu } from "lucide-react";
 import { TAB_TITLES } from "../../lib/constants/nav";
@@ -66,23 +66,33 @@ export function Header({ onOpenMobileMenu }: { onOpenMobileMenu?: () => void }) 
     setNotifError(false);
   }, [currentProjectId]);
 
+  // fetchNotifications 응답이 도착하기 전에 프로젝트를 전환하면, 이전 프로젝트로 나간 요청이
+  // 전환 이후에 뒤늦게 응답할 수 있다. ref는 항상 "지금" 프로젝트를 가리키므로, 응답 시점에
+  // 요청 당시와 비교해 어긋나면(=전환됨) 그 응답은 버린다.
+  const currentProjectIdRef = useRef(currentProjectId);
+  useEffect(() => {
+    currentProjectIdRef.current = currentProjectId;
+  }, [currentProjectId]);
+
   const handleToggleNotifications = async () => {
     const opening = !notifOpen;
     setNotifOpen(opening);
     if (!opening || !currentProjectId || currentProjectId < 0) return;
 
+    const requestedProjectId = currentProjectId;
     // 목록을 먼저 불러와 화면에 반영한 뒤, 그 목록에 실제로 있던 id들만 읽음 처리한다.
     // "전체 읽음"을 따로 호출하면 목록을 불러오는 사이에 새로 도착한 알림까지 휩쓸려,
     // 사용자가 보지도 못한 알림이 안 읽음 배지에서 사라질 수 있다 — 방금 화면에 보여준
     // id만 넘기면 그 뒤에 도착하는 알림은 이 요청과 무관하므로 안전하다.
     let list: NotificationResponse[];
     try {
-      list = await fetchNotifications(currentProjectId);
+      list = await fetchNotifications(requestedProjectId);
     } catch (err) {
       console.error("알림 목록을 불러오지 못했습니다.", err);
       setNotifError(true);
       return;
     }
+    if (currentProjectIdRef.current !== requestedProjectId) return; // 응답 도착 전에 전환됨 - 폐기
     setNotifications(list);
     setNotifError(false);
 
