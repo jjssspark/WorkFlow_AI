@@ -21,7 +21,7 @@ vi.mock("sonner", () => ({ toast: { dismiss: vi.fn() } }));
 
 function renderToast(overrides: Partial<NotificationResponse> = {}) {
   const notification: NotificationResponse = {
-    id: "1", type: "TASK_ASSIGNED", title: "새 업무 배정", content: "'로그인 API' 업무가 배정되었습니다.",
+    id: "1", projectId: "1", type: "TASK_ASSIGNED", title: "새 업무 배정", content: "'로그인 API' 업무가 배정되었습니다.",
     targetType: null, targetId: null, read: false, createdAt: new Date().toISOString(),
     ...overrides,
   };
