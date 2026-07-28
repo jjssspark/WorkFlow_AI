@@ -5,6 +5,7 @@ import {
   fetchUnreadNotificationCount,
   subscribeNotificationStream,
   type NotificationResponse,
+  type TaskMoveEvent,
 } from "../api/notificationApi";
 import { useAuth } from "./useAuth";
 import { NotificationToast } from "../component/layout/NotificationToast";
@@ -17,6 +18,8 @@ const MAX_PENDING_TOASTS = 5;
 interface NotificationsState {
   unreadCount: number;
   refreshUnreadCount: () => Promise<void>;
+  subscribeTaskMove: (handler: (event: TaskMoveEvent) => void) => () => void;
+  isStreamConnected: boolean;
 }
 
 const NotificationsContext = createContext<NotificationsState | null>(null);
@@ -24,6 +27,19 @@ const NotificationsContext = createContext<NotificationsState | null>(null);
 export function NotificationProvider({ children }: { children: ReactNode }) {
   const { isAuthenticated, currentProjectId, projectContextReady } = useAuth();
   const [unreadCount, setUnreadCount] = useState(0);
+  const [isStreamConnected, setIsStreamConnected] = useState(false);
+  const taskMoveListenersRef = useRef<Set<(event: TaskMoveEvent) => void>>(new Set());
+
+  const subscribeTaskMove = useCallback((handler: (event: TaskMoveEvent) => void) => {
+    taskMoveListenersRef.current.add(handler);
+    return () => {
+      taskMoveListenersRef.current.delete(handler);
+    };
+  }, []);
+
+  const dispatchTaskMove = useCallback((event: TaskMoveEvent) => {
+    taskMoveListenersRef.current.forEach((listener) => listener(event));
+  }, []);
 
   // 60초 폴백 폴링(refreshUnreadCount) 중에 프로젝트를 전환하면, 이전 프로젝트로 나간 요청이
   // 전환 이후에 응답할 수 있다. 그 응답을 그대로 반영하면 방금 전환한 프로젝트 화면에 이전
@@ -84,13 +100,17 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!isAuthenticated || !projectContextReady || !currentProjectId || currentProjectId < 0) {
       setUnreadCount(0);
+      setIsStreamConnected(false);
       return;
     }
 
     refreshUnreadCount();
     void showPendingNotifications();
     const controller = new AbortController();
-    subscribeNotificationStream({ onNotification: handleNotification }, controller.signal);
+    subscribeNotificationStream(
+      { onNotification: handleNotification, onTaskMove: dispatchTaskMove, onConnectedChange: setIsStreamConnected },
+      controller.signal
+    );
 
     // SSE가 조용히 끊긴 채 재연결에 실패하는 경우를 대비한 안전망. 주 배송 경로는 SSE다.
     const interval = setInterval(refreshUnreadCount, FALLBACK_POLL_INTERVAL_MS);
@@ -98,10 +118,13 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       controller.abort();
       clearInterval(interval);
     };
-  }, [isAuthenticated, projectContextReady, currentProjectId, handleNotification, refreshUnreadCount, showPendingNotifications]);
+  }, [
+    isAuthenticated, projectContextReady, currentProjectId, handleNotification, dispatchTaskMove,
+    refreshUnreadCount, showPendingNotifications,
+  ]);
 
   return (
-    <NotificationsContext.Provider value={{ unreadCount, refreshUnreadCount }}>
+    <NotificationsContext.Provider value={{ unreadCount, refreshUnreadCount, subscribeTaskMove, isStreamConnected }}>
       {children}
     </NotificationsContext.Provider>
   );
