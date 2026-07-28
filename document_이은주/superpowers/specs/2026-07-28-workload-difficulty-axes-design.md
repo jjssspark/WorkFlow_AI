@@ -34,9 +34,12 @@
 
 | 축 | 판정 피처 | 방향 라벨 | 방향 불명확 라벨 | 대표점수 가중치 |
 |---|---|---|---|---|
-| **난이도 몰림** (신규, 메인 목적) | `difficulty_total_rel`(신규) + `overdue_ratio` | "난이도 몰림 의심" | "난이도 이상 패턴(방향 불명확)" | **0.6** |
-| **업무량 몰림** (구 "과부하 의심" 개명, 로직 동일) | `task_count_active_rel` + `completion_rate` | "업무량 몰림 의심" | "업무량 이상 패턴(방향 불명확)" | **0.2** |
+| **난이도 편중** (신규, 메인 목적) | `difficulty_total_rel`(신규) + `overdue_ratio` | "난이도 편중 의심" | "난이도 이상 패턴(방향 불명확)" | **0.6** |
+| **업무량 편중** (구 "과부하 의심" 개명, 로직 동일) | `task_count_active_rel` + `completion_rate` | "업무량 편중 의심" | "업무량 이상 패턴(방향 불명확)" | **0.2** |
 | **배정량 불균형** (기존 유지) | `task_count_total_rel`(단일 피처) | "배정량 불균형" | "배정 이상 패턴(방향 불명확)" | **0.2** |
+
+라벨 접미사는 "몰림"이 아니라 **"편중"으로 통일**한다(배정량 불균형만 예외 — 기존 라벨 그대로
+유지, 다른 두 축과 뜻이 다르므로).
 
 ### 왜 세 축을 분리하는가
 
@@ -44,9 +47,18 @@
   편차가 크지 않으면 거의 같이 움직인다. 두 값을 하나의 합산 거리에 섞으면 "업무량이 적다"는
   하나의 사실이 이중으로 반영돼 대표 점수가 여전히 업무량 신호에 편향된다 — 축을 분리하고
   가중치로 명시적으로 통제하는 편이 낫다.
-- "배정량 불균형"과 "업무량 몰림(구 과부하 의심)"은 서로 다른 질문("애초에 적게 받았나" vs
+- "배정량 불균형"과 "업무량 편중(구 과부하 의심)"은 서로 다른 질문("애초에 적게 받았나" vs
   "지금 진행중인 게 많고 못 끝내고 있나")이므로 독립 축으로 유지한다.
-- "난이도 몰림"은 팀이 원래 원했던 지표이므로 가중치를 가장 높게(0.6) 둔다.
+- "난이도 편중"은 팀이 원래 원했던 지표이므로 가중치를 가장 높게(0.6) 둔다.
+
+### 기존 "저활동 의심" 라벨과의 관계 (WorkloadPage.tsx에서 발견된 죽은 참조)
+
+`App/frontend/src/dashboard/screen/detail/WorkloadPage.tsx`가 `anomalyType === "저활동 의심"`을
+참조하는 코드가 있으나, 백엔드는 이미 이 라벨을 생성하지 않는다(과거 리팩터링에서 "배정량
+불균형"으로 대체됨 — `test_workload_model_anomaly_direction.py`의
+`test_low_assignment_with_high_completion_is_flagged_as_workload_imbalance_not_low_activity`
+참고). 즉 `isUnderload`/`underloadedByMl` 관련 UI는 지금도 항상 빈 상태로만 렌더링되는
+죽은 코드다. 이번 작업에서 **삭제**하고 "배정량 불균형" + "난이도 편중 의심" 배지로 교체한다.
 
 ## `difficulty_total_rel` 신규 피처
 
@@ -77,11 +89,11 @@ def compute_axis_results(feature_df: pd.DataFrame, team_mean_completion: float) 
     """세 축을 각각 독립적으로 판정하고 axis별 is_anomaly/score/label을 채운 DataFrame 반환."""
     result = feature_df.copy()
 
-    # 축 1: 난이도 몰림 (difficulty_total_rel + overdue_ratio)
+    # 축 1: 난이도 편중 (difficulty_total_rel + overdue_ratio)
     diff_anomaly, result["difficulty_score"] = _mad_anomaly_multi(
         feature_df[["difficulty_total_rel", "overdue_ratio"]].fillna(0).values
     )
-    # 축 2: 업무량 몰림 (task_count_active_rel + completion_rate)
+    # 축 2: 업무량 편중 (task_count_active_rel + completion_rate)
     workload_anomaly, result["workload_score"] = _mad_anomaly_multi(
         feature_df[["task_count_active_rel", "completion_rate"]].fillna(0).values
     )
@@ -91,11 +103,11 @@ def compute_axis_results(feature_df: pd.DataFrame, team_mean_completion: float) 
     def _labels(row) -> list[str]:
         labels = []
         if diff_anomaly[row.name]:
-            labels.append("난이도 몰림 의심" if row["difficulty_total_rel"] > 1.0
+            labels.append("난이도 편중 의심" if row["difficulty_total_rel"] > 1.0
                            else "난이도 이상 패턴(방향 불명확)")
         if workload_anomaly[row.name]:
             if row["task_count_active_rel"] > 1.0 and row["completion_rate"] < team_mean_completion:
-                labels.append("업무량 몰림 의심")
+                labels.append("업무량 편중 의심")
             else:
                 labels.append("업무량 이상 패턴(방향 불명확)")
         if alloc_anomaly[row.name]:
@@ -167,8 +179,8 @@ class WorkloadMemberResult(BaseModel):
     overload_score: float          # 대표 점수(가중평균 0.6/0.2/0.2). 필드명 유지(하위 호환)
     is_anomaly: bool                # 세 축 중 하나라도 True
     anomaly_types: list[str]        # 변경: str -> list[str]. 정상이면 []
-    difficulty_score: float         # 신규: 난이도 몰림 축 점수 0~100
-    workload_score: float           # 신규: 업무량 몰림 축 점수 0~100
+    difficulty_score: float         # 신규: 난이도 편중 축 점수 0~100
+    workload_score: float           # 신규: 업무량 편중 축 점수 0~100
     allocation_score: float         # 신규: 배정량 불균형 축 점수 0~100
     task_count_active_rel: float
     task_count_total_rel: float
@@ -210,7 +222,7 @@ def workload_component_of(member: WorkloadMemberResult) -> float:
   `difficultyAvgRel` → `difficultyTotalRel`, `difficultyScore`/`workloadScore`/`allocationScore`
   추가. 매핑부(`m.anomaly_type` 등)도 스네이크→카멜 변환에 맞춰 갱신.
 - `App/frontend/src/contributors/components/MemberDrilldownPanel.tsx`:
-  - `ANOMALY_BADGE_STYLE`에 신규 라벨(`"난이도 몰림 의심"`, `"업무량 몰림 의심"`, 각 축의
+  - `ANOMALY_BADGE_STYLE`에 신규 라벨(`"난이도 편중 의심"`, `"업무량 편중 의심"`, 각 축의
     "~이상 패턴(방향 불명확)" 3종) 스타일 추가.
   - 단일 배지 렌더링(`ANOMALY_BADGE_STYLE[anomalyType]`) → `anomalyTypes.map()`으로 다중
     배지 렌더링.
@@ -220,6 +232,37 @@ def workload_component_of(member: WorkloadMemberResult) -> float:
 - **목록 테이블 "업무 편중도" 컬럼**(`ContributorsView.tsx`)에서 다중 배지를 어떻게 배치할지
   (배지 여러 개 나열 vs 대표 라벨 1~2개 + "+N" 축약 등)는 **구현 단계에서 실제 화면을 보며
   결정**한다 — 이 설계 문서의 스코프 밖.
+
+### `WorkloadPage.tsx` (대시보드 화면 — `ContributorsView`와 별개 소비자)
+
+`App/frontend/src/dashboard/libs/utils/workloadScoreApi.ts`가 정의하는 `RawWorkloadScoreMember`/
+`WorkloadScoreMemberDto` 타입도 동일 패턴으로 갱신한다: `anomaly_type: string` →
+`anomaly_types: string[]`(raw), `anomalyType: string` → `anomalyTypes: string[]`(dto),
+`difficultyAvgRel` → `difficultyTotalRel`, `difficultyScore`/`workloadScore`/`allocationScore`
+추가.
+
+`App/frontend/src/dashboard/screen/detail/WorkloadPage.tsx` 변경:
+- `ANOMALY_BADGE`(WorkloadPage.tsx:65-68): `"과부하 의심"` 키를 `"업무량 편중 의심"`으로
+  개명. `"저활동 의심"` 키는 **삭제**(백엔드가 이미 이 라벨을 생성하지 않는 죽은 참조) 대신
+  `"배정량 불균형"`, `"난이도 편중 의심"` 키를 추가.
+- `isMemberOverloaded()`(:113-114): `anomalyType === "과부하 의심"` →
+  `anomalyTypes.includes("업무량 편중 의심")`로 변경.
+- `categoryColorFor()`(:117-120): `anomalyType` 단일값 참조 → `anomalyTypes` 배열에서 색상
+  우선순위를 정해 첫 매치를 사용(예: 업무량 편중 > 난이도 편중 > 배정량 불균형 > 정상 순 —
+  구현 단계에서 실제 화면을 보며 확정 가능, 여러 축이 동시에 활성화된 사람의 카드 색이
+  섞이지 않게 단일 대표색을 골라야 하므로 우선순위 자체는 필요).
+- `overloadedByMl`/`underloadedByMl`(:122-123): `underloadedByMl`(저활동, 죽은 코드) **삭제**.
+  `overloadedByMl` → `workloadHeavyMembers`(업무량 편중 의심 필터)로 개명하고, 신규로
+  `difficultyHeavyMembers`(난이도 편중 의심 필터), `allocationImbalancedMembers`(배정량 불균형
+  필터) 추가.
+- `workloadInsightText`(:136-145): 세 그룹(업무량 편중/난이도 편중/배정량 불균형) 각각의
+  멤버를 나열하는 문구로 확장. 셋 다 비어있으면 기존처럼 "뚜렷한 업무 편중은 감지되지
+  않았습니다".
+- 팀원 카드의 배지 렌더링(:294-307): `anomalyBadge`(단일) → `anomalyTypes.map()`으로 다중
+  배지. 좁은 카드 레이아웃이라 배지가 2개 이상이면 줄바꿈 허용 여부는 구현 단계에서 결정.
+- 완료율 비교 영역의 `isOverload`/`isUnderload`(:247-248): `isUnderload` **삭제**,
+  `isOverload` → `anomalyTypes.includes("업무량 편중 의심")` 기준으로 변경하고 배정량
+  불균형/난이도 편중 배지도 나란히 추가(:255-256의 인라인 배지 두 개 → 세 개로 확장).
 
 ## 노트북 (`document_이은주/workload_score_experiment.ipynb`)
 
@@ -235,7 +278,7 @@ def workload_component_of(member: WorkloadMemberResult) -> float:
 
 ### FastAPI
 - `test_workload_model_anomaly_direction.py`: `anomaly_type == "배정량 불균형"` 단언 →
-  `"배정량 불균형" in anomaly_types`로 수정. 새 시나리오(난이도 몰림 단독/복합 라벨) 케이스
+  `"배정량 불균형" in anomaly_types`로 수정. 새 시나리오(난이도 편중 단독/복합 라벨) 케이스
   추가.
 - `test_workload_model_team_mean.py`: `team_mean_completion` attrs 전달은 그대로 유지되는지
   회귀 확인(로직 변경 없음, 영향 적음).
@@ -254,6 +297,9 @@ def workload_component_of(member: WorkloadMemberResult) -> float:
 ### Frontend
 - `ContributorsView.test.tsx`, `MemberDrilldownPanel.test.tsx`,
   `contributorsApi.test.ts`: mock 데이터/단언을 `anomalyTypes` 배열 기준으로 갱신.
+- `WorkloadPage.tsx`에는 기존 자동화 테스트 파일이 없다(리포지토리 검색 결과 없음) — 새로
+  추가하지 않고 수동 확인(`npm run dev`로 대시보드 화면 렌더링)으로 대체한다. 새 테스트 작성은
+  이번 스코프 밖.
 
 ## 스코프 밖
 
