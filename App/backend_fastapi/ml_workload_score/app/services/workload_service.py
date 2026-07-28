@@ -83,10 +83,13 @@ async def get_workload_score(project_id: int, use_synthetic_fallback: bool = Fal
             completion_rate=round(float(row["completion_rate"]), 3),
             overload_score=round(float(row["overload_score_0_100"]), 1),
             is_anomaly=bool(row["is_anomaly"]),
-            anomaly_type=row["anomaly_type"],
+            anomaly_types=list(row["anomaly_types"]),
+            difficulty_score=round(float(row["difficulty_score"]), 1),
+            workload_score=round(float(row["workload_score"]), 1),
+            allocation_score=round(float(row["allocation_score"]), 1),
             task_count_active_rel=round(float(row["task_count_active_rel"]), 3),
             task_count_total_rel=round(float(row["task_count_total_rel"]), 3),
-            difficulty_avg_rel=round(float(row["difficulty_avg_rel"]), 3),
+            difficulty_total_rel=round(float(row["difficulty_total_rel"]), 3),
             overdue_count=int(row["overdue_count"]),
         )
         for _, row in result.iterrows()
