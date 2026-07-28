@@ -13,6 +13,8 @@ import org.springframework.web.client.RestClientException;
 
 class FastApiMeetingClientTest {
 
+    private static final String INTERNAL_KEY = "meeting-client-test-key";
+
     @Test
     void transcribeAudioReturnsTextFromFastApiResponse() throws Exception {
         HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
@@ -29,6 +31,7 @@ class FastApiMeetingClientTest {
         try {
             FastApiMeetingClient client = new FastApiMeetingClient(
                 "http://127.0.0.1:" + server.getAddress().getPort(),
+                INTERNAL_KEY,
                 Duration.ofSeconds(2),
                 Duration.ofSeconds(2)
             );
@@ -59,6 +62,7 @@ class FastApiMeetingClientTest {
         try {
             FastApiMeetingClient client = new FastApiMeetingClient(
                 "http://127.0.0.1:" + server.getAddress().getPort(),
+                INTERNAL_KEY,
                 Duration.ofMillis(100),
                 Duration.ofMillis(100)
             );
@@ -69,6 +73,39 @@ class FastApiMeetingClientTest {
 
             assertThat(Duration.ofNanos(System.nanoTime() - startedAt))
                 .isLessThan(Duration.ofSeconds(2));
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void transcribeAudioCarriesTheInternalApiKeyHeader() throws Exception {
+        // FastAPI의 verify_internal_api_key가 회의록 엔드포인트 3개 전체에 걸려 있다.
+        // 헤더가 빠지면 401이 나고, transcribeAudio()는 그 예외를 그대로 호출부에 전파한다.
+        java.util.concurrent.atomic.AtomicReference<String> capturedKey = new java.util.concurrent.atomic.AtomicReference<>();
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/api/v1/meetings/transcribe", exchange -> {
+            capturedKey.set(exchange.getRequestHeaders().getFirst("X-Internal-Api-Key"));
+            byte[] body = "{\"text\":\"\"}".getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, body.length);
+            try (var os = exchange.getResponseBody()) {
+                os.write(body);
+            }
+        });
+        server.start();
+
+        try {
+            FastApiMeetingClient client = new FastApiMeetingClient(
+                "http://127.0.0.1:" + server.getAddress().getPort(),
+                INTERNAL_KEY,
+                Duration.ofSeconds(2),
+                Duration.ofSeconds(2)
+            );
+
+            client.transcribeAudio("fake-audio-bytes".getBytes(StandardCharsets.UTF_8), "meeting.wav");
+
+            assertThat(capturedKey.get()).isEqualTo(INTERNAL_KEY);
         } finally {
             server.stop(0);
         }

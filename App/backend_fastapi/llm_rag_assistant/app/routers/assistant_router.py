@@ -12,7 +12,7 @@ from llm_rag_assistant.app.schema.assistant_schema import (
     AssistantResponse,
     AssistantResumeRequest,
 )
-from llm_rag_assistant.app.security import verify_internal_api_key
+from core.security import verify_internal_api_key
 from llm_rag_assistant.app.services.chat_service import answer_question
 from llm_rag_assistant.app.services.command_classifier import is_command_candidate
 from llm_rag_assistant.app.services.generation_service import RagConfigurationError

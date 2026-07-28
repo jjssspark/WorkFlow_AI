@@ -19,17 +19,19 @@ public class FastApiMeetingClient {
     @Autowired
     public FastApiMeetingClient(
         @Value("${workflow.ai.base-url}") String baseUrl,
+        @Value("${workflow.ai.internal-key}") String internalKey,
         @Value("${workflow.ai.connect-timeout-seconds:5}") long connectTimeoutSeconds,
         @Value("${workflow.ai.read-timeout-seconds:45}") long readTimeoutSeconds
     ) {
         this(
             baseUrl,
+            internalKey,
             Duration.ofSeconds(connectTimeoutSeconds),
             Duration.ofSeconds(readTimeoutSeconds)
         );
     }
 
-    FastApiMeetingClient(String baseUrl, Duration connectTimeout, Duration readTimeout) {
+    FastApiMeetingClient(String baseUrl, String internalKey, Duration connectTimeout, Duration readTimeout) {
         // JDK HttpClient는 plaintext(http://) 대상에도 기본적으로 HTTP/2(h2c) 업그레이드를 시도하는데,
         // uvicorn(FastAPI)이 이를 지원하지 않아 요청이 깨진다. HTTP/1.1을 명시해 우회한다.
         HttpClient httpClient = HttpClient.newBuilder()
@@ -41,6 +43,7 @@ public class FastApiMeetingClient {
         this.restClient = RestClient.builder()
             .baseUrl(baseUrl)
             .requestFactory(requestFactory)
+            .defaultHeader("X-Internal-Api-Key", internalKey)
             .build();
     }
 
