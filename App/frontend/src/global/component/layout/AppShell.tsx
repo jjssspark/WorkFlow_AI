@@ -6,7 +6,6 @@ import { Header } from "./Header";
 import { AIAssistant } from "../../../ai/screen/AIAssistant";
 import { RecordingIndicator } from "./RecordingIndicator";
 import { RecordingSaveModal } from "../../../meetings/components/RecordingSaveModal";
-import { Toaster } from "../ui/sonner";
 import {
   OPEN_AI_ASSISTANT_EVENT,
   type OpenAIAssistantEventDetail,
@@ -203,8 +202,6 @@ export function AppShell() {
 
       <RecordingIndicator />
       <RecordingSaveModal />
-
-      <Toaster position="top-right" />
     </div>
   );
 }

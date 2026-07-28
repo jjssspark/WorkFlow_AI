@@ -20,7 +20,7 @@ export type UploadType = null | "document" | "audio";
 
 export interface GenTodo {
   id: string; title: string; desc: string; category: string;
-  assignee: string; dueDate: string; priority: Priority; basis: string; assigned: boolean;
+  assignee: string; startDate?: string; dueDate: string; priority: Priority; basis: string; assigned: boolean;
   source?: "MEETING_AI" | "MANUAL" | "LEADER_MANUAL";
 }
 

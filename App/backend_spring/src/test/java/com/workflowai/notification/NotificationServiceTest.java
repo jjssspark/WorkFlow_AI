@@ -8,6 +8,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.util.List;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -35,7 +36,7 @@ class NotificationServiceTest {
         NotificationService service = newService();
         when(notificationRepository.save(any(Notification.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        service.notify(5L, "TASK_ASSIGNED", "새 업무 배정", "'로그인 API' 업무가 배정되었습니다.", "task", 42L);
+        service.notify(5L, 42L, "TASK_ASSIGNED", "새 업무 배정", "'로그인 API' 업무가 배정되었습니다.", "task", 42L);
 
         ArgumentCaptor<Notification> captor = ArgumentCaptor.forClass(Notification.class);
         verify(notificationRepository).save(captor.capture());
@@ -54,7 +55,7 @@ class NotificationServiceTest {
         NotificationService service = newService();
         when(notificationRepository.save(any(Notification.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        service.notifyAfterCommit(5L, "MEETING_SAVED", "저장 완료", "내용", "meeting", 1L);
+        service.notifyAfterCommit(5L, 42L, "MEETING_SAVED", "저장 완료", "내용", "meeting", 1L);
 
         verify(notificationRepository, times(1)).save(any(Notification.class));
     }
@@ -64,7 +65,7 @@ class NotificationServiceTest {
         NotificationService service = newService();
 
         service.notifyCounterpart(
-            10L, 10L, "MEETING_SAVED_NOTIFY_LEADER", "저장 완료(팀장)", "역할분배를 진행해주세요.",
+            10L, 10L, 42L, "MEETING_SAVED_NOTIFY_LEADER", "저장 완료(팀장)", "역할분배를 진행해주세요.",
             "meeting", 1L
         );
 
@@ -78,7 +79,7 @@ class NotificationServiceTest {
         when(notificationRepository.save(any(Notification.class))).thenAnswer(inv -> inv.getArgument(0));
 
         service.notifyCounterpart(
-            10L, 20L, "MEETING_SAVED_NOTIFY_LEADER", "저장 완료(팀장)", "역할분배를 진행해주세요.",
+            10L, 20L, 42L, "MEETING_SAVED_NOTIFY_LEADER", "저장 완료(팀장)", "역할분배를 진행해주세요.",
             "meeting", 1L
         );
 
@@ -88,5 +89,18 @@ class NotificationServiceTest {
         // 행위자(10L)는 빠지고 반대편(20L)에게만 간다.
         assertThat(saved).extracting(Notification::getUserId).containsExactly(20L);
         assertThat(saved).extracting(Notification::getType).containsExactly("MEETING_SAVED_NOTIFY_LEADER");
+    }
+
+    @Test
+    @DisplayName("notify는 전달받은 projectId로 알림을 저장한다")
+    void notifyPersistsProjectId() {
+        NotificationService service = newService();
+        when(notificationRepository.save(any(Notification.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.notify(7L, 42L, "TASK_ASSIGNED", "제목", "내용", "task", 3L);
+
+        ArgumentCaptor<Notification> captor = ArgumentCaptor.forClass(Notification.class);
+        verify(notificationRepository).save(captor.capture());
+        assertThat(captor.getValue().getProjectId()).isEqualTo(42L);
     }
 }

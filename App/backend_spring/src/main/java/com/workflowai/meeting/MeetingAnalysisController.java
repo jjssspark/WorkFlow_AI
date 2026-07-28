@@ -9,6 +9,11 @@ import java.util.List;
 import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.MediaType;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.Resource;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -99,6 +104,36 @@ public class MeetingAnalysisController {
             return ResponseEntity.status(404).body(ApiResponse.fail("MEETING_NOT_FOUND", "회의록 분석 결과를 찾을 수 없습니다."));
         }
         return ResponseEntity.ok(ApiResponse.ok(response));
+    }
+
+    @Operation(
+        summary = "회의록 음성 파일 재생",
+        description = "회의록에 첨부된 음성 파일을 스트리밍합니다. 음성 회의록이 아니거나 파일이 없으면 404를 반환합니다."
+    )
+    @GetMapping("/{meetingId}/audio")
+    @PreAuthorize("@projectAccess.isMember(#projectId)")
+    public ResponseEntity<Resource> getMeetingAudio(
+        @Parameter(description = "프로젝트 ID", example = "demo-project") @PathVariable String projectId,
+        @Parameter(description = "회의록 ID", example = "demo-project-1") @PathVariable String meetingId
+    ) {
+        MeetingAudio audio = meetingAnalysisService.findAudio(projectId, meetingId);
+        if (audio == null) {
+            return ResponseEntity.notFound().build();
+        }
+        String contentType;
+        try {
+            contentType = java.nio.file.Files.probeContentType(audio.path());
+        } catch (java.io.IOException e) {
+            contentType = null;
+        }
+        return ResponseEntity.ok()
+            .contentType(MediaType.parseMediaType(contentType == null ? "application/octet-stream" : contentType))
+            // Range 부분 전송은 Spring MVC가 ResponseEntity<Resource>에 대해 처리한다.
+            // 로컬 실측: Range: bytes=0-99 요청에 206 + Content-Range로 응답하는 것을 확인했다.
+            .header(HttpHeaders.ACCEPT_RANGES, "bytes")
+            .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.inline()
+                .filename(audio.fileName(), java.nio.charset.StandardCharsets.UTF_8).toString())
+            .body(new FileSystemResource(audio.path()));
     }
 
     @Operation(
