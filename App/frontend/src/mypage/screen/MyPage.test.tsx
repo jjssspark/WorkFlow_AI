@@ -12,6 +12,7 @@ import type { ReviewerProject } from "../libs/utils/reviewerApi";
 import { getProjectMembers } from "../../global/api/projectsApi";
 import { fetchContributionReport, fetchContributionScore } from "../../contributors/libs/utils/contributorsApi";
 import { fetchAttendanceSummary } from "../../meetings/libs/utils/meetingAiApi";
+import { fetchMyPersonalComments, replyToPersonalComment } from "../libs/api/personalCommentApi";
 
 vi.mock("../../global/hooks/useAuth", () => ({
   useAuth: vi.fn(),
@@ -43,6 +44,12 @@ vi.mock("../../meetings/libs/utils/meetingAiApi", () => ({
   fetchAttendanceSummary: vi.fn(),
 }));
 
+vi.mock("../libs/api/personalCommentApi", () => ({
+  fetchMyPersonalComments: vi.fn(),
+  createPersonalComment: vi.fn(),
+  replyToPersonalComment: vi.fn(),
+}));
+
 function makeTask(id: string, assignee: string, status: Task["status"], dueDate: string): Task {
   return { id, title: `업무 ${id}`, status, priority: "medium", assignee, dueDate, labels: [], category: "frontend", position: 0, pendingApproval: false, startDate: "", extraFields: {} };
 }
@@ -69,6 +76,7 @@ describe("MyPage member view", () => {
       contributionRevealed: false, score: null, finalRevealed: false, totalScore: null,
       reviewerScore: null, grade: null, commentRevealed: false, comment: null,
     });
+    vi.mocked(fetchMyPersonalComments).mockResolvedValue([]);
     vi.mocked(useAuth).mockReturnValue({
       isAuthenticated: true,
       loading: false,
@@ -225,6 +233,69 @@ describe("MyPage member view", () => {
     expect(screen.getByText("심사자 코멘트")).toBeInTheDocument();
     // 코멘트만 공개된 상태이므로 "공개된 평가 결과" 카드는 아직 뜨지 않는다.
     expect(screen.queryByText("공개된 평가 결과")).not.toBeInTheDocument();
+  });
+
+  it("심사자 코멘트/답글 목록이 실제 API에서 렌더링된다", async () => {
+    vi.mocked(fetchTasks).mockResolvedValue([]);
+    vi.mocked(fetchMyPersonalComments).mockResolvedValue([
+      { id: 1, authorId: 20, authorName: "심사자", parentId: null, content: "UI가 깔끔하네요", createdAt: "2026-07-25T05:32:00.000Z" },
+    ]);
+
+    renderMyPage();
+
+    await waitFor(() => expect(screen.getByText("UI가 깔끔하네요")).toBeInTheDocument());
+    expect(screen.getByText("심사자")).toBeInTheDocument();
+  });
+
+  it("답글이 있으면 답글 작성 UI 대신 답글 내용을 보여준다", async () => {
+    vi.mocked(fetchTasks).mockResolvedValue([]);
+    vi.mocked(fetchMyPersonalComments).mockResolvedValue([
+      { id: 1, authorId: 20, authorName: "심사자", parentId: null, content: "UI가 깔끔하네요", createdAt: "2026-07-25T05:32:00.000Z" },
+      { id: 2, authorId: 1, authorName: "이서연", parentId: 1, content: "감사합니다!", createdAt: "2026-07-25T06:01:00.000Z" },
+    ]);
+
+    renderMyPage();
+
+    await waitFor(() => expect(screen.getByText("감사합니다!")).toBeInTheDocument());
+    expect(screen.queryByPlaceholderText("답글 작성...")).not.toBeInTheDocument();
+  });
+
+  it("답글이 없는 코멘트에 답글을 작성하면 replyToPersonalComment가 호출되고 목록이 갱신된다", async () => {
+    vi.mocked(fetchTasks).mockResolvedValue([]);
+    vi.mocked(fetchMyPersonalComments)
+      .mockResolvedValueOnce([
+        { id: 1, authorId: 20, authorName: "심사자", parentId: null, content: "UI가 깔끔하네요", createdAt: "2026-07-25T05:32:00.000Z" },
+      ])
+      .mockResolvedValueOnce([
+        { id: 1, authorId: 20, authorName: "심사자", parentId: null, content: "UI가 깔끔하네요", createdAt: "2026-07-25T05:32:00.000Z" },
+        { id: 2, authorId: 1, authorName: "이서연", parentId: 1, content: "감사합니다!", createdAt: "2026-07-25T06:01:00.000Z" },
+      ]);
+    vi.mocked(replyToPersonalComment).mockResolvedValue({
+      id: 2, authorId: 1, authorName: "이서연", parentId: 1, content: "감사합니다!", createdAt: "2026-07-25T06:01:00.000Z",
+    });
+
+    renderMyPage();
+
+    await waitFor(() => expect(screen.getByText("UI가 깔끔하네요")).toBeInTheDocument());
+    await userEvent.type(screen.getByPlaceholderText("답글 작성..."), "감사합니다!");
+    await userEvent.click(screen.getByRole("button", { name: "답글" }));
+
+    expect(replyToPersonalComment).toHaveBeenCalledWith(1, 1, "감사합니다!");
+    await waitFor(() => expect(screen.getByText("감사합니다!")).toBeInTheDocument());
+  });
+
+  it("코멘트 카드를 클릭하면 상세 팝업이 뜬다", async () => {
+    vi.mocked(fetchTasks).mockResolvedValue([]);
+    vi.mocked(fetchMyPersonalComments).mockResolvedValue([
+      { id: 1, authorId: 20, authorName: "심사자", parentId: null, content: "UI가 깔끔하네요", createdAt: "2026-07-25T05:32:00.000Z" },
+    ]);
+
+    renderMyPage();
+
+    await waitFor(() => expect(screen.getByText("UI가 깔끔하네요")).toBeInTheDocument());
+    await userEvent.click(screen.getByText("UI가 깔끔하네요"));
+
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 });
 
