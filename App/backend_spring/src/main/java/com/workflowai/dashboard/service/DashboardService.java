@@ -198,7 +198,7 @@ public class DashboardService {
     }
 
     /**
-     * 현재 로그인한 사용자가 담당자(assignee)인 업무 중, AI 지연 위험도가 '정상'이 아닌
+     * 현재 로그인한 사용자가 담당자(assignee)인 업무 중, ML 지연 위험도가 '정상'이 아닌
      * 업무만 골라 반환한다. 새 모델이나 새 ml_predictions 행 타입이 필요한 게 아니라,
      * getProgressDetail()이 만드는 것과 동일한 업무별(target_type='task') 최신 예측을
      * 담당자 기준으로 한 번 더 걸러내는 조회다.

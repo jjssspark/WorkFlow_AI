@@ -173,7 +173,7 @@ export function InProgressPage() {
                         <span className="font-mono text-[10px] text-muted-foreground">{task.id}</span>
                         <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-blue-50 text-blue-600">{task.category ?? "미분류"}</span>
                         <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">{sourceLabel(task.sourceType)}</span>
-                        {isRisk && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-red-100 text-red-700 border border-red-200">AI 지연 예측</span>}
+                        {isRisk && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-red-100 text-red-700 border border-red-200">ML 지연 예측</span>}
                       </div>
                       <div className="text-sm font-semibold text-foreground">{task.title}</div>
                       <div className="text-xs text-muted-foreground mt-0.5">{member.name}</div>

@@ -124,7 +124,7 @@ export function WorkloadPage() {
     const assigneeName = index >= 0 ? workload[index].assigneeName : null;
     return resolveMemberDisplay(assigneeName, index >= 0 ? index : 0, assigneeId).name;
   };
-  // "과부하 위험" 카드의 서브텍스트용 - overloadScore(AI 편중 점수)는 과부하/저활동 모두 높게 나오므로,
+  // "과부하 위험" 카드의 서브텍스트용 - overloadScore(ML 편중 점수)는 과부하/저활동 모두 높게 나오므로,
   // 반드시 anomalyType이 "과부하 의심"인 사람 중에서만 골라야 저활동 팀원 이름이 잘못 뜨지 않는다.
   const topOverloadedMember = overloadedByMl.reduce<WorkloadScoreMemberDto | null>(
     (top, member) => (!top || member.overloadScore > top.overloadScore ? member : top),
@@ -222,8 +222,8 @@ export function WorkloadPage() {
         <div className="bg-card rounded-xl p-5 border border-border shadow-sm">
           <div className="text-sm font-semibold text-foreground mb-1.5">완료율 비교</div>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted-foreground mb-3">
-            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full shrink-0" style={{ background: ANOMALY_BADGE["과부하 의심"].color }} />과부하 의심(AI 편중 점수 상위 이상치)</span>
-            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full shrink-0" style={{ background: ANOMALY_BADGE["저활동 의심"].color }} />저활동 의심(AI 편중 점수 하위 이상치)</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full shrink-0" style={{ background: ANOMALY_BADGE["과부하 의심"].color }} />과부하 의심(ML 편중 점수 상위 이상치)</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full shrink-0" style={{ background: ANOMALY_BADGE["저활동 의심"].color }} />저활동 의심(ML 편중 점수 하위 이상치)</span>
             <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full shrink-0" style={{ background: NORMAL_CATEGORY_COLOR }} />정상(이상치 아님)</span>
           </div>
           <div className="space-y-4">
@@ -287,7 +287,7 @@ export function WorkloadPage() {
                     <span />
                   )}
                   <span className="text-[10px] text-muted-foreground">
-                    AI 업무 편중 점수 <span className="font-bold text-foreground">{Math.round(scoreEntry.overloadScore)}</span>/100
+                    업무 편중 점수 <span className="font-bold text-foreground">{Math.round(scoreEntry.overloadScore)}</span>/100
                   </span>
                 </div>
               )}

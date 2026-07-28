@@ -64,7 +64,7 @@ public class DashboardController {
         return ApiResponse.ok(dashboardService.getActivities(projectId));
     }
 
-    @Operation(summary = "전체 진행률 상세", description = "마일스톤/카테고리별 진행률과 AI 지연 위험도(ml_predictions)를 반환한다.")
+    @Operation(summary = "전체 진행률 상세", description = "마일스톤/카테고리별 진행률과 ML 지연 위험도(ml_predictions)를 반환한다.")
     @GetMapping("/progress")
     public ApiResponse<ProgressDetailResponse> getProgress(
         @Parameter(description = "프로젝트 ID", example = "demo-project") @PathVariable String projectId
@@ -74,7 +74,7 @@ public class DashboardController {
 
     @Operation(
         summary = "내 업무 지연 위험도",
-        description = "현재 로그인한 사용자가 담당자인 업무 중 AI 지연 위험도가 '정상'이 아닌 업무 목록을 반환한다."
+        description = "현재 로그인한 사용자가 담당자인 업무 중 ML 지연 위험도가 '정상'이 아닌 업무 목록을 반환한다."
     )
     @GetMapping("/delay-risk/mine")
     @PreAuthorize("@projectAccess.isMember(#projectId)")
@@ -163,7 +163,7 @@ public class DashboardController {
     }
 
     @Operation(
-        summary = "AI 지연 위험도 재분석 요청",
+        summary = "ML 지연 위험도 재분석 요청",
         description = "Redis Queue(dashboard-ai-jobs)에 재분석 작업을 적재하고 즉시 처리중 상태를 반환한다. "
             + "실제 FastAPI(ml_delay_risk) 재예측과 ml_predictions 갱신은 DashboardAiQueueWorker가 비동기로 수행하며, "
             + "완료되면 팀원에게 알림이 간다. 같은 프로젝트에 대한 재분석이 이미 진행 중이면 새로 적재하지 않고 "
@@ -178,7 +178,7 @@ public class DashboardController {
     }
 
     @Operation(
-        summary = "AI 지연 위험도 재분석 상태 조회",
+        summary = "ML 지연 위험도 재분석 상태 조회",
         description = "POST .../delay-risk/refresh로 받은 jobId로 아직 처리 중인지(PROCESSING) 끝났는지(DONE) 확인한다. "
             + "DONE이면 GET .../progress를 다시 호출해 최신 결과를 가져온다."
     )

@@ -3,10 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from langsmith import traceable
-
 from ml_workload_score.app.services import workload_db as db
-from ml_workload_score.app.services.embedding_difficulty import compute_embedding_adjustments
 from ml_workload_score.app.services.workload_model import (
     build_features,
     detect_overload_anomalies_auto,
@@ -20,24 +17,6 @@ from ml_workload_score.app.schema.workload_schema import (
 logger = logging.getLogger(__name__)
 
 
-def _summarize_get_workload_score_outputs(outputs: WorkloadScoreData) -> dict:
-    """LangSmith 트레이스에 팀원별 개인 데이터(WorkloadMemberResult) 전체 대신
-    프로젝트 단위 요약 통계만 기록한다."""
-    return {
-        "project_id": outputs.project_id,
-        "source": outputs.source,
-        "method": outputs.method,
-        "member_count": len(outputs.members),
-        "anomaly_count": sum(1 for m in outputs.members if m.is_anomaly),
-        "note": outputs.note,
-    }
-
-
-@traceable(
-    run_type="chain",
-    name="get_workload_score",
-    process_outputs=_summarize_get_workload_score_outputs,
-)
 async def get_workload_score(project_id: int, use_synthetic_fallback: bool = False) -> WorkloadScoreData:
     """
     프로젝트의 팀원별 업무 편중(과부하/저활동) 점수를 계산한다.
@@ -47,14 +26,9 @@ async def get_workload_score(project_id: int, use_synthetic_fallback: bool = Fal
       합성 데이터로 데모 응답을 줄지 여부. 기본값 False (운영 기본 동작:
       실패 시 에러를 그대로 올림). 데모/개발 환경에서만 명시적으로 True로 호출할 것.
     """
-    embedding_adjustments: dict[int, float] = {}
     try:
         tasks_df = await asyncio.to_thread(db.load_tasks_from_db, project_id)
         source = "db"
-        if not tasks_df.empty:
-            embedding_adjustments = await compute_embedding_adjustments(
-                tasks_df["task_id"].tolist(), project_id
-            )
     except Exception:
         if not use_synthetic_fallback:
             raise
@@ -73,7 +47,7 @@ async def get_workload_score(project_id: int, use_synthetic_fallback: bool = Fal
             note="배정된 업무가 없어 편중 점수를 계산할 수 없습니다.",
         )
 
-    features = build_features(tasks_df, embedding_adjustments=embedding_adjustments)
+    features = build_features(tasks_df)
     result = detect_overload_anomalies_auto(features)
 
     members = [

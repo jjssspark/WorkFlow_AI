@@ -61,8 +61,8 @@ public class DashboardAiJobRunner {
             job,
             DELAY_RISK_NOTIFICATION_TYPE,
             success
-                ? "AI 지연 위험도 재분석이 완료되었습니다."
-                : "AI 지연 위험도 재분석에 실패했습니다. 잠시 후 다시 시도해주세요."
+                ? "ML 지연 위험도 재분석이 완료되었습니다."
+                : "ML 지연 위험도 재분석에 실패했습니다. 잠시 후 다시 시도해주세요."
         );
     }
 
@@ -86,7 +86,7 @@ public class DashboardAiJobRunner {
 
     /** 작업을 요청한 본인은 화면에서 폴링으로 직접 결과를 받으므로 제외하고, 나머지 팀원에게만 알린다. */
     private void notifyMembers(DashboardAiJob job, String type, String content) {
-        String title = "대시보드 AI 분석 완료";
+        String title = "대시보드 ML 분석 완료";
         projectMemberRepository.findAllByProjectId(job.projectId()).stream()
             .map(ProjectMember::getUserId)
             .filter(memberId -> !memberId.equals(job.requestedBy()))

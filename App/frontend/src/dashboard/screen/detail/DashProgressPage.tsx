@@ -359,7 +359,7 @@ export function DashProgressPage() {
             onClick={() => { void runDelayRiskAnalysis(); }}
             disabled={delayRiskRefreshing}
             className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-border bg-card text-foreground rounded-lg hover:bg-muted transition-colors disabled:opacity-50"
-          ><RefreshCw className={`w-3.5 h-3.5 ${delayRiskRefreshing ? "animate-spin" : ""}`} />{delayRiskRefreshing ? "AI 재분석 중..." : "AI 지연 위험도 재분석"}</button>
+          ><RefreshCw className={`w-3.5 h-3.5 ${delayRiskRefreshing ? "animate-spin" : ""}`} />{delayRiskRefreshing ? "ML 재분석 중..." : "ML 지연 위험도 재분석"}</button>
           <button onClick={onGoUrgent} className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-red-200 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors"><AlertTriangle className="w-3.5 h-3.5" />마감 임박 업무</button>
         </div>
       </div>
