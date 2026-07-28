@@ -532,21 +532,34 @@ class MeetingAnalysisServiceTest {
     }
 
     @Test
-    void deleteNotifiesActorAndUploaderWhenLeaderDeletesSomeoneElsesMeeting() {
-        // 삭제는 팀장 전용이라 actor(CurrentUser)는 항상 팀장이다. 반대편은 팀장 자신이 아니라
-        // 실제 업로더(50L)여야, 팀장이 남이 올린 회의록을 지웠을 때 업로더에게도 알림이 간다.
+    void deleteNotifiesEveryProjectTeamMemberExceptActor() {
+        // 회의록 삭제는 업로더뿐 아니라 팀 전원에게 영향을 주므로 팀 전원에게 알려야 한다.
+        // (예전에는 업로더 한 명에게만 보내서, 업로더가 아닌 팀원은 알림을 아예 받지 못했다.)
+        // 행위자 본인은 방금 자기가 한 일을 화면에서 보고 있으므로 제외하고, 심사자는 팀원이
+        // 아니므로(팀원 수/목록 집계에서도 제외됨) 대상에서 뺀다.
         mockLeader(1L);
         Long uploaderId = 50L;
+        when(projectMemberRepository.findAllByProjectId(1L)).thenReturn(List.of(
+            new ProjectMember(1L, CURRENT_USER_ID, ProjectRole.LEADER),
+            new ProjectMember(1L, uploaderId, ProjectRole.MEMBER),
+            new ProjectMember(1L, 51L, ProjectRole.MEMBER),
+            new ProjectMember(1L, 99L, ProjectRole.REVIEWER)
+        ));
         Meeting meeting = new Meeting(1L, "삭제 회의", "document", null, "completed", LocalDate.now(), "정기회의", "notes.txt", uploaderId, 5L);
         when(meetingRepository.findByIdAndProjectIdForUpdate(12L, 1L)).thenReturn(Optional.of(meeting));
         MeetingAnalysisService service = newService();
 
         service.delete("demo-project", "12", false);
 
-        verify(notificationService).notifyCounterpart(
-            eq(CURRENT_USER_ID), eq(uploaderId), eq("MEETING_DELETED"), any(), any(),
-            eq("meeting"), eq(12L)
-        );
+        // targetType/targetId까지 검증해야 프론트가 "바로가기"를 붙일 수 있는 알림임이 보장된다.
+        verify(notificationService).notifyAfterCommit(
+            eq(uploaderId), eq("MEETING_DELETED"), any(), any(), eq("meeting"), eq(12L));
+        verify(notificationService).notifyAfterCommit(
+            eq(51L), eq("MEETING_DELETED"), any(), any(), eq("meeting"), eq(12L));
+        verify(notificationService, never()).notifyAfterCommit(
+            eq(CURRENT_USER_ID), any(), any(), any(), any(), any());
+        verify(notificationService, never()).notifyAfterCommit(
+            eq(99L), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -724,9 +737,15 @@ class MeetingAnalysisServiceTest {
     }
 
     @Test
-    void deleteAnalysisNotifiesActorAndUploader() {
+    void deleteAnalysisNotifiesEveryProjectTeamMemberExceptActor() {
         mockLeader(1L);
         Long uploaderId = 50L;
+        when(projectMemberRepository.findAllByProjectId(1L)).thenReturn(List.of(
+            new ProjectMember(1L, CURRENT_USER_ID, ProjectRole.LEADER),
+            new ProjectMember(1L, uploaderId, ProjectRole.MEMBER),
+            new ProjectMember(1L, 51L, ProjectRole.MEMBER),
+            new ProjectMember(1L, 99L, ProjectRole.REVIEWER)
+        ));
         Meeting meeting = new Meeting(1L, "삭제 회의", "document", null, "completed", LocalDate.now(), "정기회의", "notes.txt", uploaderId, 5L);
         when(meetingRepository.findByIdAndProjectIdForUpdate(12L, 1L)).thenReturn(Optional.of(meeting));
         when(meetingAnalysisRepository.existsById(12L)).thenReturn(true);
@@ -735,10 +754,14 @@ class MeetingAnalysisServiceTest {
 
         service.deleteAnalysis("demo-project", "12", false);
 
-        verify(notificationService).notifyCounterpart(
-            eq(CURRENT_USER_ID), eq(uploaderId), eq("MEETING_ANALYSIS_DELETED"), any(), any(),
-            eq("meeting"), eq(12L)
-        );
+        verify(notificationService).notifyAfterCommit(
+            eq(uploaderId), eq("MEETING_ANALYSIS_DELETED"), any(), any(), eq("meeting"), eq(12L));
+        verify(notificationService).notifyAfterCommit(
+            eq(51L), eq("MEETING_ANALYSIS_DELETED"), any(), any(), eq("meeting"), eq(12L));
+        verify(notificationService, never()).notifyAfterCommit(
+            eq(CURRENT_USER_ID), any(), any(), any(), any(), any());
+        verify(notificationService, never()).notifyAfterCommit(
+            eq(99L), any(), any(), any(), any(), any());
     }
 
     @Test

@@ -244,4 +244,36 @@ describe("Header 알림", () => {
 
     expect(mockNavigate).toHaveBeenCalledWith("/mypage");
   });
+
+  // 삭제 알림은 "할 일"이 아니라 통보이므로 배지는 붙지 않지만, 어떤 회의록인지 확인할 수 있게
+  // 바로가기는 있어야 한다.
+  it("분석 결과 삭제 알림에 바로가기 버튼이 보이고 클릭 시 해당 회의록으로 이동한다", async () => {
+    vi.mocked(fetchNotifications).mockResolvedValue([
+      { id: "1", type: "MEETING_ANALYSIS_DELETED", title: "회의록 분석 결과가 삭제되었습니다", content: "김민준님이 '정기회의' 회의록의 분석 결과를 삭제했습니다. (등록된 업무는 유지됨)", targetType: "meeting", targetId: "7", read: false, createdAt: new Date().toISOString() },
+    ]);
+    vi.mocked(markNotificationsRead).mockResolvedValue(undefined);
+
+    renderHeader();
+    await openBell();
+
+    const shortcutButton = await screen.findByRole("button", { name: "바로가기" });
+    await userEvent.click(shortcutButton);
+
+    expect(mockNavigate).toHaveBeenCalledWith("/meetings?meetingId=7");
+    expect(screen.queryByText("할 일")).not.toBeInTheDocument();
+  });
+
+  // 전체 삭제된 회의록은 딥링크로 열 대상이 이미 없다. 그래도 회의록 화면까지는 데려가고,
+  // MeetingsView가 해당 id를 못 찾으면 조용히 멈춘다.
+  it("회의록 삭제 알림에도 바로가기 버튼이 보인다", async () => {
+    vi.mocked(fetchNotifications).mockResolvedValue([
+      { id: "1", type: "MEETING_DELETED", title: "회의록이 삭제되었습니다", content: "김민준님이 '정기회의' 회의록을 삭제했습니다. (등록된 업무는 유지됨)", targetType: "meeting", targetId: "7", read: false, createdAt: new Date().toISOString() },
+    ]);
+    vi.mocked(markNotificationsRead).mockResolvedValue(undefined);
+
+    renderHeader();
+    await openBell();
+
+    expect(await screen.findByRole("button", { name: "바로가기" })).toBeInTheDocument();
+  });
 });
