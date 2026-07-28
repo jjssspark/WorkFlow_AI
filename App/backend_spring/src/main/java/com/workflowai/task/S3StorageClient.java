@@ -32,6 +32,7 @@ public class S3StorageClient {
     private final S3Client s3Client;
     private final S3Presigner presigner;
     private final String bucket;
+    private final boolean configured;
 
     public S3StorageClient(
         @Value("${workflow.storage.endpoint}") String endpoint,
@@ -42,6 +43,7 @@ public class S3StorageClient {
         @Value("${workflow.storage.path-style-access}") boolean pathStyleAccess
     ) {
         this.bucket = bucket;
+        this.configured = accessKey != null && !accessKey.isBlank() && secretKey != null && !secretKey.isBlank();
         // 자격증명 검증(AwsBasicCredentials.create)은 값이 비어있으면 즉시 예외를 던진다. 스토리지를
         // 아직 설정하지 않은 환경(로컬/CI 등)에서도 앱 자체는 뜰 수 있도록, 검증을 빈 생성 시점이
         // 아니라 실제 요청 시점으로 미룬다(resolveCredentials는 호출될 때만 실행됨).
@@ -91,8 +93,17 @@ public class S3StorageClient {
      * 만료 시간이 있는 임시 다운로드 URL을 발급한다(버킷이 비공개라 직접 URL로는 못 받음).
      * downloadFileName을 지정하면 브라우저가 새 탭에 미리보기로 열지 않고 그 이름으로 바로
      * 다운로드하도록 Content-Disposition: attachment를 걸어준다.
+     *
+     * <p>스토리지 자격증명이 설정되지 않았으면 {@code null}을 돌려준다. 서명을 시도하면 AWS SDK가
+     * NPE("Access key ID cannot be blank")를 던지는데, 프로필 사진 URL은 /me 응답마다 발급되므로
+     * 스토리지를 안 붙인 환경에서는 정상 요청마다 ERROR 스택트레이스가 쌓인다. 자격증명 미설정은
+     * 장애가 아니라 그 환경의 상태이므로 예외가 아니라 반환값으로 알린다.
+     * upload/delete는 실패를 사용자에게 알려야 하는 쓰기 작업이라 이 완화를 적용하지 않는다.
      */
     public String createSignedUrl(String path, int expiresInSeconds, String downloadFileName) {
+        if (!configured) {
+            return null;
+        }
         GetObjectRequest.Builder getObjectRequest = GetObjectRequest.builder().bucket(bucket).key(path);
         if (downloadFileName != null && !downloadFileName.isBlank()) {
             getObjectRequest.responseContentDisposition(contentDisposition(downloadFileName));
