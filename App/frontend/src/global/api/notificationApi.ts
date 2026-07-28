@@ -17,6 +17,7 @@ export const ACTION_REQUIRED_NOTIFICATION_TYPES = new Set([
   "MEETING_ANALYSIS_COMPLETED_NOTIFY_LEADER",
   "MEETING_SAVED_NOTIFY_LEADER",
   "MEETING_EDITED",
+  "COMPLETION_REQUESTED",
 ]);
 
 /**
@@ -30,12 +31,39 @@ export const ACTION_REQUIRED_NOTIFICATION_TYPES = new Set([
  * 바뀌는 일이 실제로 있었으므로 상수를 합치지 않는다.
  */
 export const MEETING_SHORTCUT_NOTIFICATION_TYPES = new Set([
-  ...ACTION_REQUIRED_NOTIFICATION_TYPES,
+  "MEETING_ANALYSIS_COMPLETED_NOTIFY_LEADER",
+  "MEETING_SAVED_NOTIFY_LEADER",
+  "MEETING_EDITED",
 ]);
 
 /** 팀장에게 역할분배를 요청하는 알림은 "바로가기"를 누르면 역할분배 검토 탭으로 바로 이동해야 한다. */
 export function meetingNotificationPanelQuery(type: string): string {
   return type === "MEETING_ANALYSIS_COMPLETED_NOTIFY_LEADER" ? "&panel=todos" : "";
+}
+
+/** 알림 대상과 유형을 실제 화면의 딥링크로 변환한다. */
+export function notificationShortcutPath(notification: NotificationResponse): string | null {
+  if (
+    notification.targetType === "meeting" &&
+    notification.targetId &&
+    MEETING_SHORTCUT_NOTIFICATION_TYPES.has(notification.type)
+  ) {
+    return `/meetings?meetingId=${encodeURIComponent(notification.targetId)}${meetingNotificationPanelQuery(notification.type)}`;
+  }
+  if (
+    notification.type === "COMPLETION_REQUESTED" &&
+    notification.targetType === "task" &&
+    notification.targetId
+  ) {
+    return `/leader/completion-approvals?taskId=${encodeURIComponent(notification.targetId)}`;
+  }
+  if (notification.targetType === "task" && notification.targetId) {
+    return `/board?taskId=${encodeURIComponent(notification.targetId)}`;
+  }
+  if (notification.targetType === "evaluation" && notification.targetId) {
+    return "/mypage";
+  }
+  return null;
 }
 
 export function fetchNotifications(projectId: number): Promise<NotificationResponse[]> {

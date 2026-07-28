@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach } from "vitest";
+import { MemoryRouter } from "react-router";
 import { CompletionApprovalsView } from "./CompletionApprovalsView";
 import { fetchPendingApprovalTasks, approveTaskCompletion, rejectTaskCompletion } from "../libs/utils/taskApi";
 import { fetchChecklist } from "../libs/utils/checklistApi";
@@ -56,6 +57,14 @@ function makeTask(id: string, title: string, assignee: string): Task {
   };
 }
 
+function renderApprovals(initialEntry = "/leader/completion-approvals") {
+  return render(
+    <MemoryRouter initialEntries={[initialEntry]}>
+      <CompletionApprovalsView />
+    </MemoryRouter>
+  );
+}
+
 describe("CompletionApprovalsView", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -74,7 +83,7 @@ describe("CompletionApprovalsView", () => {
       makeTask("T1", "결제 모듈 완료", "2"),
     ]);
 
-    render(<CompletionApprovalsView />);
+    renderApprovals();
 
     await waitFor(() => expect(screen.getByText("결제 모듈 완료")).toBeInTheDocument());
     expect(screen.getByRole("cell", { name: "박상준" })).toBeInTheDocument();
@@ -87,7 +96,7 @@ describe("CompletionApprovalsView", () => {
       makeTask("T2", "업무B", "1"),
     ]);
 
-    render(<CompletionApprovalsView />);
+    renderApprovals();
 
     await waitFor(() => expect(screen.getByText("업무A")).toBeInTheDocument());
     expect(screen.getByText("업무B")).toBeInTheDocument();
@@ -107,7 +116,7 @@ describe("CompletionApprovalsView", () => {
     vi.mocked(fetchPendingApprovalTasks).mockResolvedValue([makeTask("T1", "결제 모듈 완료", "2")]);
     vi.mocked(approveTaskCompletion).mockResolvedValue({} as Task);
 
-    render(<CompletionApprovalsView />);
+    renderApprovals();
 
     await waitFor(() => expect(screen.getByText("결제 모듈 완료")).toBeInTheDocument());
     await userEvent.click(screen.getByRole("button", { name: /승인/ }));
@@ -122,7 +131,7 @@ describe("CompletionApprovalsView", () => {
     vi.mocked(fetchPendingApprovalTasks).mockResolvedValue([makeTask("T1", "결제 모듈 완료", "2")]);
     vi.mocked(rejectTaskCompletion).mockResolvedValue({} as Task);
 
-    render(<CompletionApprovalsView />);
+    renderApprovals();
 
     await waitFor(() => expect(screen.getByText("결제 모듈 완료")).toBeInTheDocument());
     await userEvent.click(screen.getByRole("button", { name: /반려/ }));
@@ -134,7 +143,7 @@ describe("CompletionApprovalsView", () => {
   it("opens the detail panel when a row is clicked", async () => {
     vi.mocked(fetchPendingApprovalTasks).mockResolvedValue([makeTask("T1", "결제 모듈 완료", "2")]);
 
-    render(<CompletionApprovalsView />);
+    renderApprovals();
 
     await waitFor(() => expect(screen.getByText("결제 모듈 완료")).toBeInTheDocument());
     await userEvent.click(screen.getByText("결제 모듈 완료"));
@@ -142,10 +151,22 @@ describe("CompletionApprovalsView", () => {
     expect(await screen.findByTestId("detail-panel")).toHaveTextContent("결제 모듈 완료");
   });
 
+  it("taskId 딥링크로 들어오면 해당 승인 대기 업무의 상세 패널을 연다", async () => {
+    vi.mocked(fetchPendingApprovalTasks).mockResolvedValue([
+      makeTask("T1", "다른 업무", "2"),
+      makeTask("T2", "알림 대상 업무", "1"),
+    ]);
+
+    renderApprovals("/leader/completion-approvals?taskId=T2");
+
+    expect(await screen.findByTestId("detail-panel")).toHaveTextContent("알림 대상 업무");
+    expect(document.querySelector('[data-task-id="T2"]')).toHaveClass("bg-blue-50");
+  });
+
   it("shows an empty-state message when there are no pending tasks", async () => {
     vi.mocked(fetchPendingApprovalTasks).mockResolvedValue([]);
 
-    render(<CompletionApprovalsView />);
+    renderApprovals();
 
     await waitFor(() => expect(screen.getByText("승인 대기 중인 업무가 없습니다.")).toBeInTheDocument());
   });

@@ -4,8 +4,7 @@ import { ChevronRight, Search, Calendar, Bell, LogOut, Menu } from "lucide-react
 import { TAB_TITLES } from "../../lib/constants/nav";
 import type { Tab } from "../../../board/libs/types/task";
 import {
-  ACTION_REQUIRED_NOTIFICATION_TYPES, fetchNotifications, markNotificationsRead, meetingNotificationPanelQuery,
-  MEETING_SHORTCUT_NOTIFICATION_TYPES,
+  ACTION_REQUIRED_NOTIFICATION_TYPES, fetchNotifications, markNotificationsRead, notificationShortcutPath,
   type NotificationResponse,
 } from "../../api/notificationApi";
 import { useAuth } from "../../hooks/useAuth";
@@ -200,6 +199,7 @@ export function Header({ onOpenMobileMenu }: { onOpenMobileMenu?: () => void }) 
                     <div className="px-4 py-6 text-xs text-muted-foreground text-center">알림이 없습니다.</div>
                   ) : notifications.map(n => {
                     const isActionRequired = ACTION_REQUIRED_NOTIFICATION_TYPES.has(n.type);
+                    const shortcutPath = notificationShortcutPath(n);
                     return (
                       <div
                         key={n.id}
@@ -213,33 +213,11 @@ export function Header({ onOpenMobileMenu }: { onOpenMobileMenu?: () => void }) 
                         </div>
                         {n.content && <div className="text-muted-foreground mt-0.5">{n.content}</div>}
                         <div className="text-[10px] text-muted-foreground mt-0.5">{new Date(n.createdAt).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "Asia/Seoul" })}</div>
-                        {MEETING_SHORTCUT_NOTIFICATION_TYPES.has(n.type) && n.targetType === "meeting" && n.targetId && (
+                        {shortcutPath && (
                           <button
                             onClick={() => {
                               setNotifOpen(false);
-                              navigate(`/meetings?meetingId=${n.targetId}${meetingNotificationPanelQuery(n.type)}`);
-                            }}
-                            className="mt-1.5 px-2 py-1 rounded bg-blue-600 text-white text-[10px] font-semibold hover:bg-blue-700"
-                          >
-                            바로가기
-                          </button>
-                        )}
-                        {n.targetType === "task" && n.targetId && (
-                          <button
-                            onClick={() => {
-                              setNotifOpen(false);
-                              navigate(`/board?taskId=${encodeURIComponent(n.targetId)}`);
-                            }}
-                            className="mt-1.5 px-2 py-1 rounded bg-blue-600 text-white text-[10px] font-semibold hover:bg-blue-700"
-                          >
-                            바로가기
-                          </button>
-                        )}
-                        {n.targetType === "evaluation" && n.targetId && (
-                          <button
-                            onClick={() => {
-                              setNotifOpen(false);
-                              navigate("/mypage");
+                              navigate(shortcutPath);
                             }}
                             className="mt-1.5 px-2 py-1 rounded bg-blue-600 text-white text-[10px] font-semibold hover:bg-blue-700"
                           >

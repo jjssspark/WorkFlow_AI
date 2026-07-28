@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import {
   ACTION_REQUIRED_NOTIFICATION_TYPES,
   markNotificationsRead,
-  meetingNotificationPanelQuery,
+  notificationShortcutPath,
   type NotificationResponse,
 } from "../../api/notificationApi";
 
@@ -16,23 +16,13 @@ type Props = {
 export function NotificationToast({ notification, toastId }: Props) {
   const navigate = useNavigate();
   const isActionRequired = ACTION_REQUIRED_NOTIFICATION_TYPES.has(notification.type);
-  const hasTarget =
-    (notification.targetType === "task" ||
-      notification.targetType === "meeting" ||
-      notification.targetType === "evaluation") &&
-    !!notification.targetId;
+  const shortcutPath = notificationShortcutPath(notification);
 
   const handleActivate = () => {
     markNotificationsRead([notification.id]).catch((err) => {
       console.error("알림 읽음 처리에 실패했습니다.", err);
     });
-    if (notification.targetType === "task" && notification.targetId) {
-      navigate(`/board?taskId=${encodeURIComponent(notification.targetId)}`);
-    } else if (notification.targetType === "meeting" && notification.targetId) {
-      navigate(`/meetings?meetingId=${notification.targetId}${meetingNotificationPanelQuery(notification.type)}`);
-    } else if (notification.targetType === "evaluation" && notification.targetId) {
-      navigate("/mypage");
-    }
+    if (shortcutPath) navigate(shortcutPath);
     toast.dismiss(toastId);
   };
 
@@ -75,7 +65,7 @@ export function NotificationToast({ notification, toastId }: Props) {
               month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "Asia/Seoul",
             })}
           </span>
-          {hasTarget && (
+          {shortcutPath && (
             <button
               onClick={(e) => {
                 e.stopPropagation();
