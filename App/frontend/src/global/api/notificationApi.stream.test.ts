@@ -91,7 +91,7 @@ describe("subscribeNotificationStream", () => {
 
   it("event: task-move 프레임은 onTaskMove로, onNotification으로는 전달하지 않는다", async () => {
     tokenStore.setTokens("access-token", "refresh-token");
-    const event = { taskId: "42", projectId: "1", status: "inprogress", position: 1.5 };
+    const event = { taskId: "42", projectId: "1", status: "inprogress", position: 1.5, version: 100 };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
       streamResponse([`event: task-move\ndata: ${JSON.stringify(event)}\n\n`])
     ));
@@ -108,7 +108,7 @@ describe("subscribeNotificationStream", () => {
 
   it("onTaskMove 핸들러가 없어도 task-move 프레임 때문에 예외가 나지 않는다", async () => {
     tokenStore.setTokens("access-token", "refresh-token");
-    const event = { taskId: "42", projectId: "1", status: "inprogress", position: 1.5 };
+    const event = { taskId: "42", projectId: "1", status: "inprogress", position: 1.5, version: 100 };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
       streamResponse([`event: task-move\ndata: ${JSON.stringify(event)}\n\n`])
     ));

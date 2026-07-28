@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
-import { applyRemoteTaskMove, shouldHideYearOnBoard, formatBoardTaskDate } from "./taskService";
+import { applyRemoteTaskMove, isTaskStatus, shouldHideYearOnBoard, formatBoardTaskDate } from "./taskService";
 import type { Task } from "../types/task";
 
 describe("shouldHideYearOnBoard", () => {
@@ -48,6 +48,21 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     pendingApproval: false, extraFields: {}, ...overrides,
   };
 }
+
+describe("isTaskStatus", () => {
+  it("알려진 TaskStatus 값은 true를 반환한다", () => {
+    expect(isTaskStatus("todo")).toBe(true);
+    expect(isTaskStatus("inprogress")).toBe(true);
+    expect(isTaskStatus("done")).toBe(true);
+    expect(isTaskStatus("blocked")).toBe(true);
+  });
+
+  it("알 수 없는 값은 false를 반환한다", () => {
+    expect(isTaskStatus("archived")).toBe(false);
+    expect(isTaskStatus("")).toBe(false);
+    expect(isTaskStatus("TODO")).toBe(false);
+  });
+});
 
 describe("applyRemoteTaskMove", () => {
   it("같은 컬럼 안에서 position 기준으로 올바른 자리에 다시 끼워 넣는다", () => {

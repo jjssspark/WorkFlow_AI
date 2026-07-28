@@ -15,7 +15,7 @@ import {
   fetchTasks, updateTaskPosition, deleteTask, requestTaskCompletion, cancelTaskCompletion, DEMO_PROJECT_ID,
 } from "../libs/utils/taskApi";
 import { NEXT_STATUS, quickMoveTargetStatus, runTaskMoveOnce, type TaskMoveQueue } from "../libs/utils/taskActions";
-import { applyRemoteTaskMove, reorderTasks } from "../libs/utils/taskService";
+import { applyRemoteTaskMove, isTaskStatus, reorderTasks } from "../libs/utils/taskService";
 import { useAuth } from "../../global/hooks/useAuth";
 import { useNotifications } from "../../global/hooks/useNotifications";
 import { getProjectMembers, type MemberResponse } from "../../global/api/projectsApi";
@@ -51,11 +51,20 @@ export function BoardView() {
   }, [tasks]);
 
   const { subscribeTaskMove, isStreamConnected } = useNotifications();
+  // 업무별로 마지막으로 반영한 이벤트의 version(브로드캐스트 시점 타임스탬프)을 기억한다.
+  // 두 사용자가 같은 업무를 거의 동시에 옮기면 커밋은 잠금으로 순서가 보장돼도 브로드캐스트
+  // 도착 순서는 스레드 스케줄링에 달려 있어 뒤바뀔 수 있다 - 이 맵으로 역전된(더 오래된)
+  // 이벤트를 걸러내 최신 상태가 오래된 상태로 덮어써지지 않게 한다.
+  const remoteMoveVersionsRef = useRef<Map<string, number>>(new Map());
 
   useEffect(() => {
     return subscribeTaskMove((event) => {
       if (event.projectId !== String(projectId)) return;
-      setTasks((current) => applyRemoteTaskMove(current, event.taskId, event.status as TaskStatus, event.position));
+      if (!isTaskStatus(event.status)) return;
+      const lastVersion = remoteMoveVersionsRef.current.get(event.taskId);
+      if (lastVersion !== undefined && event.version <= lastVersion) return;
+      remoteMoveVersionsRef.current.set(event.taskId, event.version);
+      setTasks((current) => applyRemoteTaskMove(current, event.taskId, event.status, event.position));
     });
   }, [subscribeTaskMove, projectId]);
 

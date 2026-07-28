@@ -71,6 +71,8 @@ export interface TaskMoveEvent {
   projectId: string;
   status: string;
   position: number;
+  /** 브로드캐스트 시점(커밋 직후)의 epoch millis. 도착 순서가 뒤바뀌어도 최신 이벤트를 가려낼 때 쓴다. */
+  version: number;
 }
 
 export interface NotificationStreamHandlers {

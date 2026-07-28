@@ -28,7 +28,9 @@ vi.mock("../../global/hooks/useAuth", () => ({
   useAuth: () => mockUseAuth(),
 }));
 
-type TaskMoveHandler = (event: { taskId: string; projectId: string; status: string; position: number }) => void;
+type TaskMoveHandler = (
+  event: { taskId: string; projectId: string; status: string; position: number; version: number }
+) => void;
 let capturedTaskMoveHandler: TaskMoveHandler | null = null;
 const mockSubscribeTaskMove = vi.fn((handler: TaskMoveHandler) => {
   capturedTaskMoveHandler = handler;
@@ -191,13 +193,64 @@ describe("BoardView - 실시간 동기화", () => {
     expect(countBadgeFor("진행 중")).toBe("0");
 
     act(() => {
-      capturedTaskMoveHandler!({ taskId: "42", projectId: "20", status: "inprogress", position: 1 });
+      capturedTaskMoveHandler!({ taskId: "42", projectId: "20", status: "inprogress", position: 1, version: 100 });
     });
 
     await waitFor(() => {
       expect(countBadgeFor("할 일")).toBe("0");
       expect(countBadgeFor("진행 중")).toBe("1");
     });
+  });
+
+  it("같은 업무에 대해 더 오래된 version의 이벤트가 나중에 도착하면 무시한다", async () => {
+    // 두 사용자가 같은 업무를 거의 동시에 옮기면, 커밋은 잠금으로 순서가 보장돼도 브로드캐스트가
+    // 도착하는 순서는 스레드 스케줄링에 달려 있어 최신 이벤트보다 오래된 이벤트가 나중에 올 수 있다.
+    // 이 테스트가 없으면 version 비교 없이 "마지막에 온 걸 그대로 반영"하는 회귀가 안 잡힌다.
+    const task: Task = {
+      id: "42", title: "동기화 대상 업무", status: "todo", priority: "medium",
+      assignee: "", startDate: "", dueDate: "", labels: [], category: "backend",
+      position: 0, pendingApproval: false, extraFields: {},
+    };
+    vi.mocked(fetchTasks).mockResolvedValue([task]);
+    mockUseAuth.mockReturnValue({ currentProjectId: 20, currentProject: { role: "팀장" }, projectContextReady: true });
+
+    renderBoard();
+    await waitFor(() => expect(mockSubscribeTaskMove).toHaveBeenCalled());
+    await screen.findByText("동기화 대상 업무");
+
+    act(() => {
+      capturedTaskMoveHandler!({ taskId: "42", projectId: "20", status: "inprogress", position: 1, version: 200 });
+    });
+    await waitFor(() => expect(countBadgeFor("진행 중")).toBe("1"));
+
+    act(() => {
+      capturedTaskMoveHandler!({ taskId: "42", projectId: "20", status: "todo", position: 2, version: 100 });
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(countBadgeFor("진행 중")).toBe("1");
+    expect(countBadgeFor("할 일")).toBe("0");
+  });
+
+  it("알 수 없는 status 값의 task-move 이벤트는 무시한다", async () => {
+    const task: Task = {
+      id: "42", title: "동기화 대상 업무", status: "todo", priority: "medium",
+      assignee: "", startDate: "", dueDate: "", labels: [], category: "backend",
+      position: 0, pendingApproval: false, extraFields: {},
+    };
+    vi.mocked(fetchTasks).mockResolvedValue([task]);
+    mockUseAuth.mockReturnValue({ currentProjectId: 20, currentProject: { role: "팀장" }, projectContextReady: true });
+
+    renderBoard();
+    await waitFor(() => expect(mockSubscribeTaskMove).toHaveBeenCalled());
+    await screen.findByText("동기화 대상 업무");
+
+    act(() => {
+      capturedTaskMoveHandler!({ taskId: "42", projectId: "20", status: "archived", position: 1, version: 100 });
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(countBadgeFor("할 일")).toBe("1");
   });
 
   it("다른 프로젝트의 task-move 이벤트는 무시한다", async () => {
@@ -214,7 +267,7 @@ describe("BoardView - 실시간 동기화", () => {
     await screen.findByText("다른 프로젝트 업무");
 
     act(() => {
-      capturedTaskMoveHandler!({ taskId: "42", projectId: "999", status: "inprogress", position: 1 });
+      capturedTaskMoveHandler!({ taskId: "42", projectId: "999", status: "inprogress", position: 1, version: 100 });
     });
 
     // 무시됐다는 것은 "아무 일도 안 일어난다"는 것이라 await로 기다릴 조건이 없다 - 짧게 한 틱

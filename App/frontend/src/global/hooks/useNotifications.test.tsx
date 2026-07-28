@@ -186,7 +186,7 @@ describe("NotificationProvider", () => {
     render(<NotificationProvider><Probe onTaskMoveEvents={onTaskMoveEvents} /></NotificationProvider>);
     await waitFor(() => expect(subscribeNotificationStream).toHaveBeenCalled());
 
-    const event: TaskMoveEvent = { taskId: "42", projectId: String(CURRENT_PROJECT_ID), status: "inprogress", position: 1 };
+    const event: TaskMoveEvent = { taskId: "42", projectId: String(CURRENT_PROJECT_ID), status: "inprogress", position: 1, version: 100 };
     act(() => {
       streamHandlers!.onTaskMove?.(event);
     });
@@ -201,7 +201,7 @@ describe("NotificationProvider", () => {
     await waitFor(() => expect(subscribeNotificationStream).toHaveBeenCalled());
     unmount();
 
-    const event: TaskMoveEvent = { taskId: "42", projectId: String(CURRENT_PROJECT_ID), status: "inprogress", position: 1 };
+    const event: TaskMoveEvent = { taskId: "42", projectId: String(CURRENT_PROJECT_ID), status: "inprogress", position: 1, version: 100 };
     streamHandlers!.onTaskMove?.(event);
 
     expect(onTaskMoveEvents).not.toHaveBeenCalled();
@@ -253,7 +253,7 @@ describe("NotificationProvider", () => {
     );
     await waitFor(() => expect(subscribeNotificationStream).toHaveBeenCalled());
 
-    const event: TaskMoveEvent = { taskId: "42", projectId: String(CURRENT_PROJECT_ID), status: "inprogress", position: 1 };
+    const event: TaskMoveEvent = { taskId: "42", projectId: String(CURRENT_PROJECT_ID), status: "inprogress", position: 1, version: 100 };
     act(() => {
       streamHandlers!.onTaskMove?.(event);
     });

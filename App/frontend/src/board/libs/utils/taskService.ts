@@ -100,6 +100,13 @@ export function reorderTasks(
   return { next, newPosition };
 }
 
+const TASK_STATUSES: readonly TaskStatus[] = ["todo", "inprogress", "done", "blocked"];
+
+/** SSE로 받은 status 문자열이 실제 TaskStatus인지 검증한다 - 서버 payload를 그대로 신뢰해 캐스팅하지 않는다. */
+export function isTaskStatus(value: string): value is TaskStatus {
+  return (TASK_STATUSES as readonly string[]).includes(value);
+}
+
 /**
  * 다른 사용자가 옮긴 업무를 SSE로 받아 로컬 상태에 반영한다. reorderTasks와 달리 삽입 위치를
  * index가 아니라 이미 정해진 position 값으로 받으므로, 목적지 컬럼에 끼워 넣고 position
