@@ -31,11 +31,14 @@ function dashboardTaskToBoardTask(task: DashboardTaskDto): Task {
     status: normalizeTaskStatus(task.status) as TaskStatus,
     priority: normalizePriority(task.priority) as Priority,
     assignee: task.assigneeId ?? "",
+    startDate: "",
     dueDate: task.dueDate ?? "",
     labels: [],
     category: task.category ?? "other",
     position: task.position,
     description: task.description ?? undefined,
+    pendingApproval: false,
+    extraFields: {},
   };
 }
 
@@ -187,7 +190,7 @@ export function WorkloadPage() {
         />
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-3 gap-4 items-start">
         <div className="col-span-2 bg-card rounded-xl p-5 border border-border shadow-sm">
           <div className="flex items-center justify-between mb-4">
             <div className="text-sm font-semibold text-foreground">팀원별 업무 현황 비교</div>

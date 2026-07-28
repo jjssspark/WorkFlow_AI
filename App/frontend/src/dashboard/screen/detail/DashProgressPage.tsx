@@ -515,7 +515,7 @@ export function DashProgressPage() {
         </div>
 
         <div className="bg-card rounded-xl p-5 border border-border shadow-sm">
-          <div className="text-sm font-semibold text-foreground mb-3">단계별 진행 상태</div>
+          <div className="text-sm font-semibold text-foreground mb-3">카테고리별 진행 상태</div>
           <div className="space-y-3.5">
             {!loading && categories.map(item => {
               const pct = item.total === 0 ? 0 : Math.round((item.done / item.total) * 100);

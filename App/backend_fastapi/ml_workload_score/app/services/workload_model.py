@@ -272,8 +272,11 @@ def detect_overload_anomalies_robust(feature_df: pd.DataFrame, z_threshold: floa
     result["anomaly_score_raw"] = combined_distance
     result["is_anomaly"] = combined_distance > z_threshold
 
-    max_d = combined_distance.max()
-    result["overload_score_0_100"] = 100 * combined_distance / max_d if max_d > 0 else 0.0
+    # 점수는 "팀 내 최댓값" 기준이 아니라 이상치 임계값(z_threshold) 기준으로 스케일링한다.
+    # 팀 내 최댓값 기준으로 하면, 아무도 임계값을 넘지 않아도(전원 정상) 그중 상대적으로 가장
+    # 튀는 사람이 무조건 100점을 받는 모순이 생긴다(실제로 "정상"인데 100점이 뜨는 문제로 확인됨).
+    # 임계값 기준으로 하면 거리==임계값일 때 100점이 되어, 실제 이상치만 100점 근처에 도달한다.
+    result["overload_score_0_100"] = np.minimum(100.0, 100 * combined_distance / z_threshold)
 
     team_mean_completion = feature_df["completion_rate"].mean()
 
