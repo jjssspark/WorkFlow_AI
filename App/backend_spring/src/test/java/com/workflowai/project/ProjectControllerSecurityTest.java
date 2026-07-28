@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.workflowai.reviewer.ReviewerActivityService;
 import com.workflowai.security.ProjectAccess;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -44,6 +45,9 @@ class ProjectControllerSecurityTest {
 
     @MockBean
     private ProjectService projectService;
+
+    @MockBean
+    private ReviewerActivityService reviewerActivityService;
 
     @MockBean(name = "projectAccess")
     private ProjectAccess projectAccess;

@@ -5,6 +5,8 @@ import com.workflowai.notification.NotificationService;
 import com.workflowai.project.Project;
 import com.workflowai.project.ProjectMemberRepository;
 import com.workflowai.project.ProjectRepository;
+import com.workflowai.reviewer.ReviewerActivityService;
+import com.workflowai.reviewer.ReviewerActivityType;
 import com.workflowai.security.CurrentUser;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -30,17 +32,20 @@ public class EvaluationScoreController {
     private final ProjectMemberRepository projectMemberRepository;
     private final ProjectRepository projectRepository;
     private final NotificationService notificationService;
+    private final ReviewerActivityService reviewerActivityService;
 
     public EvaluationScoreController(
         EvaluationScoreRepository evaluationScoreRepository,
         ProjectMemberRepository projectMemberRepository,
         ProjectRepository projectRepository,
-        NotificationService notificationService
+        NotificationService notificationService,
+        ReviewerActivityService reviewerActivityService
     ) {
         this.evaluationScoreRepository = evaluationScoreRepository;
         this.projectMemberRepository = projectMemberRepository;
         this.projectRepository = projectRepository;
         this.notificationService = notificationService;
+        this.reviewerActivityService = reviewerActivityService;
     }
 
     @Operation(
@@ -105,6 +110,8 @@ public class EvaluationScoreController {
         if (!wasFinalPublic && saved.isFinalPublic()) {
             notifyPublished(saved, "GRADE_PUBLISHED", "학점이 공개되었습니다.", "학점을");
         }
+
+        reviewerActivityService.record(CurrentUser.id(), projectId, ReviewerActivityType.EVALUATION_SCORE_SAVED);
 
         return ResponseEntity.ok(ApiResponse.ok(EvaluationScoreResponse.from(saved)));
     }

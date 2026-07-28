@@ -16,9 +16,13 @@ import com.workflowai.notification.NotificationService;
 import com.workflowai.project.Project;
 import com.workflowai.project.ProjectMemberRepository;
 import com.workflowai.project.ProjectRepository;
+import com.workflowai.reviewer.ReviewerActivityService;
+import com.workflowai.security.UserPrincipal;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -26,6 +30,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.springframework.http.MediaType;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
@@ -45,12 +51,33 @@ class EvaluationScoreControllerTest {
     @Mock
     private NotificationService notificationService;
 
+    @Mock
+    private ReviewerActivityService reviewerActivityService;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    // upsert는 심사자 활동을 기록하려고 CurrentUser.id()를 읽는다. 운영에서는 @PreAuthorize를
+    // 통과한 심사자만 도달하므로 인증이 항상 존재하지만, standalone MockMvc에는 필터가 없어
+    // SecurityContext를 여기서 직접 채워줘야 한다.
+    @BeforeEach
+    void authenticate() {
+        SecurityContextHolder.getContext().setAuthentication(
+            new UsernamePasswordAuthenticationToken(
+                new UserPrincipal(9L, "reviewer@workflow.ai", "심사자"), null, List.of()
+            )
+        );
+    }
+
+    @AfterEach
+    void clearSecurityContext() {
+        SecurityContextHolder.clearContext();
+    }
 
     private MockMvc mockMvc() {
         return MockMvcBuilders
             .standaloneSetup(new EvaluationScoreController(
-                evaluationScoreRepository, projectMemberRepository, projectRepository, notificationService
+                evaluationScoreRepository, projectMemberRepository, projectRepository, notificationService,
+                reviewerActivityService
             ))
             .setControllerAdvice(new GlobalExceptionHandler())
             .build();
