@@ -232,14 +232,24 @@ export function Header({ onOpenMobileMenu }: { onOpenMobileMenu?: () => void }) 
           <div className="flex items-center gap-1.5 ml-1">
             <div className="flex -space-x-2">
               {presenceUsers.slice(0, 6).map(presenceUser => (
-                <div
-                  key={presenceUser.userId}
-                  title={`${presenceUser.name} / ${presenceUser.role}`}
-                  className="w-8 h-8 rounded-full border-2 border-card flex items-center justify-center text-white text-xs font-semibold"
-                  style={{ background: "#3B5BDB" }}
-                >
-                  {presenceUser.name.slice(0, 1)}
-                </div>
+                presenceUser.avatarUrl ? (
+                  <img
+                    key={presenceUser.userId}
+                    src={presenceUser.avatarUrl}
+                    alt={presenceUser.name}
+                    title={`${presenceUser.name} / ${presenceUser.role}`}
+                    className="w-8 h-8 rounded-full border-2 border-card object-cover"
+                  />
+                ) : (
+                  <div
+                    key={presenceUser.userId}
+                    title={`${presenceUser.name} / ${presenceUser.role}`}
+                    className="w-8 h-8 rounded-full border-2 border-card flex items-center justify-center text-white text-xs font-semibold"
+                    style={{ background: "#3B5BDB" }}
+                  >
+                    {presenceUser.name.slice(0, 1)}
+                  </div>
+                )
               ))}
             </div>
             <span className="text-[11px] text-muted-foreground whitespace-nowrap hidden sm:inline">
