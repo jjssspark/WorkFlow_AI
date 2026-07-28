@@ -63,7 +63,7 @@ describe("NotificationProvider", () => {
     mockUseAuth.mockReturnValue(authenticatedAuth());
     render(<NotificationProvider><Probe /></NotificationProvider>);
 
-    await waitFor(() => expect(fetchUnreadNotificationCount).toHaveBeenCalled());
+    await waitFor(() => expect(fetchUnreadNotificationCount).toHaveBeenCalledWith(CURRENT_PROJECT_ID));
     expect(subscribeNotificationStream).toHaveBeenCalled();
   });
 
@@ -72,6 +72,17 @@ describe("NotificationProvider", () => {
     render(<NotificationProvider><Probe /></NotificationProvider>);
 
     expect(subscribeNotificationStream).not.toHaveBeenCalled();
+  });
+
+  it("projectId가 음수(로컬 전용 임시 프로젝트)면 알림 API를 호출하지 않는다", async () => {
+    mockUseAuth.mockReturnValue(authenticatedAuth({ currentProjectId: -1234 }));
+    render(<NotificationProvider><Probe /></NotificationProvider>);
+
+    // 음수 projectId는 아직 서버에 존재하지 않는 로컬 전용 프로젝트라, 그대로 요청하면
+    // 서버가 403을 반환하고 60초 폴백 폴링이 이를 영원히 반복한다.
+    await waitFor(() => expect(subscribeNotificationStream).not.toHaveBeenCalled());
+    expect(fetchUnreadNotificationCount).not.toHaveBeenCalled();
+    expect(fetchNotifications).not.toHaveBeenCalled();
   });
 
   it("새 알림 수신 시 안읽음 개수를 올리고 토스트를 띄운다", async () => {

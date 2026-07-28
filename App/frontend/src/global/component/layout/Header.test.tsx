@@ -276,4 +276,39 @@ describe("Header 알림", () => {
 
     expect(await screen.findByRole("button", { name: "바로가기" })).toBeInTheDocument();
   });
+
+  it("프로젝트를 전환하면 이전 프로젝트에서 불러온 알림 목록이 화면에서 사라진다", async () => {
+    vi.mocked(fetchNotifications).mockResolvedValue([
+      { id: "1", projectId: "1", type: "TASK_ASSIGNED", title: "이전 프로젝트 알림", content: null, targetType: null, targetId: null, read: false, createdAt: new Date().toISOString() },
+    ]);
+    vi.mocked(markNotificationsRead).mockResolvedValue(undefined);
+
+    const { rerender } = render(
+      <MemoryRouter initialEntries={["/board"]}>
+        <AuthProvider>
+          <Header />
+        </AuthProvider>
+      </MemoryRouter>
+    );
+    await openBell();
+    await screen.findByText("이전 프로젝트 알림");
+
+    // 새 프로젝트로 전환됐지만, 아직 그 프로젝트의 목록을 다시 불러오기 전 상태를 재현한다.
+    mockUseAuth.mockReturnValue({
+      isAuthenticated: true, loading: false, user: { id: 1, email: "a@a.com", name: "테스트" },
+      projectRoles: [], currentProjectId: 2, currentProject: null,
+      selectProject: vi.fn(), addLocalProjectRole: vi.fn(), loginWithGoogle: vi.fn(),
+      logout: vi.fn(), refreshMe: vi.fn(),
+    });
+    rerender(
+      <MemoryRouter initialEntries={["/board"]}>
+        <AuthProvider>
+          <Header />
+        </AuthProvider>
+      </MemoryRouter>
+    );
+
+    expect(screen.queryByText("이전 프로젝트 알림")).not.toBeInTheDocument();
+    expect(screen.getByText("알림이 없습니다.")).toBeInTheDocument();
+  });
 });

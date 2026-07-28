@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { ChevronRight, Search, Calendar, Bell, LogOut, Menu } from "lucide-react";
 import { TAB_TITLES } from "../../lib/constants/nav";
@@ -59,10 +59,17 @@ export function Header({ onOpenMobileMenu }: { onOpenMobileMenu?: () => void }) 
   const [notifications, setNotifications] = useState<NotificationResponse[]>([]);
   const [notifError, setNotifError] = useState(false);
 
+  // 프로젝트를 전환하면 이전 프로젝트의 알림 목록이 남아있으면 안 된다 -
+  // 다음 목록을 불러오기 전까지 잠깐이라도 다른 프로젝트의 알림이 화면에 보이게 된다.
+  useEffect(() => {
+    setNotifications([]);
+    setNotifError(false);
+  }, [currentProjectId]);
+
   const handleToggleNotifications = async () => {
     const opening = !notifOpen;
     setNotifOpen(opening);
-    if (!opening || currentProjectId == null) return;
+    if (!opening || !currentProjectId || currentProjectId < 0) return;
 
     // 목록을 먼저 불러와 화면에 반영한 뒤, 그 목록에 실제로 있던 id들만 읽음 처리한다.
     // "전체 읽음"을 따로 호출하면 목록을 불러오는 사이에 새로 도착한 알림까지 휩쓸려,

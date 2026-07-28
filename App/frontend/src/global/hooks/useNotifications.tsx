@@ -26,7 +26,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   const [unreadCount, setUnreadCount] = useState(0);
 
   const refreshUnreadCount = useCallback(async () => {
-    if (currentProjectId == null) return;
+    if (!currentProjectId || currentProjectId < 0) return;
     try {
       const count = await fetchUnreadNotificationCount(currentProjectId);
       setUnreadCount(count);
@@ -55,7 +55,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
    * 새로 발생한 것만 보내주므로, 그 전에 도착한 알림은 여기서만 볼 수 있다.
    */
   const showPendingNotifications = useCallback(async () => {
-    if (currentProjectId == null) return;
+    if (!currentProjectId || currentProjectId < 0) return;
     try {
       const notifications = await fetchNotifications(currentProjectId);
       // 목록이 최신순이라 그대로 띄우면 가장 오래된 게 맨 위에 남는다 - 뒤집어서 최신이 위로 오게 한다.
@@ -67,7 +67,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   }, [showToast, currentProjectId]);
 
   useEffect(() => {
-    if (!isAuthenticated || !projectContextReady || currentProjectId == null) {
+    if (!isAuthenticated || !projectContextReady || !currentProjectId || currentProjectId < 0) {
       setUnreadCount(0);
       return;
     }
