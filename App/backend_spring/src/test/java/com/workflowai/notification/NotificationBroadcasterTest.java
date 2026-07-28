@@ -139,4 +139,26 @@ class NotificationBroadcasterTest {
 
     assertThat(broadcaster.subscriberCount(9L)).isEqualTo(0);
   }
+
+  @Test
+  void broadcastWithCustomEventNameSendsToSubscribedEmitter() throws Exception {
+    SseEmitter emitter = broadcaster.subscribe(7L);
+    List<Object> sent = captureSentData(emitter);
+
+    broadcaster.broadcast(7L, "task-move", java.util.Map.of("taskId", "42"));
+
+    assertThat(sent).hasSize(1);
+  }
+
+  @Test
+  void existingBroadcastOverloadStillUsesNotificationEventName() throws Exception {
+    // 기존 시그니처(broadcast(userId, NotificationDto))가 여전히 동작하는지 - 새 오버로드를
+    // 추가하면서 기존 호출부(NotificationAsyncSender)를 깨지 않았는지 확인하는 회귀 테스트.
+    SseEmitter emitter = broadcaster.subscribe(8L);
+    List<Object> sent = captureSentData(emitter);
+
+    broadcaster.broadcast(8L, sampleDto());
+
+    assertThat(sent).hasSize(1);
+  }
 }
