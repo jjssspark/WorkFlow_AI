@@ -42,7 +42,8 @@ public class ProjectController {
     @PostMapping
     public ResponseEntity<ApiResponse<ProjectResponse>> create(@Valid @RequestBody CreateProjectRequest request) {
         try {
-            return ResponseEntity.ok(ApiResponse.ok(projectService.create(CurrentUser.id(), request)));
+            return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.ok(projectService.create(CurrentUser.id(), request)));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ApiResponse.fail("INVALID_PROJECT_INPUT", e.getMessage()));
         }
