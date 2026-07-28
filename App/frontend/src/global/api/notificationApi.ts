@@ -66,8 +66,16 @@ export async function markNotificationsRead(ids: string[]): Promise<void> {
   });
 }
 
+export interface TaskMoveEvent {
+  taskId: string;
+  projectId: string;
+  status: string;
+  position: number;
+}
+
 export interface NotificationStreamHandlers {
   onNotification: (notification: NotificationResponse) => void;
+  onTaskMove?: (event: TaskMoveEvent) => void;
   onConnectedChange?: (connected: boolean) => void;
 }
 
@@ -116,7 +124,7 @@ export function subscribeNotificationStream(handlers: NotificationStreamHandlers
 
       handlers.onConnectedChange?.(true);
       attempt = 0;
-      await readStream(response.body, handlers.onNotification);
+      await readStream(response.body, handlers);
     } catch {
       if (signal.aborted) return;
     } finally {
@@ -150,7 +158,7 @@ export function subscribeNotificationStream(handlers: NotificationStreamHandlers
 
 async function readStream(
   body: ReadableStream<Uint8Array>,
-  onNotification: (notification: NotificationResponse) => void
+  handlers: NotificationStreamHandlers
 ): Promise<void> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
@@ -165,21 +173,25 @@ async function readStream(
     while (separatorIndex !== -1) {
       const rawEvent = buffer.slice(0, separatorIndex);
       buffer = buffer.slice(separatorIndex + 2);
-      parseEvent(rawEvent, onNotification);
+      parseEvent(rawEvent, handlers);
       separatorIndex = buffer.indexOf("\n\n");
     }
   }
 }
 
-function parseEvent(rawEvent: string, onNotification: (notification: NotificationResponse) => void): void {
-  const dataLines = rawEvent
-    .split("\n")
-    .filter((line) => line.startsWith("data:"))
-    .map((line) => line.slice(5).trim());
+function parseEvent(rawEvent: string, handlers: NotificationStreamHandlers): void {
+  const lines = rawEvent.split("\n");
+  const eventName = lines.find((line) => line.startsWith("event:"))?.slice(6).trim();
+  const dataLines = lines.filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trim());
   if (dataLines.length === 0) return; // 하트비트(주석 전용) 등 data 없는 프레임은 무시
 
   try {
-    onNotification(JSON.parse(dataLines.join("\n")) as NotificationResponse);
+    const data = JSON.parse(dataLines.join("\n"));
+    if (eventName === "task-move") {
+      handlers.onTaskMove?.(data as TaskMoveEvent);
+    } else {
+      handlers.onNotification(data as NotificationResponse);
+    }
   } catch {
     // 파싱 불가능한 프레임은 조용히 무시한다
   }

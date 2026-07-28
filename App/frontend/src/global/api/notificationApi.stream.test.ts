@@ -89,6 +89,39 @@ describe("subscribeNotificationStream", () => {
     controller.abort();
   });
 
+  it("event: task-move 프레임은 onTaskMove로, onNotification으로는 전달하지 않는다", async () => {
+    tokenStore.setTokens("access-token", "refresh-token");
+    const event = { taskId: "42", projectId: "1", status: "inprogress", position: 1.5 };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      streamResponse([`event: task-move\ndata: ${JSON.stringify(event)}\n\n`])
+    ));
+
+    const controller = new AbortController();
+    const onNotification = vi.fn();
+    const onTaskMove = vi.fn();
+    subscribeNotificationStream({ onNotification, onTaskMove }, controller.signal);
+
+    await vi.waitFor(() => expect(onTaskMove).toHaveBeenCalledWith(event));
+    expect(onNotification).not.toHaveBeenCalled();
+    controller.abort();
+  });
+
+  it("onTaskMove 핸들러가 없어도 task-move 프레임 때문에 예외가 나지 않는다", async () => {
+    tokenStore.setTokens("access-token", "refresh-token");
+    const event = { taskId: "42", projectId: "1", status: "inprogress", position: 1.5 };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      streamResponse([`event: task-move\ndata: ${JSON.stringify(event)}\n\n`])
+    ));
+
+    const controller = new AbortController();
+    const onNotification = vi.fn();
+    subscribeNotificationStream({ onNotification }, controller.signal);
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(onNotification).not.toHaveBeenCalled();
+    controller.abort();
+  });
+
   it("토큰이 없으면 연결을 시도하지 않는다", () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
