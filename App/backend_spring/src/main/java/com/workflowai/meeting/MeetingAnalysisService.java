@@ -1,5 +1,6 @@
 package com.workflowai.meeting;
 
+import com.workflowai.activity.ActivityService;
 import com.workflowai.common.DemoDataService;
 import com.workflowai.notification.Notification;
 import com.workflowai.notification.NotificationRepository;
@@ -87,6 +88,7 @@ public class MeetingAnalysisService {
     private final ProjectRepository projectRepository;
     private final RagIngestService ragIngestService;
     private final MeetingAnalysisPersistence meetingAnalysisPersistence;
+    private final ActivityService activityService;
     private final String uploadsDir;
 
     public MeetingAnalysisService(
@@ -104,6 +106,7 @@ public class MeetingAnalysisService {
         ProjectRepository projectRepository,
         RagIngestService ragIngestService,
         MeetingAnalysisPersistence meetingAnalysisPersistence,
+        ActivityService activityService,
         @Value("${workflow.uploads.dir}") String uploadsDir
     ) {
         this.meetingAnalysisJobPublisher = meetingAnalysisJobPublisher;
@@ -120,6 +123,7 @@ public class MeetingAnalysisService {
         this.projectRepository = projectRepository;
         this.ragIngestService = ragIngestService;
         this.meetingAnalysisPersistence = meetingAnalysisPersistence;
+        this.activityService = activityService;
         this.uploadsDir = uploadsDir;
     }
 
@@ -486,6 +490,7 @@ public class MeetingAnalysisService {
             meetingAnalysisRepository.deleteById(meetingDbId);
         }
         if (deleteLinkedTasks) {
+            recordTasksDeleted(meeting, linkedTasks);
             meetingActionItemRepository.deleteByMeetingId(meetingDbId);
             taskRepository.deleteBySourceMeetingId(meetingDbId);
         } else {
@@ -533,6 +538,42 @@ public class MeetingAnalysisService {
      * 회의록은 딥링크로 열 대상이 이미 없으므로, 프론트에서 해당 회의록을 못 찾으면 회의록 화면까지만
      * 이동하고 조용히 멈춘다.
      */
+    /**
+     * 회의록에서 등록된 업무도 보드에서 직접 만든 업무와 똑같이 대시보드 "최근 활동"에 남아야 한다.
+     * 같은 tasks 테이블을 쓰므로 목록·집계는 이미 맞지만, 활동 로그는 각 경로가 직접 남겨야 해서
+     * 회의록 경로만 통째로 빠져 있었다. 로그 타입/문구는 TaskController와 맞춘다.
+     */
+    private void recordTaskCreated(Task task) {
+        // 활동 로그는 프로젝트 단위로 조회되므로, 소속 프로젝트를 모르면 남겨도 아무 화면에 뜨지 않는다.
+        if (task.getProjectId() == null) return;
+        activityService.record(
+            task.getProjectId(), task.getCreatedBy(), "TASK_CREATED", task.getId(),
+            "'" + task.getTitle() + "' 업무를 새로 추가했습니다."
+        );
+    }
+
+    /**
+     * 회의록 하나에 딸린 업무가 여러 건이면 건별로 남기지 않고 한 줄로 묶는다. 보드에서 업무를
+     * 하나씩 지울 때와 달리, 회의록 삭제는 한 번의 조작으로 여러 업무가 한꺼번에 사라지는 사건이라
+     * 활동 로그도 그 단위(회의록)로 남는 편이 "최근 활동" 목록을 삭제 로그가 뒤덮지 않는다.
+     */
+    private void recordTasksDeleted(Meeting meeting, List<Task> tasks) {
+        if (tasks.isEmpty()) return;
+        Long actorId = CurrentUser.id();
+        if (tasks.size() == 1) {
+            Task task = tasks.get(0);
+            activityService.record(
+                task.getProjectId(), actorId, "TASK_DELETED", task.getId(),
+                "'" + task.getTitle() + "' 업무를 삭제했습니다."
+            );
+            return;
+        }
+        activityService.record(
+            meeting.getProjectId(), actorId, "TASK_DELETED", meeting.getId(),
+            "'" + meeting.getTitle() + "' 회의록의 업무 " + tasks.size() + "건을 삭제했습니다."
+        );
+    }
+
     private void notifyProjectTeamExceptActor(
         Long projectDbId, Long actorId, String type, String title, String content, Long meetingDbId
     ) {
@@ -580,6 +621,7 @@ public class MeetingAnalysisService {
 
         meetingAnalysisRepository.deleteById(meetingDbId);
         if (deleteLinkedTasks) {
+            recordTasksDeleted(meeting, linkedTasks);
             meetingActionItemRepository.deleteByMeetingId(meetingDbId);
             taskRepository.deleteBySourceMeetingId(meetingDbId);
         } else {
@@ -807,6 +849,7 @@ public class MeetingAnalysisService {
             createdBy,
             position
         ));
+        recordTaskCreated(task);
         String taskRagContent = buildTaskIngestContent(task);
         ragIngestService.recordIngestIntent(
             task.getProjectId(),
