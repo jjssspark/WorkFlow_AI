@@ -313,19 +313,28 @@ def _mad_anomaly_multi(X: np.ndarray, z_threshold: float = 3.5) -> tuple[np.ndar
     return is_anomaly, score
 
 
-def compute_axis_results(feature_df: pd.DataFrame, team_mean_completion: float) -> pd.DataFrame:
+def compute_axis_results(
+    feature_df: pd.DataFrame, team_mean_completion: float, z_threshold: float = 3.5
+) -> pd.DataFrame:
     """세 축(난이도 편중/업무량 편중/배정량 불균형)을 각각 독립적으로 MAD 판정하고,
     axis별 is_anomaly/score와 통합 anomaly_types/overload_score_0_100을 채운
-    DataFrame을 반환한다. 한 사람이 여러 축에서 동시에 이상치일 수 있다."""
+    DataFrame을 반환한다. 한 사람이 여러 축에서 동시에 이상치일 수 있다.
+
+    z_threshold: 세 축 모두에 공통으로 적용되는 MAD Modified Z-score 임계값. 값이 클수록
+    "이상치"로 판정되는 문턱이 높아져 더 극단적인 경우만 잡아낸다(민감도가 낮아짐)."""
     result = feature_df.reset_index(drop=True).copy()
 
     diff_anomaly, result["difficulty_score"] = _mad_anomaly_multi(
-        result[["difficulty_total_rel", "overdue_ratio"]].fillna(0).to_numpy(dtype=float)
+        result[["difficulty_total_rel", "overdue_ratio"]].fillna(0).to_numpy(dtype=float),
+        z_threshold=z_threshold,
     )
     workload_anomaly, result["workload_score"] = _mad_anomaly_multi(
-        result[["task_count_active_rel", "completion_rate"]].fillna(0).to_numpy(dtype=float)
+        result[["task_count_active_rel", "completion_rate"]].fillna(0).to_numpy(dtype=float),
+        z_threshold=z_threshold,
     )
-    alloc_anomaly, result["allocation_score"] = _mad_anomaly(result["task_count_total_rel"])
+    alloc_anomaly, result["allocation_score"] = _mad_anomaly(
+        result["task_count_total_rel"], z_threshold=z_threshold
+    )
 
     def _labels(row) -> list[str]:
         labels: list[str] = []
@@ -364,13 +373,11 @@ def detect_overload_anomalies_robust(feature_df: pd.DataFrame, z_threshold: floa
     놓치는 경우가 실제로 발생함(5명 팀 검증에서 확인됨). 캡스톤 팀 규모(5~9명)처럼 표본이
     작을 때는 이 방식이 더 안정적.
 
-    z_threshold: Iglewicz & Hoaglin(1993) 권장 기준값 3.5. compute_axis_results()의
-    _mad_anomaly[_multi] 기본값과 동일하게 유지하기 위한 파라미터(현재는 세 축 모두 이
-    z_threshold를 그대로 쓰지 않고 compute_axis_results 내부 기본값 3.5를 쓴다 - 파라미터화가
-    필요해지면 compute_axis_results에 z_threshold를 전달하도록 확장 가능).
+    z_threshold: Iglewicz & Hoaglin(1993) 권장 기준값 3.5. compute_axis_results()로 그대로
+    전달되어 세 축(난이도 편중/업무량 편중/배정량 불균형) 판정에 공통으로 적용된다.
     """
     team_mean_completion = feature_df["completion_rate"].mean()
-    result = compute_axis_results(feature_df, team_mean_completion)
+    result = compute_axis_results(feature_df, team_mean_completion, z_threshold=z_threshold)
     result = result.sort_values("overload_score_0_100", ascending=False)
     # anomaly_types 판정에 실제로 쓰인 팀 평균 완료율을 함께 실어 보낸다 - 프론트가
     # 팀 평균보다 높음/낮음 문구를 이 실측값과 함께 보여줄 수 있도록.
@@ -422,7 +429,9 @@ def detect_overload_anomalies_auto(feature_df: pd.DataFrame, small_team_threshol
     return result
 
 
-def detect_overload_anomalies(feature_df: pd.DataFrame, contamination: float = None) -> pd.DataFrame:
+def detect_overload_anomalies(
+    feature_df: pd.DataFrame, contamination: float = None, z_threshold: float = 3.5
+) -> pd.DataFrame:
     """
     팀 규모가 큰 경우(15명 이상)에도 MAD 경로(detect_overload_anomalies_robust)와 동일한
     3축 독립 판정 구조(anomaly_types, difficulty_score/workload_score/allocation_score)를
@@ -433,6 +442,9 @@ def detect_overload_anomalies(feature_df: pd.DataFrame, contamination: float = N
     구조를 하나로 통일하는 쪽을 택했다.
 
     contamination: 참고용 Isolation Forest 스코어 계산에만 쓰인다(응답 구조에는 영향 없음).
+    z_threshold: compute_axis_results()의 MAD 판정에 그대로 전달된다. detect_overload_anomalies_robust()와
+    동일한 파라미터를 노출해 두 경로(소규모 MAD / 대규모 Isolation Forest) 간 z_threshold
+    커스터마이징 방식을 일관되게 유지한다.
     """
     n = len(feature_df)
     if contamination is None:
@@ -454,7 +466,7 @@ def detect_overload_anomalies(feature_df: pd.DataFrame, contamination: float = N
     raw_score = model.decision_function(X_scaled)
 
     team_mean_completion = feature_df["completion_rate"].mean()
-    result = compute_axis_results(feature_df, team_mean_completion)
+    result = compute_axis_results(feature_df, team_mean_completion, z_threshold=z_threshold)
     # 참고용: Isolation Forest의 원시 이상치 스코어(0~100, 클수록 이상치에 가까움).
     # anomaly_types/overload_score_0_100 판정에는 쓰이지 않고 디버깅/관찰용으로만 남긴다.
     inverted = -raw_score

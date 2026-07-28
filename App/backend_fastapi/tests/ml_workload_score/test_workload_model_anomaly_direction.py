@@ -140,3 +140,103 @@ def test_person_can_be_flagged_on_multiple_axes_simultaneously():
     target_row = result[result["assignee_id"] == "target"].iloc[0]
     assert "배정량 불균형" in target_row["anomaly_types"]
     assert any("난이도" in label for label in target_row["anomaly_types"])
+
+
+def test_person_can_be_flagged_on_all_three_axes_simultaneously():
+    """한 사람이 세 축(난이도 편중/업무량 편중/배정량 불균형) 모두에서 동시에 이상치로
+    잡힐 수 있는지 검증한다.
+
+    구조적 제약 확인: _labels()의 "업무량 편중 의심" 조건은
+    completion_rate < team_mean_completion이고, "배정량 불균형" 조건은 정반대로
+    completion_rate > team_mean_completion이다. 한 사람의 completion_rate는 단일 값이므로
+    이 두 "definite-direction" 라벨은 동일인에게 절대 동시에 붙을 수 없다(논리적으로
+    상호 배타적 - "<" 와 ">"를 같은 값이 동시에 만족할 수 없음). 따라서 "3축 모두
+    definite-direction 라벨"은 애초에 불가능하고, 이 테스트는 두 축(난이도 편중 의심 +
+    배정량 불균형)이 definite-direction으로, 나머지 한 축(업무량)은
+    "이상 패턴(방향 불명확)"으로 동시에 잡히는 - 그래도 "3개 축 모두 이상 판정"이라는
+    조건은 만족하는 - 현실적으로 가능한 최댓값 케이스를 검증한다.
+
+    참고: 아래 수치는 target(4건, 전부 "높음"+"AI/ML"=난이도 3.5, 전부 완료)과 나머지
+    4명(9/10/11/12건, "낮음"+"기타"=난이도 0.5, 절반 완료)의 조합을 스크래치 스크립트로
+    실측 검증해서 나온 값이다(target_row의 task_count_total_rel=0.435로 배정량 불균형
+    임계값을 넘고, difficulty_total_rel=2.0으로 난이도 편중 임계값을 넘으며, completion_rate=1.0 >
+    team_mean_completion≈0.58이라 업무량 축은 방향이 반대라 "방향 불명확"으로만 잡힘)."""
+    today = pd.Timestamp("2026-07-23")
+    rows = []
+    task_id = 1
+    # target: 업무 4건, 전부 우선순위 "높음"+카테고리 "AI/ML"(난이도 3.5), 전부 완료.
+    for _ in range(4):
+        rows.append({"task_id": task_id, "project_id": 1, "assignee_id": "target",
+                      "category": "AI/ML", "priority": "높음", "status": "완료",
+                      "due_date": today - pd.Timedelta(days=1)})
+        task_id += 1
+    # 나머지 4명: 업무량 많고(9/10/11/12건, 소폭 편차) 저난이도(낮음+기타=0.5), 절반 완료.
+    for name, n in [("member_a", 9), ("member_b", 10), ("member_c", 11), ("member_d", 12)]:
+        done = n // 2
+        for i in range(n):
+            status = "완료" if i < done else "할 일"
+            rows.append({"task_id": task_id, "project_id": 1, "assignee_id": name,
+                         "category": "기타", "priority": "낮음", "status": status,
+                         "due_date": today - pd.Timedelta(days=1) if status == "완료" else today + pd.Timedelta(days=5)})
+            task_id += 1
+    tasks_df = pd.DataFrame(rows)
+    features = build_features(tasks_df, today=today)
+    result = detect_overload_anomalies_robust(features)
+
+    target_row = result[result["assignee_id"] == "target"].iloc[0]
+    anomaly_types = target_row["anomaly_types"]
+    # 세 축 모두 이상 판정이 나와야 한다 (난이도/업무량/배정량 각 축에서 라벨이 최소 하나씩).
+    assert any("난이도" in label for label in anomaly_types)
+    assert any("업무량" in label for label in anomaly_types)
+    assert any("배정" in label for label in anomaly_types)
+    assert len(anomaly_types) == 3
+    # definite-direction 라벨: 난이도 편중 의심 + 배정량 불균형은 실제로 방향까지 확정된다.
+    assert "난이도 편중 의심" in anomaly_types
+    assert "배정량 불균형" in anomaly_types
+    # 업무량 축은 completion_rate(1.0) > team_mean_completion이라 "업무량 편중 의심"(완료율이
+    # 팀 평균보다 낮아야 붙는 라벨) 조건과 정반대이므로 방향 불명확 라벨로만 잡힌다 - 이는
+    # _labels()의 구조상(업무량 편중과 배정량 불균형이 completion_rate에 대해 반대 부등호를
+    # 쓰기 때문에) 한 사람에게 두 definite-direction 라벨이 동시에 붙는 것 자체가 불가능함을
+    # 보여준다.
+    assert "업무량 이상 패턴(방향 불명확)" in anomaly_types
+    assert "업무량 편중 의심" not in anomaly_types
+
+
+def test_detect_overload_anomalies_robust_z_threshold_is_actually_wired_through():
+    """detect_overload_anomalies_robust()의 z_threshold 파라미터가 실제로 compute_axis_results()에
+    전달돼 판정 민감도에 영향을 주는지 확인한다(과거에는 시그니처에만 있고 내부적으로는
+    무시되는 dead parameter였음 - compute_axis_results가 항상 자기 기본값 3.5로만 MAD 판정을
+    했음). 기본값(3.5)에서는 이상치로 잡히던 target이, threshold를 극단적으로 높이면(100.0)
+    더 이상 잡히지 않아야 한다."""
+    today = pd.Timestamp("2026-07-23")
+    plan = [
+        ("target", 30, 3, "높음"),
+        ("member_a", 8, 4, "낮음"),
+        ("member_b", 8, 4, "낮음"),
+        ("member_c", 8, 4, "낮음"),
+        ("member_d", 8, 4, "낮음"),
+    ]
+    # 이 파일의 _tasks_df_for 헬퍼는 priority를 받지 않고 항상 "중간"으로 고정하므로,
+    # priority까지 다르게 줘야 하는 이 테스트는 아래처럼 직접 tasks_df를 만든다.
+    rows = []
+    task_id = 1
+    for name, total, done, priority in plan:
+        for i in range(total):
+            status = "완료" if i < done else "할 일"
+            rows.append({
+                "task_id": task_id, "project_id": 1, "assignee_id": name, "category": "백엔드",
+                "priority": priority, "status": status,
+                "due_date": today - pd.Timedelta(days=1) if status == "완료" else today + pd.Timedelta(days=5),
+            })
+            task_id += 1
+    tasks_df = pd.DataFrame(rows)
+    features = build_features(tasks_df, today=today)
+
+    default_result = detect_overload_anomalies_robust(features)
+    default_target = default_result[default_result["assignee_id"] == "target"].iloc[0]
+    assert bool(default_target["is_anomaly"]) is True
+
+    high_threshold_result = detect_overload_anomalies_robust(features, z_threshold=100.0)
+    high_threshold_target = high_threshold_result[high_threshold_result["assignee_id"] == "target"].iloc[0]
+    assert bool(high_threshold_target["is_anomaly"]) is False
+    assert high_threshold_target["anomaly_types"] == []
