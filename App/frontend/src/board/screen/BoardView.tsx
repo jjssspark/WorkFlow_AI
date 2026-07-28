@@ -87,8 +87,10 @@ export function BoardView() {
     setSearchParams(nextParams, { replace: true });
   };
 
-  const loadTasks = useCallback(() => {
-    setLoadState("loading");
+  const loadTasks = useCallback((options?: { silent?: boolean }) => {
+    if (!options?.silent) {
+      setLoadState("loading");
+    }
     fetchTasks(projectId)
       .then((result) => {
         setTasks(result);
@@ -123,7 +125,7 @@ export function BoardView() {
     previousIsStreamConnectedRef.current = isStreamConnected;
     if (isStreamConnected && !wasConnected) {
       if (hasConnectedOnceRef.current) {
-        loadTasks();
+        loadTasks({ silent: true });
       }
       hasConnectedOnceRef.current = true;
     }
@@ -355,7 +357,7 @@ export function BoardView() {
             <div className="h-full flex flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
               <span>업무를 불러오지 못했습니다.</span>
               <button
-                onClick={loadTasks}
+                onClick={() => loadTasks()}
                 className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white rounded-xl hover:opacity-90 transition-opacity"
                 style={{ background: "var(--primary)" }}
               >

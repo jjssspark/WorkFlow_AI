@@ -444,7 +444,7 @@ public class TaskController {
         try {
             operation.run();
         } catch (RuntimeException exception) {
-            log.warn("RAG after-commit 작업 제출 실패. errorType={}", exception.getClass().getSimpleName());
+            log.warn("커밋 후 작업 실행 실패. errorType={}", exception.getClass().getSimpleName());
         }
     }
 
