@@ -11,6 +11,10 @@ from core.config import get_settings
 logger = logging.getLogger(__name__)
 
 REDIS_SOCKET_TIMEOUT_SECONDS = 2.0
+# RAG 큐(rag_queue_service)의 XREADGROUP BLOCK, pubsub listen()처럼 짧게는 수 초, 길게는
+# 응답 생성이 끝날 때까지 소켓을 열어둔 채 기다리는 연산 전용 클라이언트. 위 2초 타임아웃을
+# 그대로 쓰면 LLM 응답을 기다리는 도중 소켓이 끊겨 버린다.
+QUEUE_SOCKET_TIMEOUT_SECONDS = None
 
 
 @lru_cache
@@ -37,6 +41,23 @@ def get_async_redis_client() -> AsyncRedis:
         decode_responses=True,
         socket_connect_timeout=REDIS_SOCKET_TIMEOUT_SECONDS,
         socket_timeout=REDIS_SOCKET_TIMEOUT_SECONDS,
+        retry_on_timeout=False,
+    )
+
+
+@lru_cache
+def get_async_redis_queue_client() -> AsyncRedis:
+    """Redis Stream/Pub-Sub의 블로킹 대기 연산 전용 클라이언트. 캐시 읽기/쓰기용
+    get_async_redis_client()와 커넥션을 분리해, 큐 대기가 길어져도 캐시 경로의 짧은
+    타임아웃 설정에 영향을 주지 않는다."""
+    settings = get_settings()
+    return AsyncRedis.from_url(
+        settings.redis_url,
+        username=settings.redis_username,
+        password=settings.redis_password,
+        decode_responses=True,
+        socket_connect_timeout=REDIS_SOCKET_TIMEOUT_SECONDS,
+        socket_timeout=QUEUE_SOCKET_TIMEOUT_SECONDS,
         retry_on_timeout=False,
     )
 

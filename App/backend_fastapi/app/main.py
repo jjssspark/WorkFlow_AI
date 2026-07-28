@@ -27,6 +27,7 @@ from llm_rag_assistant.app.routers.chat_router import router as rag_router
 from llm_rag_assistant.app.routers.assistant_router import router as assistant_router
 from llm_rag_assistant.app.graph.assistant_graph import close_graph
 from llm_rag_assistant.app.services.embedding_service import preload_embedding_model
+from llm_rag_assistant.app.services.rag_queue_service import RagQueueWorker
 from ml_workload_score.app.routers.workload_router import router as workload_router
 from ai_contribution_report.app.routers.contribution_router import router as contribution_report_router
 from ml_delay_risk.routers.delay_router import router as delay_risk_router
@@ -55,6 +56,9 @@ DEFAULT_WHISPER_COMPUTE_TYPE = "int8"
 DEFAULT_WHISPER_LANGUAGE = "ko"
 AUDIO_FILE_EXTENSIONS = (".mp3", ".wav", ".m4a", ".ogg")
 
+rag_queue_worker = RagQueueWorker()
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     # 첫 RAG 요청이 임베딩 모델 다운로드/로딩 지연(콜드 스타트)을 떠안지 않도록 기동 시 미리 로드한다.
@@ -68,7 +72,10 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         await asyncio.to_thread(get_whisper_model)
     except Exception:
         logger.exception("Whisper STT 모델 사전 로드 실패 - 첫 요청 시 재시도됩니다.")
+    # RAG 채팅(/ai/rag/query)이 rag-jobs 스트림에 적재하는 작업을 처리할 백그라운드 워커.
+    await rag_queue_worker.start()
     yield
+    await rag_queue_worker.stop()
     # 명령 그래프 체크포인터가 잡은 Redis 연결을 닫는다.
     await close_graph()
 
