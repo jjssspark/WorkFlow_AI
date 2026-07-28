@@ -218,3 +218,34 @@ def test_detect_overload_anomalies_isolation_forest_path_uses_same_three_axes():
     target_row = result[result["assignee_id"] == "target"].iloc[0]
     assert isinstance(target_row["anomaly_types"], list)
     assert "team_mean_completion" in result.attrs
+
+
+from ml_workload_score.app.services.workload_model import (
+    ALLOCATION_AXIS_COLUMN,
+    DIFFICULTY_AXIS_COLUMNS,
+    WORKLOAD_AXIS_COLUMNS,
+    rule_based_score,
+)
+
+
+def test_axis_column_constants_defined():
+    assert DIFFICULTY_AXIS_COLUMNS == ["difficulty_total_rel", "overdue_ratio"]
+    assert WORKLOAD_AXIS_COLUMNS == ["task_count_active_rel", "completion_rate"]
+    assert ALLOCATION_AXIS_COLUMN == "task_count_total_rel"
+
+
+def test_rule_based_score_uses_three_axis_weights():
+    today = pd.Timestamp("2026-07-28")
+    plan = [("a", 6, 3, "중간"), ("b", 6, 3, "중간")]
+    tasks_df = _tasks_df_for(plan, today)
+    features = build_features(tasks_df, today=today)
+
+    scores = rule_based_score(features)
+
+    row = features[features["assignee_id"] == "a"].iloc[0]
+    expected = (
+        0.6 * row["difficulty_total_rel"]
+        + 0.2 * row["task_count_active_rel"] * (1 - row["completion_rate"])
+        + 0.2 * (1 - min(row["task_count_total_rel"], 1.0))
+    )
+    assert scores[features["assignee_id"] == "a"].iloc[0] == pytest.approx(expected)

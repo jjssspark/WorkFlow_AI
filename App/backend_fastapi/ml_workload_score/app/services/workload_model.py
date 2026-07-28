@@ -272,13 +272,9 @@ def build_features(
 # ============================================================
 # 3. 메인: Isolation Forest 비지도 이상치 탐지
 # ============================================================
-FEATURE_COLUMNS = [
-    "task_count_active_rel",
-    "completion_rate",
-    "difficulty_total_rel",
-    "overdue_ratio",
-]
-
+DIFFICULTY_AXIS_COLUMNS = ["difficulty_total_rel", "overdue_ratio"]
+WORKLOAD_AXIS_COLUMNS = ["task_count_active_rel", "completion_rate"]
+ALLOCATION_AXIS_COLUMN = "task_count_total_rel"
 
 AXIS_WEIGHTS = {"difficulty": 0.6, "workload": 0.2, "allocation": 0.2}
 
@@ -445,7 +441,8 @@ def detect_overload_anomalies(feature_df: pd.DataFrame, contamination: float = N
         else:
             contamination = min(0.4, max(1.0 / n, 0.1))
 
-    X = feature_df[FEATURE_COLUMNS].fillna(0).values
+    all_axis_columns = DIFFICULTY_AXIS_COLUMNS + WORKLOAD_AXIS_COLUMNS + [ALLOCATION_AXIS_COLUMN]
+    X = feature_df[all_axis_columns].fillna(0).values
     X_scaled = StandardScaler().fit_transform(X)
 
     model = IsolationForest(
@@ -475,17 +472,19 @@ def detect_overload_anomalies(feature_df: pd.DataFrame, contamination: float = N
 # 4. (옵션) Self-labeling 회귀 - 룰베이스 점수를 pseudo-label로 학습
 # ============================================================
 def rule_based_score(feature_df: pd.DataFrame,
-                      w1=0.4, w2=0.3, w3=0.2, w4=0.1) -> pd.Series:
+                      w_difficulty: float = 0.6, w_workload: float = 0.2,
+                      w_allocation: float = 0.2) -> pd.Series:
     """
-    이전에 설계한 룰베이스 공식:
-    overload = w1*(active_rel) + w2*(1-completion_rate) + w3*(difficulty_rel) + w4*(overdue_ratio)
+    3축 가중치(AXIS_WEIGHTS)와 동일한 룰베이스 공식(기존 4피처 통합 공식을 3축 체계로
+    재작성):
+    overload = w_difficulty*(difficulty_total_rel) + w_workload*(active_rel*(1-completion_rate))
+               + w_allocation*(1 - min(total_rel, 1.0))
     이 값을 회귀 모델의 pseudo-label(정답 대용)으로 사용할 수 있음.
     """
     return (
-        w1 * feature_df["task_count_active_rel"]
-        + w2 * (1 - feature_df["completion_rate"])
-        + w3 * feature_df["difficulty_avg_rel"]
-        + w4 * feature_df["overdue_ratio"]
+        w_difficulty * feature_df["difficulty_total_rel"]
+        + w_workload * feature_df["task_count_active_rel"] * (1 - feature_df["completion_rate"])
+        + w_allocation * (1 - feature_df["task_count_total_rel"].clip(upper=1.0))
     )
 
 
@@ -498,7 +497,8 @@ def optional_regression_baseline(feature_df: pd.DataFrame):
     from sklearn.metrics import r2_score
 
     y_pseudo = rule_based_score(feature_df)
-    X = feature_df[FEATURE_COLUMNS].fillna(0).values
+    axis_columns = DIFFICULTY_AXIS_COLUMNS + WORKLOAD_AXIS_COLUMNS + [ALLOCATION_AXIS_COLUMN]
+    X = feature_df[axis_columns].fillna(0).values
 
     reg = LinearRegression()
     reg.fit(X, y_pseudo)
@@ -506,7 +506,7 @@ def optional_regression_baseline(feature_df: pd.DataFrame):
 
     print("\n[옵션] Self-labeling 회귀 baseline")
     print(f"  R^2 (룰 재현도): {r2_score(y_pseudo, pred):.4f}")
-    print(f"  계수: {dict(zip(FEATURE_COLUMNS, reg.coef_.round(3)))}")
+    print(f"  계수: {dict(zip(axis_columns, reg.coef_.round(3)))}")
     return reg
 
 
