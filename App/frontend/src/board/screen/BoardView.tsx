@@ -14,7 +14,7 @@ import { EditTaskModal } from "../components/EditTaskModal";
 import {
   fetchTasks, updateTaskPosition, deleteTask, requestTaskCompletion, cancelTaskCompletion, DEMO_PROJECT_ID,
 } from "../libs/utils/taskApi";
-import { NEXT_STATUS, quickMoveTargetStatus, runTaskMoveOnce } from "../libs/utils/taskActions";
+import { NEXT_STATUS, quickMoveTargetStatus, runTaskMoveOnce, type TaskMoveQueue } from "../libs/utils/taskActions";
 import { reorderTasks } from "../libs/utils/taskService";
 import { useAuth } from "../../global/hooks/useAuth";
 import { getProjectMembers, type MemberResponse } from "../../global/api/projectsApi";
@@ -41,7 +41,13 @@ export function BoardView() {
   const [toast, setToast] = useState<string | null>(null);
   const [workResultOpen, setWorkResultOpen] = useState(false);
   const [completionConfirmTaskId, setCompletionConfirmTaskId] = useState<string | null>(null);
-  const movingTaskIdsRef = useRef(new Set<string>());
+  const taskMoveQueueRef = useRef<TaskMoveQueue>(new Map());
+  // moveTask는 큐에 걸려 앞선 요청이 끝난 뒤 실행될 수 있어, 그 시점엔 useState의 tasks 클로저가
+  // 오래된 값일 수 있다. 실행 시점의 최신 배열을 읽기 위한 거울(mirror) ref.
+  const tasksRef = useRef(tasks);
+  useEffect(() => {
+    tasksRef.current = tasks;
+  }, [tasks]);
 
   const selTask = selId ? tasks.find((t) => t.id === selId) ?? null : null;
 
@@ -152,17 +158,26 @@ export function BoardView() {
   // 배열 재배치/position 계산 자체는 reorderTasks()에 위임하고, 여기서는 낙관적 업데이트 + API 호출 + 롤백만 담당한다.
   const moveTask = async (taskId: string, targetStatus: TaskStatus, insertAtIndex: number) => {
     // 체크리스트 여러 항목을 빠르게 완료하면 상태 prop이 갱신되기 전에 자동 이동이 연속 호출될 수 있다.
-    // 동일 업무의 첫 이동 요청이 끝날 때까지 후속 요청을 막아 API와 알림이 중복 생성되지 않게 한다.
-    const dragged = tasks.find((t) => t.id === taskId);
-    const result = reorderTasks(tasks, taskId, targetStatus, insertAtIndex);
-    if (!dragged || !result) return;
-    const prevTasks = tasks;
-    await runTaskMoveOnce(movingTaskIdsRef.current, taskId, targetStatus, async () => {
+    // 동일 업무의 첫 이동 요청이 끝날 때까지 같은 목적지로의 후속 호출은 막되(중복 API/알림 방지),
+    // 다른 목적지로의 요청은 버리지 않고 앞선 요청 뒤에 순서대로 실행한다(runTaskMoveOnce 참고) -
+    // 그래야 서버에 도착하는 순서가 사용자가 드래그한 순서와 같아진다.
+    await runTaskMoveOnce(taskMoveQueueRef.current, taskId, targetStatus, async () => {
+      // 큐에 걸려 늦게 실행될 수 있으므로, 재정렬 계산은 실행 시점의 최신 배열을 기준으로 한다.
+      const current = tasksRef.current;
+      const dragged = current.find((t) => t.id === taskId);
+      const result = reorderTasks(current, taskId, targetStatus, insertAtIndex);
+      if (!dragged || !result) return;
+      const prevStatus = dragged.status;
+      const prevPosition = dragged.position;
       setTasks(result.next);
       try {
         await updateTaskPosition(taskId, targetStatus, result.newPosition, projectId);
       } catch {
-        setTasks(prevTasks);
+        // 이 업무만 이동 전 상태로 되돌린다. 배열 전체를 스냅샷으로 되돌리면, 그 사이 다른 요청
+        // (다른 업무이거나 이 업무의 다음 큐 항목)이 이미 반영한 성공한 변경까지 지워버린다.
+        setTasks((latest) => latest.map((t) =>
+          (t.id === taskId ? { ...t, status: prevStatus, position: prevPosition } : t)
+        ));
         showToast("이동에 실패했습니다. 다시 시도해주세요.");
       }
     });
