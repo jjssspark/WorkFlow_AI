@@ -126,4 +126,5 @@ describe("NotificationToast", () => {
 
     expect(markNotificationsRead).toHaveBeenCalledWith(["1"]);
     expect(mockNavigate).toHaveBeenCalledWith("/mypage?commentId=9");
-  });});
+  });
+});

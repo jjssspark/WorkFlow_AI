@@ -259,7 +259,8 @@ export function Header({ onOpenMobileMenu }: { onOpenMobileMenu?: () => void }) 
                           >
                             바로가기
                           </button>
-                        )}                      </div>
+                        )}
+                      </div>
                     );
                   })}
                 </div>
