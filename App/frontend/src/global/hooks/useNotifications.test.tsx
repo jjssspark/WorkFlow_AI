@@ -27,11 +27,18 @@ function Probe() {
   return <div data-testid="count">{unreadCount}</div>;
 }
 
-function sampleNotification(): NotificationResponse {
+const CURRENT_PROJECT_ID = 12;
+
+function sampleNotification(overrides: Partial<NotificationResponse> = {}): NotificationResponse {
   return {
-    id: "1", type: "TASK_ASSIGNED", title: "제목", content: null,
+    id: "1", projectId: String(CURRENT_PROJECT_ID), type: "TASK_ASSIGNED", title: "제목", content: null,
     targetType: null, targetId: null, read: false, createdAt: new Date().toISOString(),
+    ...overrides,
   };
+}
+
+function authenticatedAuth(overrides: Record<string, unknown> = {}) {
+  return { isAuthenticated: true, projectContextReady: true, currentProjectId: CURRENT_PROJECT_ID, ...overrides };
 }
 
 function notificationsOf(count: number, read = false): NotificationResponse[] {
@@ -53,7 +60,7 @@ describe("NotificationProvider", () => {
   });
 
   it("로그인 상태면 스트림을 구독하고 초기 안읽음 개수를 불러온다", async () => {
-    mockUseAuth.mockReturnValue({ isAuthenticated: true });
+    mockUseAuth.mockReturnValue(authenticatedAuth());
     render(<NotificationProvider><Probe /></NotificationProvider>);
 
     await waitFor(() => expect(fetchUnreadNotificationCount).toHaveBeenCalled());
@@ -68,7 +75,7 @@ describe("NotificationProvider", () => {
   });
 
   it("새 알림 수신 시 안읽음 개수를 올리고 토스트를 띄운다", async () => {
-    mockUseAuth.mockReturnValue({ isAuthenticated: true });
+    mockUseAuth.mockReturnValue(authenticatedAuth());
     const { getByTestId } = render(<NotificationProvider><Probe /></NotificationProvider>);
     await waitFor(() => expect(subscribeNotificationStream).toHaveBeenCalled());
 
@@ -80,8 +87,21 @@ describe("NotificationProvider", () => {
     expect(toast.custom).toHaveBeenCalledOnce();
   });
 
+  it("다른 프로젝트의 알림이 도착하면 안읽음 개수를 올리지 않고 토스트도 띄우지 않는다", async () => {
+    mockUseAuth.mockReturnValue(authenticatedAuth());
+    const { getByTestId } = render(<NotificationProvider><Probe /></NotificationProvider>);
+    await waitFor(() => expect(subscribeNotificationStream).toHaveBeenCalled());
+
+    act(() => {
+      streamHandlers!.onNotification(sampleNotification({ projectId: "99" }));
+    });
+
+    expect(getByTestId("count").textContent).toBe("0");
+    expect(toast.custom).not.toHaveBeenCalled();
+  });
+
   it("접속하면 자리를 비운 사이 쌓인 안 읽은 알림을 최대 5건까지 토스트로 띄운다", async () => {
-    mockUseAuth.mockReturnValue({ isAuthenticated: true });
+    mockUseAuth.mockReturnValue(authenticatedAuth());
     fetchNotifications.mockResolvedValue(notificationsOf(8));
 
     render(<NotificationProvider><Probe /></NotificationProvider>);
@@ -91,7 +111,7 @@ describe("NotificationProvider", () => {
   });
 
   it("이미 읽은 알림은 접속 시 다시 띄우지 않는다", async () => {
-    mockUseAuth.mockReturnValue({ isAuthenticated: true });
+    mockUseAuth.mockReturnValue(authenticatedAuth());
     fetchNotifications.mockResolvedValue(notificationsOf(3, true));
 
     render(<NotificationProvider><Probe /></NotificationProvider>);
