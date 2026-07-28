@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
-import { shouldHideYearOnBoard, formatBoardTaskDate } from "./taskService";
+import { applyRemoteTaskMove, shouldHideYearOnBoard, formatBoardTaskDate } from "./taskService";
+import type { Task } from "../types/task";
 
 describe("shouldHideYearOnBoard", () => {
   afterEach(() => {
@@ -37,5 +38,49 @@ describe("formatBoardTaskDate", () => {
 
   it("returns 미정 for empty date", () => {
     expect(formatBoardTaskDate("", true)).toBe("미정");
+  });
+});
+
+function makeTask(overrides: Partial<Task> = {}): Task {
+  return {
+    id: "1", title: "제목", status: "todo", priority: "medium", assignee: "",
+    startDate: "", dueDate: "", labels: [], category: "backend", position: 0,
+    pendingApproval: false, extraFields: {}, ...overrides,
+  };
+}
+
+describe("applyRemoteTaskMove", () => {
+  it("같은 컬럼 안에서 position 기준으로 올바른 자리에 다시 끼워 넣는다", () => {
+    const tasks = [
+      makeTask({ id: "1", status: "todo", position: 0 }),
+      makeTask({ id: "2", status: "todo", position: 2 }),
+      makeTask({ id: "3", status: "todo", position: 3 }),
+    ];
+
+    const next = applyRemoteTaskMove(tasks, "3", "todo", 1.5);
+
+    expect(next.filter(t => t.status === "todo").map(t => t.id)).toEqual(["1", "3", "2"]);
+  });
+
+  it("다른 컬럼으로 이동하면 원래 컬럼에서 빠지고 새 컬럼에 position 순서로 들어간다", () => {
+    const tasks = [
+      makeTask({ id: "1", status: "todo", position: 0 }),
+      makeTask({ id: "2", status: "inprogress", position: 0 }),
+      makeTask({ id: "3", status: "inprogress", position: 2 }),
+    ];
+
+    const next = applyRemoteTaskMove(tasks, "1", "inprogress", 1);
+
+    expect(next.find(t => t.id === "1")?.status).toBe("inprogress");
+    expect(next.filter(t => t.status === "todo")).toHaveLength(0);
+    expect(next.filter(t => t.status === "inprogress").map(t => t.id)).toEqual(["2", "1", "3"]);
+  });
+
+  it("아직 로드되지 않은 taskId는 무시하고 배열을 그대로(같은 참조) 반환한다", () => {
+    const tasks = [makeTask({ id: "1" })];
+
+    const next = applyRemoteTaskMove(tasks, "999", "done", 0);
+
+    expect(next).toBe(tasks);
   });
 });

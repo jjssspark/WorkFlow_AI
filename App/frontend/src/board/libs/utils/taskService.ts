@@ -99,3 +99,26 @@ export function reorderTasks(
   next.splice(insertGlobalIndex, 0, movedTask);
   return { next, newPosition };
 }
+
+/**
+ * 다른 사용자가 옮긴 업무를 SSE로 받아 로컬 상태에 반영한다. reorderTasks와 달리 삽입 위치를
+ * index가 아니라 이미 정해진 position 값으로 받으므로, 목적지 컬럼에 끼워 넣고 position
+ * 오름차순으로 정렬하는 것으로 충분하다 - 정확한 삽입 인덱스를 따로 계산할 필요가 없다.
+ */
+export function applyRemoteTaskMove(
+  tasks: Task[],
+  taskId: string,
+  status: TaskStatus,
+  position: number
+): Task[] {
+  const target = tasks.find(t => t.id === taskId);
+  if (!target) return tasks;
+
+  const moved = { ...target, status, position };
+  const withoutTarget = tasks.filter(t => t.id !== taskId);
+  const outsideColumn = withoutTarget.filter(t => t.status !== status);
+  const column = withoutTarget.filter(t => t.status === status)
+    .concat(moved)
+    .sort((a, b) => a.position - b.position);
+  return [...outsideColumn, ...column];
+}
