@@ -374,7 +374,7 @@ public class TaskController {
             // 처리하므로(Task.applyUpdate), 이 API로는 담당자를 해제할 수 없고 재배정만 된다.
             if (assigneeBefore != null && !assigneeBefore.equals(actorId)) {
                 notificationService.notifyAfterCommit(
-                    assigneeBefore, "TASK_UNASSIGNED", "담당 업무에서 제외되었습니다.",
+                    assigneeBefore, projectDbId, "TASK_UNASSIGNED", "담당 업무에서 제외되었습니다.",
                     "'" + task.getTitle() + "' 업무가 '" + userName(task.getAssigneeId())
                         + "'님에게 재배정되었습니다.",
                     "task", task.getId()

@@ -286,9 +286,9 @@ class TaskControllerUpdateTest {
 
         // 이전 담당자(3L)와 새 담당자(5L) 양쪽에 가야 한다. 한쪽만 검증하면 반대쪽이
         // 빠져도 통과하므로 둘 다 못 박는다.
-        verify(notificationService).notifyAfterCommit(eq(5L), eq("TASK_ASSIGNED"), any(), any(), eq("task"), any());
+        verify(notificationService).notifyAfterCommit(eq(5L), eq(1L), eq("TASK_ASSIGNED"), any(), any(), eq("task"), any());
         verify(notificationService).notifyAfterCommit(
-            eq(3L), eq("TASK_UNASSIGNED"), any(),
+            eq(3L), eq(1L), eq("TASK_UNASSIGNED"), any(),
             // 누구에게 넘어갔는지가 본문에 있어야 이전 담당자가 인수인계 상대를 안다.
             contains("이영희"), eq("task"), any()
         );
@@ -312,10 +312,10 @@ class TaskControllerUpdateTest {
             .andExpect(status().isOk());
 
         verify(notificationService, never()).notifyAfterCommit(
-            eq(3L), eq("TASK_UNASSIGNED"), any(), any(), any(), any()
+            eq(3L), any(), eq("TASK_UNASSIGNED"), any(), any(), any(), any()
         );
         // 새 담당자에게는 그대로 가야 한다(위 규칙이 알림 전체를 막아버리지 않았는지 확인).
-        verify(notificationService).notifyAfterCommit(eq(5L), eq("TASK_ASSIGNED"), any(), any(), eq("task"), any());
+        verify(notificationService).notifyAfterCommit(eq(5L), eq(1L), eq("TASK_ASSIGNED"), any(), any(), eq("task"), any());
     }
 
     @Test
@@ -331,9 +331,9 @@ class TaskControllerUpdateTest {
                 .content("{\"assigneeId\":\"5\"}"))
             .andExpect(status().isOk());
 
-        verify(notificationService).notifyAfterCommit(eq(5L), eq("TASK_ASSIGNED"), any(), any(), eq("task"), any());
+        verify(notificationService).notifyAfterCommit(eq(5L), eq(1L), eq("TASK_ASSIGNED"), any(), any(), eq("task"), any());
         verify(notificationService, never()).notifyAfterCommit(
-            any(), eq("TASK_UNASSIGNED"), any(), any(), any(), any()
+            any(), any(), eq("TASK_UNASSIGNED"), any(), any(), any(), any()
         );
     }
 
