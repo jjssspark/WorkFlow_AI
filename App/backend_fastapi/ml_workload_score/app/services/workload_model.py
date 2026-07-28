@@ -275,7 +275,7 @@ def build_features(
 FEATURE_COLUMNS = [
     "task_count_active_rel",
     "completion_rate",
-    "difficulty_avg_rel",
+    "difficulty_total_rel",
     "overdue_ratio",
 ]
 
@@ -428,15 +428,20 @@ def detect_overload_anomalies_auto(feature_df: pd.DataFrame, small_team_threshol
 
 def detect_overload_anomalies(feature_df: pd.DataFrame, contamination: float = None) -> pd.DataFrame:
     """
-    Isolation Forest로 팀 내 '통계적 이상치'(과부하 또는 저활동)를 탐지.
-    contamination: 전체 팀원 중 이상치로 볼 비율. None이면 팀 규모 기반 자동 조정.
-      - sklearn은 (0, 0.5] 범위만 허용하므로 소규모 팀에서 값이 너무 작으면
-        이상치가 0명으로 잡히는 문제가 생길 수 있어 최소 1명은 잡히도록 하한을 둠.
+    팀 규모가 큰 경우(15명 이상)에도 MAD 경로(detect_overload_anomalies_robust)와 동일한
+    3축 독립 판정 구조(anomaly_types, difficulty_score/workload_score/allocation_score)를
+    유지한다. Isolation Forest(비지도 이상치 모델)는 참고용 전체 이상치 스코어만 계산하고
+    (extra_isolation_forest_score 컬럼), 실제 응답에 쓰이는 anomaly_types/overload_score_0_100은
+    compute_axis_results()의 MAD 기반 3축 결과를 그대로 사용한다 - 두 개의 서로 다른 이상치
+    개념(트리 기반 vs MAD 기반)이 동시에 노출되면 프론트/심사자가 혼란스러우므로, 응답
+    구조를 하나로 통일하는 쪽을 택했다.
+
+    contamination: 참고용 Isolation Forest 스코어 계산에만 쓰인다(응답 구조에는 영향 없음).
     """
     n = len(feature_df)
     if contamination is None:
         if n < 3:
-            contamination = 0.49  # 팀원 2명 이하면 사실상 이상치 탐지 의미 적음, 경고만
+            contamination = 0.49
         else:
             contamination = min(0.4, max(1.0 / n, 0.1))
 
@@ -449,46 +454,19 @@ def detect_overload_anomalies(feature_df: pd.DataFrame, contamination: float = N
         random_state=RANDOM_SEED,
     )
     model.fit(X_scaled)
-
-    # decision_function: 클수록 정상, 작을수록(음수일수록) 이상치
     raw_score = model.decision_function(X_scaled)
-    is_anomaly = model.predict(X_scaled) == -1  # -1이면 이상치, 1이면 정상
 
-    result = feature_df.copy()
-    result["anomaly_score_raw"] = raw_score
-    result["is_anomaly"] = is_anomaly
-
-    # 발표/화면 표시용으로 0~100 과부하 점수로 변환 (점수 높을수록 이상치에 가까움)
-    # raw_score가 낮을수록(음수) 이상치이므로 부호 반전 후 0~100 스케일링
+    team_mean_completion = feature_df["completion_rate"].mean()
+    result = compute_axis_results(feature_df, team_mean_completion)
+    # 참고용: Isolation Forest의 원시 이상치 스코어(0~100, 클수록 이상치에 가까움).
+    # anomaly_types/overload_score_0_100 판정에는 쓰이지 않고 디버깅/관찰용으로만 남긴다.
     inverted = -raw_score
     min_v, max_v = inverted.min(), inverted.max()
-    if max_v > min_v:
-        result["overload_score_0_100"] = 100 * (inverted - min_v) / (max_v - min_v)
-    else:
-        result["overload_score_0_100"] = 50.0
-
-    # 방향성 태깅: completion_rate와 task_count로 '과부하형' vs '저활동형' 구분
-    team_mean_completion = feature_df["completion_rate"].mean()
-
-    def tag_direction(row):
-        if not row["is_anomaly"]:
-            return "정상"
-        if row["task_count_active_rel"] > 1.0 and row["completion_rate"] < team_mean_completion:
-            return "과부하 의심"
-        # "배정량 불균형"은 "진행중 업무가 적음"(task_count_active_rel)이 아니라 "애초에
-        # 배정받은 업무 자체가 팀 평균보다 적음"(task_count_total_rel)으로 판단한다. 전자로
-        # 판단하면 배정된 일을 전부 끝낸 사람(진행중 업무=0)도 무조건 걸리는 문제가 있었다.
-        # "저활동 의심"이 아니라 이 라벨을 쓰는 이유: 배정량이 팀 평균보다 적다는 사실 자체는
-        # 참이더라도, 그 사람이 태만하다는 뜻은 아니다(완료율이 높으면 오히려 반대 신호일 수
-        # 있음) - 판단은 사람(심사자)에게 맡기고 관찰된 사실만 중립적으로 전달한다.
-        elif row["task_count_total_rel"] < 1.0 and row["completion_rate"] > team_mean_completion:
-            return "배정량 불균형"
-        return "이상 패턴(방향 불명확)"
-
-    result["anomaly_type"] = result.apply(tag_direction, axis=1)
+    result["isolation_forest_reference_score"] = (
+        100 * (inverted - min_v) / (max_v - min_v) if max_v > min_v else 50.0
+    )
 
     result = result.sort_values("overload_score_0_100", ascending=False)
-    # MAD 경로와 동일하게, anomaly_type 판정에 쓰인 팀 평균 완료율을 함께 실어 보낸다.
     result.attrs["team_mean_completion"] = float(team_mean_completion)
     return result
 

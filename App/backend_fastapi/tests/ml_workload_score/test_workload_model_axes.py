@@ -193,3 +193,28 @@ def test_detect_overload_anomalies_robust_normal_member_has_empty_anomaly_types(
 
     assert normal_row["anomaly_types"] == []
     assert bool(normal_row["is_anomaly"]) is False
+
+
+from ml_workload_score.app.services.workload_model import detect_overload_anomalies
+
+
+def test_detect_overload_anomalies_isolation_forest_path_uses_same_three_axes():
+    """팀원 15명 이상(Isolation Forest 경로 트리거 조건)에서도 응답 구조가 MAD 경로와
+    동일해야 한다(anomaly_types 리스트 + 축별 점수 3개)."""
+    today = pd.Timestamp("2026-07-28")
+    plan = [("target", 3, 0, "높음")] + [
+        (f"member_{i}", 20, 5, "낮음") for i in range(16)
+    ]
+    tasks_df = _tasks_df_for(plan, today)
+    features = build_features(tasks_df, today=today)
+    assert len(features) >= 15  # Isolation Forest 경로 트리거 조건 확인
+
+    result = detect_overload_anomalies(features)
+
+    assert "anomaly_types" in result.columns
+    assert "difficulty_score" in result.columns
+    assert "workload_score" in result.columns
+    assert "allocation_score" in result.columns
+    target_row = result[result["assignee_id"] == "target"].iloc[0]
+    assert isinstance(target_row["anomaly_types"], list)
+    assert "team_mean_completion" in result.attrs
