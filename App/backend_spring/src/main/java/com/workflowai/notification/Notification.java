@@ -19,6 +19,9 @@ public class Notification {
     @Column(name = "user_id", nullable = false)
     private Long userId;
 
+    @Column(name = "project_id")
+    private Long projectId;
+
     @Column(nullable = false)
     private String type;
 
@@ -43,8 +46,10 @@ public class Notification {
     protected Notification() {
     }
 
-    public Notification(Long userId, String type, String title, String content, String targetType, Long targetId) {
+    public Notification(Long userId, Long projectId, String type, String title, String content,
+                        String targetType, Long targetId) {
         this.userId = userId;
+        this.projectId = projectId;
         this.type = type;
         this.title = title;
         this.content = content;
@@ -60,6 +65,10 @@ public class Notification {
 
     public Long getUserId() {
         return userId;
+    }
+
+    public Long getProjectId() {
+        return projectId;
     }
 
     public String getType() {

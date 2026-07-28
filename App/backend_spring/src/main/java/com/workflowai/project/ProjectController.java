@@ -98,7 +98,7 @@ public class ProjectController {
     @PostMapping("/{projectId}/finalize-evaluation")
     @PreAuthorize("@projectAccess.hasRole(#projectId, 'REVIEWER')")
     public ApiResponse<ProjectResponse> finalizeEvaluation(@PathVariable Long projectId) {
-        return ApiResponse.ok(projectService.finalizeEvaluation(projectId));
+        return ApiResponse.ok(projectService.finalizeEvaluation(projectId, CurrentUser.id()));
     }
 
     @Operation(
@@ -109,7 +109,7 @@ public class ProjectController {
     @PostMapping("/{projectId}/unfinalize-evaluation")
     @PreAuthorize("@projectAccess.hasRole(#projectId, 'REVIEWER')")
     public ApiResponse<ProjectResponse> unfinalizeEvaluation(@PathVariable Long projectId) {
-        return ApiResponse.ok(projectService.unfinalizeEvaluation(projectId));
+        return ApiResponse.ok(projectService.unfinalizeEvaluation(projectId, CurrentUser.id()));
     }
 
     @Operation(summary = "프로젝트 멤버 목록 조회")

@@ -1,4 +1,12 @@
-import { updateTaskPosition, updateTask, deleteTask } from "../../../board/libs/utils/taskApi";
+import {
+  updateTaskPosition,
+  updateTask,
+  deleteTask,
+  approveTaskCompletion,
+  rejectTaskCompletion,
+  sendTaskNudge,
+  type NudgeKind,
+} from "../../../board/libs/utils/taskApi";
 import { createTaskComment } from "../../../board/libs/utils/taskCommentApi";
 import { fetchChecklist, updateChecklistItem } from "../../../board/libs/utils/checklistApi";
 import { getProjectMembers, type MemberResponse } from "../../../global/api/projectsApi";
@@ -11,6 +19,9 @@ export interface ExecutionResult {
 }
 
 const VALID_STATUSES: TaskStatus[] = ["todo", "inprogress", "blocked", "done"];
+
+// 그래프(state.py _VALID_NUDGE_KINDS)·Spring(NUDGE_MESSAGE_TEMPLATES)과 같은 세 값이라야 한다.
+const VALID_NUDGE_KINDS: NudgeKind[] = ["START", "PROGRESS", "URGENT"];
 
 // tasks.title은 VARCHAR(200)이다. 그래프(state.py _TITLE_MAX_LENGTH)와 같은 값이라야
 // 계획 단계를 통과한 제목이 여기서 다시 거부되지 않는다.
@@ -156,6 +167,27 @@ export async function executeAction(card: ActionCard, projectId: number): Promis
         const resolved = resolveMember(await getProjectMembers(projectId), name);
         if (!resolved.ok) return { ok: false, error: resolved.error };
         await updateTask(taskId, { assigneeId: String(resolved.member.userId) }, projectId);
+        return { ok: true };
+      }
+      case "approve_completion": {
+        // 전제 조건(승인 대기 상태)은 확인하지 않는다. 그래프는 업무 상태를 모른 채 카드를
+        // 만들고, 여기서 미리 조회해도 승인 직전에 상태가 바뀔 수 있어 실패 경로는 남는다.
+        // Spring이 400 NOT_PENDING을 주면 그 메시지가 그대로 사용자에게 전달된다.
+        await approveTaskCompletion(taskId, projectId);
+        return { ok: true };
+      }
+      case "reject_completion": {
+        await rejectTaskCompletion(taskId, projectId);
+        return { ok: true };
+      }
+      case "nudge_task": {
+        const kind = String(card.args.kind ?? "");
+        // 그래프가 이미 막지만 여기서도 확인한다. 이 함수는 카드만 받으면 실행하므로,
+        // 그래프를 우회한 값이 들어오면 엉뚱한 재촉 알림이 나가고 회수할 수 없다.
+        if (!VALID_NUDGE_KINDS.includes(kind as NudgeKind)) {
+          return { ok: false, error: "알 수 없는 재촉 종류입니다." };
+        }
+        await sendTaskNudge(taskId, kind as NudgeKind, projectId);
         return { ok: true };
       }
       case "delete_task": {

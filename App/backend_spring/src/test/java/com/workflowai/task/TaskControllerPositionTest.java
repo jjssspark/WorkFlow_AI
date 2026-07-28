@@ -161,7 +161,7 @@ class TaskControllerPositionTest {
             .andExpect(status().isOk());
 
         // existingTask()의 담당자는 3L. actor(1L)는 팀장이지만 자기알림 제외 대상이라 알림 없음.
-        verify(notificationService, times(1)).notifyAfterCommit(eq(3L), eq("STATUS_CHANGED"), any(), any(), eq("task"), any());
+        verify(notificationService, times(1)).notifyAfterCommit(eq(3L), eq(1L), eq("STATUS_CHANGED"), any(), any(), eq("task"), any());
     }
 
     @Test
@@ -200,6 +200,6 @@ class TaskControllerPositionTest {
             .andExpect(status().isOk());
 
         verify(notificationService, org.mockito.Mockito.never())
-            .notifyAfterCommit(any(), any(), any(), any(), any(), any());
+            .notifyAfterCommit(any(), any(), any(), any(), any(), any(), any());
     }
 }

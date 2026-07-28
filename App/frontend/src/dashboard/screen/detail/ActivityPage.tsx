@@ -14,7 +14,7 @@ import {
 } from "../../libs/utils/activityDisplay";
 import { resolveMemberDisplay } from "../../libs/utils/memberDisplay";
 
-const TYPE_FILTERS = ["전체", "업무 생성", "상태 변경", "담당자 변경", "업무 수정", "업무 삭제", "체크리스트"] as const;
+const TYPE_FILTERS = ["전체", "업무 생성", "상태 변경", "담당자 변경", "업무 수정", "업무 삭제", "체크리스트", "심사 활동"] as const;
 
 function matchesTypeFilter(type: string, filter: string) {
   if (filter === "전체") return true;
@@ -25,6 +25,17 @@ function matchesTypeFilter(type: string, filter: string) {
   if (filter === "업무 수정") return normalized === "TASK_UPDATED";
   if (filter === "업무 삭제") return normalized === "TASK_DELETED";
   if (filter === "체크리스트") return normalized === "CHECKLIST_CREATED" || normalized === "CHECKLIST_COMPLETED";
+  if (filter === "심사 활동") {
+    return (
+      normalized === "CONTRIBUTION_SCORE_PUBLISHED" ||
+      normalized === "CONTRIBUTION_SCORE_UNPUBLISHED" ||
+      normalized === "GRADE_PUBLISHED" ||
+      normalized === "GRADE_UNPUBLISHED" ||
+      normalized === "REVIEW_COMMENT_SAVED" ||
+      normalized === "EVALUATION_FINALIZED" ||
+      normalized === "EVALUATION_UNFINALIZED"
+    );
+  }
   return true;
 }
 

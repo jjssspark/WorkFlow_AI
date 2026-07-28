@@ -6,7 +6,10 @@
 # 이 기본값이 그대로 쓰이지 않게 할 것.
 services:
   db:
-    image: postgres:17
+    # pgvector 확장이 포함된 이미지여야 한다. db/init/11_pre_baseline_backfill.sql이
+    # CREATE EXTENSION vector를 실행하므로, 순정 postgres:17에서는 빈 볼륨 초기화가
+    # 그 지점에서 실패한다(운영 compose는 처음부터 이 이미지를 쓴다).
+    image: pgvector/pgvector:pg17
     container_name: workflow-db
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-workflow}
@@ -98,6 +101,9 @@ services:
       SPRING_FLYWAY_ENABLED: ${SPRING_FLYWAY_ENABLED:-false}
       SPRING_FLYWAY_BASELINE_VERSION: ${SPRING_FLYWAY_BASELINE_VERSION:-20260721.1}
       WORKFLOW_AI_FASTAPI_URL: http://backend-fastapi:8000
+      # 어시스턴트 한 번 호출에 생성 LLM이 통째로 들어가 회의록 분석보다 오래 걸린다.
+      # 여기서 끊기면 FastAPI가 만들어 둔 답이 버려지고 "일시적으로 처리할 수 없습니다"가 나간다.
+      WORKFLOW_AI_ASSISTANT_READ_TIMEOUT_SECONDS: ${WORKFLOW_AI_ASSISTANT_READ_TIMEOUT_SECONDS:-120}
       RAG_INTERNAL_API_KEY: ${RAG_INTERNAL_API_KEY}
       JWT_SECRET: ${JWT_SECRET}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
@@ -170,6 +176,9 @@ services:
       RAG_PROVIDER: ${RAG_PROVIDER:-}
       # 위가 ollama일 때 쓸 로컬 모델. GENERATION_MODEL(ai_contribution_report용)과 분리돼 있다.
       RAG_OLLAMA_MODEL: ${RAG_OLLAMA_MODEL:-gemma4:e2b}
+      # 모델을 이만큼 메모리에 붙들어 둔다. ollama 기본값 5분으로는 질문 간격이 조금만 벌어져도
+      # 모델이 내려가 다음 질문에 로드 시간이 그대로 얹힌다(웜 33초 → 콜드 44.6초, 2026-07-28 실측).
+      RAG_OLLAMA_KEEP_ALIVE: ${RAG_OLLAMA_KEEP_ALIVE:-30m}
       HF_MEETING_ANALYSIS_ENDPOINT: ${HF_MEETING_ANALYSIS_ENDPOINT:-https://router.huggingface.co/v1/chat/completions}
       HF_MEETING_ANALYSIS_TIMEOUT_SECONDS: ${HF_MEETING_ANALYSIS_TIMEOUT_SECONDS:-35}
       # 900 토큰으로는 요약+결정사항+위험요소+투두 여러 건을 포함한 JSON이 완성되기 전에
@@ -201,13 +210,14 @@ services:
       args:
         VITE_ENABLE_DEMO_AUTH: ${VITE_ENABLE_DEMO_AUTH:-true}
     container_name: workflow-frontend
-    environment:
-      API_PROXY_TARGET: http://backend-spring:8080
+    # Dockerfile이 pnpm build 결과를 nginx(1.27-alpine)에 얹어 5173으로 서빙하고
+    # /api/는 backend-spring:8080으로 프록시한다 (frontend/nginx.conf).
+    # 정적 빌드라 HMR은 동작하지 않는다 — 프론트를 고치며 개발할 땐 이 컨테이너 대신
+    # 호스트에서 `cd frontend && pnpm dev`를 쓸 것. 이 컨테이너로 확인하려면 재빌드해야 한다
+    # (docker compose up -d --build frontend). 예전엔 ./frontend:/app 마운트와
+    # API_PROXY_TARGET이 남아 있어 "반영됐겠지" 하고 옛 화면을 검증하게 만들었다(2026-07-28 실제 발생).
     ports:
       - '5173:5173'
-    volumes:
-      - ./frontend:/app # 호스트 코드 수정 → 컨테이너에 바로 반영 (HMR)
-      - /app/node_modules # 컨테이너 안의 node_modules를 위 마운트가 안 덮도록 보호
     depends_on:
       - backend-spring
 

@@ -191,8 +191,10 @@ public class MeetingAnalysisPersistence {
             .map(com.workflowai.project.ProjectMember::getUserId)
             .filter(leaderId -> !leaderId.equals(actorId))
             .ifPresent(leaderId -> notifyBestEffort(
-                leaderId, "MEETING_ANALYSIS_COMPLETED_NOTIFY_LEADER", "회의록 분석이 완료되었습니다.",
-                actorName + "님이 '" + meeting.getTitle() + "' 회의록 분석을 완료했습니다. 역할분배 및 업무등록을 진행해주세요.", meetingId
+                leaderId, meeting.getProjectId(), "MEETING_ANALYSIS_COMPLETED_NOTIFY_LEADER",
+                "회의록 분석이 완료되었습니다.",
+                actorName + "님이 '" + meeting.getTitle() + "' 회의록 분석을 완료했습니다. 역할분배 및 업무등록을 진행해주세요.",
+                meetingId
             ));
     }
 
@@ -230,7 +232,7 @@ public class MeetingAnalysisPersistence {
             meetingRepository.save(meeting);
             if (meeting.getUploadedBy() != null) {
                 notifyBestEffort(
-                    meeting.getUploadedBy(), "MEETING_ANALYSIS_FAILED", "회의 분석에 실패했습니다.",
+                    meeting.getUploadedBy(), meeting.getProjectId(), "MEETING_ANALYSIS_FAILED", "회의 분석에 실패했습니다.",
                     "'" + meeting.getTitle() + "' 회의록 분석에 실패했습니다. 다시 시도해주세요.", meetingId
                 );
             }
@@ -280,17 +282,18 @@ public class MeetingAnalysisPersistence {
      * 콜백으로 미뤄서 커밋 이후에만 보내고, 동기화가 없는 컨텍스트(단위 테스트 등
      * 트랜잭션 프록시 밖에서 직접 호출되는 경우)에서는 즉시 best-effort로 보낸다.
      */
-    private void notifyBestEffort(Long userId, String type, String title, String content, Long meetingId) {
+    private void notifyBestEffort(Long userId, Long projectId, String type, String title,
+                                  String content, Long meetingId) {
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
-                    sendNotificationSafely(userId, type, title, content, meetingId);
+                    sendNotificationSafely(userId, projectId, type, title, content, meetingId);
                 }
             });
             return;
         }
-        sendNotificationSafely(userId, type, title, content, meetingId);
+        sendNotificationSafely(userId, projectId, type, title, content, meetingId);
     }
 
     private void runAfterCommit(Runnable operation) {
@@ -313,12 +316,14 @@ public class MeetingAnalysisPersistence {
      * 이미 커밋 처리 중인 트랜잭션에 잘못 합류해 실제로 커밋되지 않을 위험이 있다.
      * REQUIRES_NEW로 감싸 항상 독립된 새 물리 트랜잭션에서 커밋되도록 강제한다.
      */
-    private void sendNotificationSafely(Long userId, String type, String title, String content, Long meetingId) {
+    private void sendNotificationSafely(Long userId, Long projectId, String type, String title,
+                                        String content, Long meetingId) {
         try {
             requiresNewNotificationTransaction.executeWithoutResult(status ->
-                notificationService.notifyAfterCommit(userId, type, title, content, "meeting", meetingId));
+                notificationService.notifyAfterCommit(userId, projectId, type, title, content, "meeting", meetingId));
         } catch (Exception e) {
-            log.warn("회의 분석 알림 발송 실패. meetingId={}, userId={}, type={}", meetingId, userId, type, e);
+            log.warn("회의 분석 알림 발송 실패. meetingId={}, projectId={}, userId={}, type={}",
+                meetingId, projectId, userId, type, e);
         }
     }
 

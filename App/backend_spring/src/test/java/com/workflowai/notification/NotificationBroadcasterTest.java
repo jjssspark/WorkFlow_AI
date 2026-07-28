@@ -18,6 +18,7 @@ class NotificationBroadcasterTest {
   private static NotificationDto sampleDto() {
     return new NotificationDto(
         "1",
+        "12",
         "TASK_ASSIGNED",
         "제목",
         "내용",

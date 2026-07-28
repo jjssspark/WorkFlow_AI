@@ -154,6 +154,28 @@ describe("MeetingsView 저장된 회의록 수정 진입점", () => {
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   });
 
+  // 수정 저장 후 목록이 새로고침 없이 바로 갱신돼야 한다.
+  it("저장된 회의록을 수정 저장하면 새 수정본이 목록에 바로 나타난다", async () => {
+    createMeetingVersion.mockResolvedValue({ meetingId: "7", status: "SAVED" });
+    fetchMeetings
+      .mockResolvedValueOnce([
+        { meetingId: "1", title: "저장된 정기회의", meetingDate: "2026-07-19", meetingType: "정기회의", analysisStatus: "completed", savedAt: "2026-07-19T10:00:00", originalMeetingId: null, tasksRegistered: false },
+      ])
+      .mockResolvedValue([
+        { meetingId: "1", title: "저장된 정기회의", meetingDate: "2026-07-19", meetingType: "정기회의", analysisStatus: "completed", savedAt: "2026-07-19T10:00:00", originalMeetingId: null, tasksRegistered: false },
+        { meetingId: "7", title: "저장된 정기회의_수정본", meetingDate: "2026-07-19", meetingType: "정기회의", analysisStatus: "pending", savedAt: "2026-07-27T10:00:00", originalMeetingId: "1", tasksRegistered: false },
+      ]);
+    const user = userEvent.setup();
+    renderView();
+    await openSavedTab(user);
+    await screen.findByText("저장된 정기회의");
+    await user.click(screen.getByRole("button", { name: "수정" }));
+
+    await user.click(screen.getByRole("button", { name: "저장" }));
+
+    expect(await screen.findByText("저장된 정기회의_수정본")).toBeInTheDocument();
+  });
+
   it("original_meeting_id가 있고 분석이 아직 대기 중(pending)인 버전에는 'AI 재분석하기' 버튼이 보인다", async () => {
     fetchMeetings.mockResolvedValue([
       {

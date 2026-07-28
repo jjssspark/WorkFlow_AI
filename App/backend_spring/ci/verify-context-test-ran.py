@@ -22,6 +22,18 @@ SUITES = (
     # 알아챌 다른 방법이 없다.
     "com.workflowai.rag.FastApiRagClientWireContractTest",
     "com.workflowai.rag.RagFastApiBoundaryIntegrationTest",
+    # 어시스턴트 응답은 들어오는 방향이라 필드명이 어긋나도 예외가 없다. card가 조용히
+    # null이 되어 확인 카드만 화면에서 사라지므로, 이 테스트가 안 돌면 알 방법이 없다.
+    "com.workflowai.assistant.FastApiAssistantClientWireContractTest",
+    # 인증 경로(IT-003/004/006/007). 토큰 발급과 검증이 서로를 목으로 두고 있어, 이 세 클래스가
+    # 건너뛰어지면 "발급한 토큰을 이 앱이 받아들이는가"를 확인하는 테스트가 하나도 남지 않는다.
+    "com.workflowai.auth.AuthLifecycleIntegrationTest",
+    "com.workflowai.auth.GoogleOAuthLoginIntegrationTest",
+    "com.workflowai.auth.TestAccountConcurrentLoginIntegrationTest",
+    # 프로젝트 인가 경로(IT-008~011). project_members에 쓴 역할이 ProjectAccess의 판정에
+    # 즉시 반영되는지는 요청 두 개를 실제로 태워야만 보인다.
+    "com.workflowai.project.ProjectMembershipIntegrationTest",
+    "com.workflowai.project.ProjectInvitationIntegrationTest",
 )
 REPORT_DIR = Path("build/test-results/test")
 

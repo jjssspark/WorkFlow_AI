@@ -1,10 +1,12 @@
 package com.workflowai.project;
 
+import com.workflowai.activity.ActivityService;
 import com.workflowai.dashboard.entity.Milestone;
 import com.workflowai.dashboard.repository.MilestoneRepository;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -37,6 +39,7 @@ class ProjectServiceTest {
     @Mock private TaskRepository taskRepository;
     @Mock private RagIngestService ragIngestService;
     @Mock private MilestoneRepository milestoneRepository;
+    @Mock private ActivityService activityService;
 
     private ProjectService projectService;
 
@@ -55,7 +58,8 @@ class ProjectServiceTest {
             taskRepository,
             milestoneRepository,
             transactionOperations,
-            ragIngestService
+            ragIngestService,
+            activityService
         );
     }
 
@@ -201,7 +205,7 @@ class ProjectServiceTest {
         when(projectMemberRepository.countByProjectIdAndRoleNot(10L, ProjectRole.REVIEWER)).thenReturn(2L);
         when(taskRepository.findByProjectIdOrderByCreatedAtDesc(any())).thenReturn(List.of());
 
-        ProjectResponse response = projectService.finalizeEvaluation(10L);
+        ProjectResponse response = projectService.finalizeEvaluation(10L, 7L);
 
         assertThat(response.evalStatus()).isEqualTo("PUBLISHED");
         assertThat(project.getEvalStatus()).isEqualTo(EvalStatus.PUBLISHED);
@@ -211,7 +215,7 @@ class ProjectServiceTest {
     void finalizeEvaluation_projectNotFound_throws() {
         when(projectRepository.findById(999L)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> projectService.finalizeEvaluation(999L))
+        assertThatThrownBy(() -> projectService.finalizeEvaluation(999L, 7L))
             .isInstanceOf(IllegalArgumentException.class);
     }
 
@@ -224,7 +228,7 @@ class ProjectServiceTest {
         when(projectMemberRepository.countByProjectIdAndRoleNot(10L, ProjectRole.REVIEWER)).thenReturn(2L);
         when(taskRepository.findByProjectIdOrderByCreatedAtDesc(any())).thenReturn(List.of());
 
-        ProjectResponse response = projectService.unfinalizeEvaluation(10L);
+        ProjectResponse response = projectService.unfinalizeEvaluation(10L, 7L);
 
         assertThat(response.evalStatus()).isEqualTo("EVALUATING");
         assertThat(project.getEvalStatus()).isEqualTo(EvalStatus.EVALUATING);
@@ -234,8 +238,40 @@ class ProjectServiceTest {
     void unfinalizeEvaluation_projectNotFound_throws() {
         when(projectRepository.findById(999L)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> projectService.unfinalizeEvaluation(999L))
+        assertThatThrownBy(() -> projectService.unfinalizeEvaluation(999L, 7L))
             .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void finalizeEvaluation_recordsActivity() {
+        Project project = new Project("제목", "캡스톤디자인", "설명");
+        ReflectionTestUtils.setField(project, "id", 10L);
+        ReflectionTestUtils.setField(project, "evalStatus", EvalStatus.EVALUATING);
+        when(projectRepository.findById(10L)).thenReturn(Optional.of(project));
+        when(projectMemberRepository.countByProjectIdAndRoleNot(10L, ProjectRole.REVIEWER)).thenReturn(2L);
+        when(taskRepository.findByProjectIdOrderByCreatedAtDesc(any())).thenReturn(List.of());
+
+        projectService.finalizeEvaluation(10L, 7L);
+
+        verify(activityService).record(
+            eq(10L), eq(7L), eq("EVALUATION_FINALIZED"), eq(null), eq("프로젝트 평가를 확정했습니다.")
+        );
+    }
+
+    @Test
+    void unfinalizeEvaluation_recordsActivity() {
+        Project project = new Project("제목", "캡스톤디자인", "설명");
+        ReflectionTestUtils.setField(project, "id", 10L);
+        ReflectionTestUtils.setField(project, "evalStatus", EvalStatus.PUBLISHED);
+        when(projectRepository.findById(10L)).thenReturn(Optional.of(project));
+        when(projectMemberRepository.countByProjectIdAndRoleNot(10L, ProjectRole.REVIEWER)).thenReturn(2L);
+        when(taskRepository.findByProjectIdOrderByCreatedAtDesc(any())).thenReturn(List.of());
+
+        projectService.unfinalizeEvaluation(10L, 7L);
+
+        verify(activityService).record(
+            eq(10L), eq(7L), eq("EVALUATION_UNFINALIZED"), eq(null), eq("프로젝트 평가 확정을 취소했습니다.")
+        );
     }
 
     @Test

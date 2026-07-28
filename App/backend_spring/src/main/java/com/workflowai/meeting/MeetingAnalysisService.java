@@ -492,10 +492,10 @@ public class MeetingAnalysisService {
             meetingActionItemRepository.clearMeetingId(meetingDbId);
             taskRepository.clearSourceMeetingId(meetingDbId);
         }
-        // 삭제는 팀장 전용이라 actorId가 항상 팀장이다 — 반대편(counterpart)은 팀장 자신이 아니라
-        // 원본 업로더로 잡아야, 팀장이 남이 올린 회의록을 지웠을 때 그 업로더에게도 알림이 간다.
+        // 삭제는 팀장 전용이라 actorId가 항상 팀장이다. 회의록이 사라지는 것은 팀 전원에게 영향을
+        // 주므로 업로더 한 명이 아니라 팀 전원에게 알린다(예전에는 업로더만 받아서 나머지 팀원은
+        // 알림을 아예 받지 못했다).
         Long actorId = CurrentUser.id();
-        Long uploaderId = meeting.getUploadedBy();
         String title = meeting.getTitle();
         String actorName = defaultString(resolveNameById(actorId), "누군가");
         String scopeSuffix = deleteLinkedTasks ? " (등록된 업무도 함께 삭제됨)" : " (등록된 업무는 유지됨)";
@@ -516,12 +516,34 @@ public class MeetingAnalysisService {
         );
         deleteUploadedFile(filePath);
 
-        notificationService.notifyCounterpart(
-            actorId, uploaderId, "MEETING_DELETED", "회의록이 삭제되었습니다",
+        notifyProjectTeamExceptActor(
+            projectDbId, actorId, "MEETING_DELETED", "회의록이 삭제되었습니다",
             actorName + "님이 '" + title + "' 회의록을 삭제했습니다." + scopeSuffix,
-            "meeting", meetingDbId
+            meetingDbId
         );
         return new MeetingDeleteResponse(meetingId, "DELETED");
+    }
+
+    /**
+     * 회의록/분석 결과 삭제는 팀 전원이 보던 내용이 사라지는 일이라 팀 전원에게 알린다.
+     * 행위자 본인은 방금 자기가 한 일의 결과를 화면에서 이미 보고 있으므로 제외하고, 심사자는
+     * 팀원이 아니므로(팀원 수/목록 집계에서도 제외된다) 대상에서 뺀다.
+     *
+     * targetType을 "meeting"으로 고정해 프론트가 "바로가기" 버튼을 붙일 수 있게 한다. 전체 삭제된
+     * 회의록은 딥링크로 열 대상이 이미 없으므로, 프론트에서 해당 회의록을 못 찾으면 회의록 화면까지만
+     * 이동하고 조용히 멈춘다.
+     */
+    private void notifyProjectTeamExceptActor(
+        Long projectDbId, Long actorId, String type, String title, String content, Long meetingDbId
+    ) {
+        projectMemberRepository.findAllByProjectId(projectDbId).stream()
+            .filter(member -> member.getRole() != ProjectRole.REVIEWER)
+            .map(ProjectMember::getUserId)
+            .filter(userId -> userId != null && !userId.equals(actorId))
+            .distinct()
+            .forEach(userId ->
+                notificationService.notifyAfterCommit(userId, projectDbId, type, title, content, "meeting", meetingDbId)
+            );
     }
 
     /**
@@ -586,15 +608,14 @@ public class MeetingAnalysisService {
         );
 
         Long actorId = CurrentUser.id();
-        Long uploaderId = meeting.getUploadedBy();
         String title = meeting.getTitle();
         String actorName = defaultString(resolveNameById(actorId), "누군가");
         String scopeSuffix = deleteLinkedTasks ? " (등록된 업무도 함께 삭제됨)" : " (등록된 업무는 유지됨)";
 
-        notificationService.notifyCounterpart(
-            actorId, uploaderId, "MEETING_ANALYSIS_DELETED", "회의록 분석 결과가 삭제되었습니다",
+        notifyProjectTeamExceptActor(
+            projectDbId, actorId, "MEETING_ANALYSIS_DELETED", "회의록 분석 결과가 삭제되었습니다",
             actorName + "님이 '" + title + "' 회의록의 분석 결과를 삭제했습니다." + scopeSuffix,
-            "meeting", meetingDbId
+            meetingDbId
         );
         return new MeetingDeleteResponse(meetingId, "DELETED");
     }
@@ -615,7 +636,8 @@ public class MeetingAnalysisService {
         }
         String registeredByName = defaultString(resolveNameById(registeredBy), "팀장");
         notificationService.notifyCounterpart(
-            registeredBy, meeting.getUploadedBy(), "MEETING_TASKS_REGISTERED_NOTIFY_MEMBER", "역할분배가 완료되었습니다",
+            registeredBy, meeting.getUploadedBy(), meeting.getProjectId(),
+            "MEETING_TASKS_REGISTERED_NOTIFY_MEMBER", "역할분배가 완료되었습니다",
             registeredByName + "님이 '" + meeting.getTitle() + "' 회의록의 역할분배를 완료했습니다. 확인해주세요.",
             "meeting", meetingDbId
         );
@@ -727,7 +749,7 @@ public class MeetingAnalysisService {
         Long counterpartId = editorId != null && editorId.equals(leaderId) ? original.getUploadedBy() : leaderId;
         String editorName = defaultString(resolveNameById(editorId), "누군가");
         notificationService.notifyCounterpart(
-            editorId, counterpartId, "MEETING_EDITED", "회의록이 수정되었습니다",
+            editorId, counterpartId, original.getProjectId(), "MEETING_EDITED", "회의록이 수정되었습니다",
             editorName + "님이 '" + original.getTitle() + "' 회의록을 수정했습니다.",
             "meeting", version.getId()
         );
@@ -735,7 +757,11 @@ public class MeetingAnalysisService {
 
     private boolean registerSingleTask(Long meetingId, MeetingTodo todo, Long createdBy) {
         Long assigneeId = resolveAssignee(todo.assignee_id());
-        LocalDate dueDate = parseDateOrNull(todo.due_date());
+        // 연도 없는 날짜("07/31")는 회의 날짜의 연도로 채워야 업무보드 마감일과 어긋나지 않는다.
+        Meeting meetingForDate = meetingRepository.findById(meetingId).orElse(null);
+        LocalDate dateReference = meetingForDate == null ? null : meetingForDate.getMeetingDate();
+        LocalDate dueDate = parseDateOrNull(todo.due_date(), dateReference);
+        LocalDate startDate = parseDateOrNull(todo.start_date(), dateReference);
 
         Optional<MeetingActionItem> existingItem =
             meetingActionItemRepository.findFirstByMeetingIdAndTitle(meetingId, todo.title());
@@ -760,15 +786,19 @@ public class MeetingAnalysisService {
             projectRepository.findById(taskProjectId)
                 .ifPresent(project -> ProjectSchedulePolicy.validate(project, null, dueDate, "업무"));
         }
-        double position = taskRepository.findTopByProjectIdAndStatusOrderByPositionDesc(taskProjectId, "todo")
-            .map(t -> t.getPosition() + 1)
+        // 보드는 position 오름차순으로 그리므로, 최댓값+1을 주면 새 업무가 맨 아래에 쌓인다.
+        // 최근에 등록한 업무일수록 위에 보여야 하므로 현재 최솟값보다 작은 값을 준다.
+        double position = taskRepository.findTopByProjectIdAndStatusOrderByPositionAsc(taskProjectId, "todo")
+            .map(t -> t.getPosition() - 1)
             .orElse(0.0);
         Task task = taskRepository.save(new Task(
             taskProjectId,
+            null,
             todo.title(),
             defaultString(todo.category(), "ETC"),
             "todo",
             assigneeId,
+            startDate,
             dueDate,
             defaultString(todo.priority(), "MEDIUM"),
             todo.description(),
@@ -808,13 +838,14 @@ public class MeetingAnalysisService {
         if (assigneeId != null) {
             notificationRepository.save(new Notification(
                 assigneeId,
+                task.getProjectId(),
                 "TASK_ASSIGNED",
                 "새 업무가 배정되었습니다",
                 "'" + todo.title() + "' 업무가 배정되었습니다.",
                 "task",
                 task.getId()
             ));
-            notificationRepository.deleteExcessByUserId(assigneeId);
+            notificationRepository.deleteExcessByUserIdAndProjectId(assigneeId, task.getProjectId());
         }
         return true;
     }
@@ -914,6 +945,37 @@ public class MeetingAnalysisService {
     private String resolveNameById(Long userId) {
         if (userId == null) return null;
         return userRepository.findById(userId).map(User::getName).orElse(null);
+    }
+
+    /**
+     * 저장된 회의록 음성 파일을 재생용으로 읽는다.
+     *
+     * <p>filePath는 업로드 시 uploadsDir 아래로만 기록되지만, DB 값이 조작되는 경우까지 막기 위해
+     * 실제 경로가 uploadsDir 안에 있는지 다시 확인한다.
+     *
+     * <p>normalize()+startsWith()만으로는 uploads 안에 심볼릭 링크를 만들어 바깥 파일을 가리키는
+     * 우회를 막지 못한다. 양쪽 모두 toRealPath()로 링크를 해소한 뒤 비교한다.
+     */
+    public MeetingAudio findAudio(String projectId, String meetingId) {
+        Meeting meeting = requireProjectMeeting(projectId, meetingId);
+        if (meeting == null) return null;
+        if (!"audio".equals(meeting.getFileType())) return null;
+        String storedPath = meeting.getFilePath();
+        if (storedPath == null || storedPath.isBlank()) return null;
+
+        try {
+            Path root = Path.of(uploadsDir).toRealPath();
+            Path target = Path.of(storedPath).toRealPath();
+            if (!target.startsWith(root) || !Files.isRegularFile(target) || !Files.isReadable(target)) {
+                log.warn("회의록 음성 파일 접근을 거부했습니다: meetingId={}, path={}", meetingId, storedPath);
+                return null;
+            }
+            return new MeetingAudio(target, defaultString(meeting.getOriginalFileName(), target.getFileName().toString()));
+        } catch (IOException e) {
+            // 파일이 없거나 링크가 끊긴 경우 등 — 존재 여부를 노출하지 않고 404로 처리한다.
+            log.warn("회의록 음성 파일을 읽을 수 없습니다: meetingId={}", meetingId);
+            return null;
+        }
     }
 
     private String storeUploadedFile(Long meetingId, MultipartFile file) {
@@ -1041,12 +1103,38 @@ public class MeetingAnalysisService {
     }
 
     private LocalDate parseDateOrNull(String date) {
+        return parseDateOrNull(date, null);
+    }
+
+    /**
+     * 회의록 To-Do의 날짜를 파싱한다.
+     *
+     * <p>이전에는 ISO(yyyy-MM-dd)만 받아, 사용자가 "07/31"처럼 연도 없이 입력하거나 LLM이
+     * "2026.07.31"로 돌려주면 조용히 null이 되어 업무보드 마감일이 비어버렸다.
+     * 연도가 없는 입력은 회의 날짜(reference)의 연도로 채운다.
+     */
+    private LocalDate parseDateOrNull(String date, LocalDate reference) {
         if (date == null || date.isBlank()) return null;
+        String normalized = date.trim().replace('.', '-').replace('/', '-').replaceAll("-+", "-");
+        normalized = normalized.replaceAll("-$", "");
         try {
-            return LocalDate.parse(date);
-        } catch (Exception e) {
-            return null;
+            return LocalDate.parse(normalized);
+        } catch (Exception ignored) {
+            // 아래에서 연도 없는 형식(MM-dd)을 시도한다.
         }
+        java.util.regex.Matcher monthDay =
+            java.util.regex.Pattern.compile("^(\\d{1,2})-(\\d{1,2})$").matcher(normalized);
+        if (monthDay.matches()) {
+            int year = (reference == null ? LocalDate.now() : reference).getYear();
+            try {
+                return LocalDate.of(year, Integer.parseInt(monthDay.group(1)), Integer.parseInt(monthDay.group(2)));
+            } catch (Exception e) {
+                log.warn("To-Do 날짜를 해석하지 못했습니다: raw={}", date);
+                return null;
+            }
+        }
+        log.warn("To-Do 날짜를 해석하지 못했습니다: raw={}", date);
+        return null;
     }
 
     private Long parseLongOrNull(String value) {

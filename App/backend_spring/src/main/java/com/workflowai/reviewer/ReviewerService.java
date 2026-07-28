@@ -1,5 +1,8 @@
 package com.workflowai.reviewer;
 
+import com.workflowai.activity.Activity;
+import com.workflowai.activity.ActivityRepository;
+import com.workflowai.common.UtcTimeFormat;
 import com.workflowai.deliverable.DeliverableRepository;
 import com.workflowai.github.GithubRecordRepository;
 import com.workflowai.project.Project;
@@ -10,6 +13,7 @@ import com.workflowai.project.ProjectRole;
 import com.workflowai.task.TaskRepository;
 import com.workflowai.user.User;
 import com.workflowai.user.UserRepository;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -22,6 +26,12 @@ import org.springframework.stereotype.Service;
 public class ReviewerService {
     private static final String TASK_STATUS_DONE = "done";
     private static final String DELIVERABLE_STATUS_FINAL = "final";
+    private static final List<String> REVIEWER_ACTIVITY_TYPES = List.of(
+        "CONTRIBUTION_SCORE_PUBLISHED", "CONTRIBUTION_SCORE_UNPUBLISHED",
+        "GRADE_PUBLISHED", "GRADE_UNPUBLISHED",
+        "REVIEW_COMMENT_SAVED",
+        "EVALUATION_FINALIZED", "EVALUATION_UNFINALIZED"
+    );
 
     private final ProjectMemberRepository projectMemberRepository;
     private final ProjectRepository projectRepository;
@@ -29,6 +39,7 @@ public class ReviewerService {
     private final TaskRepository taskRepository;
     private final DeliverableRepository deliverableRepository;
     private final GithubRecordRepository githubRecordRepository;
+    private final ActivityRepository activityRepository;
 
     public ReviewerService(
         ProjectMemberRepository projectMemberRepository,
@@ -36,7 +47,8 @@ public class ReviewerService {
         UserRepository userRepository,
         TaskRepository taskRepository,
         DeliverableRepository deliverableRepository,
-        GithubRecordRepository githubRecordRepository
+        GithubRecordRepository githubRecordRepository,
+        ActivityRepository activityRepository
     ) {
         this.projectMemberRepository = projectMemberRepository;
         this.projectRepository = projectRepository;
@@ -44,6 +56,7 @@ public class ReviewerService {
         this.taskRepository = taskRepository;
         this.deliverableRepository = deliverableRepository;
         this.githubRecordRepository = githubRecordRepository;
+        this.activityRepository = activityRepository;
     }
 
     private record TaskProgress(long done, long total) {}
@@ -132,5 +145,29 @@ public class ReviewerService {
             (int) deliverablesTotal,
             githubConnected
         );
+    }
+
+    /** 심사자 홈 "최근 심사 활동" 위젯 — 로그인한 심사자 본인이 남긴 활동만 최신순 10건. */
+    public List<ReviewerActivityDto> getMyRecentActivities(Long actorId) {
+        List<Activity> activities = activityRepository
+            .findTop10ByActorIdAndTypeInOrderByCreatedAtDesc(actorId, REVIEWER_ACTIVITY_TYPES);
+        if (activities.isEmpty()) {
+            return List.of();
+        }
+
+        Map<Long, String> projectTitleById = new HashMap<>();
+        projectRepository.findAllById(activities.stream().map(Activity::getProjectId).distinct().toList())
+            .forEach(project -> projectTitleById.put(project.getId(), project.getTitle()));
+
+        List<ReviewerActivityDto> result = new ArrayList<>();
+        for (Activity activity : activities) {
+            result.add(new ReviewerActivityDto(
+                String.valueOf(activity.getId()),
+                projectTitleById.getOrDefault(activity.getProjectId(), "프로젝트"),
+                activity.getMessage(),
+                UtcTimeFormat.toIsoUtc(activity.getCreatedAt())
+            ));
+        }
+        return result;
     }
 }

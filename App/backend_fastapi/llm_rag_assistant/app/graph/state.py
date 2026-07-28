@@ -23,6 +23,11 @@ LEADER_TOOLS: frozenset[str] = frozenset(
         "set_due_date",
         "change_assignee",
         "delete_task",
+        # 완료 승인 흐름의 팀장 쪽 절반이다. 팀원 쪽(완료 요청·취소)은 일부러 넣지 않았다 -
+        # 그건 MEMBER_TOOLS를 여는 일이고, 위 원칙을 뒤집는 별개의 결정이다.
+        "approve_completion",
+        "reject_completion",
+        "nudge_task",
     }
 )
 ALL_TOOLS: frozenset[str] = MEMBER_TOOLS | LEADER_TOOLS
@@ -42,10 +47,16 @@ SUPPORTED_TOOLS: frozenset[str] = frozenset(
         "rename_task",
         "change_assignee",
         "delete_task",
+        "approve_completion",
+        "reject_completion",
+        "nudge_task",
     }
 )
 
 _VALID_STATUSES: frozenset[str] = frozenset({"todo", "inprogress", "blocked", "done"})
+# Spring의 NUDGE_MESSAGE_TEMPLATES 키와 같아야 한다. 다른 값을 보내면 400 INVALID_NUDGE_KIND가
+# 되는데, 재촉 알림은 한 번 나가면 회수가 안 되므로 카드가 뜨기 전에 여기서 막는다.
+_VALID_NUDGE_KINDS: frozenset[str] = frozenset({"START", "PROGRESS", "URGENT"})
 _DATE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 # tasks.title은 VARCHAR(200)이다. 더 긴 제목을 실행 단계까지 흘려보내면 DB가 거절해
 # 사용자에게는 원인 모를 500으로 보인다. 계획 단계에서 거부해 되묻기로 빠진다.
@@ -59,6 +70,9 @@ ToolName = Literal[
     "set_due_date",
     "change_assignee",
     "delete_task",
+    "approve_completion",
+    "reject_completion",
+    "nudge_task",
 ]
 
 
@@ -114,7 +128,10 @@ class Action(BaseModel):
                 raise ValueError("set_due_date args.date가 존재하지 않는 날짜입니다")
         elif self.tool == "change_assignee":
             _require_str(args, "assignee_name")
-        # delete_task는 필수 args 없음
+        elif self.tool == "nudge_task":
+            if args.get("kind") not in _VALID_NUDGE_KINDS:
+                raise ValueError("nudge_task args.kind가 유효한 재촉 종류가 아닙니다")
+        # delete_task / approve_completion / reject_completion은 필수 args 없음
         return self
 
 

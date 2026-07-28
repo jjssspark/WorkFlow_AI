@@ -1,6 +1,13 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { executeAction } from "./actionExecutor";
-import { updateTaskPosition, updateTask, deleteTask } from "../../../board/libs/utils/taskApi";
+import {
+  updateTaskPosition,
+  updateTask,
+  deleteTask,
+  approveTaskCompletion,
+  rejectTaskCompletion,
+  sendTaskNudge,
+} from "../../../board/libs/utils/taskApi";
 import { createTaskComment } from "../../../board/libs/utils/taskCommentApi";
 import { fetchChecklist, updateChecklistItem } from "../../../board/libs/utils/checklistApi";
 import { getProjectMembers, type MemberResponse } from "../../../global/api/projectsApi";
@@ -10,6 +17,9 @@ vi.mock("../../../board/libs/utils/taskApi", () => ({
   updateTaskPosition: vi.fn(),
   updateTask: vi.fn(),
   deleteTask: vi.fn(),
+  approveTaskCompletion: vi.fn(),
+  rejectTaskCompletion: vi.fn(),
+  sendTaskNudge: vi.fn(),
 }));
 vi.mock("../../../board/libs/utils/taskCommentApi", () => ({ createTaskComment: vi.fn() }));
 vi.mock("../../../board/libs/utils/checklistApi", () => ({
@@ -388,5 +398,65 @@ describe("executeAction", () => {
 
     expect(result.ok).toBe(false);
     expect(result.error).toBe("이미 삭제된 업무입니다.");
+  });
+});
+
+describe("executeAction - 완료 승인 흐름과 재촉", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("완료 승인 카드는 승인 API를 호출한다", async () => {
+    vi.mocked(approveTaskCompletion).mockResolvedValue({} as never);
+
+    const result = await executeAction(card({ tool: "approve_completion", args: {} }), 7);
+
+    expect(result).toEqual({ ok: true });
+    expect(approveTaskCompletion).toHaveBeenCalledWith("37", 7);
+    // 승인과 반려를 뒤바꾸면 팀원의 완료가 반려된다. 반대쪽이 안 불렸는지도 본다.
+    expect(rejectTaskCompletion).not.toHaveBeenCalled();
+  });
+
+  it("완료 반려 카드는 반려 API를 호출한다", async () => {
+    vi.mocked(rejectTaskCompletion).mockResolvedValue({} as never);
+
+    const result = await executeAction(card({ tool: "reject_completion", args: {} }), 7);
+
+    expect(result).toEqual({ ok: true });
+    expect(rejectTaskCompletion).toHaveBeenCalledWith("37", 7);
+    expect(approveTaskCompletion).not.toHaveBeenCalled();
+  });
+
+  it("승인 대기가 아닌 업무면 서버 메시지를 그대로 돌려준다", async () => {
+    // 그래프는 업무 상태를 모른 채 카드를 만든다. 전제 조건 위반은 여기서 처음 드러나고,
+    // 이 문자열이 사용자에게 "작업을 완료하지 못했습니다: ..."로 보인다.
+    vi.mocked(approveTaskCompletion).mockRejectedValue(
+      new Error("승인 대기 중인 업무가 아닙니다.")
+    );
+
+    const result = await executeAction(card({ tool: "approve_completion", args: {} }), 7);
+
+    expect(result).toEqual({ ok: false, error: "승인 대기 중인 업무가 아닙니다." });
+  });
+
+  it("재촉 카드는 종류를 그대로 실어 보낸다", async () => {
+    vi.mocked(sendTaskNudge).mockResolvedValue(undefined as never);
+
+    const result = await executeAction(
+      card({ tool: "nudge_task", args: { kind: "URGENT" } }),
+      7
+    );
+
+    expect(result).toEqual({ ok: true });
+    expect(sendTaskNudge).toHaveBeenCalledWith("37", "URGENT", 7);
+  });
+
+  it("알 수 없는 재촉 종류는 API를 부르지 않고 거부한다", async () => {
+    // 재촉 알림은 나가면 회수가 안 된다. 그래프를 우회한 값이 들어와도 여기서 끊는다.
+    for (const kind of ["HURRY", "start", "", undefined]) {
+      const result = await executeAction(card({ tool: "nudge_task", args: { kind } }), 7);
+      expect(result.ok).toBe(false);
+    }
+    expect(sendTaskNudge).not.toHaveBeenCalled();
   });
 });
