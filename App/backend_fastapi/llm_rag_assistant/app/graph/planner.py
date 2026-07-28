@@ -31,6 +31,18 @@ _SYSTEM_PROMPT = (
     '  set_due_date     args: {"date":"YYYY-MM-DD"}\n'
     '  change_assignee  args: {"assignee_name":"<담당자 이름>"}\n'
     '  delete_task      args: {}\n'
+    '  approve_completion args: {}\n'
+    "                   팀원이 올린 완료 승인 요청을 승인합니다\n"
+    '  reject_completion  args: {}\n'
+    "                   팀원이 올린 완료 승인 요청을 반려합니다\n"
+    '  nudge_task       args: {"kind":"START"|"PROGRESS"|"URGENT"}\n'
+    "                   담당자에게 재촉 알림을 보냅니다. 시작 요청→START, "
+    "진행상황 공유 요청→PROGRESS, 긴급 확인 요청→URGENT\n"
+    "\n"
+    # change_status(to=done)와 approve_completion은 겉보기에 같은 명령("완료로 해줘")에서
+    # 갈린다. 구분하지 않으면 새 도구가 기존 change_status를 빼앗아 회귀가 된다.
+    "\"승인\"·\"반려\"라는 말이 있을 때만 approve_completion/reject_completion을 쓰세요.\n"
+    "그냥 \"완료로 바꿔줘\"는 change_status(to=done)입니다.\n"
     "\n"
     "task_ref에는 사용자가 업무를 가리킨 표현을 그대로 넣으세요(예: \"WF-250\", \"로그인 업무\").\n"
     "업무 변경 명령이 아니거나 확신할 수 없으면 반드시 {\"actions\":[]}를 출력하세요.\n"
