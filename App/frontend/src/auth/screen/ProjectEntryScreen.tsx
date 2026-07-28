@@ -16,10 +16,19 @@ import { AuthBrandPanel } from "../components/AuthBrandPanel";
 import { useAuth } from "../../global/hooks/useAuth";
 import type { ProjectRoleKo, ProjectRoleSummary } from "../../global/api/authTypes";
 import { joinProjectByCode, listProjects, type ProjectResponse } from "../../global/api/projectsApi";
-import { REVIEWER_ACTIVITIES } from "../../global/lib/mock/reviewer";
+import { fetchReviewerActivities, type ReviewerActivityDto } from "../../global/api/reviewerActivityApi";
 import { EVAL_STATUS_META, resolveEvalStatus } from "../../global/lib/evalStatus";
 
 const PROJECT_META: Record<number, { type: string; deadline: string; progress: number }> = {};
+
+/** ISO-8601 문자열을 "MM.DD" 형식으로 변환한다. 파싱 실패 시 원본 문자열을 그대로 반환. */
+function formatActivityDate(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${month}.${day}`;
+}
 
 const ROLE_META: Record<ProjectRoleKo, { label: string; color: string; bg: string; icon: typeof Crown }> = {
   "팀장": { label: "팀장", color: "#3B5BDB", bg: "rgba(59,91,219,0.1)", icon: Crown },
@@ -63,6 +72,15 @@ export function ProjectEntryScreen() {
         setAssignedProjectsError(null);
       })
       .catch(() => setAssignedProjectsError("배정된 프로젝트를 불러오지 못했습니다."));
+  }, [isJudgeHome]);
+
+  // 심사자 홈 "최근 심사 활동" — 실패해도 조용히 빈 배열로 폴백한다(부가 정보성 위젯).
+  const [reviewerActivities, setReviewerActivities] = useState<ReviewerActivityDto[]>([]);
+  useEffect(() => {
+    if (!isJudgeHome) return;
+    fetchReviewerActivities()
+      .then(setReviewerActivities)
+      .catch(() => setReviewerActivities([]));
   }, [isJudgeHome]);
 
   const handleBackToLogin = () => {
@@ -282,10 +300,15 @@ export function ProjectEntryScreen() {
                     <h2 className="text-sm font-bold text-foreground">최근 심사 활동</h2>
                   </div>
                   <div className="space-y-3">
-                    {REVIEWER_ACTIVITIES.map((activity, index) => (
-                      <div key={`${activity.team}-${index}`} className="border-b border-border last:border-0 pb-3 last:pb-0">
-                        <div className="text-xs font-semibold text-foreground">{activity.action}</div>
-                        <div className="text-[11px] text-muted-foreground mt-0.5">{activity.team} · {activity.date}</div>
+                    {reviewerActivities.length === 0 && (
+                      <div className="text-xs text-muted-foreground">아직 심사 활동이 없습니다.</div>
+                    )}
+                    {reviewerActivities.map((activity) => (
+                      <div key={activity.id} className="border-b border-border last:border-0 pb-3 last:pb-0">
+                        <div className="text-xs font-semibold text-foreground">{activity.message}</div>
+                        <div className="text-[11px] text-muted-foreground mt-0.5">
+                          {activity.projectTitle} · {formatActivityDate(activity.createdAt)}
+                        </div>
                       </div>
                     ))}
                   </div>
