@@ -27,7 +27,7 @@ public class ProjectService {
     private static final String INVITE_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     private static final int INVITE_CODE_LENGTH = 8;
     private static final int INVITE_CODE_MAX_ATTEMPTS = 20;
-    private static final String TASK_STATUS_DONE = "완료";
+    private static final String TASK_STATUS_DONE = "done";
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final ProjectRepository projectRepository;
