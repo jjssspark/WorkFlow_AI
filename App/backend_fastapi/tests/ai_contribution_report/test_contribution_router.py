@@ -3,12 +3,21 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, patch
 
 import ollama
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
 from ai_contribution_report.app.schema.contribution_schema import MemberContribution
+from core.security import verify_internal_api_key
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def _bypass_internal_api_key():
+    app.dependency_overrides[verify_internal_api_key] = lambda: None
+    yield
+    app.dependency_overrides.pop(verify_internal_api_key, None)
 
 
 def test_generate_report_returns_data_when_service_succeeds():

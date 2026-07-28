@@ -11,7 +11,10 @@ import org.springframework.web.util.UriComponentsBuilder;
 public class FastApiDashboardClient {
     private final RestClient restClient;
 
-    public FastApiDashboardClient(@Value("${workflow.ai.base-url}") String baseUrl) {
+    public FastApiDashboardClient(
+        @Value("${workflow.ai.base-url}") String baseUrl,
+        @Value("${workflow.ai.internal-key}") String internalKey
+    ) {
         // JDK HttpClient는 plaintext(http://) 대상에도 기본적으로 HTTP/2(h2c) 업그레이드를 시도하는데,
         // uvicorn(FastAPI)이 이를 지원하지 않아 요청이 깨진다. HTTP/1.1을 명시해 우회한다.
         HttpClient httpClient = HttpClient.newBuilder()
@@ -20,6 +23,7 @@ public class FastApiDashboardClient {
         this.restClient = RestClient.builder()
             .baseUrl(baseUrl)
             .requestFactory(new JdkClientHttpRequestFactory(httpClient))
+            .defaultHeader("X-Internal-Api-Key", internalKey)
             .build();
     }
 

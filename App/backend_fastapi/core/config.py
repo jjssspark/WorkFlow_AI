@@ -35,8 +35,8 @@ class Settings(BaseSettings):
     # 어시스턴트는 회의 중 띄엄띄엄 쓰는 화면이라 5분 간격을 넘기기 쉬워 더 길게 잡는다.
     rag_ollama_keep_alive: str = "30m"
 
-    # Spring(RagController)만 RAG 라우터를 호출할 수 있도록 검증하는 서비스 간 공유 시크릿.
-    # 미설정 시 llm_rag_assistant/app/security.py가 모든 요청을 거부한다(fail-closed).
+    # Spring만 내부 AI 엔드포인트를 호출할 수 있도록 검증하는 서비스 간 공유 시크릿.
+    # 미설정 시 core/security.py가 모든 요청을 거부한다(fail-closed).
     rag_internal_api_key: str | None = None
 
 

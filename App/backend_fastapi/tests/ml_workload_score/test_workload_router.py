@@ -2,15 +2,24 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
+from core.security import verify_internal_api_key
 from ml_workload_score.app.schema.workload_schema import (
     WorkloadMemberResult,
     WorkloadScoreData,
 )
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def _bypass_internal_api_key():
+    app.dependency_overrides[verify_internal_api_key] = lambda: None
+    yield
+    app.dependency_overrides.pop(verify_internal_api_key, None)
 
 
 def test_score_workload_returns_success_when_service_succeeds() -> None:

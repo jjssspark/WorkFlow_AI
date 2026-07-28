@@ -25,10 +25,3 @@ export const CONTRIB_REPORTS = [
     evidence:["To-Do #5,#14", "PR #18(진행중)", "12.10 회의록 블로커 언급"], score:72, isPublic:false,
     categories:{ task:33, meeting:67, workload:60 } },
 ];
-
-export const REVIEWER_ACTIVITIES = [
-  { team: "스마트 주차 관리 시스템", action: "개인 코멘트 작성 완료", date: "12.12" },
-  { team: "실시간 버스 도착 알리미", action: "최종 평가 점수 공개 완료", date: "12.11" },
-  { team: "스마트 주차 관리 시스템", action: "기여도 리포트 검토", date: "12.10" },
-  { team: "AI 기반 식단 추천 앱", action: "산출물 검토 시작", date: "12.09" },
-];

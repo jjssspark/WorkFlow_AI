@@ -4,17 +4,18 @@ import logging
 
 import httpx
 import ollama
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from ai_contribution_report.app.schema.contribution_schema import (
     ContributionReportRequest,
     MemberContribution,
 )
 from ai_contribution_report.app.services.contribution_service import generate_contribution_reports
+from core.security import verify_internal_api_key
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/ai/report", tags=["contribution"])
+router = APIRouter(prefix="/ai/report", tags=["contribution"], dependencies=[Depends(verify_internal_api_key)])
 
 
 @router.post("/contribution", response_model=list[MemberContribution])

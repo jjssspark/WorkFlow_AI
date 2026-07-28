@@ -186,3 +186,22 @@ def test_predict_for_task_row_maps_risk_class_to_korean_result(monkeypatch) -> N
     assert prediction["risk_class"] == "DANGER"
     assert prediction["result"] == "위험"
     assert prediction["score"] == 0.7
+
+
+def test_predict_for_task_row_maps_the_lowest_risk_distribution_to_normal(monkeypatch) -> None:
+    """위 테스트('위험')의 대조군이다.
+
+    없으면 라벨을 항상 DANGER로 돌려주도록 바꿔도 위 테스트는 그대로 통과한다 - 모든 업무가
+    빨간 '위험'으로 표시되는 화면이 되는데 테스트는 초록불이다. 확률 분포에서 가장 큰 쪽을
+    고르는 argmax가 실제로 동작하는지는 서로 다른 정답 두 개를 대봐야만 확인된다.
+    """
+    now = datetime(2026, 7, 12, 9, 0, 0)
+    row = _make_task_row(due_date=pd.Timestamp(2026, 7, 20, 0, 0, 0))
+
+    monkeypatch.setattr(delay_model, "predict_class_probabilities", lambda feature_row: [0.7, 0.2, 0.1])
+
+    prediction = predict_for_task_row(row, now=now, milestone_completion={})
+
+    assert prediction["risk_class"] == "NORMAL"
+    assert prediction["result"] == "정상"
+    assert prediction["score"] == 0.7

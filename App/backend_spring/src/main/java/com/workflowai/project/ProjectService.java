@@ -27,6 +27,9 @@ public class ProjectService {
     private static final String INVITE_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     private static final int INVITE_CODE_LENGTH = 8;
     private static final int INVITE_CODE_MAX_ATTEMPTS = 20;
+    // tasks.status에 실제로 저장되는 값은 "done"이다(ReviewerService/RoadmapService/DashboardService와
+    // TaskCreateRequest 스키마 모두 동일). 여기만 "완료"로 비교해 완료 건수가 항상 0이 되었고,
+    // 그 결과 심사자 홈의 프로젝트 진행률이 늘 0%로 표시됐다.
     private static final String TASK_STATUS_DONE = "done";
     private static final SecureRandom RANDOM = new SecureRandom();
 
