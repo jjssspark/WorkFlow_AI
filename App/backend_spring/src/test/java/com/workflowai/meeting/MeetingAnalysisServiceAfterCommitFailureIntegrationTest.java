@@ -6,6 +6,7 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
 
+import com.workflowai.activity.ActivityService;
 import com.workflowai.common.DemoDataService;
 import com.workflowai.notification.NotificationService;
 import com.workflowai.project.ProjectMemberRepository;
@@ -67,6 +68,9 @@ class MeetingAnalysisServiceAfterCommitFailureIntegrationTest {
 
     @MockBean
     private NotificationService notificationService;
+
+    @MockBean
+    private ActivityService activityService;
 
     @BeforeEach
     void setUp() {

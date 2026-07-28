@@ -1,5 +1,12 @@
-import { describe, expect, it } from "vitest";
-import { STATUS_ACTIONS, visibleSecondaryActions, quickMoveTargetStatus, canMoveTask } from "./taskActions";
+import { describe, expect, it, vi } from "vitest";
+import {
+  STATUS_ACTIONS,
+  visibleSecondaryActions,
+  quickMoveTargetStatus,
+  canMoveTask,
+  runTaskMoveOnce,
+  type TaskMoveQueue,
+} from "./taskActions";
 import type { Task } from "../types/task";
 
 describe("visibleSecondaryActions", () => {
@@ -83,5 +90,72 @@ describe("canMoveTask", () => {
   it("blocks a non-leader with no known user id", () => {
     expect(canMoveTask(false, task, null)).toBe(false);
     expect(canMoveTask(false, task, undefined)).toBe(false);
+  });
+});
+
+describe("runTaskMoveOnce", () => {
+  it("같은 업무를 같은 목적지로 옮기는 중복 요청은 앞선 요청이 대기/진행 중이면 실행하지 않는다", async () => {
+    const queue: TaskMoveQueue = new Map();
+    let resolveFirst!: () => void;
+    const firstFinished = new Promise<void>((resolve) => {
+      resolveFirst = resolve;
+    });
+    const action = vi.fn().mockImplementation(() => firstFinished);
+
+    const first = runTaskMoveOnce(queue, "42", "inprogress", action);
+    const duplicate = runTaskMoveOnce(queue, "42", "inprogress", action);
+
+    await expect(duplicate).resolves.toBe(false);
+    expect(action).toHaveBeenCalledTimes(1);
+
+    resolveFirst();
+    await expect(first).resolves.toBe(true);
+    expect(queue.size).toBe(0);
+  });
+
+  it("같은 업무라도 목적지가 다르면 폐기하지 않되, 앞선 요청이 끝난 뒤에야 실행한다", async () => {
+    const queue: TaskMoveQueue = new Map();
+    const order: string[] = [];
+    let resolveFirst!: () => void;
+    const firstFinished = new Promise<void>((resolve) => {
+      resolveFirst = resolve;
+    });
+    const firstAction = vi.fn().mockImplementation(async () => {
+      order.push("first-start");
+      await firstFinished;
+      order.push("first-end");
+    });
+    const secondAction = vi.fn().mockImplementation(async () => {
+      order.push("second-start");
+    });
+
+    const first = runTaskMoveOnce(queue, "42", "inprogress", firstAction);
+    const second = runTaskMoveOnce(queue, "42", "blocked", secondAction);
+
+    // 마이크로태스크가 몇 차례 돌아도, 두 번째는 첫 번째가 끝나기 전엔 시작되지 않아야 한다.
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(order).toEqual(["first-start"]);
+    expect(secondAction).not.toHaveBeenCalled();
+
+    resolveFirst();
+    await Promise.all([first, second]);
+
+    expect(order).toEqual(["first-start", "first-end", "second-start"]);
+    expect(queue.size).toBe(0);
+  });
+
+  it("앞선 요청이 실패해도 뒤에 대기 중인 다른 목적지 요청은 이어서 실행된다", async () => {
+    const queue: TaskMoveQueue = new Map();
+    const firstAction = vi.fn().mockRejectedValue(new Error("network error"));
+    const secondAction = vi.fn().mockResolvedValue(undefined);
+
+    const first = runTaskMoveOnce(queue, "42", "inprogress", firstAction);
+    const second = runTaskMoveOnce(queue, "42", "blocked", secondAction);
+
+    await expect(first).rejects.toThrow("network error");
+    await expect(second).resolves.toBe(true);
+    expect(secondAction).toHaveBeenCalledTimes(1);
   });
 });

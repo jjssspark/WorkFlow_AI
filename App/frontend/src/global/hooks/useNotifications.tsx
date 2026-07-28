@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import {
   fetchNotifications,
@@ -25,10 +25,21 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   const { isAuthenticated, currentProjectId, projectContextReady } = useAuth();
   const [unreadCount, setUnreadCount] = useState(0);
 
+  // 60초 폴백 폴링(refreshUnreadCount) 중에 프로젝트를 전환하면, 이전 프로젝트로 나간 요청이
+  // 전환 이후에 응답할 수 있다. 그 응답을 그대로 반영하면 방금 전환한 프로젝트 화면에 이전
+  // 프로젝트의 데이터가 잠깐(또는 다음 폴링까지 계속) 보인다 - 이 브랜치가 고치려는 버그 그 자체다.
+  // ref는 항상 "지금" 보고 있는 프로젝트를 가리키므로, 응답 시점에 요청 당시와 비교해 어긋나면 버린다.
+  const currentProjectIdRef = useRef(currentProjectId);
+  useEffect(() => {
+    currentProjectIdRef.current = currentProjectId;
+  }, [currentProjectId]);
+
   const refreshUnreadCount = useCallback(async () => {
     if (!currentProjectId || currentProjectId < 0) return;
+    const requestedProjectId = currentProjectId;
     try {
-      const count = await fetchUnreadNotificationCount(currentProjectId);
+      const count = await fetchUnreadNotificationCount(requestedProjectId);
+      if (currentProjectIdRef.current !== requestedProjectId) return; // 응답 도착 전에 전환됨 - 폐기
       setUnreadCount(count);
     } catch (err) {
       console.error("안 읽은 알림 개수를 불러오지 못했습니다.", err);
@@ -56,8 +67,12 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
    */
   const showPendingNotifications = useCallback(async () => {
     if (!currentProjectId || currentProjectId < 0) return;
+    const requestedProjectId = currentProjectId;
     try {
-      const notifications = await fetchNotifications(currentProjectId);
+      const notifications = await fetchNotifications(requestedProjectId);
+      // 응답 도착 전에 다른 프로젝트로 전환됐다면 이 목록은 이전 프로젝트 것이다 - 반영은 물론
+      // 토스트도 띄우면 안 된다(현재 보고 있지 않은 프로젝트의 알림이 토스트로 뜨게 된다).
+      if (currentProjectIdRef.current !== requestedProjectId) return;
       // 목록이 최신순이라 그대로 띄우면 가장 오래된 게 맨 위에 남는다 - 뒤집어서 최신이 위로 오게 한다.
       const pending = notifications.filter((n) => !n.read).slice(0, MAX_PENDING_TOASTS).reverse();
       pending.forEach(showToast);

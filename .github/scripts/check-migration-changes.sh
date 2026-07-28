@@ -26,10 +26,15 @@ allowed_status='^A[[:space:]]'
 # 여부와 무관하게 이 고정된 목록만 허용해, "guard 도입 이전 base면 rename을 통째로
 # 허용" 같은 정책 우회 여지를 남기지 않는다. source 파일들은 이미 merge되어 더 이상
 # base에 존재하지 않으므로 이 예외를 다시 악용할 수 없다.
+#
+# 2026-07-28 추가: 서로 다른 두 PR이 독립적으로 V20260728_2를 잡아 생긴 충돌
+# (notifications_delete_orphaned_null_project_id.sql)을 해소하기 위한 R100
+# rename 1건도 같은 방식으로 예외 처리한다.
 approved_renames=(
   "R100	$migration_dir/V20260726_1__rag_assignee_sync_failures.sql	$migration_dir/V20260727_1__rag_assignee_sync_failures.sql"
   "R100	$migration_dir/V20260726_2__task_done_date.sql	$migration_dir/V20260727_2__task_done_date.sql"
   "R100	$migration_dir/V20260726_3__user_profile_and_agreements.sql	$migration_dir/V20260727_3__user_profile_and_agreements.sql"
+  "R100	$migration_dir/V20260728_2__notifications_delete_orphaned_null_project_id.sql	$migration_dir/V20260728_3__notifications_delete_orphaned_null_project_id.sql"
 )
 
 is_approved_rename() {

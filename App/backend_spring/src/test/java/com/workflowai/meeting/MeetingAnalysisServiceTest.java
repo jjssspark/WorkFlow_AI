@@ -11,6 +11,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.workflowai.activity.ActivityService;
 import com.workflowai.common.DemoDataService;
 import com.workflowai.notification.NotificationRepository;
 import com.workflowai.notification.NotificationService;
@@ -74,6 +75,7 @@ class MeetingAnalysisServiceTest {
     @Mock private ProjectRepository projectRepository;
     @Mock private RagIngestService ragIngestService;
     @Mock private MeetingAnalysisPersistence meetingAnalysisPersistence;
+    @Mock private ActivityService activityService;
 
     @BeforeEach
     void authenticateAsCurrentUser() {
@@ -96,7 +98,7 @@ class MeetingAnalysisServiceTest {
             meetingAnalysisJobPublisher, demoDataService, meetingRepository, meetingAttendeeRepository,
             meetingAnalysisRepository, meetingActionItemRepository, taskRepository, notificationRepository,
             notificationService, userRepository, projectMemberRepository, projectRepository, ragIngestService,
-            meetingAnalysisPersistence, "/tmp/workflow-uploads"
+            meetingAnalysisPersistence, activityService, "/tmp/workflow-uploads"
         );
     }
 
@@ -1152,6 +1154,84 @@ class MeetingAnalysisServiceTest {
         ArgumentCaptor<Task> captor = ArgumentCaptor.forClass(Task.class);
         verify(taskRepository).save(captor.capture());
         assertThat(captor.getValue().getCreatedBy()).isEqualTo(25L);
+    }
+
+    // 회의록에서 등록한 업무도 보드에서 직접 만든 업무와 똑같이 대시보드 "최근 활동"에 남아야 한다.
+    // 목록/집계는 같은 tasks 테이블을 보므로 이미 맞았지만, 활동 로그는 이 경로만 통째로 빠져 있었다.
+    @Test
+    void registerTasksRecordsTaskCreatedActivityForDashboard() {
+        UserPrincipal leader = new UserPrincipal(25L, "leader@example.com", "박지수");
+        SecurityContextHolder.getContext().setAuthentication(
+            new UsernamePasswordAuthenticationToken(leader, null, List.of())
+        );
+        when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
+        when(projectMemberRepository.existsByProjectIdAndUserId(1L, 25L)).thenReturn(true);
+        Meeting meeting = new Meeting(1L, "정기회의", "document", null, "completed", LocalDate.now(), "정기회의", "a.txt", 10L, 10L);
+        when(meetingRepository.findByIdAndProjectId(5L, 1L)).thenReturn(Optional.of(meeting));
+        // 등록되는 업무의 projectId는 이 조회로 정해진다 - 활동 로그도 같은 프로젝트로 남아야 한다.
+        when(meetingRepository.findById(5L)).thenReturn(Optional.of(meeting));
+        when(taskRepository.save(any(Task.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(taskRepository.findTopByProjectIdAndStatusOrderByPositionAsc(any(), any())).thenReturn(Optional.empty());
+        MeetingAnalysisService service = newService();
+
+        service.registerTasks("demo-project", "5", new TaskRegisterRequest(List.of(
+            new MeetingTodo("로그인 API", "설명", null, null, null, "MEDIUM", "ETC", true, "")
+        )));
+
+        verify(activityService).record(
+            eq(1L), eq(25L), eq("TASK_CREATED"), any(), eq("'로그인 API' 업무를 새로 추가했습니다.")
+        );
+    }
+
+    // 보드에서 업무를 하나씩 지울 때와 달리, 회의록 삭제는 한 번의 조작으로 여러 업무가 한꺼번에
+    // 사라지는 사건이다. 건별로 남기면 "최근 활동" 목록을 삭제 로그가 뒤덮으므로 한 줄로 묶는다.
+    @Test
+    void deleteRecordsOneCombinedActivityWhenMultipleTasksAreLinked() {
+        mockLeader(1L);
+        Meeting meeting = new Meeting(1L, "삭제 회의", "document", null, "completed", LocalDate.now(), "정기회의", "notes.txt", 10L, 5L);
+        ReflectionTestUtils.setField(meeting, "id", 12L);
+        when(meetingRepository.findByIdAndProjectIdForUpdate(12L, 1L)).thenReturn(Optional.of(meeting));
+        Task task1 = new Task(1L, "로그인 API", "개발", "todo", 3L, null, "MEDIUM", null, "MEETING_AI", 12L, 25L, 0);
+        Task task2 = new Task(1L, "회원가입 API", "개발", "todo", 4L, null, "MEDIUM", null, "MEETING_AI", 12L, 25L, 1);
+        when(taskRepository.findBySourceMeetingId(12L)).thenReturn(List.of(task1, task2));
+        MeetingAnalysisService service = newService();
+
+        service.delete("demo-project", "12", true);
+
+        verify(activityService).record(
+            eq(1L), eq(CURRENT_USER_ID), eq("TASK_DELETED"), eq(12L),
+            eq("'삭제 회의' 회의록의 업무 2건을 삭제했습니다.")
+        );
+        verify(activityService, never()).record(any(), any(), eq("TASK_DELETED"), eq(task1.getId()), any());
+    }
+
+    @Test
+    void deleteRecordsSingleTaskDeletedActivityWhenOnlyOneTaskIsLinked() {
+        mockLeader(1L);
+        Meeting meeting = new Meeting(1L, "삭제 회의", "document", null, "completed", LocalDate.now(), "정기회의", "notes.txt", 10L, 5L);
+        when(meetingRepository.findByIdAndProjectIdForUpdate(12L, 1L)).thenReturn(Optional.of(meeting));
+        Task linked = new Task(1L, "로그인 API", "개발", "todo", 3L, null, "MEDIUM", null, "MEETING_AI", 12L, 25L, 0);
+        when(taskRepository.findBySourceMeetingId(12L)).thenReturn(List.of(linked));
+        MeetingAnalysisService service = newService();
+
+        service.delete("demo-project", "12", true);
+
+        verify(activityService).record(
+            eq(1L), eq(CURRENT_USER_ID), eq("TASK_DELETED"), any(), eq("'로그인 API' 업무를 삭제했습니다.")
+        );
+    }
+
+    /** 연결 업무를 남겨두는 삭제에서는 업무가 사라지지 않으므로 삭제 활동도 남기면 안 된다. */
+    @Test
+    void deleteDoesNotRecordTaskDeletedActivityWhenLinkedTasksAreKept() {
+        mockLeader(1L);
+        Meeting meeting = new Meeting(1L, "삭제 회의", "document", null, "completed", LocalDate.now(), "정기회의", "notes.txt", 10L, 5L);
+        when(meetingRepository.findByIdAndProjectIdForUpdate(12L, 1L)).thenReturn(Optional.of(meeting));
+        MeetingAnalysisService service = newService();
+
+        service.delete("demo-project", "12", false);
+
+        verify(activityService, never()).record(any(), any(), eq("TASK_DELETED"), any(), any());
     }
 
     // 연도 없는 "07/31"이나 "2026.07.31" 같은 입력이 조용히 null이 되어 업무보드 마감일이

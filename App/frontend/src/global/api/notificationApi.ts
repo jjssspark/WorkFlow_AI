@@ -17,6 +17,7 @@ export const ACTION_REQUIRED_NOTIFICATION_TYPES = new Set([
   "MEETING_ANALYSIS_COMPLETED_NOTIFY_LEADER",
   "MEETING_SAVED_NOTIFY_LEADER",
   "MEETING_EDITED",
+  "COMPLETION_REQUESTED",
 ]);
 
 /**
@@ -30,7 +31,9 @@ export const ACTION_REQUIRED_NOTIFICATION_TYPES = new Set([
  * 바뀌는 일이 실제로 있었으므로 상수를 합치지 않는다.
  */
 export const MEETING_SHORTCUT_NOTIFICATION_TYPES = new Set([
-  ...ACTION_REQUIRED_NOTIFICATION_TYPES,
+  "MEETING_ANALYSIS_COMPLETED_NOTIFY_LEADER",
+  "MEETING_SAVED_NOTIFY_LEADER",
+  "MEETING_EDITED",
 ]);
 
 /** 팀장에게 역할분배를 요청하는 알림은 "바로가기"를 누르면 역할분배 검토 탭으로 바로 이동해야 한다. */

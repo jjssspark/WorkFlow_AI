@@ -264,6 +264,28 @@ class NotificationControllerTest {
         );
     }
 
+    @Test
+    @DisplayName("프로젝트 멤버가 아니면 진행률 알림을 생성하지 않는다")
+    void progressReportNotificationRejectsNonMemberProject() throws Exception {
+        authenticateAs(5L);
+        stubMember(999L, 5L, false);
+
+        mockMvc.perform(post("/api/v1/notifications/progress-report")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"projectId\":999,\"content\":\"보고서 생성 완료\"}"))
+            .andExpect(status().isForbidden());
+
+        verify(notificationService, never()).notifyAfterCommit(
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any()
+        );
+    }
+
     @Configuration
     @EnableMethodSecurity
     @Import(NotificationController.class)
