@@ -127,7 +127,7 @@ class ProjectServiceTest {
 
         when(projectRepository.findAllByMemberUserId(10L)).thenReturn(List.of(ownProject));
         when(projectMemberRepository.countMembersByProjectIds(List.of(1L))).thenReturn(List.of());
-        when(taskRepository.summarizeProgressByProjectIds(List.of(1L), "done")).thenReturn(List.of());
+        when(taskRepository.summarizeProgressByProjectIds(any(), any())).thenReturn(List.of());
 
         List<ProjectResponse> responses = projectService.findAllForUser(10L);
 

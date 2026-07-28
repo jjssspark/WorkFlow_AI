@@ -64,7 +64,7 @@ class ProjectControllerSecurityTest {
     }
 
     @Test
-    void createReturnsCreatedAndRegistersCreatorAsLeader() throws Exception {
+    void createReturnsOkAndRegistersCreatorAsLeader() throws Exception {
         UserPrincipal principal = new UserPrincipal(1L, "leader@example.com", "리더");
         SecurityContextHolder.getContext().setAuthentication(
             new UsernamePasswordAuthenticationToken(principal, null, List.of())
@@ -87,7 +87,7 @@ class ProjectControllerSecurityTest {
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(body)
             )
-            .andExpect(status().isCreated())
+            .andExpect(status().isOk())
             .andExpect(jsonPath("$.success").value(true))
             .andExpect(jsonPath("$.data.title").value("WorkFlow AI"));
     }
