@@ -226,8 +226,7 @@ public class DashboardService {
         projectMemberRepository.findAllByProjectId(projectId).stream()
             .map(ProjectMember::getUserId)
             .forEach(memberId -> notificationService.notify(
-                memberId, "MILESTONE_CREATED", "마일스톤이 추가되었습니다.",
-                content, "milestone", saved.getId(), projectId
+                memberId, projectId, "MILESTONE_CREATED", "마일스톤이 추가되었습니다.", content, "milestone", saved.getId()
             ));
 
         return toMilestoneProgressDto(saved, List.of());
@@ -264,8 +263,7 @@ public class DashboardService {
             projectMemberRepository.findAllByProjectId(projectId).stream()
                 .map(ProjectMember::getUserId)
                 .forEach(memberId -> notificationService.notify(
-                    memberId, "MILESTONE_UPDATED", "마일스톤이 수정되었습니다.",
-                    content, "milestone", saved.getId(), projectId
+                    memberId, projectId, "MILESTONE_UPDATED", "마일스톤이 수정되었습니다.", content, "milestone", saved.getId()
                 ));
         }
 
@@ -290,8 +288,7 @@ public class DashboardService {
         projectMemberRepository.findAllByProjectId(projectId).stream()
             .map(ProjectMember::getUserId)
             .forEach(memberId -> notificationService.notify(
-                memberId, "MILESTONE_DELETED", "마일스톤이 삭제되었습니다.",
-                content, "milestone", null, projectId
+                memberId, projectId, "MILESTONE_DELETED", "마일스톤이 삭제되었습니다.", content, "milestone", null
             ));
     }
 

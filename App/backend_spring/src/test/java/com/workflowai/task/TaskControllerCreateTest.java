@@ -100,7 +100,7 @@ class TaskControllerCreateTest {
             .andExpect(jsonPath("$.success").value(true));
 
         verify(notificationService).notifyAfterCommit(
-            eq(5L), eq("TASK_ASSIGNED"), any(), any(), eq("task"), any(), eq(1L)
+            eq(5L), eq(1L), eq("TASK_ASSIGNED"), any(), any(), eq("task"), any()
         );
         verify(ragIngestService).ingestBestEffort(1L, "task", null, "새 업무", 5L);
     }

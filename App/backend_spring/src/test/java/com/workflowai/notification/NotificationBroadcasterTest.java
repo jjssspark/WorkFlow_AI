@@ -18,12 +18,12 @@ class NotificationBroadcasterTest {
   private static NotificationDto sampleDto() {
     return new NotificationDto(
         "1",
+        "12",
         "TASK_ASSIGNED",
         "제목",
         "내용",
         "task",
         "42",
-        "7",
         false,
         "2026-07-26T00:00:00Z");
   }

@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { ChevronRight, Search, Calendar, Bell, LogOut, Menu } from "lucide-react";
 import { TAB_TITLES } from "../../lib/constants/nav";
 import type { Tab } from "../../../board/libs/types/task";
 import {
   ACTION_REQUIRED_NOTIFICATION_TYPES, fetchNotifications, markNotificationsRead, meetingNotificationPanelQuery,
+  MEETING_SHORTCUT_NOTIFICATION_TYPES,
   type NotificationResponse,
 } from "../../api/notificationApi";
 import { useAuth } from "../../hooks/useAuth";
@@ -58,10 +59,17 @@ export function Header({ onOpenMobileMenu }: { onOpenMobileMenu?: () => void }) 
   const [notifications, setNotifications] = useState<NotificationResponse[]>([]);
   const [notifError, setNotifError] = useState(false);
 
+  // 프로젝트를 전환하면 이전 프로젝트의 알림 목록이 남아있으면 안 된다 -
+  // 다음 목록을 불러오기 전까지 잠깐이라도 다른 프로젝트의 알림이 화면에 보이게 된다.
+  useEffect(() => {
+    setNotifications([]);
+    setNotifError(false);
+  }, [currentProjectId]);
+
   const handleToggleNotifications = async () => {
     const opening = !notifOpen;
     setNotifOpen(opening);
-    if (!opening) return;
+    if (!opening || !currentProjectId || currentProjectId < 0) return;
 
     // 목록을 먼저 불러와 화면에 반영한 뒤, 그 목록에 실제로 있던 id들만 읽음 처리한다.
     // "전체 읽음"을 따로 호출하면 목록을 불러오는 사이에 새로 도착한 알림까지 휩쓸려,
@@ -195,7 +203,7 @@ export function Header({ onOpenMobileMenu }: { onOpenMobileMenu?: () => void }) 
                         </div>
                         {n.content && <div className="text-muted-foreground mt-0.5">{n.content}</div>}
                         <div className="text-[10px] text-muted-foreground mt-0.5">{new Date(n.createdAt).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "Asia/Seoul" })}</div>
-                        {isActionRequired && n.targetType === "meeting" && n.targetId && (
+                        {MEETING_SHORTCUT_NOTIFICATION_TYPES.has(n.type) && n.targetType === "meeting" && n.targetId && (
                           <button
                             onClick={() => {
                               setNotifOpen(false);
@@ -242,14 +250,24 @@ export function Header({ onOpenMobileMenu }: { onOpenMobileMenu?: () => void }) 
           <div className="flex items-center gap-1.5 ml-1">
             <div className="flex -space-x-2">
               {presenceUsers.slice(0, 6).map(presenceUser => (
-                <div
-                  key={presenceUser.userId}
-                  title={`${presenceUser.name} / ${presenceUser.role}`}
-                  className="w-8 h-8 rounded-full border-2 border-card flex items-center justify-center text-white text-xs font-semibold"
-                  style={{ background: "#3B5BDB" }}
-                >
-                  {presenceUser.name.slice(0, 1)}
-                </div>
+                presenceUser.avatarUrl ? (
+                  <img
+                    key={presenceUser.userId}
+                    src={presenceUser.avatarUrl}
+                    alt={presenceUser.name}
+                    title={`${presenceUser.name} / ${presenceUser.role}`}
+                    className="w-8 h-8 rounded-full border-2 border-card object-cover"
+                  />
+                ) : (
+                  <div
+                    key={presenceUser.userId}
+                    title={`${presenceUser.name} / ${presenceUser.role}`}
+                    className="w-8 h-8 rounded-full border-2 border-card flex items-center justify-center text-white text-xs font-semibold"
+                    style={{ background: "#3B5BDB" }}
+                  >
+                    {presenceUser.name.slice(0, 1)}
+                  </div>
+                )
               ))}
             </div>
             <span className="text-[11px] text-muted-foreground whitespace-nowrap hidden sm:inline">

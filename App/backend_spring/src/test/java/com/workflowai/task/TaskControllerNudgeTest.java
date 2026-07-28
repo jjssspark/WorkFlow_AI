@@ -105,7 +105,7 @@ class TaskControllerNudgeTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.success").value(true));
 
-        verify(notificationService).notifyAfterCommit(eq(3L), eq("TASK_NUDGE"), any(), any(), eq("task"), any(), eq(1L));
+        verify(notificationService).notifyAfterCommit(eq(3L), eq(1L), eq("TASK_NUDGE"), any(), any(), eq("task"), any());
     }
 
     @Test
@@ -119,7 +119,7 @@ class TaskControllerNudgeTest {
                 .content("{\"kind\":\"PROGRESS\"}"))
             .andExpect(status().isOk());
 
-        verify(notificationService).notifyAfterCommit(eq(3L), eq("TASK_NUDGE"), any(), any(), eq("task"), any(), eq(1L));
+        verify(notificationService).notifyAfterCommit(eq(3L), eq(1L), eq("TASK_NUDGE"), any(), any(), eq("task"), any());
     }
 
     @Test
@@ -133,7 +133,7 @@ class TaskControllerNudgeTest {
                 .content("{\"kind\":\"URGENT\"}"))
             .andExpect(status().isOk());
 
-        verify(notificationService).notifyAfterCommit(eq(3L), eq("TASK_NUDGE"), any(), any(), eq("task"), any(), eq(1L));
+        verify(notificationService).notifyAfterCommit(eq(3L), eq(1L), eq("TASK_NUDGE"), any(), any(), eq("task"), any());
     }
 
     @Test

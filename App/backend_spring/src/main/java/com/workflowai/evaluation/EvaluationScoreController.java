@@ -116,7 +116,7 @@ public class EvaluationScoreController {
             .orElse("프로젝트");
         String content = "심사자가 '" + projectTitle + "' 프로젝트의 " + contentNoun + " 공개했습니다.";
         notificationService.notifyAfterCommit(
-            saved.getUserId(), type, title, content, "evaluation", saved.getProjectId(), saved.getProjectId()
+            saved.getUserId(), saved.getProjectId(), type, title, content, "evaluation", saved.getProjectId()
         );
     }
 

@@ -169,8 +169,8 @@ class MeetingAnalysisPersistenceTest {
             synchronizations.forEach(TransactionSynchronization::afterCommit);
 
             verify(ragIngestService).ingestBestEffort(1L, "meeting", 5L, "요약");
-            verify(notificationService).notifyAfterCommit(eq(99L), eq("MEETING_ANALYSIS_COMPLETED_NOTIFY_LEADER"),
-                any(), any(), eq("meeting"), eq(5L), eq(1L));
+            verify(notificationService).notifyAfterCommit(eq(99L), eq(1L), eq("MEETING_ANALYSIS_COMPLETED_NOTIFY_LEADER"),
+                any(), any(), eq("meeting"), eq(5L));
         } finally {
             TransactionSynchronizationManager.clearSynchronization();
         }
@@ -221,9 +221,7 @@ class MeetingAnalysisPersistenceTest {
 
         persistence.saveAnalysisSuccess(5L, result, "FASTAPI");
 
-        verify(notificationService).notifyAfterCommit(
-            eq(99L), eq("MEETING_ANALYSIS_COMPLETED_NOTIFY_LEADER"), any(), any(), eq("meeting"), eq(5L), eq(1L)
-        );
+        verify(notificationService).notifyAfterCommit(eq(99L), eq(1L), eq("MEETING_ANALYSIS_COMPLETED_NOTIFY_LEADER"), any(), any(), eq("meeting"), eq(5L));
         // 분석을 실행한 본인(10L)에게는 알림이 가지 않는다.
         verify(notificationService, never()).notifyAfterCommit(eq(10L), any(), any(), any(), any(), any(), any());
     }
@@ -277,8 +275,7 @@ class MeetingAnalysisPersistenceTest {
 
         ArgumentCaptor<String> contentCaptor = ArgumentCaptor.forClass(String.class);
         verify(notificationService).notifyAfterCommit(
-            eq(99L), eq("MEETING_ANALYSIS_COMPLETED_NOTIFY_LEADER"), any(), contentCaptor.capture(),
-            eq("meeting"), eq(5L), eq(1L)
+            eq(99L), eq(1L), eq("MEETING_ANALYSIS_COMPLETED_NOTIFY_LEADER"), any(), contentCaptor.capture(), eq("meeting"), eq(5L)
         );
         assertThat(contentCaptor.getValue()).contains("박지수님이");
         // 원본 업로더(10L)에게도, 재분석을 실행한 본인(20L)에게도 알림이 가지 않는다.
@@ -646,8 +643,8 @@ class MeetingAnalysisPersistenceTest {
             assertThat(synchronizations).hasSize(1);
             synchronizations.forEach(TransactionSynchronization::afterCommit);
 
-            verify(notificationService).notifyAfterCommit(10L, "MEETING_ANALYSIS_FAILED", "회의 분석에 실패했습니다.",
-                "'정기회의' 회의록 분석에 실패했습니다. 다시 시도해주세요.", "meeting", 7L, 1L);
+            verify(notificationService).notifyAfterCommit(10L, 1L, "MEETING_ANALYSIS_FAILED", "회의 분석에 실패했습니다.",
+                "'정기회의' 회의록 분석에 실패했습니다. 다시 시도해주세요.", "meeting", 7L);
         } finally {
             TransactionSynchronizationManager.clearSynchronization();
         }

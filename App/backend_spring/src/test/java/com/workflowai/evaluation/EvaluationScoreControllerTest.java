@@ -261,8 +261,8 @@ class EvaluationScoreControllerTest {
             .andExpect(status().isOk());
 
         verify(notificationService).notifyAfterCommit(
-            3L, "CONTRIBUTION_SCORE_PUBLISHED", "기여도 점수가 공개되었습니다.",
-            "심사자가 '캡스톤디자인 2024' 프로젝트의 기여도 점수를 공개했습니다.", "evaluation", 1L, 1L
+            3L, 1L, "CONTRIBUTION_SCORE_PUBLISHED", "기여도 점수가 공개되었습니다.",
+            "심사자가 '캡스톤디자인 2024' 프로젝트의 기여도 점수를 공개했습니다.", "evaluation", 1L
         );
     }
 
@@ -286,8 +286,8 @@ class EvaluationScoreControllerTest {
             .andExpect(status().isOk());
 
         verify(notificationService).notifyAfterCommit(
-            3L, "GRADE_PUBLISHED", "학점이 공개되었습니다.",
-            "심사자가 '캡스톤디자인 2024' 프로젝트의 학점을 공개했습니다.", "evaluation", 1L, 1L
+            3L, 1L, "GRADE_PUBLISHED", "학점이 공개되었습니다.",
+            "심사자가 '캡스톤디자인 2024' 프로젝트의 학점을 공개했습니다.", "evaluation", 1L
         );
     }
 
@@ -351,10 +351,10 @@ class EvaluationScoreControllerTest {
             .andExpect(status().isOk());
 
         verify(notificationService).notifyAfterCommit(
-            eq(3L), eq("CONTRIBUTION_SCORE_PUBLISHED"), any(), any(), eq("evaluation"), eq(1L), eq(1L)
+            eq(3L), eq(1L), eq("CONTRIBUTION_SCORE_PUBLISHED"), any(), any(), eq("evaluation"), eq(1L)
         );
         verify(notificationService).notifyAfterCommit(
-            eq(3L), eq("GRADE_PUBLISHED"), any(), any(), eq("evaluation"), eq(1L), eq(1L)
+            eq(3L), eq(1L), eq("GRADE_PUBLISHED"), any(), any(), eq("evaluation"), eq(1L)
         );
     }
 

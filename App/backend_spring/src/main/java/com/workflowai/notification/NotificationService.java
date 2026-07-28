@@ -19,14 +19,9 @@ public class NotificationService {
         this.asyncSender = asyncSender;
     }
 
-    public void notify(Long userId, String type, String title, String content, String targetType, Long targetId) {
-        notify(userId, type, title, content, targetType, targetId, null);
-    }
-
-    public void notify(
-        Long userId, String type, String title, String content, String targetType, Long targetId, Long projectId
-    ) {
-        notificationRepository.save(new Notification(userId, type, title, content, targetType, targetId, projectId));
+    public void notify(Long userId, Long projectId, String type, String title, String content,
+                       String targetType, Long targetId) {
+        notificationRepository.save(new Notification(userId, projectId, type, title, content, targetType, targetId));
     }
 
     /**
@@ -37,13 +32,8 @@ public class NotificationService {
      * 저장하면 실제로 커밋되지 않을 위험이 있다). 동기화가 없는 컨텍스트(단위 테스트 등)에서는 즉시
      * best-effort로 보낸다.
      */
-    public void notifyAfterCommit(Long userId, String type, String title, String content, String targetType, Long targetId) {
-        notifyAfterCommit(userId, type, title, content, targetType, targetId, null);
-    }
-
-    public void notifyAfterCommit(
-        Long userId, String type, String title, String content, String targetType, Long targetId, Long projectId
-    ) {
+    public void notifyAfterCommit(Long userId, Long projectId, String type, String title, String content,
+                                  String targetType, Long targetId) {
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
@@ -53,16 +43,16 @@ public class NotificationService {
                     // 원 트랜잭션은 이미 커밋된 뒤라, 여기서 예외를 흘리면 이미 성공한 API 응답이
                     // 실패한 것처럼 보이게 된다 — 알림은 부가 기능이므로 격리한다.
                     try {
-                        asyncSender.sendAsync(userId, type, title, content, targetType, targetId, projectId);
+                        asyncSender.sendAsync(userId, projectId, type, title, content, targetType, targetId);
                     } catch (RuntimeException e) {
-                        log.warn("알림 비동기 작업 제출 실패. userId={}, type={}, targetType={}, targetId={}",
-                            userId, type, targetType, targetId, e);
+                        log.warn("알림 비동기 작업 제출 실패. userId={}, projectId={}, type={}, targetType={}, targetId={}",
+                            userId, projectId, type, targetType, targetId, e);
                     }
                 }
             });
             return;
         }
-        asyncSender.sendSafely(userId, type, title, content, targetType, targetId, projectId);
+        asyncSender.sendSafely(userId, projectId, type, title, content, targetType, targetId);
     }
 
     /**
@@ -71,24 +61,13 @@ public class NotificationService {
      * 반대편이 행위자와 동일인이면(예: 팀장이 본인 회의록을 처리) 아무 알림도 나가지 않는다.
      */
     public void notifyCounterpart(
-        Long actorUserId, Long counterpartUserId,
+        Long actorUserId, Long counterpartUserId, Long projectId,
         String type, String title, String content,
         String targetType, Long targetId
     ) {
         if (counterpartUserId == null || counterpartUserId.equals(actorUserId)) {
             return;
         }
-        notifyAfterCommit(counterpartUserId, type, title, content, targetType, targetId);
-    }
-
-    public void notifyCounterpart(
-        Long actorUserId, Long counterpartUserId,
-        String type, String title, String content,
-        String targetType, Long targetId, Long projectId
-    ) {
-        if (counterpartUserId == null || counterpartUserId.equals(actorUserId)) {
-            return;
-        }
-        notifyAfterCommit(counterpartUserId, type, title, content, targetType, targetId, projectId);
+        notifyAfterCommit(counterpartUserId, projectId, type, title, content, targetType, targetId);
     }
 }

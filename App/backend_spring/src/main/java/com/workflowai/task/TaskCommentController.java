@@ -129,9 +129,8 @@ public class TaskCommentController {
             String verb = isFeedback ? "피드백을" : "코멘트를";
             String noun = isFeedback ? "피드백이" : "코멘트가";
             notificationService.notifyAfterCommit(
-                task.getAssigneeId(), "TASK_COMMENT", "새 " + noun + " 달렸습니다.",
-                "'" + authorName + "'님이 '" + task.getTitle() + "' 업무에 " + verb + " 남겼습니다.",
-                "task", task.getId(), task.getProjectId()
+                task.getAssigneeId(), task.getProjectId(), "TASK_COMMENT", "새 " + noun + " 달렸습니다.",
+                "'" + authorName + "'님이 '" + task.getTitle() + "' 업무에 " + verb + " 남겼습니다.", "task", task.getId()
             );
         }
         return ResponseEntity.ok(ApiResponse.ok(TaskCommentDto.from(saved, authorName, authorMockId)));

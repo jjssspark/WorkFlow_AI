@@ -5,6 +5,7 @@ export interface PresenceUser {
   userId: number;
   name: string;
   role: string;
+  avatarUrl: string | null;
 }
 
 const POLL_INTERVAL_MS = 5000;

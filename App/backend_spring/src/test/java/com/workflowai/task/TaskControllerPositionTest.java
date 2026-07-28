@@ -162,7 +162,7 @@ class TaskControllerPositionTest {
             .andExpect(status().isOk());
 
         // existingTask()의 담당자는 3L. actor(1L)는 팀장이지만 자기알림 제외 대상이라 알림 없음.
-        verify(notificationService, times(1)).notifyAfterCommit(eq(3L), eq("STATUS_CHANGED"), any(), any(), eq("task"), any(), eq(1L));
+        verify(notificationService, times(1)).notifyAfterCommit(eq(3L), eq(1L), eq("STATUS_CHANGED"), any(), any(), eq("task"), any());
     }
 
     @Test
@@ -187,12 +187,12 @@ class TaskControllerPositionTest {
 
         verify(notificationService).notifyAfterCommit(
             eq(1L),
+            eq(1L),
             eq("STATUS_CHANGED"),
             eq("업무 상태가 변경되었습니다."),
             eq("김민준님이 '원래 제목' 업무를 '진행 중' 상태로 변경했습니다."),
             eq("task"),
-            any(),
-            eq(1L)
+            any()
         );
     }
 

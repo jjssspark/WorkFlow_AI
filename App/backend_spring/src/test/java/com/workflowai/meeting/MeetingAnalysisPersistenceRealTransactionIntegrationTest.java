@@ -95,8 +95,7 @@ class MeetingAnalysisPersistenceRealTransactionIntegrationTest {
         persistence.saveAnalysisSuccess(meetingId, emptyResult(), "FASTAPI");
 
         verify(notificationService).notifyAfterCommit(
-            eq(99L), eq("MEETING_ANALYSIS_COMPLETED_NOTIFY_LEADER"), any(), any(),
-            eq("meeting"), eq(meetingId), eq(1L)
+            eq(99L), eq(1L), eq("MEETING_ANALYSIS_COMPLETED_NOTIFY_LEADER"), any(), any(), eq("meeting"), eq(meetingId)
         );
         assertThat(meetingRepository.findById(meetingId).orElseThrow().getAnalysisStatus()).isEqualTo("completed");
     }
@@ -125,8 +124,8 @@ class MeetingAnalysisPersistenceRealTransactionIntegrationTest {
         persistence.saveAnalysisFailure(meetingId, "FastAPI 연결 실패");
 
         verify(notificationService).notifyAfterCommit(
-            10L, "MEETING_ANALYSIS_FAILED", "회의 분석에 실패했습니다.",
-            "'정기회의' 회의록 분석에 실패했습니다. 다시 시도해주세요.", "meeting", meetingId, 1L
+            10L, 1L, "MEETING_ANALYSIS_FAILED", "회의 분석에 실패했습니다.",
+            "'정기회의' 회의록 분석에 실패했습니다. 다시 시도해주세요.", "meeting", meetingId
         );
         assertThat(meetingRepository.findById(meetingId).orElseThrow().getAnalysisStatus()).isEqualTo("failed");
     }
