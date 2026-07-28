@@ -27,13 +27,15 @@ def test_build_features_without_embedding_adjustments_unchanged():
 def test_build_features_applies_embedding_adjustments():
     df = _sample_tasks_df()
     baseline = build_features(df)
-    baseline_difficulty = baseline.loc[baseline["assignee_id"] == "a", "difficulty_avg"].iloc[0]
+    baseline_difficulty = baseline.loc[baseline["assignee_id"] == "a", "difficulty_total"].iloc[0]
 
-    # task_id=1에 +1.0 보정치를 주면 difficulty_avg가 그만큼(팀원당 task 2개 중 1개니 0.5) 올라가야 함
+    # task_id=1에 +1.0 보정치를 주면 difficulty_total이 그만큼 그대로 올라가야 함
+    # (합산 집계이므로 개별 task의 보정치가 팀원 수로 나눠지지 않고 직접 반영됨 —
+    # 평균 집계였던 시절엔 팀원당 task 2개 중 1개라 절반(0.5)만 반영됐었음)
     adjusted = build_features(df, embedding_adjustments={1: 1.0})
-    adjusted_difficulty = adjusted.loc[adjusted["assignee_id"] == "a", "difficulty_avg"].iloc[0]
+    adjusted_difficulty = adjusted.loc[adjusted["assignee_id"] == "a", "difficulty_total"].iloc[0]
 
-    assert adjusted_difficulty == pytest.approx(baseline_difficulty + 0.5)
+    assert adjusted_difficulty == pytest.approx(baseline_difficulty + 1.0)
 
 
 def test_build_features_missing_task_id_in_adjustments_defaults_to_zero():
