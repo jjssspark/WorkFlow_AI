@@ -264,6 +264,10 @@ class TaskControllerPositionTest {
         when(projectMemberRepository.findByProjectIdAndUserId(1L, 3L))
             .thenReturn(Optional.of(new ProjectMember(1L, 3L, ProjectRole.MEMBER)));
         when(taskRepository.save(any(Task.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(projectMemberRepository.findAllByProjectId(1L)).thenReturn(List.of(
+            new ProjectMember(1L, 3L, ProjectRole.MEMBER),
+            new ProjectMember(1L, 1L, ProjectRole.LEADER)
+        ));
 
         mockMvc.perform(patch("/api/v1/projects/demo-project/tasks/42/position")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -272,5 +276,9 @@ class TaskControllerPositionTest {
 
         verify(notificationService, org.mockito.Mockito.never())
             .notifyAfterCommit(any(), any(), any(), any(), any(), any(), any());
+
+        // 상태 변경이 없어도 SSE task-move 브로드캐스트는 다른 프로젝트 멤버에게 항상 전송되어야 한다.
+        verify(notificationBroadcaster).broadcast(eq(1L), eq("task-move"), any());
+        verify(notificationBroadcaster, org.mockito.Mockito.never()).broadcast(eq(3L), any(), any());
     }
 }
