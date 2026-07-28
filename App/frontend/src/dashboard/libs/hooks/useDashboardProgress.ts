@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { fetchDashboardProgress, refreshDelayRisk } from "../utils/dashboardApi";
+import { enqueueDelayRiskRefresh, fetchDashboardProgress, fetchDelayRiskRefreshStatus } from "../utils/dashboardApi";
+import { pollDashboardAiJobUntilDone } from "../utils/pollDashboardAiJob";
 import type { ProgressDetailResponse } from "../types/dashboard";
 
 export function useDashboardProgress(projectId: string | number | null | undefined) {
@@ -48,6 +49,8 @@ export function useDashboardProgress(projectId: string | number | null | undefin
     load();
   }, [load]);
 
+  // 재분석 요청은 Redis Queue에 적재될 뿐 즉시 끝나지 않으므로, jobId를 받아 완료될 때까지
+  // 폴링한 뒤에야 최신 진행률 상세를 다시 불러온다.
   const runDelayRiskAnalysis = useCallback(() => {
     if (projectId == null) {
       setError("프로젝트를 먼저 선택해주세요.");
@@ -55,7 +58,9 @@ export function useDashboardProgress(projectId: string | number | null | undefin
     }
     setRefreshing(true);
     setError(null);
-    return refreshDelayRisk(projectId)
+    return enqueueDelayRiskRefresh(projectId)
+      .then(job => pollDashboardAiJobUntilDone(() => fetchDelayRiskRefreshStatus(projectId, job.jobId)))
+      .then(() => fetchDashboardProgress(projectId))
       .then(result => setData(result))
       .catch((err: Error) => setError(err.message))
       .finally(() => setRefreshing(false));

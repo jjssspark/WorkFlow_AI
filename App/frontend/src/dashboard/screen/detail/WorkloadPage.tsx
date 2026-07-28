@@ -74,7 +74,7 @@ export function WorkloadPage() {
   const isLeader = currentProject?.role === "팀장";
   const { data: summary, loading: summaryLoading, error: summaryError, refetch: refetchSummary } = useDashboardSummary(currentProjectId);
   const { data: tasks, loading: tasksLoading, error: tasksError, refetch } = useDashboardTasks(currentProjectId);
-  const { data: workloadScore, loading: workloadScoreLoading, error: workloadScoreError, refetch: refetchWorkloadScore } = useWorkloadScore(currentProjectId);
+  const { data: workloadScore, loading: workloadScoreLoading, error: workloadScoreError, refreshWorkloadScore } = useWorkloadScore(currentProjectId);
   const [pageRefreshing, setPageRefreshing] = useState(false);
   const navigate = useNavigate();
   const onBack = () => navigate("/dashboard");
@@ -165,7 +165,7 @@ export function WorkloadPage() {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={async () => { setPageRefreshing(true); await Promise.all([refetch(), refetchSummary(), refetchWorkloadScore()]); setPageRefreshing(false); }}
+            onClick={async () => { setPageRefreshing(true); await Promise.all([refetch(), refetchSummary(), refreshWorkloadScore()]); setPageRefreshing(false); }}
             disabled={pageRefreshing}
             className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-border bg-card text-foreground rounded-lg hover:bg-muted transition-colors disabled:opacity-50"
           ><RefreshCw className={`w-3.5 h-3.5 ${pageRefreshing ? "animate-spin" : ""}`} />새로고침</button>

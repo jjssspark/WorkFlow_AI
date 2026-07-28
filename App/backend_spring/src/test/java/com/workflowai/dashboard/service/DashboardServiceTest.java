@@ -3,11 +3,14 @@ package com.workflowai.dashboard.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.any;
 
 import com.workflowai.activity.ActivityRepository;
 import com.workflowai.common.DemoDataService;
+import com.workflowai.dashboard.DTO.DashboardAiJobResponse;
 import com.workflowai.dashboard.DTO.DashboardTaskDto;
 import com.workflowai.dashboard.DTO.DelayRiskDto;
 import com.workflowai.dashboard.DTO.MilestoneProgressDto;
@@ -47,16 +50,18 @@ class DashboardServiceTest {
     @Mock private UserRepository userRepository;
     @Mock private ProjectMemberRepository projectMemberRepository;
     @Mock private DemoDataService demoDataService;
-    @Mock private FastApiDashboardClient fastApiDashboardClient;
     @Mock private FastApiWorkloadScoreClient fastApiWorkloadScoreClient;
     @Mock private ProjectRepository projectRepository;
     @Mock private NotificationService notificationService;
+    @Mock private DashboardAiJobPublisher dashboardAiJobPublisher;
+    @Mock private DashboardWorkloadScoreCache workloadScoreCache;
 
     private DashboardService newService() {
         return new DashboardService(
             taskRepository, milestoneRepository, activityRepository, mlPredictionRepository,
-            userRepository, projectMemberRepository, demoDataService, fastApiDashboardClient,
-            fastApiWorkloadScoreClient, projectRepository, notificationService
+            userRepository, projectMemberRepository, demoDataService,
+            fastApiWorkloadScoreClient, projectRepository, notificationService,
+            dashboardAiJobPublisher, workloadScoreCache
         );
     }
 
@@ -215,8 +220,9 @@ class DashboardServiceTest {
     }
 
     @Test
-    void getWorkloadScoreDelegatesToFastApiWorkloadScoreClient() {
+    void getWorkloadScoreFetchesLiveAndWarmsCacheWhenCacheMissing() {
         when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
+        when(workloadScoreCache.get(1L)).thenReturn(Optional.empty());
         WorkloadScoreResponseDto response = new WorkloadScoreResponseDto(
             "1.0", 1L, "db", "MAD (소규모 팀)",
             List.of(new WorkloadScoreMemberDto("5", 12, 0.4, 88.5, true, "과부하 의심", 1.8, 1.2, 3)),
@@ -229,5 +235,43 @@ class DashboardServiceTest {
         assertThat(result.members()).hasSize(1);
         assertThat(result.members().get(0).anomaly_type()).isEqualTo("과부하 의심");
         assertThat(result.team_mean_completion()).isEqualTo(0.62);
+        verify(workloadScoreCache).put(1L, response);
+    }
+
+    @Test
+    void getWorkloadScoreReturnsCachedValueWithoutCallingFastApi() {
+        when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
+        WorkloadScoreResponseDto cached = new WorkloadScoreResponseDto(
+            "1.0", 1L, "db", "MAD (소규모 팀)", List.of(), null, 0.5
+        );
+        when(workloadScoreCache.get(1L)).thenReturn(Optional.of(cached));
+
+        WorkloadScoreResponseDto result = newService().getWorkloadScore("demo-project");
+
+        assertThat(result).isSameAs(cached);
+        verify(fastApiWorkloadScoreClient, never()).fetch(any());
+    }
+
+    @Test
+    void enqueueDelayRiskRefreshDelegatesToPublisherAndReturnsProcessingStatus() {
+        when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
+        when(dashboardAiJobPublisher.enqueue(1L, DashboardAiJobType.DELAY_RISK, 5L)).thenReturn("job-1");
+
+        DashboardAiJobResponse result = newService().enqueueDelayRiskRefresh("demo-project", 5L);
+
+        assertThat(result.jobId()).isEqualTo("job-1");
+        assertThat(result.projectId()).isEqualTo("demo-project");
+        assertThat(result.jobType()).isEqualTo("DELAY_RISK");
+        assertThat(result.status()).isEqualTo("PROCESSING");
+    }
+
+    @Test
+    void getDelayRiskRefreshStatusReturnsDoneWhenJobNoLongerActive() {
+        when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
+        when(dashboardAiJobPublisher.isJobActive(1L, DashboardAiJobType.DELAY_RISK, "job-1")).thenReturn(false);
+
+        DashboardAiJobResponse result = newService().getDelayRiskRefreshStatus("demo-project", "job-1");
+
+        assertThat(result.status()).isEqualTo("DONE");
     }
 }

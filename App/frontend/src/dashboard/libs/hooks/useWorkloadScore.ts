@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { fetchWorkloadScore } from "../utils/workloadScoreApi";
+import { enqueueWorkloadScoreRefresh, fetchWorkloadScore, fetchWorkloadScoreRefreshStatus } from "../utils/workloadScoreApi";
+import { pollDashboardAiJobUntilDone } from "../utils/pollDashboardAiJob";
 import type { WorkloadScoreResult } from "../utils/workloadScoreApi";
 
 export function useWorkloadScore(projectId: string | number | null | undefined) {
   const [data, setData] = useState<WorkloadScoreResult | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const hasLoadedRef = useRef(false);
   useEffect(() => {
@@ -45,5 +47,21 @@ export function useWorkloadScore(projectId: string | number | null | undefined) 
     load();
   }, [load]);
 
-  return { data, loading, error, refetch: load };
+  // GET은 이제 Redis에 캐시된 마지막 계산 결과만 돌려주므로, 새로 계산하려면 재계산 작업을
+  // Redis Queue에 적재하고 완료될 때까지 폴링한 뒤 캐시를 다시 읽어와야 한다.
+  const refreshWorkloadScore = useCallback(() => {
+    if (projectId == null) {
+      setError("프로젝트를 먼저 선택해주세요.");
+      return Promise.resolve();
+    }
+    setRefreshing(true);
+    setError(null);
+    return enqueueWorkloadScoreRefresh(projectId)
+      .then(job => pollDashboardAiJobUntilDone(() => fetchWorkloadScoreRefreshStatus(projectId, job.jobId)))
+      .then(() => load())
+      .catch((err: Error) => setError(err.message))
+      .finally(() => setRefreshing(false));
+  }, [projectId, load]);
+
+  return { data, loading, refreshing, error, refetch: load, refreshWorkloadScore };
 }

@@ -16,6 +16,7 @@ import com.workflowai.user.User;
 import com.workflowai.user.UserRepository;
 import com.workflowai.dashboard.DTO.ActivityItemDto;
 import com.workflowai.dashboard.DTO.CategoryProgressDto;
+import com.workflowai.dashboard.DTO.DashboardAiJobResponse;
 import com.workflowai.dashboard.DTO.DashboardTaskDto;
 import com.workflowai.dashboard.DTO.DashboardSummaryResponse;
 import com.workflowai.dashboard.DTO.DelayRiskDto;
@@ -36,14 +37,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class DashboardService {
-    private static final Logger log = LoggerFactory.getLogger(DashboardService.class);
 
     private static final String STATUS_DONE = "done";
     private static final String STATUS_INPROGRESS = "inprogress";
@@ -60,10 +58,11 @@ public class DashboardService {
     private final UserRepository userRepository;
     private final ProjectMemberRepository projectMemberRepository;
     private final DemoDataService demoDataService;
-    private final FastApiDashboardClient fastApiDashboardClient;
     private final FastApiWorkloadScoreClient fastApiWorkloadScoreClient;
     private final ProjectRepository projectRepository;
     private final NotificationService notificationService;
+    private final DashboardAiJobPublisher dashboardAiJobPublisher;
+    private final DashboardWorkloadScoreCache workloadScoreCache;
 
     public DashboardService(
         TaskRepository taskRepository,
@@ -73,10 +72,11 @@ public class DashboardService {
         UserRepository userRepository,
         ProjectMemberRepository projectMemberRepository,
         DemoDataService demoDataService,
-        FastApiDashboardClient fastApiDashboardClient,
         FastApiWorkloadScoreClient fastApiWorkloadScoreClient,
         ProjectRepository projectRepository,
-        NotificationService notificationService
+        NotificationService notificationService,
+        DashboardAiJobPublisher dashboardAiJobPublisher,
+        DashboardWorkloadScoreCache workloadScoreCache
     ) {
         this.taskRepository = taskRepository;
         this.milestoneRepository = milestoneRepository;
@@ -85,10 +85,11 @@ public class DashboardService {
         this.userRepository = userRepository;
         this.projectMemberRepository = projectMemberRepository;
         this.demoDataService = demoDataService;
-        this.fastApiDashboardClient = fastApiDashboardClient;
         this.fastApiWorkloadScoreClient = fastApiWorkloadScoreClient;
         this.projectRepository = projectRepository;
         this.notificationService = notificationService;
+        this.dashboardAiJobPublisher = dashboardAiJobPublisher;
+        this.workloadScoreCache = workloadScoreCache;
     }
 
     @Transactional(readOnly = true)
@@ -292,24 +293,50 @@ public class DashboardService {
             ));
     }
 
-    /** FastAPI에 재예측을 요청한 뒤(베스트-에포트) 최신 진행률 상세를 반환한다. */
-    public ProgressDetailResponse refreshDelayRiskAndGetProgress(String projectIdParam) {
+    /**
+     * 지연 위험도 재분석을 Redis Queue(dashboard-ai-jobs)에 적재하고 즉시 "처리중" 응답을 돌려준다.
+     * 실제 FastAPI 재예측·ml_predictions 갱신은 DashboardAiQueueWorker가 비동기로 수행하며,
+     * 완료되면 팀원에게 SSE 알림이 간다. 프론트는 반환된 jobId로 getDelayRiskRefreshStatus를 폴링해
+     * 완료 시점을 파악한 뒤 getProgressDetail로 최신 결과를 다시 불러온다.
+     */
+    public DashboardAiJobResponse enqueueDelayRiskRefresh(String projectIdParam, Long requestedBy) {
         Long projectId = demoDataService.resolveProjectId(projectIdParam);
-        try {
-            fastApiDashboardClient.refreshDelayRisk(projectId);
-        } catch (Exception e) {
-            // FastAPI가 내려가 있어도 대시보드 자체는 계속 떠야 하므로, 여기서 예외를 삼키고
-            // ml_predictions에 이미 저장돼 있던 마지막 예측 결과로 계속 진행한다.
-            log.warn("지연 위험도 재예측 요청 실패 (project_id={}): {}", projectId, e.getMessage());
-        }
-        return getProgressDetail(projectIdParam);
+        String jobId = dashboardAiJobPublisher.enqueue(projectId, DashboardAiJobType.DELAY_RISK, requestedBy);
+        return new DashboardAiJobResponse(jobId, projectIdParam, DashboardAiJobType.DELAY_RISK.name(), "PROCESSING");
     }
 
-    /** ml_workload_score(FastAPI)가 계산한 팀원별 업무 편중(과부하/저활동) 점수를 그대로 가져온다.
-     * ml_predictions처럼 DB에 저장해두고 읽는 게 아니라 호출 시점에 즉시 계산되는 라이브 조회다. */
+    public DashboardAiJobResponse getDelayRiskRefreshStatus(String projectIdParam, String jobId) {
+        return jobStatus(projectIdParam, jobId, DashboardAiJobType.DELAY_RISK);
+    }
+
+    /** 업무 편중 점수 계산을 Redis Queue에 적재한다. enqueueDelayRiskRefresh와 동일한 흐름이다. */
+    public DashboardAiJobResponse enqueueWorkloadScoreRefresh(String projectIdParam, Long requestedBy) {
+        Long projectId = demoDataService.resolveProjectId(projectIdParam);
+        String jobId = dashboardAiJobPublisher.enqueue(projectId, DashboardAiJobType.WORKLOAD_SCORE, requestedBy);
+        return new DashboardAiJobResponse(jobId, projectIdParam, DashboardAiJobType.WORKLOAD_SCORE.name(), "PROCESSING");
+    }
+
+    public DashboardAiJobResponse getWorkloadScoreRefreshStatus(String projectIdParam, String jobId) {
+        return jobStatus(projectIdParam, jobId, DashboardAiJobType.WORKLOAD_SCORE);
+    }
+
+    private DashboardAiJobResponse jobStatus(String projectIdParam, String jobId, DashboardAiJobType jobType) {
+        Long projectId = demoDataService.resolveProjectId(projectIdParam);
+        boolean active = dashboardAiJobPublisher.isJobActive(projectId, jobType, jobId);
+        return new DashboardAiJobResponse(jobId, projectIdParam, jobType.name(), active ? "PROCESSING" : "DONE");
+    }
+
+    /** ml_workload_score(FastAPI)가 계산한 팀원별 업무 편중(과부하/저활동) 점수를 가져온다.
+     * Redis에 캐시된 마지막 계산 결과가 있으면 그것을 바로 돌려주고(대시보드 로딩마다 FastAPI를
+     * 다시 호출하지 않는다), 캐시가 아직 없을 때만(예: 이 프로젝트에서 한 번도 재분석하지 않은 경우)
+     * 라이브로 계산해 캐시를 채운다. */
     public WorkloadScoreResponseDto getWorkloadScore(String projectIdParam) {
         Long projectId = demoDataService.resolveProjectId(projectIdParam);
-        return fastApiWorkloadScoreClient.fetch(projectId);
+        return workloadScoreCache.get(projectId).orElseGet(() -> {
+            WorkloadScoreResponseDto live = fastApiWorkloadScoreClient.fetch(projectId);
+            workloadScoreCache.put(projectId, live);
+            return live;
+        });
     }
 
     private List<WorkloadEntryDto> buildWorkload(List<ProjectMember> members, List<Task> tasks, Map<Long, String> userNames) {

@@ -1,4 +1,5 @@
 import { apiFetch } from "../../../global/api/apiClient";
+import type { DashboardAiJobResponse } from "../types/dashboard";
 
 // Spring dashboard.workload-score 엔드포인트는 ml_workload_score(FastAPI) 응답을
 // 필드명 그대로 통과시키므로(dashboard.ts의 다른 camelCase DTO와 달리) snake_case로 온다.
@@ -64,4 +65,19 @@ export async function fetchWorkloadScore(projectId: string | number): Promise<Wo
     note: data.note,
     teamMeanCompletion: data.team_mean_completion,
   };
+}
+
+// 업무 편중 점수 재계산도 Redis Queue(dashboard-ai-jobs)로 처리된다 — GET /workload-score는
+// 이제 마지막으로 캐시된 값을 돌려줄 뿐이므로, 새로 계산하려면 이 재계산 요청을 먼저 적재해야 한다.
+export async function enqueueWorkloadScoreRefresh(projectId: string | number): Promise<DashboardAiJobResponse> {
+  return apiFetch<DashboardAiJobResponse>(`/projects/${projectId}/dashboard/workload-score/refresh`, {
+    method: "POST",
+  });
+}
+
+export async function fetchWorkloadScoreRefreshStatus(
+  projectId: string | number,
+  jobId: string
+): Promise<DashboardAiJobResponse> {
+  return apiFetch<DashboardAiJobResponse>(`/projects/${projectId}/dashboard/workload-score/refresh/${jobId}`);
 }

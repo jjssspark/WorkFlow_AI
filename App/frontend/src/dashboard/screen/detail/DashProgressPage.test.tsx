@@ -36,6 +36,7 @@ vi.mock("../../libs/hooks/useDashboardProgress", () => ({
   useDashboardProgress: () => ({
     data: progressData,
     loading: false,
+    refreshing: false,
     error: null,
     refetch: refetchMock,
     runDelayRiskAnalysis: vi.fn(),

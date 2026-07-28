@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router";
-import { AlertTriangle, Calendar, Check, Clock, Sparkles, Target, Plus, X } from "lucide-react";
+import { AlertTriangle, Calendar, Check, Clock, RefreshCw, Sparkles, Target, Plus, X } from "lucide-react";
 import { PriorityBadge } from "../../../board/components/PriorityBadge";
 import { TaskStatusPill } from "../../../board/components/TaskStatusPill";
 import { AiInsightBox } from "../../../ai/components/AiInsightBox";
@@ -176,7 +176,7 @@ export function DashProgressPage() {
   const navigate = useNavigate();
   const onBack = () => navigate("/dashboard");
   const onGoUrgent = () => navigate("/dashboard/urgent");
-  const { data: progress, loading, error, refetch } = useDashboardProgress(currentProjectId);
+  const { data: progress, loading, refreshing: delayRiskRefreshing, error, refetch, runDelayRiskAnalysis } = useDashboardProgress(currentProjectId);
   const { data: tasks, loading: tasksLoading } = useDashboardTasks(currentProjectId);
   const [showMilestonePopup, setShowMilestonePopup] = useState(false);
   const [detailTarget, setDetailTarget] = useState<DashboardTaskDto | null>(null);
@@ -378,6 +378,11 @@ export function DashProgressPage() {
           <p className="text-sm text-muted-foreground mt-0.5">프로젝트 일정 대비 진행 현황을 분석하고 지연 위험을 파악합니다.</p>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => { void runDelayRiskAnalysis(); }}
+            disabled={delayRiskRefreshing}
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-border bg-card text-foreground rounded-lg hover:bg-muted transition-colors disabled:opacity-50"
+          ><RefreshCw className={`w-3.5 h-3.5 ${delayRiskRefreshing ? "animate-spin" : ""}`} />{delayRiskRefreshing ? "AI 재분석 중..." : "AI 지연 위험도 재분석"}</button>
           <button onClick={onGoUrgent} className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-red-200 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors"><AlertTriangle className="w-3.5 h-3.5" />마감 임박 업무</button>
           {/* <button onClick={handleGenerateReport} disabled={generatingReport} className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-white rounded-lg disabled:opacity-60" style={{ background: "linear-gradient(135deg,#7048E8,#4F6EF7)" }}>
             <Sparkles className="w-3.5 h-3.5" />{generatingReport ? "생성 중..." : "진행률 보고서"}
