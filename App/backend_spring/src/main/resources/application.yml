@@ -60,6 +60,9 @@ workflow:
     base-url: ${WORKFLOW_AI_FASTAPI_URL:http://localhost:8000}
     connect-timeout-seconds: ${WORKFLOW_AI_CONNECT_TIMEOUT_SECONDS:5}
     read-timeout-seconds: ${WORKFLOW_AI_READ_TIMEOUT_SECONDS:45}
+    # 어시스턴트는 회의록 분석과 걸리는 시간이 다르다(생성 LLM 한 번이 통째로 들어간다).
+    # 45초는 로컬 ollama 콜드 44.6초와 사실상 같은 값이라 첫 질문이 상시 실패했다.
+    assistant-read-timeout-seconds: ${WORKFLOW_AI_ASSISTANT_READ_TIMEOUT_SECONDS:120}
     internal-key: ${RAG_INTERNAL_API_KEY}
   cors:
     allowed-origins: ${WORKFLOW_CORS_ORIGINS:http://localhost:5173,http://127.0.0.1:5173}

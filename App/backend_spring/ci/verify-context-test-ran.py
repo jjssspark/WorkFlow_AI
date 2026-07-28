@@ -30,6 +30,10 @@ SUITES = (
     "com.workflowai.auth.AuthLifecycleIntegrationTest",
     "com.workflowai.auth.GoogleOAuthLoginIntegrationTest",
     "com.workflowai.auth.TestAccountConcurrentLoginIntegrationTest",
+    # 프로젝트 인가 경로(IT-008~011). project_members에 쓴 역할이 ProjectAccess의 판정에
+    # 즉시 반영되는지는 요청 두 개를 실제로 태워야만 보인다.
+    "com.workflowai.project.ProjectMembershipIntegrationTest",
+    "com.workflowai.project.ProjectInvitationIntegrationTest",
 )
 REPORT_DIR = Path("build/test-results/test")
 

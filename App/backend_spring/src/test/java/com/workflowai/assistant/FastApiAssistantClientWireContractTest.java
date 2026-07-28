@@ -1,6 +1,7 @@
 package com.workflowai.assistant;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -17,6 +18,7 @@ import java.util.Set;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.web.client.ResourceAccessException;
 
 /**
  * IT-032 어시스턴트 확인~실행 연계 - 스프링과 FastAPI가 주고받는 것의 계약.
@@ -73,11 +75,16 @@ class FastApiAssistantClientWireContractTest {
                  "args":{"date":"2026-07-29"}}}
         """;
 
+    /** 계약 검증용 호출이 타임아웃에 걸리지 않도록 넉넉히 준다. 타임아웃 자체는 전용 테스트에서 본다. */
+    private static final long GENEROUS_READ_TIMEOUT_SECONDS = 30;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final List<CapturedRequest> captured = Collections.synchronizedList(new ArrayList<>());
 
     private HttpServer server;
     private FastApiAssistantClient client;
+    /** 0이 아니면 가짜 FastAPI가 응답 전에 이만큼 잔다. 읽기 타임아웃 검증용. */
+    private volatile long responseDelayMillis;
 
     private record CapturedRequest(String method, String path, String internalKey, String body) {}
 
@@ -86,7 +93,12 @@ class FastApiAssistantClientWireContractTest {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/ai/assistant", this::handle);
         server.start();
-        client = new FastApiAssistantClient("http://127.0.0.1:" + server.getAddress().getPort(), INTERNAL_KEY);
+        client = newClient(GENEROUS_READ_TIMEOUT_SECONDS);
+    }
+
+    private FastApiAssistantClient newClient(long readTimeoutSeconds) {
+        return new FastApiAssistantClient(
+            "http://127.0.0.1:" + server.getAddress().getPort(), INTERNAL_KEY, readTimeoutSeconds);
     }
 
     @AfterEach
@@ -191,6 +203,25 @@ class FastApiAssistantClientWireContractTest {
         assertThat(captured).allSatisfy(request -> assertThat(request.internalKey()).isEqualTo(INTERNAL_KEY));
     }
 
+    @Test
+    void readTimeoutComesFromConfigurationSoASlowAnswerCanBeWaitedFor() {
+        // 어시스턴트 한 번 호출은 로컬 ollama 기준 웜 33초, 콜드 44.6초가 걸린다(2026-07-28 실측).
+        // 이 값이 코드에 박혀 있으면 느린 프로바이더를 만났을 때 재빌드 없이는 못 늘린다.
+        // FastAPI는 그 사이에도 답을 다 만들어 200을 돌려주므로, 여기서 끊는다는 건
+        // 이미 만들어진 답을 버리고 사용자에게 "일시적으로 처리할 수 없습니다"를 보여준다는 뜻이다.
+        responseDelayMillis = 3_000;
+        FastApiAssistantClient impatient = newClient(1);
+
+        assertThatThrownBy(() -> impatient.command(
+            new FastApiAssistantRequest(7L, "마감 바꿔줘", 12L, "LEADER", List.of())
+        )).isInstanceOf(ResourceAccessException.class);
+
+        // 같은 서버·같은 지연이어도 설정을 늘리면 답을 받아낸다.
+        assertThat(newClient(GENEROUS_READ_TIMEOUT_SECONDS).command(
+            new FastApiAssistantRequest(7L, "마감 바꿔줘", 12L, "LEADER", List.of())
+        ).thread_id()).isEqualTo("thread-abc");
+    }
+
     private CapturedRequest onlyRequest() {
         assertThat(captured).hasSize(1);
         return captured.get(0);
@@ -201,6 +232,13 @@ class FastApiAssistantClientWireContractTest {
     }
 
     private void handle(HttpExchange exchange) throws IOException {
+        if (responseDelayMillis > 0) {
+            try {
+                Thread.sleep(responseDelayMillis);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+            }
+        }
         captured.add(new CapturedRequest(
             exchange.getRequestMethod(),
             exchange.getRequestURI().getPath(),

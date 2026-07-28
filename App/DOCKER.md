@@ -18,13 +18,20 @@ docker compose up -d
 
 ## 현재 상태에서 알아둘 것
 
-- **db / redis / kafka 서비스는 아직 앱 코드가 사용하지 않는다.** `backend_spring`의
-  `build.gradle`에는 JPA/Postgres/Redis/Kafka 의존성이 없고 `application.yml`에도 관련 설정이
-  없다. 저장소 루트의 `requirements.txt`에도 kafka/redis 클라이언트가 없다.
-  즉 지금 `docker compose up`을 해도 이 세 서비스는 컨테이너만 뜨고 백엔드와 실제로 연결되지는
-  않는다. 나중에 DB/Redis/Kafka 연동 코드가 추가되면, 그때 `KAFKA_BOOTSTRAP_SERVERS` /
-  `DB_HOST` / `REDIS_HOST` 환경변수 이름이 실제 Spring/FastAPI 설정 프로퍼티 키와 맞는지
-  다시 확인할 것.
+- **db / redis는 앱이 실제로 쓴다.** Spring은 JPA/Postgres/Redis 의존성을 갖고 있고
+  (`build.gradle`), FastAPI도 `redis` 클라이언트로 캐시·`rag_epoch`를 다룬다.
+- **kafka만 아직 코드에서 안 쓴다.** 컨테이너는 뜨지만 붙는 쪽이 없다. 나중에 연동할 때
+  `KAFKA_BOOTSTRAP_SERVERS` 환경변수 이름이 실제 설정 프로퍼티 키와 맞는지 확인할 것.
 - **DB 포트 충돌**: 로컬에 이미 PostgreSQL이 떠 있다면 `.env`에 `DB_HOST_PORT=5433` 추가.
-- **frontend**는 pnpm 기준(`pnpm dev` → 5173 포트)으로 되어 있다. `package.json`의 dev
-  스크립트가 바뀌면 `frontend/Dockerfile`의 CMD/EXPOSE도 같이 맞출 것.
+- **frontend는 dev 서버가 아니다.** `frontend/Dockerfile`이 `pnpm build`로 만든 `dist`를
+  nginx(5173 포트)로 서빙한다. HMR도 없고 소스 볼륨 마운트도 없으므로, 프론트 코드를 고친 뒤
+  화면에서 확인하려면 반드시 다시 빌드해야 한다:
+
+  ```bash
+  docker compose up -d --build frontend
+  ```
+
+  이걸 빼먹으면 컨테이너는 멀쩡히 떠 있는 채로 예전 화면이 계속 보인다.
+- **AI 어시스턴트 첫 응답이 느린 경우**: 로컬 ollama는 모델이 메모리에서 내려가 있으면
+  로드에만 10초 이상 쓴다. `RAG_OLLAMA_KEEP_ALIVE`(기본 30m)로 붙들어 두고, Spring 쪽 대기
+  한도는 `WORKFLOW_AI_ASSISTANT_READ_TIMEOUT_SECONDS`(기본 120초)로 조절한다.

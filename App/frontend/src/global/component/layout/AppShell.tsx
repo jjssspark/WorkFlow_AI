@@ -12,7 +12,6 @@ import {
 } from "../../../ai/libs/utils/openAIAssistant";
 import type { Tab } from "../../../board/libs/types/task";
 import { useAuth } from "../../hooks/useAuth";
-import { useNotifications } from "../../hooks/useNotifications";
 import { useSidebarCollapsed } from "../../hooks/useSidebarCollapsed";
 import { useDraggableFab } from "../../hooks/useDraggableFab";
 import { useIsMobile } from "../ui/use-mobile";
@@ -20,8 +19,7 @@ import { useIsMobile } from "../ui/use-mobile";
 export function AppShell() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { projectRoles, currentProjectId } = useAuth();
-  const { setActiveProjectId } = useNotifications();
+  const { projectRoles } = useAuth();
   const [aiOpen, setAIOpen] = useState(false);
   // 닫혀 있는 동안 답변이 도착했는지. 창을 열면 곧 읽게 되므로 그때 지운다.
   const [unreadAnswer, setUnreadAnswer] = useState(false);
@@ -34,13 +32,6 @@ export function AppShell() {
   useEffect(() => {
     setMobileOpen(false);
   }, [isMobile]);
-
-  // 알림 토스트는 지금 보고 있는 프로젝트의 것만 띄운다. 이 레이아웃 밖(프로젝트 진입 화면 등)에서는
-  // 어느 프로젝트를 보는지 정해지지 않았으므로 등록을 해제해 아무것도 띄우지 않게 한다.
-  useEffect(() => {
-    setActiveProjectId(currentProjectId);
-    return () => setActiveProjectId(null);
-  }, [currentProjectId, setActiveProjectId]);
 
   useEffect(() => {
     const open = (event: Event) => {
