@@ -127,14 +127,34 @@ class ProjectServiceTest {
         ReflectionTestUtils.setField(project, "inviteCode", "AB12CD34");
         when(projectRepository.findById(10L)).thenReturn(Optional.of(project));
         when(projectMemberRepository.countByProjectIdAndRoleNot(10L, ProjectRole.REVIEWER)).thenReturn(2L);
-        Task done = new Task(10L, "a", "frontend", "완료", 1L, null, "medium", null, "MANUAL", null, 1L, 0.0);
-        Task notDone = new Task(10L, "b", "frontend", "할 일", 1L, null, "medium", null, "MANUAL", null, 1L, 1.0);
+        // 상태값은 DB에 실제로 저장되는 값("done"/"todo")을 쓴다. 과거 이 테스트가 "완료"/"할 일"을
+        // 쓰는 바람에 구현의 상태값 불일치를 잡지 못했고, 진행률이 늘 0%로 나가던 버그가 통과했다.
+        Task done = new Task(10L, "a", "frontend", "done", 1L, null, "medium", null, "MANUAL", null, 1L, 0.0);
+        Task notDone = new Task(10L, "b", "frontend", "todo", 1L, null, "medium", null, "MANUAL", null, 1L, 1.0);
         when(taskRepository.findByProjectIdOrderByCreatedAtDesc(any())).thenReturn(List.of(done, notDone));
 
         ProjectResponse response = projectService.find(10L);
 
         assertThat(response.memberCount()).isEqualTo(2);
         assertThat(response.taskProgress()).isEqualTo(50);
+    }
+
+    /** 심사자 홈 진행률 회귀: "완료"가 아니라 DB 실제 값 "done"을 완료로 세야 한다. */
+    @Test
+    void find_countsDoneStatusAsCompleted() {
+        Project project = new Project("제목", "캡스톤디자인", "설명");
+        ReflectionTestUtils.setField(project, "id", 10L);
+        ReflectionTestUtils.setField(project, "inviteCode", "AB12CD34");
+        when(projectRepository.findById(10L)).thenReturn(Optional.of(project));
+        when(projectMemberRepository.countByProjectIdAndRoleNot(10L, ProjectRole.REVIEWER)).thenReturn(1L);
+        when(taskRepository.findByProjectIdOrderByCreatedAtDesc(any())).thenReturn(List.of(
+            new Task(10L, "a", "frontend", "done", 1L, null, "medium", null, "MANUAL", null, 1L, 0.0),
+            new Task(10L, "b", "frontend", "done", 1L, null, "medium", null, "MANUAL", null, 1L, 1.0),
+            new Task(10L, "c", "frontend", "inprogress", 1L, null, "medium", null, "MANUAL", null, 1L, 2.0),
+            new Task(10L, "d", "frontend", "blocked", 1L, null, "medium", null, "MANUAL", null, 1L, 3.0)
+        ));
+
+        assertThat(projectService.find(10L).taskProgress()).isEqualTo(50);
     }
 
     @Test
