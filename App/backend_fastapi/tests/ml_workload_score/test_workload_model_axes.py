@@ -138,3 +138,58 @@ def test_compute_axis_results_overload_score_is_weighted_average():
         + target_row["allocation_score"] * 0.2
     )
     assert target_row["overload_score_0_100"] == pytest.approx(expected)
+
+
+from ml_workload_score.app.services.workload_model import detect_overload_anomalies_robust
+
+
+def test_detect_overload_anomalies_robust_uses_three_independent_axes():
+    """주의(브리프 원안에서 데이터 조정): 브리프에 적힌 원래 plan은 target을 done=0(완료율 0)으로
+    두고 member_a~d를 완전히 동일한 수치(20건/5건 완료)로 둬서, (1) "배정량 불균형" 라벨의
+    방향 조건(completion_rate > team_mean_completion)이 완료율 0인 target에서는 절대 성립할 수
+    없고, (2) other 4명이 완전히 동일해 MAD=0 → std 폴백이 걸려 target의 modified z-score가
+    항상 2.5로 상한(z_threshold=3.5 미만)되어 배정 축 자체가 이상치로 잡히지 않는 문제가 있었다
+    (실제로 재현해서 확인함 - modified_z = [0,0,0,0,2.5], threshold=3.5).
+    `test_compute_axis_results_person_can_have_multiple_axis_labels`에서 이미 같은 문제를
+    발견하고 고친 전례를 그대로 따라, 이 테스트도 (a) target이 배정받은 3건을 전부 완료(완료율
+    100% > 팀 평균), (b) 나머지 4명의 배정량/완료 수를 약간씩 다르게(18~21건) 둬서 MAD가 0이
+    아니게 만들었다 - 검증하려는 행동(3축 독립 판정 + anomaly_types 리스트 반환)과 assert 문은
+    브리프 그대로 유지했다."""
+    today = pd.Timestamp("2026-07-28")
+    plan = [
+        ("target", 3, 3, "높음"),
+        ("member_a", 18, 4, "낮음"),
+        ("member_b", 19, 4, "낮음"),
+        ("member_c", 20, 4, "낮음"),
+        ("member_d", 21, 4, "낮음"),
+    ]
+    tasks_df = _tasks_df_for(plan, today)
+    features = build_features(tasks_df, today=today)
+
+    result = detect_overload_anomalies_robust(features)
+    target_row = result[result["assignee_id"] == "target"].iloc[0]
+
+    assert isinstance(target_row["anomaly_types"], list)
+    assert "배정량 불균형" in target_row["anomaly_types"]
+    assert "difficulty_score" in result.columns
+    assert "workload_score" in result.columns
+    assert "allocation_score" in result.columns
+    assert "team_mean_completion" in result.attrs
+
+
+def test_detect_overload_anomalies_robust_normal_member_has_empty_anomaly_types():
+    today = pd.Timestamp("2026-07-28")
+    plan = [
+        ("normal", 8, 4, "중간"),
+        ("member_a", 8, 4, "중간"),
+        ("member_b", 8, 4, "중간"),
+        ("member_c", 8, 4, "중간"),
+    ]
+    tasks_df = _tasks_df_for(plan, today)
+    features = build_features(tasks_df, today=today)
+
+    result = detect_overload_anomalies_robust(features)
+    normal_row = result[result["assignee_id"] == "normal"].iloc[0]
+
+    assert normal_row["anomaly_types"] == []
+    assert bool(normal_row["is_anomaly"]) is False
