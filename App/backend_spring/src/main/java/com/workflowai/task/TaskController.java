@@ -202,7 +202,7 @@ public class TaskController {
         activityService.record(projectDbId, createdBy, "TASK_CREATED", task.getId(), "'" + task.getTitle() + "' 업무를 새로 추가했습니다.");
         if (task.getAssigneeId() != null && !task.getAssigneeId().equals(createdBy)) {
             notificationService.notifyAfterCommit(
-                task.getAssigneeId(), "TASK_ASSIGNED", "새 업무가 배정되었습니다.",
+                task.getAssigneeId(), projectDbId, "TASK_ASSIGNED", "새 업무가 배정되었습니다.",
                 "'" + task.getTitle() + "' 업무가 배정되었습니다.", "task", task.getId()
             );
         }
@@ -235,7 +235,7 @@ public class TaskController {
         @RequestBody TaskPositionUpdateRequest request
     ) {
         Long projectDbId = demoDataService.resolveProjectId(projectId);
-        Task task = taskRepository.findById(taskId).orElse(null);
+        Task task = taskRepository.findByIdForUpdate(taskId).orElse(null);
         if (task == null || !task.getProjectId().equals(projectDbId)) {
             return ResponseEntity.status(404).body(ApiResponse.fail("TASK_NOT_FOUND", "업무를 찾을 수 없습니다."));
         }
@@ -260,9 +260,11 @@ public class TaskController {
                 "'" + task.getTitle() + "' 상태를 '" + label + "'(으)로 변경했습니다."
             );
             String notificationContent = "'" + task.getTitle() + "' 업무가 '" + label + "'(으)로 이동했습니다.";
+            String leaderNotificationContent =
+                userName(moveActorId) + "님이 '" + task.getTitle() + "' 업무를 '" + label + "' 상태로 변경했습니다.";
             if (task.getAssigneeId() != null && !task.getAssigneeId().equals(moveActorId)) {
                 notificationService.notifyAfterCommit(
-                    task.getAssigneeId(), "STATUS_CHANGED", "담당 업무 상태가 변경되었습니다.",
+                    task.getAssigneeId(), projectDbId, "STATUS_CHANGED", "담당 업무 상태가 변경되었습니다.",
                     notificationContent, "task", task.getId()
                 );
             }
@@ -272,8 +274,8 @@ public class TaskController {
                 .filter(leaderId -> !leaderId.equals(moveActorId))
                 .filter(leaderId -> !leaderId.equals(task.getAssigneeId()))
                 .forEach(leaderId -> notificationService.notifyAfterCommit(
-                    leaderId, "STATUS_CHANGED", "업무 상태가 변경되었습니다.",
-                    notificationContent, "task", task.getId()
+                    leaderId, projectDbId, "STATUS_CHANGED", "업무 상태가 변경되었습니다.",
+                    leaderNotificationContent, "task", task.getId()
                 ));
         }
         return ResponseEntity.ok(ApiResponse.ok(TaskListItem.from(task)));
@@ -363,8 +365,21 @@ public class TaskController {
             );
             if (task.getAssigneeId() != null && !task.getAssigneeId().equals(actorId)) {
                 notificationService.notifyAfterCommit(
-                    task.getAssigneeId(), "TASK_ASSIGNED", "업무 담당자로 지정되었습니다.",
+                    task.getAssigneeId(), projectDbId, "TASK_ASSIGNED", "업무 담당자로 지정되었습니다.",
                     "'" + task.getTitle() + "' 업무 담당자로 지정되었습니다.", "task", task.getId()
+                );
+            }
+            // 이전 담당자에게도 알린다. 새 담당자만 알리면 업무가 자기 목록에서 사라진 사람은
+            // 그 사실을 어디서도 통보받지 못한다(RAG 쪽은 syncAssigneeBestEffort로 이미
+            // 떼어내는데 알림만 그 대칭이 없었다).
+            // task.getAssigneeId()가 null인 경우는 없다. applyUpdate가 null을 "변경 없음"으로
+            // 처리하므로(Task.applyUpdate), 이 API로는 담당자를 해제할 수 없고 재배정만 된다.
+            if (assigneeBefore != null && !assigneeBefore.equals(actorId)) {
+                notificationService.notifyAfterCommit(
+                    assigneeBefore, projectDbId, "TASK_UNASSIGNED", "담당 업무에서 제외되었습니다.",
+                    "'" + task.getTitle() + "' 업무가 '" + userName(task.getAssigneeId())
+                        + "'님에게 재배정되었습니다.",
+                    "task", task.getId()
                 );
             }
         }
@@ -385,7 +400,7 @@ public class TaskController {
             activityService.record(projectDbId, actorId, "TASK_UPDATED", task.getId(), "'" + task.getTitle() + "' 업무 정보를 수정했습니다.");
             if (task.getAssigneeId() != null && !task.getAssigneeId().equals(actorId)) {
                 notificationService.notifyAfterCommit(
-                    task.getAssigneeId(), "TASK_UPDATED", "담당 업무 정보가 수정되었습니다.",
+                    task.getAssigneeId(), projectDbId, "TASK_UPDATED", "담당 업무 정보가 수정되었습니다.",
                     "'" + task.getTitle() + "' 업무 정보가 수정되었습니다.", "task", task.getId()
                 );
             }
@@ -445,7 +460,7 @@ public class TaskController {
             // 삭제 알림은 targetId로 업무를 다시 조회하지 않고 title을 메시지에 그대로 박아 보여주므로,
             // 대상이 사라져도 알림 내용 자체는 그대로 유효하다.
             notificationService.notifyAfterCommit(
-                task.getAssigneeId(), "TASK_DELETED", "담당 업무가 삭제되었습니다.",
+                task.getAssigneeId(), projectDbId, "TASK_DELETED", "담당 업무가 삭제되었습니다.",
                 "'" + task.getTitle() + "' 업무가 삭제되었습니다.", "task", task.getId()
             );
         }
@@ -481,7 +496,7 @@ public class TaskController {
         Long actorId = CurrentUser.id();
         if (task.getAssigneeId() != null && !task.getAssigneeId().equals(actorId)) {
             notificationService.notifyAfterCommit(
-                task.getAssigneeId(), "TASK_NUDGE", NUDGE_TITLES.get(request.kind()),
+                task.getAssigneeId(), projectDbId, "TASK_NUDGE", NUDGE_TITLES.get(request.kind()),
                 String.format(messageTemplate, task.getTitle()), "task", task.getId()
             );
         }
@@ -539,7 +554,7 @@ public class TaskController {
             .filter(member -> member.getRole() == ProjectRole.LEADER)
             .map(com.workflowai.project.ProjectMember::getUserId)
             .forEach(leaderId -> notificationService.notifyAfterCommit(
-                leaderId, "COMPLETION_REQUESTED", "완료 승인 요청이 도착했습니다.",
+                leaderId, projectDbId, "COMPLETION_REQUESTED", "완료 승인 요청이 도착했습니다.",
                 "'" + task.getTitle() + "' 업무의 완료 승인을 요청했습니다.", "task", task.getId()
             ));
         return ResponseEntity.ok(ApiResponse.ok(TaskListItem.from(task)));
@@ -575,7 +590,7 @@ public class TaskController {
             .filter(member -> member.getRole() == ProjectRole.LEADER)
             .map(com.workflowai.project.ProjectMember::getUserId)
             .forEach(leaderId -> notificationService.notifyAfterCommit(
-                leaderId, "COMPLETION_CANCELLED", "완료 승인 요청이 취소되었습니다.",
+                leaderId, projectDbId, "COMPLETION_CANCELLED", "완료 승인 요청이 취소되었습니다.",
                 "'" + task.getTitle() + "' 업무의 완료 승인 요청이 취소되었습니다.", "task", task.getId()
             ));
         return ResponseEntity.ok(ApiResponse.ok(TaskListItem.from(task)));
@@ -606,7 +621,7 @@ public class TaskController {
         activityService.record(projectDbId, approverId, "COMPLETION_APPROVED", task.getId(), "'" + task.getTitle() + "' 업무의 완료를 승인했습니다.");
         if (task.getAssigneeId() != null && !task.getAssigneeId().equals(approverId)) {
             notificationService.notifyAfterCommit(
-                task.getAssigneeId(), "COMPLETION_APPROVED", "완료 승인이 완료되었습니다.",
+                task.getAssigneeId(), projectDbId, "COMPLETION_APPROVED", "완료 승인이 완료되었습니다.",
                 "'" + task.getTitle() + "' 업무가 완료로 승인되었습니다.", "task", task.getId()
             );
         }
@@ -638,7 +653,7 @@ public class TaskController {
         activityService.record(projectDbId, rejecterId, "COMPLETION_REJECTED", task.getId(), "'" + task.getTitle() + "' 업무의 완료 요청을 반려했습니다.");
         if (task.getAssigneeId() != null && !task.getAssigneeId().equals(rejecterId)) {
             notificationService.notifyAfterCommit(
-                task.getAssigneeId(), "COMPLETION_REJECTED", "완료 요청이 반려되었습니다.",
+                task.getAssigneeId(), projectDbId, "COMPLETION_REJECTED", "완료 요청이 반려되었습니다.",
                 "'" + task.getTitle() + "' 업무의 완료 요청이 반려되었습니다.", "task", task.getId()
             );
         }

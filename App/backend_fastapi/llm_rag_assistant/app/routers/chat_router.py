@@ -13,7 +13,7 @@ from llm_rag_assistant.app.schema.chat_schema import (
     RagQueryRequest,
     RagQueryResponse,
 )
-from llm_rag_assistant.app.security import verify_internal_api_key
+from core.security import verify_internal_api_key
 from llm_rag_assistant.app.services.generation_service import RagConfigurationError
 from llm_rag_assistant.app.services.ingestion_service import (
     delete_project_sources,

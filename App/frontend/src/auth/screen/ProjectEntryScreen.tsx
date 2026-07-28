@@ -16,8 +16,17 @@ import { AuthBrandPanel } from "../components/AuthBrandPanel";
 import { useAuth } from "../../global/hooks/useAuth";
 import type { ProjectRoleKo, ProjectRoleSummary } from "../../global/api/authTypes";
 import { joinProjectByCode, listProjects, type ProjectResponse } from "../../global/api/projectsApi";
-import { REVIEWER_ACTIVITIES } from "../../global/lib/mock/reviewer";
+import {
+  fetchReviewerActivities, recordReviewerAccess, type ReviewerActivity,
+} from "../../global/api/reviewerActivityApi";
 import { EVAL_STATUS_META, resolveEvalStatus } from "../../global/lib/evalStatus";
+
+/** 카드가 이미 "12.12" 형식으로 디자인되어 있어 같은 표기를 유지한다. */
+function formatActivityDate(isoDateTime: string): string {
+  const date = new Date(isoDateTime);
+  if (Number.isNaN(date.getTime())) return "";
+  return `${date.getMonth() + 1}.${String(date.getDate()).padStart(2, "0")}`;
+}
 
 const PROJECT_META: Record<number, { type: string; deadline: string; progress: number }> = {};
 
@@ -65,6 +74,31 @@ export function ProjectEntryScreen() {
       .catch(() => setAssignedProjectsError("배정된 프로젝트를 불러오지 못했습니다."));
   }, [isJudgeHome]);
 
+  // 최근 심사 활동 카드 + 배정 프로젝트 목록의 최근 접속순 정렬에 쓰는 값.
+  // 활동 기록은 부가 정보이므로 조회에 실패해도 화면 전체를 막지 않고 빈 상태로 둔다.
+  const [activities, setActivities] = useState<ReviewerActivity[]>([]);
+  const [lastAccessByProjectId, setLastAccessByProjectId] = useState<Record<number, number>>({});
+  useEffect(() => {
+    if (!isJudgeHome) return;
+    fetchReviewerActivities()
+      .then((result) => {
+        setActivities(result.activities);
+        setLastAccessByProjectId(Object.fromEntries(
+          result.lastAccess.map((entry) => [entry.projectId, new Date(entry.lastAccessedAt).getTime()])
+        ));
+      })
+      .catch(() => {
+        setActivities([]);
+        setLastAccessByProjectId({});
+      });
+  }, [isJudgeHome]);
+
+  // 최근 접속한 프로젝트가 맨 위로 온다. 접속 기록이 없는 프로젝트는 뒤로 보내되,
+  // 목록에서 빠지지는 않는다(아직 한 번도 열어보지 않은 배정 프로젝트도 보여야 한다).
+  const sortedAssignedProjects = [...assignedProjects].sort(
+    (a, b) => (lastAccessByProjectId[b.id] ?? 0) - (lastAccessByProjectId[a.id] ?? 0)
+  );
+
   const handleBackToLogin = () => {
     logout();
     navigate("/login", { replace: true });
@@ -105,6 +139,9 @@ export function ProjectEntryScreen() {
   // 실제로 배정된 프로젝트 진입 — currentProjectId를 진짜 projectId로 설정하므로
   // ContributorsView가 처음부터 실제 데이터를 불러온다(새로고침 불필요).
   const enterAssignedProject = (project: ProjectResponse) => {
+    // 접속 기록이 "최근 접속 날짜"와 목록 정렬의 근거다. 기록 실패로 진입 자체가 막히면
+    // 안 되므로 응답을 기다리지 않고, 실패해도 조용히 넘어간다.
+    void recordReviewerAccess(project.id).catch(() => {});
     selectProject(project.id);
     navigate("/contributors");
   };
@@ -194,7 +231,7 @@ export function ProjectEntryScreen() {
                 )}
 
                 <div className="divide-y divide-border">
-                  {assignedProjects.map((project) => {
+                  {sortedAssignedProjects.map((project) => {
                     const meta = EVAL_STATUS_META[resolveEvalStatus(project.evalStatus)];
                     return (
                       <button
@@ -282,10 +319,14 @@ export function ProjectEntryScreen() {
                     <h2 className="text-sm font-bold text-foreground">최근 심사 활동</h2>
                   </div>
                   <div className="space-y-3">
-                    {REVIEWER_ACTIVITIES.map((activity, index) => (
-                      <div key={`${activity.team}-${index}`} className="border-b border-border last:border-0 pb-3 last:pb-0">
-                        <div className="text-xs font-semibold text-foreground">{activity.action}</div>
-                        <div className="text-[11px] text-muted-foreground mt-0.5">{activity.team} · {activity.date}</div>
+                    {activities.length === 0 ? (
+                      <div className="text-[11px] text-muted-foreground">아직 심사 활동 기록이 없습니다.</div>
+                    ) : activities.map((activity, index) => (
+                      <div key={`${activity.projectId}-${activity.createdAt}-${index}`} className="border-b border-border last:border-0 pb-3 last:pb-0">
+                        <div className="text-xs font-semibold text-foreground">{activity.activityLabel}</div>
+                        <div className="text-[11px] text-muted-foreground mt-0.5">
+                          {activity.projectTitle} · {formatActivityDate(activity.createdAt)}
+                        </div>
                       </div>
                     ))}
                   </div>

@@ -19,6 +19,7 @@ import com.workflowai.project.ProjectRepository;
 import com.workflowai.project.ProjectRole;
 import com.workflowai.rag.RagIngestService;
 import com.workflowai.security.UserPrincipal;
+import com.workflowai.user.User;
 import com.workflowai.user.UserRepository;
 import java.time.LocalDate;
 import java.util.List;
@@ -99,7 +100,7 @@ class TaskControllerPositionTest {
     void memberCanMoveOwnTask() throws Exception {
         authenticateAs(3L);
         when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
-        when(taskRepository.findById(anyLong())).thenReturn(Optional.of(existingTask()));
+        when(taskRepository.findByIdForUpdate(anyLong())).thenReturn(Optional.of(existingTask()));
         when(projectMemberRepository.findByProjectIdAndUserId(1L, 3L))
             .thenReturn(Optional.of(new ProjectMember(1L, 3L, ProjectRole.MEMBER)));
         when(taskRepository.save(any(Task.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -115,7 +116,7 @@ class TaskControllerPositionTest {
     void memberCannotMoveOthersTask() throws Exception {
         authenticateAs(2L);
         when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
-        when(taskRepository.findById(anyLong())).thenReturn(Optional.of(existingTask()));
+        when(taskRepository.findByIdForUpdate(anyLong())).thenReturn(Optional.of(existingTask()));
         when(projectMemberRepository.findByProjectIdAndUserId(1L, 2L))
             .thenReturn(Optional.of(new ProjectMember(1L, 2L, ProjectRole.MEMBER)));
 
@@ -130,7 +131,7 @@ class TaskControllerPositionTest {
     void leaderCanMoveAnyonesTask() throws Exception {
         authenticateAs(1L);
         when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
-        when(taskRepository.findById(anyLong())).thenReturn(Optional.of(existingTask()));
+        when(taskRepository.findByIdForUpdate(anyLong())).thenReturn(Optional.of(existingTask()));
         when(projectMemberRepository.findByProjectIdAndUserId(1L, 1L))
             .thenReturn(Optional.of(new ProjectMember(1L, 1L, ProjectRole.LEADER)));
         when(taskRepository.save(any(Task.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -146,7 +147,7 @@ class TaskControllerPositionTest {
     void notifiesAssigneeAndLeadersOnStatusChange() throws Exception {
         authenticateAs(1L);
         when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
-        when(taskRepository.findById(anyLong())).thenReturn(Optional.of(existingTask()));
+        when(taskRepository.findByIdForUpdate(anyLong())).thenReturn(Optional.of(existingTask()));
         when(projectMemberRepository.findByProjectIdAndUserId(1L, 1L))
             .thenReturn(Optional.of(new ProjectMember(1L, 1L, ProjectRole.LEADER)));
         when(taskRepository.save(any(Task.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -161,7 +162,73 @@ class TaskControllerPositionTest {
             .andExpect(status().isOk());
 
         // existingTask()의 담당자는 3L. actor(1L)는 팀장이지만 자기알림 제외 대상이라 알림 없음.
-        verify(notificationService, times(1)).notifyAfterCommit(eq(3L), eq("STATUS_CHANGED"), any(), any(), eq("task"), any());
+        verify(notificationService, times(1)).notifyAfterCommit(eq(3L), eq(1L), eq("STATUS_CHANGED"), any(), any(), eq("task"), any());
+    }
+
+    @Test
+    void leaderNotificationIncludesMemberNameTaskAndNewStatus() throws Exception {
+        authenticateAs(3L);
+        when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
+        when(taskRepository.findByIdForUpdate(anyLong())).thenReturn(Optional.of(existingTask()));
+        when(projectMemberRepository.findByProjectIdAndUserId(1L, 3L))
+            .thenReturn(Optional.of(new ProjectMember(1L, 3L, ProjectRole.MEMBER)));
+        when(taskRepository.save(any(Task.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(projectMemberRepository.findAllByProjectId(1L)).thenReturn(List.of(
+            new ProjectMember(1L, 1L, ProjectRole.LEADER),
+            new ProjectMember(1L, 3L, ProjectRole.MEMBER)
+        ));
+        when(userRepository.findById(3L))
+            .thenReturn(Optional.of(new User("member@example.com", "김민준", "local", "member-3")));
+
+        mockMvc.perform(patch("/api/v1/projects/demo-project/tasks/42/position")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"status\":\"inprogress\",\"position\":1.0}"))
+            .andExpect(status().isOk());
+
+        verify(notificationService).notifyAfterCommit(
+            eq(1L),
+            eq(1L),
+            eq("STATUS_CHANGED"),
+            eq("업무 상태가 변경되었습니다."),
+            eq("김민준님이 '원래 제목' 업무를 '진행 중' 상태로 변경했습니다."),
+            eq("task"),
+            any()
+        );
+    }
+
+    @Test
+    void repeatedMoveToSameStatusCreatesOnlyOneLeaderNotification() throws Exception {
+        authenticateAs(3L);
+        Task task = existingTask();
+        when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
+        when(taskRepository.findByIdForUpdate(42L)).thenReturn(Optional.of(task));
+        when(projectMemberRepository.findByProjectIdAndUserId(1L, 3L))
+            .thenReturn(Optional.of(new ProjectMember(1L, 3L, ProjectRole.MEMBER)));
+        when(taskRepository.save(any(Task.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(projectMemberRepository.findAllByProjectId(1L)).thenReturn(List.of(
+            new ProjectMember(1L, 1L, ProjectRole.LEADER),
+            new ProjectMember(1L, 3L, ProjectRole.MEMBER)
+        ));
+        when(userRepository.findById(3L))
+            .thenReturn(Optional.of(new User("member@example.com", "김민준", "local", "member-3")));
+
+        for (int i = 0; i < 2; i++) {
+            mockMvc.perform(patch("/api/v1/projects/demo-project/tasks/42/position")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"status\":\"inprogress\",\"position\":1.0}"))
+                .andExpect(status().isOk());
+        }
+
+        verify(taskRepository, times(2)).findByIdForUpdate(42L);
+        verify(notificationService, times(1)).notifyAfterCommit(
+            eq(1L),
+            eq(1L),
+            eq("STATUS_CHANGED"),
+            eq("업무 상태가 변경되었습니다."),
+            eq("김민준님이 '원래 제목' 업무를 '진행 중' 상태로 변경했습니다."),
+            eq("task"),
+            any()
+        );
     }
 
     @Test
@@ -172,7 +239,7 @@ class TaskControllerPositionTest {
         Task task = existingTask();
         task.requestCompletion();
         when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
-        when(taskRepository.findById(anyLong())).thenReturn(Optional.of(task));
+        when(taskRepository.findByIdForUpdate(anyLong())).thenReturn(Optional.of(task));
         when(projectMemberRepository.findByProjectIdAndUserId(1L, 1L))
             .thenReturn(Optional.of(new ProjectMember(1L, 1L, ProjectRole.LEADER)));
 
@@ -189,7 +256,7 @@ class TaskControllerPositionTest {
     void doesNotNotifyWhenStatusUnchanged() throws Exception {
         authenticateAs(3L);
         when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
-        when(taskRepository.findById(anyLong())).thenReturn(Optional.of(existingTask()));
+        when(taskRepository.findByIdForUpdate(anyLong())).thenReturn(Optional.of(existingTask()));
         when(projectMemberRepository.findByProjectIdAndUserId(1L, 3L))
             .thenReturn(Optional.of(new ProjectMember(1L, 3L, ProjectRole.MEMBER)));
         when(taskRepository.save(any(Task.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -200,6 +267,6 @@ class TaskControllerPositionTest {
             .andExpect(status().isOk());
 
         verify(notificationService, org.mockito.Mockito.never())
-            .notifyAfterCommit(any(), any(), any(), any(), any(), any());
+            .notifyAfterCommit(any(), any(), any(), any(), any(), any(), any());
     }
 }

@@ -85,3 +85,52 @@ const QUICK_MOVE: Partial<Record<string, Partial<Record<TaskStatus, TaskStatus>>
 export function quickMoveTargetStatus(label: string, status: TaskStatus): TaskStatus | null {
   return QUICK_MOVE[label]?.[status] ?? null;
 }
+
+/** taskId+목적지 상태 조합을 키로 묶는다. 같은 업무라도 목적지가 다르면 서로 다른 요청으로 취급한다. */
+function moveKey(taskId: string, targetStatus: TaskStatus): string {
+  return `${taskId}:${targetStatus}`;
+}
+
+interface QueuedTaskMove {
+  key: string;
+  promise: Promise<void>;
+}
+
+/** taskId별로 진행 중/대기 중인 이동 요청을 추적한다. 서로 다른 업무는 이 큐에서 서로 막지 않는다. */
+export type TaskMoveQueue = Map<string, QueuedTaskMove>;
+
+/**
+ * 같은 업무의 이동 요청을 도착한 순서대로 하나씩 실행한다(다른 업무는 서로 막지 않는다).
+ *
+ * 이미 대기/진행 중인 요청과 목적지가 같으면 중복으로 보고 실행하지 않고 false를 반환한다
+ * - 체크리스트 자동 완료처럼 같은 이동이 연달아 호출되는 경우를 막기 위함이다.
+ *
+ * 목적지가 다르면(예: 첫 요청이 아직 끝나지 않았는데 사용자가 다른 컬럼으로 다시 드래그) 폐기하지
+ * 않는다. 다만 곧바로 동시에 실행하지도 않고, 앞선 요청이 끝난 뒤 이어서 실행한다 - 동시에 보내면
+ * 네트워크 타이밍에 따라 서버 잠금 획득 순서가 사용자가 드래그한 순서와 뒤바뀔 수 있고, 나중에
+ * 시작한 요청이 먼저 커밋돼 최종 상태가 사용자의 마지막 조작과 달라질 수 있기 때문이다.
+ */
+export function runTaskMoveOnce(
+  queue: TaskMoveQueue,
+  taskId: string,
+  targetStatus: TaskStatus,
+  action: () => Promise<void>,
+): Promise<boolean> {
+  const key = moveKey(taskId, targetStatus);
+  const queued = queue.get(taskId);
+  if (queued?.key === key) return Promise.resolve(false);
+
+  const promise = (queued?.promise ?? Promise.resolve()).catch(() => {}).then(action);
+  queue.set(taskId, { key, promise });
+
+  return promise.then(
+    () => {
+      if (queue.get(taskId)?.promise === promise) queue.delete(taskId);
+      return true;
+    },
+    (error) => {
+      if (queue.get(taskId)?.promise === promise) queue.delete(taskId);
+      throw error;
+    },
+  );
+}

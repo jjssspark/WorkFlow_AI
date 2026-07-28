@@ -1,16 +1,36 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { executeAction } from "./actionExecutor";
-import { updateTaskPosition, updateTask } from "../../../board/libs/utils/taskApi";
+import {
+  updateTaskPosition,
+  updateTask,
+  deleteTask,
+  approveTaskCompletion,
+  rejectTaskCompletion,
+  sendTaskNudge,
+} from "../../../board/libs/utils/taskApi";
 import { createTaskComment } from "../../../board/libs/utils/taskCommentApi";
 import { fetchChecklist, updateChecklistItem } from "../../../board/libs/utils/checklistApi";
+import { getProjectMembers, type MemberResponse } from "../../../global/api/projectsApi";
 import type { ActionCard } from "../types/command";
 
-vi.mock("../../../board/libs/utils/taskApi", () => ({ updateTaskPosition: vi.fn(), updateTask: vi.fn() }));
+vi.mock("../../../board/libs/utils/taskApi", () => ({
+  updateTaskPosition: vi.fn(),
+  updateTask: vi.fn(),
+  deleteTask: vi.fn(),
+  approveTaskCompletion: vi.fn(),
+  rejectTaskCompletion: vi.fn(),
+  sendTaskNudge: vi.fn(),
+}));
 vi.mock("../../../board/libs/utils/taskCommentApi", () => ({ createTaskComment: vi.fn() }));
 vi.mock("../../../board/libs/utils/checklistApi", () => ({
   fetchChecklist: vi.fn(),
   updateChecklistItem: vi.fn(),
 }));
+vi.mock("../../../global/api/projectsApi", () => ({ getProjectMembers: vi.fn() }));
+
+function member(userId: number, name: string): MemberResponse {
+  return { userId, name, email: `${userId}@example.com`, role: "팀원" };
+}
 
 function card(overrides: Partial<ActionCard>): ActionCard {
   return {
@@ -160,5 +180,283 @@ describe("executeAction", () => {
     expect(result.ok).toBe(false);
     expect(fetchChecklist).not.toHaveBeenCalled();
     expect(updateChecklistItem).not.toHaveBeenCalled();
+  });
+
+  it("calls the existing task API for rename_task", async () => {
+    vi.mocked(updateTask).mockResolvedValue({} as never);
+
+    const result = await executeAction(
+      card({ tool: "rename_task", args: { title: "  로그인 API 리팩터링  " } }),
+      1
+    );
+
+    expect(result.ok).toBe(true);
+    expect(updateTask).toHaveBeenCalledWith("37", { title: "로그인 API 리팩터링" }, 1);
+  });
+
+  it("refuses an empty new title without calling the API", async () => {
+    const result = await executeAction(card({ tool: "rename_task", args: { title: "   " } }), 1);
+
+    expect(result.ok).toBe(false);
+    expect(updateTask).not.toHaveBeenCalled();
+  });
+
+  it("refuses a title longer than the tasks.title column", async () => {
+    // VARCHAR(200)을 넘기면 DB가 거절해 사용자에게는 원인 모를 500으로 보인다.
+    const result = await executeAction(
+      card({ tool: "rename_task", args: { title: "가".repeat(201) } }),
+      1
+    );
+
+    expect(result.ok).toBe(false);
+    expect(updateTask).not.toHaveBeenCalled();
+  });
+
+  it("counts title length in code points, not UTF-16 units", async () => {
+    // 회귀 방어: String.length로 세면 이모지가 2로 계산돼, Postgres varchar(200)과 그래프의
+    // 파이썬 len()이 통과시키는 제목(코드포인트 200)을 프론트만 거부한다.
+    vi.mocked(updateTask).mockResolvedValue({} as never);
+    const title = "가".repeat(150) + "😀".repeat(50);
+    expect(title.length).toBe(250);
+    expect([...title].length).toBe(200);
+
+    const result = await executeAction(card({ tool: "rename_task", args: { title } }), 1);
+
+    expect(result.ok).toBe(true);
+    expect(updateTask).toHaveBeenCalledWith("37", { title }, 1);
+  });
+
+  it("still rejects a title over 200 code points", async () => {
+    const result = await executeAction(
+      card({ tool: "rename_task", args: { title: "😀".repeat(201) } }),
+      1
+    );
+
+    expect(result.ok).toBe(false);
+    expect(updateTask).not.toHaveBeenCalled();
+  });
+
+  it("resolves the assignee name to a member id for change_assignee", async () => {
+    vi.mocked(getProjectMembers).mockResolvedValue([member(5, "김철수"), member(9, "이영희")]);
+    vi.mocked(updateTask).mockResolvedValue({} as never);
+
+    const result = await executeAction(
+      card({ tool: "change_assignee", args: { assignee_name: "김철수" } }),
+      1
+    );
+
+    expect(result.ok).toBe(true);
+    expect(updateTask).toHaveBeenCalledWith("37", { assigneeId: "5" }, 1);
+  });
+
+  it("falls back to a partial name match when there is exactly one", async () => {
+    vi.mocked(getProjectMembers).mockResolvedValue([member(5, "김철수"), member(9, "이영희")]);
+    vi.mocked(updateTask).mockResolvedValue({} as never);
+
+    const result = await executeAction(
+      card({ tool: "change_assignee", args: { assignee_name: "철수" } }),
+      1
+    );
+
+    expect(result.ok).toBe(true);
+    expect(updateTask).toHaveBeenCalledWith("37", { assigneeId: "5" }, 1);
+  });
+
+  it("refuses to guess between members with the same name", async () => {
+    // 동명이인일 때 첫 번째를 고르면 조용히 틀린 사람에게 배정된다.
+    vi.mocked(getProjectMembers).mockResolvedValue([member(5, "김철수"), member(8, "김철수")]);
+
+    const result = await executeAction(
+      card({ tool: "change_assignee", args: { assignee_name: "김철수" } }),
+      1
+    );
+
+    expect(result.ok).toBe(false);
+    expect(updateTask).not.toHaveBeenCalled();
+  });
+
+  it("refuses an ambiguous partial name match", async () => {
+    vi.mocked(getProjectMembers).mockResolvedValue([member(5, "김민수"), member(8, "박민수")]);
+
+    const result = await executeAction(
+      card({ tool: "change_assignee", args: { assignee_name: "민수" } }),
+      1
+    );
+
+    expect(result.ok).toBe(false);
+    expect(updateTask).not.toHaveBeenCalled();
+  });
+
+  it("prefers an exact name match over a longer partial one", async () => {
+    // "김민"이 "김민수"에도 부분 일치하지만, 정확히 같은 이름이 있으면 그 사람이다.
+    vi.mocked(getProjectMembers).mockResolvedValue([member(5, "김민"), member(8, "김민수")]);
+    vi.mocked(updateTask).mockResolvedValue({} as never);
+
+    const result = await executeAction(
+      card({ tool: "change_assignee", args: { assignee_name: "김민" } }),
+      1
+    );
+
+    expect(result.ok).toBe(true);
+    expect(updateTask).toHaveBeenCalledWith("37", { assigneeId: "5" }, 1);
+  });
+
+  it("matches a name written in a different unicode normal form", async () => {
+    // 회귀 방어: 같은 한글도 입력 경로에 따라 조합형(NFD)으로 저장될 수 있다. 정규화하지
+    // 않으면 눈에 똑같아 보이는 이름이 일치도 부분 일치도 실패해 "멤버 없음"이 된다.
+    vi.mocked(getProjectMembers).mockResolvedValue([member(5, "김철수".normalize("NFD"))]);
+    vi.mocked(updateTask).mockResolvedValue({} as never);
+
+    const result = await executeAction(
+      card({ tool: "change_assignee", args: { assignee_name: "김철수" } }),
+      1
+    );
+
+    expect(result.ok).toBe(true);
+    expect(updateTask).toHaveBeenCalledWith("37", { assigneeId: "5" }, 1);
+  });
+
+  it("matches an english name regardless of letter case", async () => {
+    vi.mocked(getProjectMembers).mockResolvedValue([member(7, "Kim")]);
+    vi.mocked(updateTask).mockResolvedValue({} as never);
+
+    const result = await executeAction(
+      card({ tool: "change_assignee", args: { assignee_name: "kim" } }),
+      1
+    );
+
+    expect(result.ok).toBe(true);
+    expect(updateTask).toHaveBeenCalledWith("37", { assigneeId: "7" }, 1);
+  });
+
+  it("names the colliding candidates so the user knows what to disambiguate", async () => {
+    vi.mocked(getProjectMembers).mockResolvedValue([member(5, "김철수"), member(8, "김철수")]);
+
+    const result = await executeAction(
+      card({ tool: "change_assignee", args: { assignee_name: "김철수" } }),
+      1
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("김철수");
+  });
+
+  it("refuses when the name matches no project member", async () => {
+    vi.mocked(getProjectMembers).mockResolvedValue([member(5, "김철수")]);
+
+    const result = await executeAction(
+      card({ tool: "change_assignee", args: { assignee_name: "홍길동" } }),
+      1
+    );
+
+    expect(result.ok).toBe(false);
+    expect(updateTask).not.toHaveBeenCalled();
+  });
+
+  it("refuses an empty assignee name without fetching members", async () => {
+    // 빈 이름이면 includes("")가 모두 참이라 아무나 걸린다.
+    const result = await executeAction(
+      card({ tool: "change_assignee", args: { assignee_name: "   " } }),
+      1
+    );
+
+    expect(result.ok).toBe(false);
+    expect(getProjectMembers).not.toHaveBeenCalled();
+    expect(updateTask).not.toHaveBeenCalled();
+  });
+
+  it("calls the existing delete API for delete_task", async () => {
+    vi.mocked(deleteTask).mockResolvedValue(undefined);
+
+    const result = await executeAction(card({ tool: "delete_task", args: {} }), 1);
+
+    expect(result.ok).toBe(true);
+    expect(deleteTask).toHaveBeenCalledWith("37", 1);
+  });
+
+  it("deletes only the task id carried by the card", async () => {
+    // 되돌릴 수 없는 도구라 대상을 다시 추측하거나 넓히면 안 된다.
+    vi.mocked(deleteTask).mockResolvedValue(undefined);
+
+    await executeAction(card({ tool: "delete_task", taskId: 91, args: {} }), 1);
+
+    expect(deleteTask).toHaveBeenCalledTimes(1);
+    expect(deleteTask).toHaveBeenCalledWith("91", 1);
+  });
+
+  it("refuses delete_task without a resolved task id", async () => {
+    const result = await executeAction(card({ tool: "delete_task", taskId: null, args: {} }), 1);
+
+    expect(result.ok).toBe(false);
+    expect(deleteTask).not.toHaveBeenCalled();
+  });
+
+  it("reports a failed delete instead of claiming success", async () => {
+    vi.mocked(deleteTask).mockRejectedValue(new Error("이미 삭제된 업무입니다."));
+
+    const result = await executeAction(card({ tool: "delete_task", args: {} }), 1);
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe("이미 삭제된 업무입니다.");
+  });
+});
+
+describe("executeAction - 완료 승인 흐름과 재촉", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("완료 승인 카드는 승인 API를 호출한다", async () => {
+    vi.mocked(approveTaskCompletion).mockResolvedValue({} as never);
+
+    const result = await executeAction(card({ tool: "approve_completion", args: {} }), 7);
+
+    expect(result).toEqual({ ok: true });
+    expect(approveTaskCompletion).toHaveBeenCalledWith("37", 7);
+    // 승인과 반려를 뒤바꾸면 팀원의 완료가 반려된다. 반대쪽이 안 불렸는지도 본다.
+    expect(rejectTaskCompletion).not.toHaveBeenCalled();
+  });
+
+  it("완료 반려 카드는 반려 API를 호출한다", async () => {
+    vi.mocked(rejectTaskCompletion).mockResolvedValue({} as never);
+
+    const result = await executeAction(card({ tool: "reject_completion", args: {} }), 7);
+
+    expect(result).toEqual({ ok: true });
+    expect(rejectTaskCompletion).toHaveBeenCalledWith("37", 7);
+    expect(approveTaskCompletion).not.toHaveBeenCalled();
+  });
+
+  it("승인 대기가 아닌 업무면 서버 메시지를 그대로 돌려준다", async () => {
+    // 그래프는 업무 상태를 모른 채 카드를 만든다. 전제 조건 위반은 여기서 처음 드러나고,
+    // 이 문자열이 사용자에게 "작업을 완료하지 못했습니다: ..."로 보인다.
+    vi.mocked(approveTaskCompletion).mockRejectedValue(
+      new Error("승인 대기 중인 업무가 아닙니다.")
+    );
+
+    const result = await executeAction(card({ tool: "approve_completion", args: {} }), 7);
+
+    expect(result).toEqual({ ok: false, error: "승인 대기 중인 업무가 아닙니다." });
+  });
+
+  it("재촉 카드는 종류를 그대로 실어 보낸다", async () => {
+    vi.mocked(sendTaskNudge).mockResolvedValue(undefined as never);
+
+    const result = await executeAction(
+      card({ tool: "nudge_task", args: { kind: "URGENT" } }),
+      7
+    );
+
+    expect(result).toEqual({ ok: true });
+    expect(sendTaskNudge).toHaveBeenCalledWith("37", "URGENT", 7);
+  });
+
+  it("알 수 없는 재촉 종류는 API를 부르지 않고 거부한다", async () => {
+    // 재촉 알림은 나가면 회수가 안 된다. 그래프를 우회한 값이 들어와도 여기서 끊는다.
+    for (const kind of ["HURRY", "start", "", undefined]) {
+      const result = await executeAction(card({ tool: "nudge_task", args: { kind } }), 7);
+      expect(result.ok).toBe(false);
+    }
+    expect(sendTaskNudge).not.toHaveBeenCalled();
   });
 });

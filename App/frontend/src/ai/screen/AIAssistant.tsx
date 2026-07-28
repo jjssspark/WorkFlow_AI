@@ -368,7 +368,7 @@ export function AIAssistant({
             <Send className="w-4 h-4" />
           </button>
         </div>
-        <div className="text-[10px] text-muted-foreground text-center mt-2">회의록·To-Do·GitHub 기록 기반으로 답변합니다</div>
+        <div className="text-[10px] text-muted-foreground text-center mt-2">회의록·To-Do 기록 기반으로 답변합니다</div>
       </div>
     </div>
   );

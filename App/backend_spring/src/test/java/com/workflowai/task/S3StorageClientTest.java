@@ -54,6 +54,17 @@ class S3StorageClientTest {
     }
 
     @Test
+    void signedUrlIsNullWhenStorageIsNotConfiguredInsteadOfThrowingOnEveryRequest() {
+        // 자격증명이 비어 있으면 AWS SDK가 서명 시점에 NPE("Access key ID cannot be blank")를 던진다.
+        // 프로필 사진 URL은 /me 응답마다 발급되므로, 그대로 두면 스토리지를 안 붙인 로컬/CI에서
+        // 정상 요청 한 건마다 ERROR 스택트레이스가 쌓인다(2026-07-28 로컬 compose에서 확인).
+        // "설정 안 됨"은 장애가 아니라 상태이므로 예외 대신 null로 알린다.
+        S3StorageClient unconfigured = new S3StorageClient("", "us-east-1", "", "", "task-results", true);
+
+        assertThat(unconfigured.createSignedUrl("avatars/1/pic.png", 60, null)).isNull();
+    }
+
+    @Test
     void uploadSendsPutToBucketAndKeyPath() {
         byte[] content = "hello".getBytes(StandardCharsets.UTF_8);
         client().upload("tasks/42/file.txt", new ByteArrayInputStream(content), content.length, "text/plain");

@@ -292,6 +292,7 @@ async def _generate_with_ollama(settings, context: str, question: str) -> str:
             {"role": "user", "content": f"컨텍스트:\n{context}\n\n질문: {question}"},
         ],
         options={"temperature": _GENERATION_TEMPERATURE},
+        keep_alive=settings.rag_ollama_keep_alive,
     )
     return response["message"]["content"]
 

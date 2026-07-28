@@ -16,9 +16,11 @@ import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -177,6 +179,62 @@ public class RoadmapService {
         return toTaskDto(task);
     }
 
+    @Transactional
+    public List<RoadmapTaskDto> updateTaskLayout(
+        String projectIdParam,
+        RoadmapTaskLayoutRequest request
+    ) {
+        Long projectId = demoDataService.resolveProjectId(projectIdParam);
+        if (request == null || request.items() == null || request.items().isEmpty()) {
+            throw error(HttpStatus.BAD_REQUEST, "EMPTY_LAYOUT", "변경할 업무가 없습니다.");
+        }
+
+        Map<Long, RoadmapTaskLayoutItem> itemsByTaskId = new LinkedHashMap<>();
+        for (RoadmapTaskLayoutItem item : request.items()) {
+            if (item == null || item.taskId() == null || !Double.isFinite(item.position()) || item.position() < 0) {
+                throw error(HttpStatus.BAD_REQUEST, "INVALID_LAYOUT", "업무 ID와 0 이상의 유효한 position이 필요합니다.");
+            }
+            if (itemsByTaskId.putIfAbsent(item.taskId(), item) != null) {
+                throw error(HttpStatus.BAD_REQUEST, "DUPLICATE_TASK", "같은 업무를 중복으로 변경할 수 없습니다.");
+            }
+        }
+
+        Map<Long, Task> tasksById = new LinkedHashMap<>();
+        taskRepository.findAllById(itemsByTaskId.keySet()).forEach(task -> tasksById.put(task.getId(), task));
+        for (Long taskId : itemsByTaskId.keySet()) {
+            Task task = tasksById.get(taskId);
+            if (task == null || !projectId.equals(task.getProjectId())) {
+                throw error(HttpStatus.NOT_FOUND, "TASK_NOT_FOUND", "업무를 찾을 수 없습니다.");
+            }
+        }
+
+        Set<Long> milestoneIds = new HashSet<>();
+        itemsByTaskId.values().stream()
+            .map(RoadmapTaskLayoutItem::milestoneId)
+            .filter(java.util.Objects::nonNull)
+            .forEach(milestoneIds::add);
+        Map<Long, Milestone> milestonesById = new LinkedHashMap<>();
+        milestoneRepository.findAllById(milestoneIds)
+            .forEach(milestone -> milestonesById.put(milestone.getId(), milestone));
+        for (Long milestoneId : milestoneIds) {
+            Milestone milestone = milestonesById.get(milestoneId);
+            if (milestone == null || !projectId.equals(milestone.getProjectId())) {
+                throw error(HttpStatus.NOT_FOUND, "MILESTONE_NOT_FOUND", "마일스톤을 찾을 수 없습니다.");
+            }
+        }
+
+        List<Task> orderedTasks = itemsByTaskId.values().stream()
+            .map(item -> {
+                Task task = tasksById.get(item.taskId());
+                task.moveToMilestone(item.milestoneId());
+                task.moveTo(task.getStatus(), item.position());
+                return task;
+            })
+            .toList();
+        taskRepository.saveAll(orderedTasks);
+        return orderedTasks.stream().map(this::toTaskDto).toList();
+    }
+
     private RoadmapMilestoneDto toMilestoneDto(Milestone milestone, List<Task> tasks) {
         long done = tasks.stream().filter(task -> "done".equals(task.getStatus())).count();
         long progress = tasks.isEmpty() ? 0 : Math.round(done * 100.0 / tasks.size());
@@ -188,7 +246,10 @@ public class RoadmapService {
             tasks.size(),
             done,
             progress,
-            tasks.stream().map(this::toTaskDto).toList()
+            tasks.stream()
+                .sorted(Comparator.comparingDouble(Task::getPosition))
+                .map(this::toTaskDto)
+                .toList()
         );
     }
 
@@ -204,6 +265,7 @@ public class RoadmapService {
             date(task.getStartDate()),
             date(task.getDueDate()),
             task.getPriority(),
+            task.getDescription(),
             task.getPosition()
         );
     }

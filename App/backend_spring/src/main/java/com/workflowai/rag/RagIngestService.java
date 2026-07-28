@@ -12,6 +12,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.HttpClientErrorException;
 
 // RAG 임베딩은 어시스턴트 답변 품질을 높이는 부가 기능이라, FastAPI 장애나 지연이
 // 회의록/업무 저장 흐름(호출 스레드)을 막지 않도록 별도 스레드에서 처리하고 예외를 삼킨다.
@@ -37,6 +38,7 @@ public class RagIngestService {
     @Retryable(
         recover = "recoverIngestWithoutAssignee",
         retryFor = Exception.class,
+        noRetryFor = HttpClientErrorException.class,
         maxAttempts = 3,
         backoff = @Backoff(
             delayExpression = "${rag.assignee-sync.retry.delay-ms:1000}",
@@ -51,6 +53,7 @@ public class RagIngestService {
     @Retryable(
         recover = "recoverIngest",
         retryFor = Exception.class,
+        noRetryFor = HttpClientErrorException.class,
         maxAttempts = 3,
         backoff = @Backoff(
             delayExpression = "${rag.assignee-sync.retry.delay-ms:1000}",
@@ -96,6 +99,7 @@ public class RagIngestService {
     @Retryable(
         recover = "recoverSyncAssignee",
         retryFor = Exception.class,
+        noRetryFor = HttpClientErrorException.class,
         maxAttempts = 3,
         backoff = @Backoff(
             delayExpression = "${rag.assignee-sync.retry.delay-ms:1000}",
@@ -192,6 +196,7 @@ public class RagIngestService {
     @Retryable(
         recover = "recoverDeleteSource",
         retryFor = Exception.class,
+        noRetryFor = HttpClientErrorException.class,
         maxAttempts = 3,
         backoff = @Backoff(
             delayExpression = "${rag.assignee-sync.retry.delay-ms:1000}",
@@ -212,6 +217,7 @@ public class RagIngestService {
     @Retryable(
         recover = "recoverDeleteProjectSources",
         retryFor = Exception.class,
+        noRetryFor = HttpClientErrorException.class,
         maxAttempts = 3,
         backoff = @Backoff(
             delayExpression = "${rag.assignee-sync.retry.delay-ms:1000}",

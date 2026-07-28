@@ -435,4 +435,20 @@ class TaskResultControllerTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data").value("https://signed.example.com/meeting_result.pdf?download=meeting_result.pdf"));
     }
+
+    @Test
+    void getFileUrlFailsLoudlyWhenStorageIsNotConfigured() throws Exception {
+        // 스토리지 미설정 시 createSignedUrl은 null을 준다(S3StorageClientTest 참고). 그걸 그대로
+        // 200 응답에 실어 보내면 프론트가 null을 URL로 받아 원인 모를 다운로드 실패로 나타난다.
+        when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
+        when(taskRepository.findById(42L)).thenReturn(Optional.of(taskWithAssignee(5L)));
+        TaskResultFile file = new TaskResultFile(42L, "meeting_result.pdf", "tasks/42/uuid-meeting_result.pdf", 2048, "application/pdf", 5L);
+        when(taskResultFileRepository.findById(9L)).thenReturn(Optional.of(file));
+        when(storageClient.createSignedUrl("tasks/42/uuid-meeting_result.pdf", 3600, "meeting_result.pdf"))
+            .thenReturn(null);
+
+        mockMvc.perform(get("/api/v1/projects/demo-project/tasks/42/result/files/9/url"))
+            .andExpect(status().isServiceUnavailable())
+            .andExpect(jsonPath("$.error.code").value("STORAGE_NOT_CONFIGURED"));
+    }
 }

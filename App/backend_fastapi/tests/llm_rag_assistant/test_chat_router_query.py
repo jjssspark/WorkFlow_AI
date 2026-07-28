@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from app.main import app
 from core.db import get_pool
 from llm_rag_assistant.app.schema.chat_schema import RagQueryResponse, RagSource
-from llm_rag_assistant.app.security import verify_internal_api_key
+from core.security import verify_internal_api_key
 from llm_rag_assistant.app.services.generation_service import RagConfigurationError
 from llm_rag_assistant.app.services.rag_queue_service import RagQueueFullError, RagQueueTimeoutError
 

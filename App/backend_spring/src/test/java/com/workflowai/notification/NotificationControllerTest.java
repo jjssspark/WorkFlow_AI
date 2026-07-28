@@ -12,22 +12,38 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.workflowai.common.DemoDataService;
+import com.workflowai.project.ProjectMemberRepository;
+import com.workflowai.security.ProjectAccess;
 import com.workflowai.security.UserPrincipal;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import testsupport.AccessDeniedEnvelopeAdvice;
 
+// MethodSecurityTestConfig가 필요한 이유: NotificationController의 getNotifications/getUnreadCount/
+// notifyProgressReportReady가 @PreAuthorize("@projectAccess.isMember(...)")로 프로젝트 멤버십을
+// 검사하는데, 순수 @WebMvcTest는 메서드 보안을 로드하지 않는다. 다른 컨트롤러들(RagControllerSecurityTest,
+// TaskControllerSecurityTest 등)과 동일한 패턴으로 @EnableMethodSecurity + 실제 ProjectAccess 빈을
+// 구성하고, 그 아래의 ProjectMemberRepository만 목으로 대체해 멤버십 여부를 직접 제어한다.
 @WebMvcTest(NotificationController.class)
 @AutoConfigureMockMvc(addFilters = false)
+@ContextConfiguration(classes = NotificationControllerTest.MethodSecurityTestConfig.class)
 class NotificationControllerTest {
 
     @Autowired
@@ -42,6 +58,12 @@ class NotificationControllerTest {
     @MockitoBean
     private NotificationService notificationService;
 
+    @MockitoBean
+    private ProjectMemberRepository projectMemberRepository;
+
+    @MockitoBean
+    private DemoDataService demoDataService;
+
     @AfterEach
     void clearSecurityContext() {
         SecurityContextHolder.clearContext();
@@ -55,13 +77,18 @@ class NotificationControllerTest {
         );
     }
 
+    private void stubMember(long projectId, long userId, boolean isMember) {
+        when(projectMemberRepository.existsByProjectIdAndUserId(projectId, userId)).thenReturn(isMember);
+    }
+
     @Test
     void listsNotificationsForCurrentUser() throws Exception {
         authenticateAs(5L);
-        Notification n = new Notification(5L, "TASK_ASSIGNED", "새 업무 배정", "'로그인 API' 업무가 배정되었습니다.", "task", 42L);
-        when(notificationRepository.findTop20ByUserIdOrderByCreatedAtDesc(5L)).thenReturn(List.of(n));
+        stubMember(1L, 5L, true);
+        Notification n = new Notification(5L, 1L, "TASK_ASSIGNED", "새 업무 배정", "'로그인 API' 업무가 배정되었습니다.", "task", 42L);
+        when(notificationRepository.findTop20ByUserIdAndProjectIdOrderByCreatedAtDesc(5L, 1L)).thenReturn(List.of(n));
 
-        mockMvc.perform(get("/api/v1/notifications"))
+        mockMvc.perform(get("/api/v1/notifications").param("projectId", "1"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.success").value(true))
             .andExpect(jsonPath("$.data[0].type").value("TASK_ASSIGNED"))
@@ -69,20 +96,53 @@ class NotificationControllerTest {
     }
 
     @Test
+    @DisplayName("멤버가 아닌 프로젝트의 알림을 조회하면 403")
+    void getNotificationsRejectsNonMemberProject() throws Exception {
+        authenticateAs(5L);
+        stubMember(999L, 5L, false);
+
+        mockMvc.perform(get("/api/v1/notifications").param("projectId", "999"))
+            .andExpect(status().isForbidden());
+    }
+
+    @Test
     void returnsUnreadCount() throws Exception {
         authenticateAs(5L);
-        when(notificationRepository.countByUserIdAndReadFalse(5L)).thenReturn(3L);
+        stubMember(1L, 5L, true);
+        when(notificationRepository.countByUserIdAndProjectIdAndReadFalse(5L, 1L)).thenReturn(3L);
 
-        mockMvc.perform(get("/api/v1/notifications/unread-count"))
+        mockMvc.perform(get("/api/v1/notifications/unread-count").param("projectId", "1"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.count").value(3));
     }
 
     @Test
+    @DisplayName("프로젝트별 미읽음 개수를 맵으로 반환한다")
+    void unreadCountsReturnsPerProjectMap() throws Exception {
+        authenticateAs(5L);
+        NotificationRepository.UnreadCountByProject row = new NotificationRepository.UnreadCountByProject() {
+            @Override
+            public Long getProjectId() {
+                return 12L;
+            }
+
+            @Override
+            public long getUnreadCount() {
+                return 3L;
+            }
+        };
+        when(notificationRepository.countUnreadGroupedByProject(5L)).thenReturn(List.of(row));
+
+        mockMvc.perform(get("/api/v1/notifications/unread-counts"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.counts.12").value(3));
+    }
+
+    @Test
     void marksOnlyTheGivenIdsRead() throws Exception {
         authenticateAs(5L);
-        Notification n1 = new Notification(5L, "TASK_ASSIGNED", "제목1", "내용1", "task", 10L);
-        Notification n2 = new Notification(5L, "TASK_ASSIGNED", "제목2", "내용2", "task", 11L);
+        Notification n1 = new Notification(5L, 1L, "TASK_ASSIGNED", "제목1", "내용1", "task", 10L);
+        Notification n2 = new Notification(5L, 1L, "TASK_ASSIGNED", "제목2", "내용2", "task", 11L);
         when(notificationRepository.findByIdInAndUserId(eq(List.of(10L, 11L)), eq(5L)))
             .thenReturn(List.of(n1, n2));
 
@@ -102,7 +162,7 @@ class NotificationControllerTest {
     @Test
     void doesNotTouchNotificationsOutsideTheGivenIds() throws Exception {
         authenticateAs(5L);
-        Notification n1 = new Notification(5L, "TASK_ASSIGNED", "제목1", "내용1", "task", 10L);
+        Notification n1 = new Notification(5L, 1L, "TASK_ASSIGNED", "제목1", "내용1", "task", 10L);
         when(notificationRepository.findByIdInAndUserId(eq(List.of(10L)), eq(5L))).thenReturn(List.of(n1));
 
         mockMvc.perform(patch("/api/v1/notifications/read")
@@ -130,7 +190,7 @@ class NotificationControllerTest {
     @Test
     void filtersOutNullAndNonPositiveIdsAndDedupesBeforeLookup() throws Exception {
         authenticateAs(5L);
-        Notification n1 = new Notification(5L, "TASK_ASSIGNED", "제목1", "내용1", "task", 10L);
+        Notification n1 = new Notification(5L, 1L, "TASK_ASSIGNED", "제목1", "내용1", "task", 10L);
         when(notificationRepository.findByIdInAndUserId(eq(List.of(10L)), eq(5L))).thenReturn(List.of(n1));
 
         mockMvc.perform(patch("/api/v1/notifications/read")
@@ -185,20 +245,59 @@ class NotificationControllerTest {
     @Test
     void createsProgressReportReadyNotificationForCurrentUser() throws Exception {
         authenticateAs(5L);
+        stubMember(1L, 5L, true);
 
         mockMvc.perform(post("/api/v1/notifications/progress-report")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"content\":\"보고서 생성 완료\"}"))
+                .content("{\"projectId\":1,\"content\":\"보고서 생성 완료\"}"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.success").value(true));
 
         verify(notificationService).notifyAfterCommit(
             5L,
+            1L,
             "PROGRESS_REPORT",
             "진행률 보고서가 생성되었습니다.",
             "보고서 생성 완료",
             "project",
             null
         );
+    }
+
+    @Test
+    @DisplayName("프로젝트 멤버가 아니면 진행률 알림을 생성하지 않는다")
+    void progressReportNotificationRejectsNonMemberProject() throws Exception {
+        authenticateAs(5L);
+        stubMember(999L, 5L, false);
+
+        mockMvc.perform(post("/api/v1/notifications/progress-report")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"projectId\":999,\"content\":\"보고서 생성 완료\"}"))
+            .andExpect(status().isForbidden());
+
+        verify(notificationService, never()).notifyAfterCommit(
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any()
+        );
+    }
+
+    @Configuration
+    @EnableMethodSecurity
+    @Import(NotificationController.class)
+    static class MethodSecurityTestConfig {
+        @Bean
+        AccessDeniedEnvelopeAdvice accessDeniedResponseAdvice() {
+            return new AccessDeniedEnvelopeAdvice();
+        }
+
+        @Bean("projectAccess")
+        ProjectAccess projectAccess(ProjectMemberRepository projectMemberRepository, DemoDataService demoDataService) {
+            return new ProjectAccess(projectMemberRepository, demoDataService);
+        }
     }
 }

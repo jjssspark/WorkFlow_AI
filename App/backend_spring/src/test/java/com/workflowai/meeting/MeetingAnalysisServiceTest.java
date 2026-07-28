@@ -11,6 +11,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.workflowai.activity.ActivityService;
 import com.workflowai.common.DemoDataService;
 import com.workflowai.notification.NotificationRepository;
 import com.workflowai.notification.NotificationService;
@@ -37,6 +38,9 @@ import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
 import org.apache.pdfbox.pdmodel.font.PDType1Font;
 import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
+import org.apache.poi.xwpf.usermodel.XWPFDocument;
+import org.apache.poi.xwpf.usermodel.XWPFParagraph;
+import org.apache.poi.xwpf.usermodel.XWPFRun;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -71,6 +75,7 @@ class MeetingAnalysisServiceTest {
     @Mock private ProjectRepository projectRepository;
     @Mock private RagIngestService ragIngestService;
     @Mock private MeetingAnalysisPersistence meetingAnalysisPersistence;
+    @Mock private ActivityService activityService;
 
     @BeforeEach
     void authenticateAsCurrentUser() {
@@ -93,7 +98,7 @@ class MeetingAnalysisServiceTest {
             meetingAnalysisJobPublisher, demoDataService, meetingRepository, meetingAttendeeRepository,
             meetingAnalysisRepository, meetingActionItemRepository, taskRepository, notificationRepository,
             notificationService, userRepository, projectMemberRepository, projectRepository, ragIngestService,
-            meetingAnalysisPersistence, "/tmp/workflow-uploads"
+            meetingAnalysisPersistence, activityService, "/tmp/workflow-uploads"
         );
     }
 
@@ -187,6 +192,78 @@ class MeetingAnalysisServiceTest {
     }
 
     @Test
+    void analyzeRejectsEmptyFile() {
+        mockMember(1L);
+        MeetingAnalysisService service = newService();
+        MockMultipartFile file = new MockMultipartFile("file", "empty.pdf", "application/pdf", new byte[0]);
+
+        assertThatThrownBy(() -> service.analyze(
+            "demo-project", file, "빈 파일 회의록", "2026-07-20", "정기회의", "document", List.of(), null
+        )).isInstanceOf(EmptyFileException.class);
+
+        verify(meetingRepository, never()).save(any());
+    }
+
+    @Test
+    void analyzeRejectsUnsupportedFileExtension() {
+        mockMember(1L);
+        MeetingAnalysisService service = newService();
+        MockMultipartFile file = new MockMultipartFile(
+            "file", "malware.exe", "application/octet-stream", "not a real exe".getBytes()
+        );
+
+        assertThatThrownBy(() -> service.analyze(
+            "demo-project", file, "악성파일 회의록", "2026-07-20", "정기회의", "document", List.of(), null
+        )).isInstanceOf(UnsupportedFileTypeException.class);
+
+        verify(meetingRepository, never()).save(any());
+    }
+
+    @Test
+    void analyzeExtractsDocxTextBeforeDispatchingAnalysisRequest() throws Exception {
+        mockMember(1L);
+        MeetingAnalysisService service = newService();
+        when(meetingRepository.save(any(Meeting.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        MockMultipartFile file = new MockMultipartFile(
+            "file",
+            "minutes.docx",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            createDocxBytes("Meeting minutes body: Park Jisu checks retry flow.")
+        );
+
+        service.analyze(
+            "demo-project", file, "DOCX 회의록", "2026-07-20", "정기회의", "document", List.of("박지수"), null
+        );
+
+        ArgumentCaptor<AiAnalyzeRequest> requestCaptor = ArgumentCaptor.forClass(AiAnalyzeRequest.class);
+        verify(meetingAnalysisJobPublisher).enqueue(any(), requestCaptor.capture(), any(UUID.class), any());
+        assertThat(requestCaptor.getValue().text()).contains("Meeting minutes body");
+        assertThat(requestCaptor.getValue().text()).doesNotContain("텍스트 추출 예정");
+    }
+
+    @Test
+    void analyzePreservesKoreanFileNameWithSpacesAndStartsAnalysis() throws Exception {
+        mockMember(1L);
+        MeetingAnalysisService service = newService();
+        when(meetingRepository.save(any(Meeting.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        String koreanFileName = "주간 회의록 1차.pdf";
+        MockMultipartFile file = new MockMultipartFile(
+            "file", koreanFileName, "application/pdf", createPdfBytes("Meeting minutes body content.")
+        );
+
+        service.analyze(
+            "demo-project", file, "한글 파일명 회의록", "2026-07-20", "정기회의", "document", List.of("박지수"), null
+        );
+
+        ArgumentCaptor<Meeting> meetingCaptor = ArgumentCaptor.forClass(Meeting.class);
+        verify(meetingRepository, atLeastOnce()).save(meetingCaptor.capture());
+        assertThat(meetingCaptor.getAllValues().get(0).getOriginalFileName()).isEqualTo(koreanFileName);
+        verify(meetingAnalysisJobPublisher).enqueue(any(), any(AiAnalyzeRequest.class), any(UUID.class), any());
+    }
+
+    @Test
     void analyzeSkipsSynchronousExtractionForAudioAndEnqueuesWithBlankText() {
         // STT는 수 초~수십 초 걸릴 수 있어 업로드 요청 안에서 동기 처리하면 타임아웃 위험이 크므로,
         // analyze()는 오디오 파일의 텍스트 추출을 하지 않고 빈 텍스트로 큐에 넘긴다.
@@ -219,6 +296,24 @@ class MeetingAnalysisServiceTest {
 
         service.analyze(
             "demo-project", file, "음성 회의록", "2026-07-24", "정기회의", "document", List.of("김민준"), null
+        );
+
+        ArgumentCaptor<AiAnalyzeRequest> requestCaptor = ArgumentCaptor.forClass(AiAnalyzeRequest.class);
+        verify(meetingAnalysisJobPublisher).enqueue(any(), requestCaptor.capture(), any(UUID.class), any());
+        assertThat(requestCaptor.getValue().source_type()).isEqualTo("audio");
+    }
+
+    @Test
+    void analyzeNormalizesSourceTypeToAudioForWebmRecording() {
+        // 브라우저 MediaRecorder는 보통 .webm 파일을 만든다. 녹음 버튼 기능이 이 확장자를
+        // 오디오로 인식하지 못하면 STT 없이 빈 텍스트로 분석이 진행되는 버그가 생긴다.
+        mockMember(1L);
+        MeetingAnalysisService service = newService();
+        when(meetingRepository.save(any(Meeting.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        MockMultipartFile file = new MockMultipartFile("file", "recording.webm", "audio/webm", "fake-audio-bytes".getBytes());
+
+        service.analyze(
+            "demo-project", file, "녹음 회의록", "2026-07-27", "정기회의", "document", List.of("김민준"), null
         );
 
         ArgumentCaptor<AiAnalyzeRequest> requestCaptor = ArgumentCaptor.forClass(AiAnalyzeRequest.class);
@@ -321,6 +416,26 @@ class MeetingAnalysisServiceTest {
         )).isInstanceOf(IllegalArgumentException.class);
 
         verify(meetingRepository, never()).save(any());
+    }
+
+    @Test
+    void analyzeDeduplicatesRepeatedAttendeeIdsBeforeSaving() {
+        mockMember(1L);
+        when(projectMemberRepository.existsByProjectIdAndUserId(1L, 3L)).thenReturn(true);
+        when(projectMemberRepository.existsByProjectIdAndUserId(1L, 4L)).thenReturn(true);
+        when(meetingRepository.save(any(Meeting.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(userRepository.findAllById(any())).thenReturn(List.of());
+
+        MeetingAnalysisService service = newService();
+        MockMultipartFile file = new MockMultipartFile("file", "notes.txt", "text/plain", "회의 내용".getBytes());
+        service.analyze(
+            "demo-project", file, "7차 정기회의", "2026-07-15", "정기회의", "document", List.of(), List.of(3L, 3L, 4L)
+        );
+
+        ArgumentCaptor<MeetingAttendee> attendeeCaptor = ArgumentCaptor.forClass(MeetingAttendee.class);
+        verify(meetingAttendeeRepository, org.mockito.Mockito.times(2)).save(attendeeCaptor.capture());
+        assertThat(attendeeCaptor.getAllValues()).extracting(MeetingAttendee::getUserId)
+            .containsExactlyInAnyOrder(3L, 4L);
     }
 
     @Test
@@ -514,21 +629,34 @@ class MeetingAnalysisServiceTest {
     }
 
     @Test
-    void deleteNotifiesActorAndUploaderWhenLeaderDeletesSomeoneElsesMeeting() {
-        // 삭제는 팀장 전용이라 actor(CurrentUser)는 항상 팀장이다. 반대편은 팀장 자신이 아니라
-        // 실제 업로더(50L)여야, 팀장이 남이 올린 회의록을 지웠을 때 업로더에게도 알림이 간다.
+    void deleteNotifiesEveryProjectTeamMemberExceptActor() {
+        // 회의록 삭제는 업로더뿐 아니라 팀 전원에게 영향을 주므로 팀 전원에게 알려야 한다.
+        // (예전에는 업로더 한 명에게만 보내서, 업로더가 아닌 팀원은 알림을 아예 받지 못했다.)
+        // 행위자 본인은 방금 자기가 한 일을 화면에서 보고 있으므로 제외하고, 심사자는 팀원이
+        // 아니므로(팀원 수/목록 집계에서도 제외됨) 대상에서 뺀다.
         mockLeader(1L);
         Long uploaderId = 50L;
+        when(projectMemberRepository.findAllByProjectId(1L)).thenReturn(List.of(
+            new ProjectMember(1L, CURRENT_USER_ID, ProjectRole.LEADER),
+            new ProjectMember(1L, uploaderId, ProjectRole.MEMBER),
+            new ProjectMember(1L, 51L, ProjectRole.MEMBER),
+            new ProjectMember(1L, 99L, ProjectRole.REVIEWER)
+        ));
         Meeting meeting = new Meeting(1L, "삭제 회의", "document", null, "completed", LocalDate.now(), "정기회의", "notes.txt", uploaderId, 5L);
         when(meetingRepository.findByIdAndProjectIdForUpdate(12L, 1L)).thenReturn(Optional.of(meeting));
         MeetingAnalysisService service = newService();
 
         service.delete("demo-project", "12", false);
 
-        verify(notificationService).notifyCounterpart(
-            eq(CURRENT_USER_ID), eq(uploaderId), eq("MEETING_DELETED"), any(), any(),
-            eq("meeting"), eq(12L)
-        );
+        // targetType/targetId까지 검증해야 프론트가 "바로가기"를 붙일 수 있는 알림임이 보장된다.
+        verify(notificationService).notifyAfterCommit(
+            eq(uploaderId), eq(1L), eq("MEETING_DELETED"), any(), any(), eq("meeting"), eq(12L));
+        verify(notificationService).notifyAfterCommit(
+            eq(51L), eq(1L), eq("MEETING_DELETED"), any(), any(), eq("meeting"), eq(12L));
+        verify(notificationService, never()).notifyAfterCommit(
+            eq(CURRENT_USER_ID), any(), any(), any(), any(), any(), any());
+        verify(notificationService, never()).notifyAfterCommit(
+            eq(99L), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -662,7 +790,8 @@ class MeetingAnalysisServiceTest {
         verify(taskRepository).clearSourceMeetingId(8L);
         verify(meetingRepository, never()).delete(any());
         verify(meetingAttendeeRepository, never()).deleteByMeetingId(any());
-        assertThat(meeting.getAnalysisStatus()).isEqualTo("failed");
+        // 분석이 실제로 실패한 "failed"와 구분해야 프론트가 분석/업로드 목록에서 뺄 수 있다.
+        assertThat(meeting.getAnalysisStatus()).isEqualTo("analysis_deleted");
         assertThat(meeting.getFilePath()).isEqualTo(file.toString());
         assertThat(meeting.getTranscript()).isEqualTo("원문 그대로 남아야 함");
         assertThat(Files.exists(file)).isTrue();
@@ -705,9 +834,15 @@ class MeetingAnalysisServiceTest {
     }
 
     @Test
-    void deleteAnalysisNotifiesActorAndUploader() {
+    void deleteAnalysisNotifiesEveryProjectTeamMemberExceptActor() {
         mockLeader(1L);
         Long uploaderId = 50L;
+        when(projectMemberRepository.findAllByProjectId(1L)).thenReturn(List.of(
+            new ProjectMember(1L, CURRENT_USER_ID, ProjectRole.LEADER),
+            new ProjectMember(1L, uploaderId, ProjectRole.MEMBER),
+            new ProjectMember(1L, 51L, ProjectRole.MEMBER),
+            new ProjectMember(1L, 99L, ProjectRole.REVIEWER)
+        ));
         Meeting meeting = new Meeting(1L, "삭제 회의", "document", null, "completed", LocalDate.now(), "정기회의", "notes.txt", uploaderId, 5L);
         when(meetingRepository.findByIdAndProjectIdForUpdate(12L, 1L)).thenReturn(Optional.of(meeting));
         when(meetingAnalysisRepository.existsById(12L)).thenReturn(true);
@@ -716,10 +851,14 @@ class MeetingAnalysisServiceTest {
 
         service.deleteAnalysis("demo-project", "12", false);
 
-        verify(notificationService).notifyCounterpart(
-            eq(CURRENT_USER_ID), eq(uploaderId), eq("MEETING_ANALYSIS_DELETED"), any(), any(),
-            eq("meeting"), eq(12L)
-        );
+        verify(notificationService).notifyAfterCommit(
+            eq(uploaderId), eq(1L), eq("MEETING_ANALYSIS_DELETED"), any(), any(), eq("meeting"), eq(12L));
+        verify(notificationService).notifyAfterCommit(
+            eq(51L), eq(1L), eq("MEETING_ANALYSIS_DELETED"), any(), any(), eq("meeting"), eq(12L));
+        verify(notificationService, never()).notifyAfterCommit(
+            eq(CURRENT_USER_ID), any(), any(), any(), any(), any(), any());
+        verify(notificationService, never()).notifyAfterCommit(
+            eq(99L), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -798,6 +937,25 @@ class MeetingAnalysisServiceTest {
         verify(meetingAnalysisJobPublisher).enqueue(eq(4L), eq(new AiAnalyzeRequest(
             "demo-project", "정기회의", meeting.getMeetingDate().toString(), "정기회의", "document", "x.txt", "재분석할 회의 내용", List.of()
         )), eq(meeting.getAnalysisJobId()), any());
+        Files.deleteIfExists(textFile);
+    }
+
+    // 분석 결과를 지운 회의록은 analysis_deleted 상태가 되는데, 여기서도 재분석이 가능해야 한다.
+    // retry()가 "failed"만 허용하면 사용자는 지운 뒤 다시 분석할 방법이 없어진다.
+    @Test
+    void retryAllowsMeetingWhoseAnalysisWasDeleted() throws Exception {
+        mockMember(1L);
+        Path textFile = Files.createTempFile("meeting-notes", ".txt");
+        Files.writeString(textFile, "재분석할 회의 내용");
+        Meeting meeting = new Meeting(1L, "정기회의", "document", textFile.toString(), "analysis_deleted", LocalDate.now(), "정기회의", "x.txt", null, 5L);
+        when(meetingRepository.findByIdAndProjectId(4L, 1L)).thenReturn(Optional.of(meeting));
+        when(meetingAttendeeRepository.findByMeetingId(4L)).thenReturn(List.of());
+        MeetingAnalysisService service = newService();
+
+        MeetingAnalysisResponse response = service.retry("demo-project", "4");
+
+        assertThat(response.status()).isEqualTo("PROCESSING");
+        assertThat(meeting.getAnalysisStatus()).isEqualTo("processing");
         Files.deleteIfExists(textFile);
     }
 
@@ -985,7 +1143,7 @@ class MeetingAnalysisServiceTest {
         Meeting meeting = new Meeting(1L, "정기회의", "document", null, "completed", LocalDate.now(), "정기회의", "a.txt", 10L, 10L);
         when(meetingRepository.findByIdAndProjectId(5L, 1L)).thenReturn(Optional.of(meeting));
         when(taskRepository.save(any(Task.class))).thenAnswer(inv -> inv.getArgument(0));
-        when(taskRepository.findTopByProjectIdAndStatusOrderByPositionDesc(any(), any())).thenReturn(Optional.empty());
+        when(taskRepository.findTopByProjectIdAndStatusOrderByPositionAsc(any(), any())).thenReturn(Optional.empty());
         MeetingAnalysisService service = newService();
 
         TaskRegisterRequest request = new TaskRegisterRequest(List.of(
@@ -996,6 +1154,208 @@ class MeetingAnalysisServiceTest {
         ArgumentCaptor<Task> captor = ArgumentCaptor.forClass(Task.class);
         verify(taskRepository).save(captor.capture());
         assertThat(captor.getValue().getCreatedBy()).isEqualTo(25L);
+    }
+
+    // 회의록에서 등록한 업무도 보드에서 직접 만든 업무와 똑같이 대시보드 "최근 활동"에 남아야 한다.
+    // 목록/집계는 같은 tasks 테이블을 보므로 이미 맞았지만, 활동 로그는 이 경로만 통째로 빠져 있었다.
+    @Test
+    void registerTasksRecordsTaskCreatedActivityForDashboard() {
+        UserPrincipal leader = new UserPrincipal(25L, "leader@example.com", "박지수");
+        SecurityContextHolder.getContext().setAuthentication(
+            new UsernamePasswordAuthenticationToken(leader, null, List.of())
+        );
+        when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
+        when(projectMemberRepository.existsByProjectIdAndUserId(1L, 25L)).thenReturn(true);
+        Meeting meeting = new Meeting(1L, "정기회의", "document", null, "completed", LocalDate.now(), "정기회의", "a.txt", 10L, 10L);
+        when(meetingRepository.findByIdAndProjectId(5L, 1L)).thenReturn(Optional.of(meeting));
+        // 등록되는 업무의 projectId는 이 조회로 정해진다 - 활동 로그도 같은 프로젝트로 남아야 한다.
+        when(meetingRepository.findById(5L)).thenReturn(Optional.of(meeting));
+        when(taskRepository.save(any(Task.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(taskRepository.findTopByProjectIdAndStatusOrderByPositionAsc(any(), any())).thenReturn(Optional.empty());
+        MeetingAnalysisService service = newService();
+
+        service.registerTasks("demo-project", "5", new TaskRegisterRequest(List.of(
+            new MeetingTodo("로그인 API", "설명", null, null, null, "MEDIUM", "ETC", true, "")
+        )));
+
+        verify(activityService).record(
+            eq(1L), eq(25L), eq("TASK_CREATED"), any(), eq("'로그인 API' 업무를 새로 추가했습니다.")
+        );
+    }
+
+    // 보드에서 업무를 하나씩 지울 때와 달리, 회의록 삭제는 한 번의 조작으로 여러 업무가 한꺼번에
+    // 사라지는 사건이다. 건별로 남기면 "최근 활동" 목록을 삭제 로그가 뒤덮으므로 한 줄로 묶는다.
+    @Test
+    void deleteRecordsOneCombinedActivityWhenMultipleTasksAreLinked() {
+        mockLeader(1L);
+        Meeting meeting = new Meeting(1L, "삭제 회의", "document", null, "completed", LocalDate.now(), "정기회의", "notes.txt", 10L, 5L);
+        ReflectionTestUtils.setField(meeting, "id", 12L);
+        when(meetingRepository.findByIdAndProjectIdForUpdate(12L, 1L)).thenReturn(Optional.of(meeting));
+        Task task1 = new Task(1L, "로그인 API", "개발", "todo", 3L, null, "MEDIUM", null, "MEETING_AI", 12L, 25L, 0);
+        Task task2 = new Task(1L, "회원가입 API", "개발", "todo", 4L, null, "MEDIUM", null, "MEETING_AI", 12L, 25L, 1);
+        when(taskRepository.findBySourceMeetingId(12L)).thenReturn(List.of(task1, task2));
+        MeetingAnalysisService service = newService();
+
+        service.delete("demo-project", "12", true);
+
+        verify(activityService).record(
+            eq(1L), eq(CURRENT_USER_ID), eq("TASK_DELETED"), eq(12L),
+            eq("'삭제 회의' 회의록의 업무 2건을 삭제했습니다.")
+        );
+        verify(activityService, never()).record(any(), any(), eq("TASK_DELETED"), eq(task1.getId()), any());
+    }
+
+    @Test
+    void deleteRecordsSingleTaskDeletedActivityWhenOnlyOneTaskIsLinked() {
+        mockLeader(1L);
+        Meeting meeting = new Meeting(1L, "삭제 회의", "document", null, "completed", LocalDate.now(), "정기회의", "notes.txt", 10L, 5L);
+        when(meetingRepository.findByIdAndProjectIdForUpdate(12L, 1L)).thenReturn(Optional.of(meeting));
+        Task linked = new Task(1L, "로그인 API", "개발", "todo", 3L, null, "MEDIUM", null, "MEETING_AI", 12L, 25L, 0);
+        when(taskRepository.findBySourceMeetingId(12L)).thenReturn(List.of(linked));
+        MeetingAnalysisService service = newService();
+
+        service.delete("demo-project", "12", true);
+
+        verify(activityService).record(
+            eq(1L), eq(CURRENT_USER_ID), eq("TASK_DELETED"), any(), eq("'로그인 API' 업무를 삭제했습니다.")
+        );
+    }
+
+    /** 연결 업무를 남겨두는 삭제에서는 업무가 사라지지 않으므로 삭제 활동도 남기면 안 된다. */
+    @Test
+    void deleteDoesNotRecordTaskDeletedActivityWhenLinkedTasksAreKept() {
+        mockLeader(1L);
+        Meeting meeting = new Meeting(1L, "삭제 회의", "document", null, "completed", LocalDate.now(), "정기회의", "notes.txt", 10L, 5L);
+        when(meetingRepository.findByIdAndProjectIdForUpdate(12L, 1L)).thenReturn(Optional.of(meeting));
+        MeetingAnalysisService service = newService();
+
+        service.delete("demo-project", "12", false);
+
+        verify(activityService, never()).record(any(), any(), eq("TASK_DELETED"), any(), any());
+    }
+
+    // 연도 없는 "07/31"이나 "2026.07.31" 같은 입력이 조용히 null이 되어 업무보드 마감일이
+    // 비어버리던 문제. 회의 날짜의 연도로 채워 업무보드와 어긋나지 않게 한다.
+    @Test
+    void registerTasksMapsNonIsoDueDateToTaskDueDate() {
+        UserPrincipal leader = new UserPrincipal(25L, "leader@example.com", "박지수");
+        SecurityContextHolder.getContext().setAuthentication(
+            new UsernamePasswordAuthenticationToken(leader, null, List.of())
+        );
+        when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
+        when(projectMemberRepository.existsByProjectIdAndUserId(1L, 25L)).thenReturn(true);
+        Meeting meeting = new Meeting(1L, "정기회의", "document", null, "completed", LocalDate.of(2026, 7, 19), "정기회의", "a.txt", 10L, 10L);
+        when(meetingRepository.findByIdAndProjectId(5L, 1L)).thenReturn(Optional.of(meeting));
+        when(meetingRepository.findById(5L)).thenReturn(Optional.of(meeting));
+        when(taskRepository.save(any(Task.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(taskRepository.findTopByProjectIdAndStatusOrderByPositionAsc(any(), any())).thenReturn(Optional.empty());
+        MeetingAnalysisService service = newService();
+
+        TaskRegisterRequest request = new TaskRegisterRequest(List.of(
+            new MeetingTodo("업무1", "설명", null, null, "07/31", "MEDIUM", "ETC", true, "")
+        ));
+        service.registerTasks("demo-project", "5", request);
+
+        ArgumentCaptor<Task> captor = ArgumentCaptor.forClass(Task.class);
+        verify(taskRepository).save(captor.capture());
+        assertThat(captor.getValue().getDueDate()).isEqualTo(LocalDate.of(2026, 7, 31));
+    }
+
+    // 역할분배 화면에서 MM.DD로 입력한 시작일이 업무의 시작일로 저장돼야 한다.
+    @Test
+    void registerTasksMapsStartDateToTask() {
+        UserPrincipal leader = new UserPrincipal(25L, "leader@example.com", "박지수");
+        SecurityContextHolder.getContext().setAuthentication(
+            new UsernamePasswordAuthenticationToken(leader, null, List.of())
+        );
+        when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
+        when(projectMemberRepository.existsByProjectIdAndUserId(1L, 25L)).thenReturn(true);
+        Meeting meeting = new Meeting(1L, "정기회의", "document", null, "completed", LocalDate.of(2026, 7, 19), "정기회의", "a.txt", 10L, 10L);
+        when(meetingRepository.findByIdAndProjectId(5L, 1L)).thenReturn(Optional.of(meeting));
+        when(meetingRepository.findById(5L)).thenReturn(Optional.of(meeting));
+        when(taskRepository.save(any(Task.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(taskRepository.findTopByProjectIdAndStatusOrderByPositionAsc(any(), any())).thenReturn(Optional.empty());
+        MeetingAnalysisService service = newService();
+
+        TaskRegisterRequest request = new TaskRegisterRequest(List.of(
+            new MeetingTodo("업무1", "설명", null, null, "07.20", "07.31", "MEDIUM", "ETC", true, "")
+        ));
+        service.registerTasks("demo-project", "5", request);
+
+        ArgumentCaptor<Task> captor = ArgumentCaptor.forClass(Task.class);
+        verify(taskRepository).save(captor.capture());
+        assertThat(captor.getValue().getStartDate()).isEqualTo(LocalDate.of(2026, 7, 20));
+        assertThat(captor.getValue().getDueDate()).isEqualTo(LocalDate.of(2026, 7, 31));
+    }
+
+    // 음성 회의록이 아니면 파일을 내려주지 않는다.
+    @Test
+    void findAudioRejectsNonAudioMeeting() {
+        mockMember(1L);
+        Meeting meeting = new Meeting(1L, "정기회의", "document", "/tmp/x.txt", "completed", LocalDate.now(), "정기회의", "x.txt", null, 5L);
+        when(meetingRepository.findByIdAndProjectId(5L, 1L)).thenReturn(Optional.of(meeting));
+        MeetingAnalysisService service = newService();
+
+        assertThat(service.findAudio("demo-project", "5")).isNull();
+    }
+
+    // uploads 밖 파일을 file_path에 심어도 내려주면 안 된다(경로 탈출).
+    @Test
+    void findAudioRejectsPathOutsideUploadsDir() throws Exception {
+        mockMember(1L);
+        Path outside = Files.createTempFile("outside-audio", ".mp3");
+        Meeting meeting = new Meeting(1L, "정기회의", "audio", outside.toString(), "completed", LocalDate.now(), "정기회의", "x.mp3", null, 5L);
+        when(meetingRepository.findByIdAndProjectId(5L, 1L)).thenReturn(Optional.of(meeting));
+        MeetingAnalysisService service = newService();
+
+        assertThat(service.findAudio("demo-project", "5")).isNull();
+        Files.deleteIfExists(outside);
+    }
+
+    // uploads 안에 바깥을 가리키는 심볼릭 링크를 만들어도 막아야 한다.
+    // normalize()+startsWith()만으로는 통과해버리므로 toRealPath()로 링크를 해소한다.
+    @Test
+    void findAudioRejectsSymlinkEscapingUploadsDir() throws Exception {
+        mockMember(1L);
+        Path outside = Files.createTempFile("outside-audio", ".mp3");
+        Path linkDir = Files.createDirectories(Path.of("/tmp/workflow-uploads", "77"));
+        Path link = linkDir.resolve("leak.mp3");
+        Files.deleteIfExists(link);
+        Files.createSymbolicLink(link, outside);
+
+        Meeting meeting = new Meeting(1L, "정기회의", "audio", link.toString(), "completed", LocalDate.now(), "정기회의", "leak.mp3", null, 5L);
+        when(meetingRepository.findByIdAndProjectId(5L, 1L)).thenReturn(Optional.of(meeting));
+        MeetingAnalysisService service = newService();
+
+        assertThat(service.findAudio("demo-project", "5")).isNull();
+        Files.deleteIfExists(link);
+        Files.deleteIfExists(outside);
+    }
+
+    // 회의록에서 등록한 업무는 보드 맨 위에 와야 하므로 기존 최솟값보다 작은 position을 받는다.
+    @Test
+    void registerTasksPlacesNewTaskAboveExistingOnes() {
+        UserPrincipal leader = new UserPrincipal(25L, "leader@example.com", "박지수");
+        SecurityContextHolder.getContext().setAuthentication(
+            new UsernamePasswordAuthenticationToken(leader, null, List.of())
+        );
+        when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
+        when(projectMemberRepository.existsByProjectIdAndUserId(1L, 25L)).thenReturn(true);
+        Meeting meeting = new Meeting(1L, "정기회의", "document", null, "completed", LocalDate.of(2026, 7, 19), "정기회의", "a.txt", 10L, 10L);
+        when(meetingRepository.findByIdAndProjectId(5L, 1L)).thenReturn(Optional.of(meeting));
+        when(meetingRepository.findById(5L)).thenReturn(Optional.of(meeting));
+        when(taskRepository.save(any(Task.class))).thenAnswer(inv -> inv.getArgument(0));
+        Task existingTop = new Task(1L, "기존 업무", "ETC", "todo", null, null, "MEDIUM", null, "MANUAL", null, 1L, 3.0);
+        when(taskRepository.findTopByProjectIdAndStatusOrderByPositionAsc(any(), any())).thenReturn(Optional.of(existingTop));
+        MeetingAnalysisService service = newService();
+
+        service.registerTasks("demo-project", "5", new TaskRegisterRequest(List.of(
+            new MeetingTodo("업무1", "설명", null, null, null, "MEDIUM", "ETC", true, "")
+        )));
+
+        ArgumentCaptor<Task> captor = ArgumentCaptor.forClass(Task.class);
+        verify(taskRepository).save(captor.capture());
+        assertThat(captor.getValue().getPosition()).isLessThan(existingTop.getPosition());
     }
 
     @Test
@@ -1009,7 +1369,7 @@ class MeetingAnalysisServiceTest {
         Meeting meeting = new Meeting(1L, "정기회의", "document", null, "completed", LocalDate.now(), "정기회의", "a.txt", 10L, 10L);
         when(meetingRepository.findByIdAndProjectId(5L, 1L)).thenReturn(Optional.of(meeting));
         when(taskRepository.save(any(Task.class))).thenAnswer(inv -> inv.getArgument(0));
-        when(taskRepository.findTopByProjectIdAndStatusOrderByPositionDesc(any(), any())).thenReturn(Optional.empty());
+        when(taskRepository.findTopByProjectIdAndStatusOrderByPositionAsc(any(), any())).thenReturn(Optional.empty());
         MeetingAnalysisService service = newService();
 
         TaskRegisterRequest request = new TaskRegisterRequest(List.of(
@@ -1018,7 +1378,7 @@ class MeetingAnalysisServiceTest {
         service.registerTasks("demo-project", "5", request);
 
         verify(notificationService).notifyCounterpart(
-            eq(99L), eq(10L), eq("MEETING_TASKS_REGISTERED_NOTIFY_MEMBER"), any(), any(),
+            eq(99L), eq(10L), eq(1L), eq("MEETING_TASKS_REGISTERED_NOTIFY_MEMBER"), any(), any(),
             eq("meeting"), eq(5L)
         );
     }
@@ -1043,7 +1403,7 @@ class MeetingAnalysisServiceTest {
         assertThat(response.status()).isEqualTo("SAVED");
         assertThat(meeting.getSavedAt()).isNotNull();
         verify(notificationService, never()).notifyCounterpart(
-            any(), any(), any(), any(), any(), any(), any()
+            any(), any(), any(), any(), any(), any(), any(), any()
         );
     }
 
@@ -1255,6 +1615,16 @@ class MeetingAnalysisServiceTest {
         MeetingVersionResponse response = service.reanalyzeVersion("demo-project", "6");
 
         assertThat(response.status()).isEqualTo("PROCESSING");
+    }
+
+    private byte[] createDocxBytes(String text) throws Exception {
+        try (XWPFDocument document = new XWPFDocument(); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            XWPFParagraph paragraph = document.createParagraph();
+            XWPFRun run = paragraph.createRun();
+            run.setText(text);
+            document.write(output);
+            return output.toByteArray();
+        }
     }
 
     private byte[] createPdfBytes(String text) throws Exception {

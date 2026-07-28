@@ -91,7 +91,7 @@ public class DashboardAiJobRunner {
             .map(ProjectMember::getUserId)
             .filter(memberId -> !memberId.equals(job.requestedBy()))
             .forEach(memberId -> notificationService.notifyAfterCommit(
-                memberId, type, title, content, NOTIFICATION_TARGET_TYPE, job.projectId()
+                memberId, job.projectId(), type, title, content, NOTIFICATION_TARGET_TYPE, null
             ));
     }
 }

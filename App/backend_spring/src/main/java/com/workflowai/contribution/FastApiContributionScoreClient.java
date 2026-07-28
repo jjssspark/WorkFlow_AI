@@ -14,7 +14,10 @@ public class FastApiContributionScoreClient {
 
     private final RestClient restClient;
 
-    public FastApiContributionScoreClient(@Value("${workflow.ai.base-url}") String baseUrl) {
+    public FastApiContributionScoreClient(
+        @Value("${workflow.ai.base-url}") String baseUrl,
+        @Value("${workflow.ai.internal-key}") String internalKey
+    ) {
         HttpClient httpClient = HttpClient.newBuilder()
             .version(HttpClient.Version.HTTP_1_1)
             .connectTimeout(CONNECT_TIMEOUT)
@@ -24,6 +27,7 @@ public class FastApiContributionScoreClient {
         this.restClient = RestClient.builder()
             .baseUrl(baseUrl)
             .requestFactory(requestFactory)
+            .defaultHeader("X-Internal-Api-Key", internalKey)
             .build();
     }
 

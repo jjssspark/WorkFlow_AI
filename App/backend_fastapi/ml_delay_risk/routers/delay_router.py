@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
+from core.security import verify_internal_api_key
 from ml_delay_risk.models import delay_model
 from ml_delay_risk.schema.delay_schema import HealthResponse, TaskDelayPredictResponse
 from ml_delay_risk.services.delay_service import run_delay_risk_for_project
 
-router = APIRouter(prefix="/ai/predict/delay", tags=["delay-risk"])
+router = APIRouter(prefix="/ai/predict/delay", tags=["delay-risk"], dependencies=[Depends(verify_internal_api_key)])
 
 
 @router.get("/health", response_model=HealthResponse)  ## 서비스와 모델의 준비 상태 체크(health check)
