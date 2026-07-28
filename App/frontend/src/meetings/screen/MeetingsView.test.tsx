@@ -620,6 +620,37 @@ describe("MeetingsView 삭제 플로우 분리", () => {
     await waitFor(() => expect(fetchMeetings).toHaveBeenCalledTimes(2));
   });
 
+  // 서버의 409는 "이 회의록에 분석 결과가 이미 없다"는 사실 통보다. 사용자가 삭제로 원한 상태가
+  // 이미 이뤄져 있으므로 에러로 알릴 게 아니라, 낡은 processed를 서버 사실에 맞춰야 한다.
+  // 예전에는 토스트만 띄우고 카드를 그대로 둬서, 다시 눌러도 같은 문구가 반복됐다.
+  it("분석 결과가 이미 없어 409가 오면 에러 문구 대신 목록에서 카드를 없앤다", async () => {
+    fetchMeetings
+      .mockResolvedValueOnce([
+        { meetingId: "1", title: "분석완료 회의", meetingDate: "2026-07-19", meetingType: "정기회의", analysisStatus: "completed", savedAt: null, originalMeetingId: null, tasksRegistered: false },
+      ])
+      .mockResolvedValueOnce([
+        { meetingId: "1", title: "분석완료 회의", meetingDate: "2026-07-19", meetingType: "정기회의", analysisStatus: "analysis_deleted", savedAt: "2026-07-19T10:00:00", originalMeetingId: null, tasksRegistered: false },
+      ]);
+    deleteMeetingAnalysis.mockRejectedValue(
+      new ApiRequestError("삭제할 분석 결과가 없습니다.", 409, "MEETING_ANALYSIS_NOT_FOUND")
+    );
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={["/meetings"]}>
+        <MeetingsView />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(fetchMeetings).toHaveBeenCalledTimes(1));
+    await user.click(await screen.findByLabelText("분석완료 회의 분석 결과 삭제"));
+    await user.click(await screen.findByRole("button", { name: "분석 결과만 삭제" }));
+
+    await waitFor(() => expect(deleteMeetingAnalysis).toHaveBeenCalledWith("1", "1", false));
+    await waitFor(() => expect(screen.queryByText("분석완료 회의")).not.toBeInTheDocument());
+    expect(screen.queryByText("삭제할 분석 결과가 없습니다.")).not.toBeInTheDocument();
+    await waitFor(() => expect(fetchMeetings).toHaveBeenCalledTimes(2));
+  });
+
   it("전체 삭제 요청이 타임아웃돼도 서버가 실제로 삭제를 끝냈다면 재조회 후 목록에서 사라진다", async () => {
     fetchMeetings
       .mockResolvedValueOnce([
