@@ -15,8 +15,9 @@ import {
   fetchTasks, updateTaskPosition, deleteTask, requestTaskCompletion, cancelTaskCompletion, DEMO_PROJECT_ID,
 } from "../libs/utils/taskApi";
 import { NEXT_STATUS, quickMoveTargetStatus, runTaskMoveOnce, type TaskMoveQueue } from "../libs/utils/taskActions";
-import { reorderTasks } from "../libs/utils/taskService";
+import { applyRemoteTaskMove, reorderTasks } from "../libs/utils/taskService";
 import { useAuth } from "../../global/hooks/useAuth";
+import { useNotifications } from "../../global/hooks/useNotifications";
 import { getProjectMembers, type MemberResponse } from "../../global/api/projectsApi";
 import type { Task, TaskStatus } from "../libs/types/task";
 
@@ -48,6 +49,15 @@ export function BoardView() {
   useEffect(() => {
     tasksRef.current = tasks;
   }, [tasks]);
+
+  const { subscribeTaskMove, isStreamConnected } = useNotifications();
+
+  useEffect(() => {
+    return subscribeTaskMove((event) => {
+      if (event.projectId !== String(projectId)) return;
+      setTasks((current) => applyRemoteTaskMove(current, event.taskId, event.status as TaskStatus, event.position));
+    });
+  }, [subscribeTaskMove, projectId]);
 
   const selTask = selId ? tasks.find((t) => t.id === selId) ?? null : null;
 
@@ -96,6 +106,18 @@ export function BoardView() {
     if (!projectContextReady) return;
     loadTasks();
   }, [loadTasks, projectContextReady]);
+
+  // 최초 연결은 재연결이 아니다(loadTasks가 이미 마운트 시 한 번 불렸다) - 두 번째 이후의
+  // false→true 전이(=재연결)에서만 놓쳤을 수 있는 이동을 따라잡기 위해 다시 불러온다.
+  const hasConnectedOnceRef = useRef(false);
+  useEffect(() => {
+    if (isStreamConnected) {
+      if (hasConnectedOnceRef.current) {
+        loadTasks();
+      }
+      hasConnectedOnceRef.current = true;
+    }
+  }, [isStreamConnected, loadTasks]);
 
   // 담당자 배정 UI(카드 아바타, 상세 패널, 드롭다운, 필터)는 현재 프로젝트의 실제 멤버만 보여준다.
   useEffect(() => {

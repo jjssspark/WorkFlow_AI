@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useNavigate } from "react-router";
 import { describe, expect, it, vi, beforeEach } from "vitest";
@@ -28,6 +28,24 @@ vi.mock("../../global/hooks/useAuth", () => ({
   useAuth: () => mockUseAuth(),
 }));
 
+type TaskMoveHandler = (event: { taskId: string; projectId: string; status: string; position: number }) => void;
+let capturedTaskMoveHandler: TaskMoveHandler | null = null;
+const mockSubscribeTaskMove = vi.fn((handler: TaskMoveHandler) => {
+  capturedTaskMoveHandler = handler;
+  return () => {
+    capturedTaskMoveHandler = null;
+  };
+});
+let mockIsStreamConnected = false;
+vi.mock("../../global/hooks/useNotifications", () => ({
+  useNotifications: () => ({
+    unreadCount: 0,
+    refreshUnreadCount: vi.fn(),
+    subscribeTaskMove: mockSubscribeTaskMove,
+    isStreamConnected: mockIsStreamConnected,
+  }),
+}));
+
 function renderBoard(initialEntry = "/board") {
   return render(
     <MemoryRouter initialEntries={[initialEntry]}>
@@ -49,6 +67,9 @@ function BoardWithDeepLinkTrigger() {
 describe("BoardView - 프로젝트 컨텍스트 준비 전 조회 방지", () => {
   beforeEach(() => {
     vi.mocked(fetchTasks).mockReset().mockResolvedValue([]);
+    mockSubscribeTaskMove.mockClear();
+    capturedTaskMoveHandler = null;
+    mockIsStreamConnected = false;
   });
 
   it("taskId 딥링크의 업무가 로드되면 상세 패널을 자동으로 연다", async () => {
@@ -135,5 +156,104 @@ describe("BoardView - 프로젝트 컨텍스트 준비 전 조회 방지", () =>
 
     await waitFor(() => expect(fetchTasks).toHaveBeenCalledWith(20));
     expect(fetchTasks).not.toHaveBeenCalledWith(1);
+  });
+});
+
+describe("BoardView - 실시간 동기화", () => {
+  beforeEach(() => {
+    vi.mocked(fetchTasks).mockReset().mockResolvedValue([]);
+    mockSubscribeTaskMove.mockClear();
+    capturedTaskMoveHandler = null;
+    mockIsStreamConnected = false;
+  });
+
+  // KanbanColumn은 컬럼 헤더에 label(예: "할 일")과 그 옆에 카드 개수 배지(<span>)를 렌더링한다
+  // (App/frontend/src/board/components/KanbanColumn.tsx:51-60). data-testid가 없으므로, 컬럼 label
+  // 바로 다음에 오는 마지막 span(개수 배지)의 텍스트로 "그 컬럼에 카드가 몇 개인가"를 확인한다.
+  function countBadgeFor(columnLabel: string): string | null {
+    const label = screen.getByText(columnLabel);
+    return label.parentElement?.querySelector("span:last-of-type")?.textContent ?? null;
+  }
+
+  it("같은 프로젝트의 task-move 이벤트를 받으면 보드 상태를 patch한다", async () => {
+    const task: Task = {
+      id: "42", title: "동기화 대상 업무", status: "todo", priority: "medium",
+      assignee: "", startDate: "", dueDate: "", labels: [], category: "backend",
+      position: 0, pendingApproval: false, extraFields: {},
+    };
+    vi.mocked(fetchTasks).mockResolvedValue([task]);
+    mockUseAuth.mockReturnValue({ currentProjectId: 20, currentProject: { role: "팀장" }, projectContextReady: true });
+
+    renderBoard();
+    await waitFor(() => expect(mockSubscribeTaskMove).toHaveBeenCalled());
+    await screen.findByText("동기화 대상 업무");
+    expect(countBadgeFor("할 일")).toBe("1");
+    expect(countBadgeFor("진행 중")).toBe("0");
+
+    act(() => {
+      capturedTaskMoveHandler!({ taskId: "42", projectId: "20", status: "inprogress", position: 1 });
+    });
+
+    await waitFor(() => {
+      expect(countBadgeFor("할 일")).toBe("0");
+      expect(countBadgeFor("진행 중")).toBe("1");
+    });
+  });
+
+  it("다른 프로젝트의 task-move 이벤트는 무시한다", async () => {
+    const task: Task = {
+      id: "42", title: "다른 프로젝트 업무", status: "todo", priority: "medium",
+      assignee: "", startDate: "", dueDate: "", labels: [], category: "backend",
+      position: 0, pendingApproval: false, extraFields: {},
+    };
+    vi.mocked(fetchTasks).mockResolvedValue([task]);
+    mockUseAuth.mockReturnValue({ currentProjectId: 20, currentProject: { role: "팀장" }, projectContextReady: true });
+
+    renderBoard();
+    await waitFor(() => expect(mockSubscribeTaskMove).toHaveBeenCalled());
+    await screen.findByText("다른 프로젝트 업무");
+
+    act(() => {
+      capturedTaskMoveHandler!({ taskId: "42", projectId: "999", status: "inprogress", position: 1 });
+    });
+
+    // 무시됐다는 것은 "아무 일도 안 일어난다"는 것이라 await로 기다릴 조건이 없다 - 짧게 한 틱
+    // 양보한 뒤 컬럼 배지가 그대로인지 확인한다.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(countBadgeFor("할 일")).toBe("1");
+    expect(countBadgeFor("진행 중")).toBe("0");
+  });
+
+  it("SSE 재연결(false→true 전이) 시 업무 목록을 다시 불러온다", async () => {
+    vi.mocked(fetchTasks).mockResolvedValue([]);
+    mockUseAuth.mockReturnValue({ currentProjectId: 20, currentProject: { role: "팀장" }, projectContextReady: true });
+
+    const { rerender } = renderBoard();
+    await waitFor(() => expect(fetchTasks).toHaveBeenCalledTimes(1));
+
+    mockIsStreamConnected = true;
+    rerender(
+      <MemoryRouter initialEntries={["/board"]}>
+        <BoardView />
+      </MemoryRouter>
+    );
+    // 최초 연결(첫 true 전이)은 재연결이 아니므로 재조회하지 않는다.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(fetchTasks).toHaveBeenCalledTimes(1);
+
+    mockIsStreamConnected = false;
+    rerender(
+      <MemoryRouter initialEntries={["/board"]}>
+        <BoardView />
+      </MemoryRouter>
+    );
+    mockIsStreamConnected = true;
+    rerender(
+      <MemoryRouter initialEntries={["/board"]}>
+        <BoardView />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(fetchTasks).toHaveBeenCalledTimes(2));
   });
 });
