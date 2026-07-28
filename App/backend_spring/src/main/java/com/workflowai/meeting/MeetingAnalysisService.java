@@ -519,7 +519,8 @@ public class MeetingAnalysisService {
         notifyProjectTeamExceptActor(
             projectDbId, actorId, "MEETING_DELETED", "회의록이 삭제되었습니다",
             actorName + "님이 '" + title + "' 회의록을 삭제했습니다." + scopeSuffix,
-            meetingDbId
+            // 회의록 행 자체가 방금 지워져 meetingDbId로는 소속 프로젝트를 되짚을 수 없다.
+            "project", projectDbId
         );
         return new MeetingDeleteResponse(meetingId, "DELETED");
     }
@@ -529,12 +530,13 @@ public class MeetingAnalysisService {
      * 행위자 본인은 방금 자기가 한 일의 결과를 화면에서 이미 보고 있으므로 제외하고, 심사자는
      * 팀원이 아니므로(팀원 수/목록 집계에서도 제외된다) 대상에서 뺀다.
      *
-     * targetType을 "meeting"으로 고정해 프론트가 "바로가기" 버튼을 붙일 수 있게 한다. 전체 삭제된
-     * 회의록은 딥링크로 열 대상이 이미 없으므로, 프론트에서 해당 회의록을 못 찾으면 회의록 화면까지만
-     * 이동하고 조용히 멈춘다.
+     * 삭제 알림에는 열어볼 대상이 없어 "바로가기"를 붙이지 않는다. 대신 target은 이 알림이 어느
+     * 프로젝트 소속인지 되짚는 용도로만 쓰인다 — 클라이언트가 지금 보고 있는 프로젝트의 알림만
+     * 띄우려면 그 정보가 필요하기 때문이다.
      */
     private void notifyProjectTeamExceptActor(
-        Long projectDbId, Long actorId, String type, String title, String content, Long meetingDbId
+        Long projectDbId, Long actorId, String type, String title, String content,
+        String targetType, Long targetId
     ) {
         projectMemberRepository.findAllByProjectId(projectDbId).stream()
             .filter(member -> member.getRole() != ProjectRole.REVIEWER)
@@ -542,7 +544,7 @@ public class MeetingAnalysisService {
             .filter(userId -> userId != null && !userId.equals(actorId))
             .distinct()
             .forEach(userId ->
-                notificationService.notifyAfterCommit(userId, type, title, content, "meeting", meetingDbId)
+                notificationService.notifyAfterCommit(userId, type, title, content, targetType, targetId)
             );
     }
 
@@ -615,7 +617,7 @@ public class MeetingAnalysisService {
         notifyProjectTeamExceptActor(
             projectDbId, actorId, "MEETING_ANALYSIS_DELETED", "회의록 분석 결과가 삭제되었습니다",
             actorName + "님이 '" + title + "' 회의록의 분석 결과를 삭제했습니다." + scopeSuffix,
-            meetingDbId
+            "meeting", meetingDbId
         );
         return new MeetingDeleteResponse(meetingId, "DELETED");
     }

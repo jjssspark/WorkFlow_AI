@@ -8,6 +8,11 @@ export interface NotificationResponse {
   content: string | null;
   targetType: string | null;
   targetId: string | null;
+  /**
+   * 이 알림이 속한 프로젝트. 서버가 targetType/targetId로 되짚어 준다.
+   * null이면 어느 프로젝트로도 환원되지 않는 알림이라 프로젝트와 무관하게 다룬다.
+   */
+  projectId: string | null;
   read: boolean;
   createdAt: string;
 }
@@ -19,14 +24,10 @@ export const ACTION_REQUIRED_NOTIFICATION_TYPES = new Set([
 ]);
 
 /**
- * 회의록으로 딥링크할 수 있어 "바로가기" 버튼을 붙일 알림 타입.
- *
- * 삭제 알림은 할 일이 아니라 통보라서 ACTION_REQUIRED에 넣으면 안 되지만("할 일" 배지가 붙는다),
- * 어떤 회의록이 지워졌는지는 확인할 수 있어야 하므로 바로가기 대상에는 포함한다. 전체 삭제된
- * 회의록은 열 대상이 이미 없어 회의록 화면까지만 이동한다.
+ * 삭제 알림에는 "바로가기"를 붙이지 않는다. 삭제된 대상은 열어볼 것이 없어 버튼이 헛돌기 때문이다.
+ * (분석 결과만 지운 경우 회의록 자체는 남지만, 사용자가 눌러서 볼 분석 내용이 없는 건 마찬가지다.)
  */
-export const MEETING_SHORTCUT_NOTIFICATION_TYPES = new Set([
-  ...ACTION_REQUIRED_NOTIFICATION_TYPES,
+export const DELETION_NOTIFICATION_TYPES = new Set([
   "MEETING_DELETED",
   "MEETING_ANALYSIS_DELETED",
 ]);

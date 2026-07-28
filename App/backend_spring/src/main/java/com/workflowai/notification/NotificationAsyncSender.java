@@ -23,15 +23,18 @@ public class NotificationAsyncSender {
 
     private final NotificationRepository notificationRepository;
     private final NotificationBroadcaster broadcaster;
+    private final NotificationProjectResolver projectResolver;
     private final TransactionTemplate requiresNewTransaction;
 
     public NotificationAsyncSender(
         NotificationRepository notificationRepository,
         PlatformTransactionManager transactionManager,
-        NotificationBroadcaster broadcaster
+        NotificationBroadcaster broadcaster,
+        NotificationProjectResolver projectResolver
     ) {
         this.notificationRepository = notificationRepository;
         this.broadcaster = broadcaster;
+        this.projectResolver = projectResolver;
         this.requiresNewTransaction = new TransactionTemplate(transactionManager);
         this.requiresNewTransaction.setPropagationBehavior(TransactionTemplate.PROPAGATION_REQUIRES_NEW);
     }
@@ -49,7 +52,7 @@ public class NotificationAsyncSender {
                 notificationRepository.deleteExcessByUserId(userId);
                 return created;
             });
-            broadcaster.broadcast(userId, NotificationDto.from(saved));
+            broadcaster.broadcast(userId, NotificationDto.from(saved, projectResolver.resolve(saved)));
         } catch (Exception e) {
             log.warn("알림 발송 실패. userId={}, type={}, targetType={}, targetId={}", userId, type, targetType, targetId, e);
         }

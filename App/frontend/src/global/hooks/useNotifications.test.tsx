@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { act, render, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
@@ -22,15 +23,23 @@ vi.mock("../api/notificationApi", () => ({
   subscribeNotificationStream: (...args: unknown[]) => subscribeNotificationStream(...(args as [StreamHandlers, AbortSignal])),
 }));
 
-function Probe() {
-  const { unreadCount } = useNotifications();
+const ACTIVE_PROJECT_ID = 1;
+
+/** 프로젝트 화면(AppShell)이 열린 상태를 흉내낸다. null이면 프로젝트 진입 화면에 있는 상태다. */
+function Probe({ activeProjectId = ACTIVE_PROJECT_ID }: { activeProjectId?: number | null }) {
+  const { unreadCount, setActiveProjectId } = useNotifications();
+  useEffect(() => {
+    setActiveProjectId(activeProjectId);
+    return () => setActiveProjectId(null);
+  }, [activeProjectId, setActiveProjectId]);
   return <div data-testid="count">{unreadCount}</div>;
 }
 
 function sampleNotification(): NotificationResponse {
   return {
     id: "1", type: "TASK_ASSIGNED", title: "제목", content: null,
-    targetType: null, targetId: null, read: false, createdAt: new Date().toISOString(),
+    targetType: null, targetId: null, projectId: String(ACTIVE_PROJECT_ID),
+    read: false, createdAt: new Date().toISOString(),
   };
 }
 
@@ -98,5 +107,93 @@ describe("NotificationProvider", () => {
 
     await waitFor(() => expect(fetchNotifications).toHaveBeenCalled());
     expect(toast.custom).not.toHaveBeenCalled();
+  });
+
+  it("프로젝트 진입 화면에서는 알림이 와도 토스트를 띄우지 않는다", async () => {
+    // 아직 어느 프로젝트를 보는지 정해지지 않은 화면이라, 특정 프로젝트의 소식을 띄울 자리가 아니다.
+    mockUseAuth.mockReturnValue({ isAuthenticated: true });
+    fetchNotifications.mockResolvedValue(notificationsOf(3));
+    const { getByTestId } = render(
+      <NotificationProvider><Probe activeProjectId={null} /></NotificationProvider>
+    );
+    await waitFor(() => expect(subscribeNotificationStream).toHaveBeenCalled());
+
+    act(() => {
+      streamHandlers!.onNotification({ ...sampleNotification(), id: "99" });
+    });
+
+    // 배지 숫자는 올라가지만 화면을 덮는 토스트는 뜨지 않는다.
+    expect(getByTestId("count").textContent).toBe("1");
+    expect(toast.custom).not.toHaveBeenCalled();
+  });
+
+  it("다른 프로젝트의 알림은 토스트를 띄우지 않는다", async () => {
+    mockUseAuth.mockReturnValue({ isAuthenticated: true });
+    render(<NotificationProvider><Probe /></NotificationProvider>);
+    await waitFor(() => expect(subscribeNotificationStream).toHaveBeenCalled());
+
+    act(() => {
+      streamHandlers!.onNotification({ ...sampleNotification(), id: "77", projectId: "999" });
+    });
+
+    expect(toast.custom).not.toHaveBeenCalled();
+  });
+
+  it("어느 프로젝트에도 속하지 않는 알림은 그대로 띄운다", async () => {
+    mockUseAuth.mockReturnValue({ isAuthenticated: true });
+    render(<NotificationProvider><Probe /></NotificationProvider>);
+    await waitFor(() => expect(subscribeNotificationStream).toHaveBeenCalled());
+
+    act(() => {
+      streamHandlers!.onNotification({ ...sampleNotification(), id: "88", projectId: null });
+    });
+
+    expect(toast.custom).toHaveBeenCalledOnce();
+  });
+
+  it("진입 화면에서 놓친 알림을 프로젝트에 들어온 뒤 띄운다", async () => {
+    mockUseAuth.mockReturnValue({ isAuthenticated: true });
+    fetchNotifications.mockResolvedValue(notificationsOf(2));
+    const { rerender } = render(
+      <NotificationProvider><Probe activeProjectId={null} /></NotificationProvider>
+    );
+    await waitFor(() => expect(subscribeNotificationStream).toHaveBeenCalled());
+    expect(toast.custom).not.toHaveBeenCalled();
+
+    rerender(<NotificationProvider><Probe activeProjectId={ACTIVE_PROJECT_ID} /></NotificationProvider>);
+
+    await waitFor(() => expect(toast.custom).toHaveBeenCalledTimes(2));
+  });
+
+  it("프로젝트에 들어오는 순간 목록을 다시 불러오지 않고 미리 받아둔 것으로 바로 띄운다", async () => {
+    // 진입 시점에 요청을 걸면 왕복이 끝날 때까지 알림이 늦게 뜬다. 목록은 로그인 직후에 받아둔다.
+    mockUseAuth.mockReturnValue({ isAuthenticated: true });
+    fetchNotifications.mockResolvedValue(notificationsOf(2));
+    const { rerender } = render(
+      <NotificationProvider><Probe activeProjectId={null} /></NotificationProvider>
+    );
+    await waitFor(() => expect(fetchNotifications).toHaveBeenCalledTimes(1));
+
+    rerender(<NotificationProvider><Probe activeProjectId={ACTIVE_PROJECT_ID} /></NotificationProvider>);
+    await waitFor(() => expect(toast.custom).toHaveBeenCalledTimes(2));
+
+    expect(fetchNotifications).toHaveBeenCalledTimes(1);
+  });
+
+  it("진입 화면에서 도착한 실시간 알림도 프로젝트에 들어오면 띄운다", async () => {
+    mockUseAuth.mockReturnValue({ isAuthenticated: true });
+    const { rerender } = render(
+      <NotificationProvider><Probe activeProjectId={null} /></NotificationProvider>
+    );
+    await waitFor(() => expect(subscribeNotificationStream).toHaveBeenCalled());
+
+    act(() => {
+      streamHandlers!.onNotification({ ...sampleNotification(), id: "55" });
+    });
+    expect(toast.custom).not.toHaveBeenCalled();
+
+    rerender(<NotificationProvider><Probe activeProjectId={ACTIVE_PROJECT_ID} /></NotificationProvider>);
+
+    await waitFor(() => expect(toast.custom).toHaveBeenCalledOnce());
   });
 });

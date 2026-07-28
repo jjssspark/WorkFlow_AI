@@ -245,9 +245,9 @@ describe("Header 알림", () => {
     expect(mockNavigate).toHaveBeenCalledWith("/mypage");
   });
 
-  // 삭제 알림은 "할 일"이 아니라 통보이므로 배지는 붙지 않지만, 어떤 회의록인지 확인할 수 있게
-  // 바로가기는 있어야 한다.
-  it("분석 결과 삭제 알림에 바로가기 버튼이 보이고 클릭 시 해당 회의록으로 이동한다", async () => {
+  // 삭제 알림은 눌러서 열어볼 대상이 없다. 분석 결과만 지운 경우 회의록 자체는 남지만 볼 분석
+  // 내용이 없고, 전체 삭제된 회의록은 딥링크 대상 자체가 사라진다.
+  it("분석 결과 삭제 알림에는 바로가기 버튼이 없다", async () => {
     vi.mocked(fetchNotifications).mockResolvedValue([
       { id: "1", type: "MEETING_ANALYSIS_DELETED", title: "회의록 분석 결과가 삭제되었습니다", content: "김민준님이 '정기회의' 회의록의 분석 결과를 삭제했습니다. (등록된 업무는 유지됨)", targetType: "meeting", targetId: "7", read: false, createdAt: new Date().toISOString() },
     ]);
@@ -256,24 +256,21 @@ describe("Header 알림", () => {
     renderHeader();
     await openBell();
 
-    const shortcutButton = await screen.findByRole("button", { name: "바로가기" });
-    await userEvent.click(shortcutButton);
-
-    expect(mockNavigate).toHaveBeenCalledWith("/meetings?meetingId=7");
+    expect(await screen.findByText("회의록 분석 결과가 삭제되었습니다")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "바로가기" })).not.toBeInTheDocument();
     expect(screen.queryByText("할 일")).not.toBeInTheDocument();
   });
 
-  // 전체 삭제된 회의록은 딥링크로 열 대상이 이미 없다. 그래도 회의록 화면까지는 데려가고,
-  // MeetingsView가 해당 id를 못 찾으면 조용히 멈춘다.
-  it("회의록 삭제 알림에도 바로가기 버튼이 보인다", async () => {
+  it("회의록 삭제 알림에도 바로가기 버튼이 없다", async () => {
     vi.mocked(fetchNotifications).mockResolvedValue([
-      { id: "1", type: "MEETING_DELETED", title: "회의록이 삭제되었습니다", content: "김민준님이 '정기회의' 회의록을 삭제했습니다. (등록된 업무는 유지됨)", targetType: "meeting", targetId: "7", read: false, createdAt: new Date().toISOString() },
+      { id: "1", type: "MEETING_DELETED", title: "회의록이 삭제되었습니다", content: "김민준님이 '정기회의' 회의록을 삭제했습니다. (등록된 업무는 유지됨)", targetType: "project", targetId: "1", read: false, createdAt: new Date().toISOString() },
     ]);
     vi.mocked(markNotificationsRead).mockResolvedValue(undefined);
 
     renderHeader();
     await openBell();
 
-    expect(await screen.findByRole("button", { name: "바로가기" })).toBeInTheDocument();
+    expect(await screen.findByText("회의록이 삭제되었습니다")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "바로가기" })).not.toBeInTheDocument();
   });
 });

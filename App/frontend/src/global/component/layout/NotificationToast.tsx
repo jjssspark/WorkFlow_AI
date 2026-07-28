@@ -3,6 +3,7 @@ import { useNavigate } from "react-router";
 import { toast } from "sonner";
 import {
   ACTION_REQUIRED_NOTIFICATION_TYPES,
+  DELETION_NOTIFICATION_TYPES,
   markNotificationsRead,
   meetingNotificationPanelQuery,
   type NotificationResponse,
@@ -16,7 +17,9 @@ type Props = {
 export function NotificationToast({ notification, toastId }: Props) {
   const navigate = useNavigate();
   const isActionRequired = ACTION_REQUIRED_NOTIFICATION_TYPES.has(notification.type);
+  // 삭제 알림은 열어볼 대상이 없으므로 바로가기도, 토스트 클릭 이동도 붙이지 않는다.
   const hasTarget =
+    !DELETION_NOTIFICATION_TYPES.has(notification.type) &&
     (notification.targetType === "meeting" || notification.targetType === "evaluation") &&
     !!notification.targetId;
 
@@ -24,6 +27,10 @@ export function NotificationToast({ notification, toastId }: Props) {
     markNotificationsRead([notification.id]).catch((err) => {
       console.error("알림 읽음 처리에 실패했습니다.", err);
     });
+    if (!hasTarget) {
+      toast.dismiss(toastId);
+      return;
+    }
     if (notification.targetType === "meeting" && notification.targetId) {
       navigate(`/meetings?meetingId=${notification.targetId}${meetingNotificationPanelQuery(notification.type)}`);
     } else if (notification.targetType === "evaluation" && notification.targetId) {
