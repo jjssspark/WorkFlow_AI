@@ -221,3 +221,43 @@ def test_setup_langsmith_is_invoked_when_router_module_is_loaded():
         importlib.reload(router_module)
 
     mock_setup.assert_called()
+
+
+def test_inference_still_returns_when_langsmith_run_creation_fails():
+    """UT-177. 추적 전송이 실패해도 추론 결과는 그대로 나와야 한다.
+
+    LangSmith는 부가 관측 수단이라, 그쪽 장애가 업무 편중 점수 계산을 막으면 안 된다.
+    트레이싱을 켠 상태에서 Client.create_run이 예외를 던지도록 만들어, build_features가
+    그 예외에 휩쓸리지 않고 정상 결과를 반환하는지 확인한다.
+
+    위의 '활성' 케이스와 마찬가지로 별도 프로세스에서 돌린다 - langsmith SDK가 트레이싱
+    활성 여부를 프로세스 전역으로 한 번만 결정하기 때문이다.
+    """
+    script = textwrap.dedent("""
+        import json, os
+        os.environ["LANGSMITH_TRACING"] = "true"
+        os.environ["LANGSMITH_API_KEY"] = "test-key"
+        os.environ["LANGSMITH_PROJECT"] = "workflow-test"
+        from unittest.mock import patch
+        import pandas as pd
+        from ml_workload_score.app.services.workload_model import build_features
+
+        df = pd.DataFrame([
+            {"task_id": 1, "project_id": 1, "assignee_id": "a", "category": "backend",
+             "priority": "high", "status": "todo", "due_date": pd.Timestamp("2026-08-01")},
+            {"task_id": 2, "project_id": 1, "assignee_id": "b", "category": "backend",
+             "priority": "low", "status": "done", "due_date": pd.Timestamp("2026-08-01")},
+        ])
+        with patch("langsmith.client.Client.create_run", side_effect=RuntimeError("langsmith down")), \\
+             patch("langsmith.client.Client.update_run", side_effect=RuntimeError("langsmith down")):
+            result = build_features(df)
+
+        print(json.dumps({
+            "result_rows": len(result),
+            "assignees": sorted(result["assignee_id"].tolist()),
+        }))
+    """)
+    output = _run_in_subprocess(script)
+
+    assert output["result_rows"] == 2
+    assert output["assignees"] == ["a", "b"]
