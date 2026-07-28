@@ -7,11 +7,14 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.workflowai.comment.PersonalComment;
+import com.workflowai.comment.PersonalCommentRepository;
 import com.workflowai.project.ProjectMemberRepository;
 import com.workflowai.project.ProjectRepository;
 import com.workflowai.security.UserPrincipal;
@@ -60,6 +63,9 @@ class MeControllerTest {
 
     @MockitoBean
     private S3StorageClient storageClient;
+
+    @MockitoBean
+    private PersonalCommentRepository personalCommentRepository;
 
     @AfterEach
     void clearSecurityContext() {
@@ -302,5 +308,28 @@ class MeControllerTest {
             .andExpect(jsonPath("$.error.code").value("FILE_TOO_LARGE"));
 
         verify(storageClient, never()).upload(anyString(), any(), anyLong(), any());
+    }
+
+    @Test
+    void myCommentsReturnsCommentsAndRepliesInChronologicalOrderWithAuthorNames() throws Exception {
+        authenticateAs(10L);
+        PersonalComment root = new PersonalComment(1L, "personal", 10L, 20L, "UI가 깔끔하네요", null);
+        ReflectionTestUtils.setField(root, "id", 100L);
+        PersonalComment reply = new PersonalComment(1L, "personal", 10L, 10L, "감사합니다!", 100L);
+        ReflectionTestUtils.setField(reply, "id", 101L);
+        when(personalCommentRepository.findByProjectIdAndTargetUserIdOrderByCreatedAtAsc(1L, 10L))
+            .thenReturn(List.of(root, reply));
+        User reviewer = new User("reviewer@workflow.ai", "심사자", "demo", "9");
+        ReflectionTestUtils.setField(reviewer, "id", 20L);
+        User member = new User("member@workflow.ai", "이서연", "demo", "2");
+        ReflectionTestUtils.setField(member, "id", 10L);
+        when(userRepository.findAllById(any()))
+            .thenReturn(List.of(reviewer, member));
+
+        mockMvc.perform(get("/api/v1/me/comments").param("projectId", "1"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.length()").value(2))
+            .andExpect(jsonPath("$.data[0].parentId").doesNotExist())
+            .andExpect(jsonPath("$.data[1].parentId").value(100));
     }
 }
