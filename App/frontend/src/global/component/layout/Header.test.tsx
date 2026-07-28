@@ -86,6 +86,45 @@ vi.mock("../../hooks/useAuth", async () => {
 const mockUseNotifications = vi.fn().mockReturnValue({ unreadCount: 0, refreshUnreadCount: vi.fn() });
 vi.mock("../../hooks/useNotifications", () => ({ useNotifications: () => mockUseNotifications() }));
 
+const mockUsePresence = vi.fn().mockReturnValue([]);
+vi.mock("../../hooks/usePresence", () => ({ usePresence: () => mockUsePresence() }));
+
+describe("Header 접속자 아바타", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    mockUseAuth.mockReturnValue({
+      isAuthenticated: true, loading: false, user: { id: 1, email: "a@a.com", name: "테스트" },
+      projectRoles: [], currentProjectId: 1, currentProject: null,
+      selectProject: vi.fn(), addLocalProjectRole: vi.fn(), loginWithGoogle: vi.fn(),
+      logout: vi.fn(), refreshMe: vi.fn(),
+    });
+    mockUseNotifications.mockReturnValue({ unreadCount: 0, refreshUnreadCount: vi.fn() });
+  });
+
+  it("프로필 사진이 있는 접속자는 이름 첫 글자 대신 사진을 보여준다", () => {
+    mockUsePresence.mockReturnValue([
+      { userId: 1, name: "허영주", role: "팀장", avatarUrl: "https://storage.example/avatars/1/a.png?sig=x" },
+    ]);
+
+    renderHeader();
+
+    const avatar = screen.getByRole("img", { name: "허영주" });
+    expect(avatar).toHaveAttribute("src", "https://storage.example/avatars/1/a.png?sig=x");
+    expect(screen.getByTitle("허영주 / 팀장")).toBe(avatar);
+  });
+
+  it("프로필 사진이 없는 접속자는 이름 첫 글자 아바타로 대체한다", () => {
+    mockUsePresence.mockReturnValue([
+      { userId: 2, name: "박지수", role: "팀원", avatarUrl: null },
+    ]);
+
+    renderHeader();
+
+    expect(screen.queryByRole("img", { name: "박지수" })).not.toBeInTheDocument();
+    expect(screen.getByTitle("박지수 / 팀원")).toHaveTextContent("박");
+  });
+});
+
 describe("Header 알림", () => {
   beforeEach(() => {
     localStorage.clear();
