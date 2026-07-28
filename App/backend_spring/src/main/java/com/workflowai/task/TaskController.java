@@ -235,7 +235,7 @@ public class TaskController {
         @RequestBody TaskPositionUpdateRequest request
     ) {
         Long projectDbId = demoDataService.resolveProjectId(projectId);
-        Task task = taskRepository.findById(taskId).orElse(null);
+        Task task = taskRepository.findByIdForUpdate(taskId).orElse(null);
         if (task == null || !task.getProjectId().equals(projectDbId)) {
             return ResponseEntity.status(404).body(ApiResponse.fail("TASK_NOT_FOUND", "업무를 찾을 수 없습니다."));
         }
@@ -260,6 +260,8 @@ public class TaskController {
                 "'" + task.getTitle() + "' 상태를 '" + label + "'(으)로 변경했습니다."
             );
             String notificationContent = "'" + task.getTitle() + "' 업무가 '" + label + "'(으)로 이동했습니다.";
+            String leaderNotificationContent =
+                userName(moveActorId) + "님이 '" + task.getTitle() + "' 업무를 '" + label + "' 상태로 변경했습니다.";
             if (task.getAssigneeId() != null && !task.getAssigneeId().equals(moveActorId)) {
                 notificationService.notifyAfterCommit(
                     task.getAssigneeId(), projectDbId, "STATUS_CHANGED", "담당 업무 상태가 변경되었습니다.",
@@ -273,7 +275,7 @@ public class TaskController {
                 .filter(leaderId -> !leaderId.equals(task.getAssigneeId()))
                 .forEach(leaderId -> notificationService.notifyAfterCommit(
                     leaderId, projectDbId, "STATUS_CHANGED", "업무 상태가 변경되었습니다.",
-                    notificationContent, "task", task.getId()
+                    leaderNotificationContent, "task", task.getId()
                 ));
         }
         return ResponseEntity.ok(ApiResponse.ok(TaskListItem.from(task)));

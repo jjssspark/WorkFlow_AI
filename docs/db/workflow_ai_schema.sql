@@ -482,6 +482,7 @@ CREATE TABLE notifications (
     content    TEXT,
     target_type VARCHAR(30),
     target_id  BIGINT,
+    project_id BIGINT,
     is_read    BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_notifications_user FOREIGN KEY (user_id) REFERENCES users(id)
@@ -490,6 +491,8 @@ COMMENT ON TABLE notifications IS '사용자 알림';
 COMMENT ON COLUMN notifications.target_type IS '폴리모픽 대상 유형 (task/meeting/comment 등)';
 
 CREATE INDEX idx_notifications_user_id ON notifications (user_id);
+CREATE INDEX idx_notifications_user_project_created
+    ON notifications (user_id, project_id, created_at DESC);
 
 -- ----------------------------------------------------------------------------
 -- 5. 산출물 / GitHub

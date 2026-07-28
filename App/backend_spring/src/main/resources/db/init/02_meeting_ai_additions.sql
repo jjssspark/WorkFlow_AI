@@ -84,6 +84,7 @@ CREATE TABLE notifications (
     content     TEXT,
     target_type VARCHAR(50),
     target_id   BIGINT NULL,
+    project_id  BIGINT NULL,
     is_read     BOOLEAN NOT NULL DEFAULT FALSE,
     created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_notifications_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -92,3 +93,6 @@ COMMENT ON TABLE notifications IS '사용자 알림 (업무 배정, 코멘트 �
 COMMENT ON COLUMN notifications.type IS '알림 종류 (예: TASK_ASSIGNED)';
 COMMENT ON COLUMN notifications.target_type IS '알림이 가리키는 대상 종류 (예: task)';
 COMMENT ON COLUMN notifications.target_id IS '대상 id (예: task id, 폴리모픽, FK 제약 없음)';
+COMMENT ON COLUMN notifications.project_id IS '알림을 분리해서 표시할 프로젝트 id';
+CREATE INDEX idx_notifications_user_project_created
+    ON notifications (user_id, project_id, created_at DESC);

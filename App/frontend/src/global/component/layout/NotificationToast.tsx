@@ -17,14 +17,18 @@ export function NotificationToast({ notification, toastId }: Props) {
   const navigate = useNavigate();
   const isActionRequired = ACTION_REQUIRED_NOTIFICATION_TYPES.has(notification.type);
   const hasTarget =
-    (notification.targetType === "meeting" || notification.targetType === "evaluation") &&
+    (notification.targetType === "task" ||
+      notification.targetType === "meeting" ||
+      notification.targetType === "evaluation") &&
     !!notification.targetId;
 
   const handleActivate = () => {
     markNotificationsRead([notification.id]).catch((err) => {
       console.error("알림 읽음 처리에 실패했습니다.", err);
     });
-    if (notification.targetType === "meeting" && notification.targetId) {
+    if (notification.targetType === "task" && notification.targetId) {
+      navigate(`/board?taskId=${encodeURIComponent(notification.targetId)}`);
+    } else if (notification.targetType === "meeting" && notification.targetId) {
       navigate(`/meetings?meetingId=${notification.targetId}${meetingNotificationPanelQuery(notification.type)}`);
     } else if (notification.targetType === "evaluation" && notification.targetId) {
       navigate("/mypage");
