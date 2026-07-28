@@ -34,6 +34,9 @@ SUITES = (
     # 즉시 반영되는지는 요청 두 개를 실제로 태워야만 보인다.
     "com.workflowai.project.ProjectMembershipIntegrationTest",
     "com.workflowai.project.ProjectInvitationIntegrationTest",
+    # 알림 실시간 경로(IT-025). 요청 스레드 → afterCommit → @Async 스레드 → SSE로 이어지는
+    # 구간이라, 건너뛰어지면 "저장은 되는데 화면에 안 뜬다"를 볼 테스트가 없다.
+    "com.workflowai.notification.NotificationRealtimeIntegrationTest",
 )
 REPORT_DIR = Path("build/test-results/test")
 
