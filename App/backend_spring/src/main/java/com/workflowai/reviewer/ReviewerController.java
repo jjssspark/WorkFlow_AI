@@ -37,4 +37,14 @@ public class ReviewerController {
     public ApiResponse<List<ReviewerActivityDto>> myRecentActivities() {
         return ApiResponse.ok(reviewerService.getMyRecentActivities(CurrentUser.id()));
     }
+
+    @Operation(
+        summary = "심사자 홈 배정 프로젝트 최근 접속 시각",
+        description = "현재 로그인한 심사자가 프로젝트별로 마지막 접속한 시각을 반환한다. "
+            + "배정 프로젝트 목록을 최근 접속순으로 정렬하는 데 쓴다. 접속 기록이 없으면 빈 배열을 반환한다."
+    )
+    @GetMapping("/reviewer-last-access")
+    public ApiResponse<List<ProjectLastAccessDto>> myLastAccess() {
+        return ApiResponse.ok(reviewerService.getMyLastAccess(CurrentUser.id()));
+    }
 }

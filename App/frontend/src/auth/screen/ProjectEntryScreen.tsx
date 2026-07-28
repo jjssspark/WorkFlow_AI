@@ -16,7 +16,9 @@ import { AuthBrandPanel } from "../components/AuthBrandPanel";
 import { useAuth } from "../../global/hooks/useAuth";
 import type { ProjectRoleKo, ProjectRoleSummary } from "../../global/api/authTypes";
 import { joinProjectByCode, listProjects, type ProjectResponse } from "../../global/api/projectsApi";
-import { fetchReviewerActivities, type ReviewerActivityDto } from "../../global/api/reviewerActivityApi";
+import {
+  fetchReviewerActivities, fetchReviewerLastAccess, recordReviewerAccess, type ReviewerActivityDto,
+} from "../../global/api/reviewerActivityApi";
 import { EVAL_STATUS_META, resolveEvalStatus } from "../../global/lib/evalStatus";
 
 const PROJECT_META: Record<number, { type: string; deadline: string; progress: number }> = {};
@@ -83,6 +85,26 @@ export function ProjectEntryScreen() {
       .catch(() => setReviewerActivities([]));
   }, [isJudgeHome]);
 
+  // 배정 프로젝트 목록의 최근 접속순 정렬에 쓰는 값. 조회 실패는 화면 전체를 막지 않고
+  // 빈 상태로 둔다(정렬만 기본 순서로 유지).
+  const [lastAccessByProjectId, setLastAccessByProjectId] = useState<Record<number, number>>({});
+  useEffect(() => {
+    if (!isJudgeHome) return;
+    fetchReviewerLastAccess()
+      .then((result) => {
+        setLastAccessByProjectId(Object.fromEntries(
+          result.map((entry) => [entry.projectId, new Date(entry.lastAccessedAt).getTime()])
+        ));
+      })
+      .catch(() => setLastAccessByProjectId({}));
+  }, [isJudgeHome]);
+
+  // 최근 접속한 프로젝트가 맨 위로 온다. 접속 기록이 없는 프로젝트는 뒤로 보내되,
+  // 목록에서 빠지지는 않는다(아직 한 번도 열어보지 않은 배정 프로젝트도 보여야 한다).
+  const sortedAssignedProjects = [...assignedProjects].sort(
+    (a, b) => (lastAccessByProjectId[b.id] ?? 0) - (lastAccessByProjectId[a.id] ?? 0)
+  );
+
   const handleBackToLogin = () => {
     logout();
     navigate("/login", { replace: true });
@@ -123,6 +145,9 @@ export function ProjectEntryScreen() {
   // 실제로 배정된 프로젝트 진입 — currentProjectId를 진짜 projectId로 설정하므로
   // ContributorsView가 처음부터 실제 데이터를 불러온다(새로고침 불필요).
   const enterAssignedProject = (project: ProjectResponse) => {
+    // 접속 기록이 "최근 접속 날짜"와 목록 정렬의 근거다. 기록 실패로 진입 자체가 막히면
+    // 안 되므로 응답을 기다리지 않고, 실패해도 조용히 넘어간다.
+    void recordReviewerAccess(project.id).catch(() => {});
     selectProject(project.id);
     navigate("/contributors");
   };
@@ -212,7 +237,7 @@ export function ProjectEntryScreen() {
                 )}
 
                 <div className="divide-y divide-border">
-                  {assignedProjects.map((project) => {
+                  {sortedAssignedProjects.map((project) => {
                     const meta = EVAL_STATUS_META[resolveEvalStatus(project.evalStatus)];
                     return (
                       <button

@@ -17,19 +17,23 @@ export const ACTION_REQUIRED_NOTIFICATION_TYPES = new Set([
   "MEETING_ANALYSIS_COMPLETED_NOTIFY_LEADER",
   "MEETING_SAVED_NOTIFY_LEADER",
   "MEETING_EDITED",
+  "COMPLETION_REQUESTED",
 ]);
 
 /**
  * 회의록으로 딥링크할 수 있어 "바로가기" 버튼을 붙일 알림 타입.
  *
- * 삭제 알림은 할 일이 아니라 통보라서 ACTION_REQUIRED에 넣으면 안 되지만("할 일" 배지가 붙는다),
- * 어떤 회의록이 지워졌는지는 확인할 수 있어야 하므로 바로가기 대상에는 포함한다. 전체 삭제된
- * 회의록은 열 대상이 이미 없어 회의록 화면까지만 이동한다.
+ * 삭제 알림(MEETING_DELETED / MEETING_ANALYSIS_DELETED)은 제외한다. 눌러도 열어볼 대상이 이미
+ * 없어 버튼이 헛돌기 때문이다 - 분석 결과만 지운 경우 회의록 자체는 남지만, 사용자가 확인하려던
+ * 분석 내용은 없는 것이 마찬가지다. 삭제는 "확인할 것"이 아니라 통보로만 다룬다.
+ *
+ * ACTION_REQUIRED와 지금은 구성이 같지만 뜻이 다르다("할 일" 배지 / "바로가기" 버튼). 한쪽만
+ * 바뀌는 일이 실제로 있었으므로 상수를 합치지 않는다.
  */
 export const MEETING_SHORTCUT_NOTIFICATION_TYPES = new Set([
-  ...ACTION_REQUIRED_NOTIFICATION_TYPES,
-  "MEETING_DELETED",
-  "MEETING_ANALYSIS_DELETED",
+  "MEETING_ANALYSIS_COMPLETED_NOTIFY_LEADER",
+  "MEETING_SAVED_NOTIFY_LEADER",
+  "MEETING_EDITED",
 ]);
 
 /** 팀장에게 역할분배를 요청하는 알림은 "바로가기"를 누르면 역할분배 검토 탭으로 바로 이동해야 한다. */

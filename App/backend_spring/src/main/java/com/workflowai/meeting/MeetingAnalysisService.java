@@ -1,5 +1,6 @@
 package com.workflowai.meeting;
 
+import com.workflowai.activity.ActivityService;
 import com.workflowai.common.DemoDataService;
 import com.workflowai.notification.Notification;
 import com.workflowai.notification.NotificationRepository;
@@ -55,6 +56,12 @@ import org.springframework.web.multipart.MultipartFile;
 public class MeetingAnalysisService {
     private static final Logger log = LoggerFactory.getLogger(MeetingAnalysisService.class);
     private static final Set<String> AUDIO_FILE_EXTENSIONS = Set.of(".mp3", ".wav", ".m4a", ".ogg", ".webm");
+    // extractText()가 실제로 처리할 수 있는 문서 확장자 화이트리스트. 여기 없는 확장자(.exe 등)는
+    // analyze() 초입에서 거부한다 — 바이너리 실행파일이 "추출 예정" placeholder로 조용히 통과해
+    // 분석 큐까지 들어가는 것을 막기 위함.
+    private static final Set<String> ALLOWED_DOCUMENT_EXTENSIONS = Set.of(
+        ".txt", ".md", ".csv", ".json", ".pdf", ".docx", ".doc", ".pptx", ".ppt"
+    );
     // 스캔본 PDF OCR 설정. 페이지가 많은 회의 자료 전체를 인식하면 분석 요청이 몇 분씩 걸리므로 상한을 둔다.
     private static final int OCR_MAX_PAGES = 30;
     private static final int OCR_DPI = 200;
@@ -87,6 +94,7 @@ public class MeetingAnalysisService {
     private final ProjectRepository projectRepository;
     private final RagIngestService ragIngestService;
     private final MeetingAnalysisPersistence meetingAnalysisPersistence;
+    private final ActivityService activityService;
     private final String uploadsDir;
 
     public MeetingAnalysisService(
@@ -104,6 +112,7 @@ public class MeetingAnalysisService {
         ProjectRepository projectRepository,
         RagIngestService ragIngestService,
         MeetingAnalysisPersistence meetingAnalysisPersistence,
+        ActivityService activityService,
         @Value("${workflow.uploads.dir}") String uploadsDir
     ) {
         this.meetingAnalysisJobPublisher = meetingAnalysisJobPublisher;
@@ -120,6 +129,7 @@ public class MeetingAnalysisService {
         this.projectRepository = projectRepository;
         this.ragIngestService = ragIngestService;
         this.meetingAnalysisPersistence = meetingAnalysisPersistence;
+        this.activityService = activityService;
         this.uploadsDir = uploadsDir;
     }
 
@@ -143,6 +153,12 @@ public class MeetingAnalysisService {
         }
 
         String fileName = file == null ? null : file.getOriginalFilename();
+        if (file != null) {
+            if (file.isEmpty()) {
+                throw new EmptyFileException("빈 파일은 업로드할 수 없습니다.");
+            }
+            validateFileType(fileName);
+        }
         // 음성 파일은 STT에 수 초~수십 초가 걸려 업로드 요청 안에서 동기 처리하면 타임아웃 위험이 크다.
         // 여기서는 텍스트를 비워두고, 실제 추출은 비동기 분석 큐(MeetingAnalysisRunner)에서 수행한다.
         boolean isAudioUpload = fileName != null && isAudioFile(fileName.toLowerCase());
@@ -486,6 +502,7 @@ public class MeetingAnalysisService {
             meetingAnalysisRepository.deleteById(meetingDbId);
         }
         if (deleteLinkedTasks) {
+            recordTasksDeleted(meeting, linkedTasks);
             meetingActionItemRepository.deleteByMeetingId(meetingDbId);
             taskRepository.deleteBySourceMeetingId(meetingDbId);
         } else {
@@ -533,6 +550,42 @@ public class MeetingAnalysisService {
      * 회의록은 딥링크로 열 대상이 이미 없으므로, 프론트에서 해당 회의록을 못 찾으면 회의록 화면까지만
      * 이동하고 조용히 멈춘다.
      */
+    /**
+     * 회의록에서 등록된 업무도 보드에서 직접 만든 업무와 똑같이 대시보드 "최근 활동"에 남아야 한다.
+     * 같은 tasks 테이블을 쓰므로 목록·집계는 이미 맞지만, 활동 로그는 각 경로가 직접 남겨야 해서
+     * 회의록 경로만 통째로 빠져 있었다. 로그 타입/문구는 TaskController와 맞춘다.
+     */
+    private void recordTaskCreated(Task task) {
+        // 활동 로그는 프로젝트 단위로 조회되므로, 소속 프로젝트를 모르면 남겨도 아무 화면에 뜨지 않는다.
+        if (task.getProjectId() == null) return;
+        activityService.record(
+            task.getProjectId(), task.getCreatedBy(), "TASK_CREATED", task.getId(),
+            "'" + task.getTitle() + "' 업무를 새로 추가했습니다."
+        );
+    }
+
+    /**
+     * 회의록 하나에 딸린 업무가 여러 건이면 건별로 남기지 않고 한 줄로 묶는다. 보드에서 업무를
+     * 하나씩 지울 때와 달리, 회의록 삭제는 한 번의 조작으로 여러 업무가 한꺼번에 사라지는 사건이라
+     * 활동 로그도 그 단위(회의록)로 남는 편이 "최근 활동" 목록을 삭제 로그가 뒤덮지 않는다.
+     */
+    private void recordTasksDeleted(Meeting meeting, List<Task> tasks) {
+        if (tasks.isEmpty()) return;
+        Long actorId = CurrentUser.id();
+        if (tasks.size() == 1) {
+            Task task = tasks.get(0);
+            activityService.record(
+                task.getProjectId(), actorId, "TASK_DELETED", task.getId(),
+                "'" + task.getTitle() + "' 업무를 삭제했습니다."
+            );
+            return;
+        }
+        activityService.record(
+            meeting.getProjectId(), actorId, "TASK_DELETED", meeting.getId(),
+            "'" + meeting.getTitle() + "' 회의록의 업무 " + tasks.size() + "건을 삭제했습니다."
+        );
+    }
+
     private void notifyProjectTeamExceptActor(
         Long projectDbId, Long actorId, String type, String title, String content, Long meetingDbId
     ) {
@@ -580,6 +633,7 @@ public class MeetingAnalysisService {
 
         meetingAnalysisRepository.deleteById(meetingDbId);
         if (deleteLinkedTasks) {
+            recordTasksDeleted(meeting, linkedTasks);
             meetingActionItemRepository.deleteByMeetingId(meetingDbId);
             taskRepository.deleteBySourceMeetingId(meetingDbId);
         } else {
@@ -807,6 +861,7 @@ public class MeetingAnalysisService {
             createdBy,
             position
         ));
+        recordTaskCreated(task);
         String taskRagContent = buildTaskIngestContent(task);
         ragIngestService.recordIngestIntent(
             task.getProjectId(),
@@ -1187,6 +1242,18 @@ public class MeetingAnalysisService {
     /** 음성 파일은 analyze()에서 STT를 건너뛰고 비동기 큐(MeetingAnalysisRunner)로 넘기므로 extractText()가 호출되지 않는다. */
     private boolean isAudioFile(String lowerCaseFileName) {
         return AUDIO_FILE_EXTENSIONS.stream().anyMatch(lowerCaseFileName::endsWith);
+    }
+
+    private void validateFileType(String fileName) {
+        if (fileName == null || fileName.isBlank()) {
+            return;
+        }
+        String lowerCaseFileName = fileName.toLowerCase();
+        boolean allowed = ALLOWED_DOCUMENT_EXTENSIONS.stream().anyMatch(lowerCaseFileName::endsWith)
+            || isAudioFile(lowerCaseFileName);
+        if (!allowed) {
+            throw new UnsupportedFileTypeException("지원하지 않는 파일 형식입니다: " + fileName);
+        }
     }
 
     private void validateAudioFileSize(MultipartFile file) {

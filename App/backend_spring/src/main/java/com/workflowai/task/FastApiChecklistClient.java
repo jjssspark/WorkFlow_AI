@@ -13,12 +13,16 @@ import org.springframework.web.client.RestClient;
 public class FastApiChecklistClient {
     private final RestClient restClient;
 
-    public FastApiChecklistClient(@Value("${workflow.ai.base-url}") String baseUrl) {
+    public FastApiChecklistClient(
+        @Value("${workflow.ai.base-url}") String baseUrl,
+        @Value("${workflow.ai.internal-key}") String internalKey
+    ) {
         // uvicorn h2c 미지원 회피: HTTP/1.1 강제 (FastApiMeetingClient와 동일 이유)
         HttpClient httpClient = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build();
         this.restClient = RestClient.builder()
             .baseUrl(baseUrl)
             .requestFactory(new JdkClientHttpRequestFactory(httpClient))
+            .defaultHeader("X-Internal-Api-Key", internalKey)
             .build();
     }
 

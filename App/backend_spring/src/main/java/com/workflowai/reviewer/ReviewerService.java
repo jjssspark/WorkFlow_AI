@@ -170,4 +170,11 @@ public class ReviewerService {
         }
         return result;
     }
+
+    /** 심사자 홈 배정 프로젝트 목록의 최근 접속순 정렬 — 로그인한 심사자 본인의 프로젝트별 마지막 접속 시각. */
+    public List<ProjectLastAccessDto> getMyLastAccess(Long actorId) {
+        return activityRepository.findLastProjectAccessByActorId(actorId).stream()
+            .map(view -> new ProjectLastAccessDto(view.getProjectId(), UtcTimeFormat.toIsoUtc(view.getLastAccessedAt())))
+            .toList();
+    }
 }

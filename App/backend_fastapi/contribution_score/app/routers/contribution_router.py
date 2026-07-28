@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from contribution_score.app.schema.contribution_schema import (
     ContributionScoreData,
@@ -10,11 +10,12 @@ from contribution_score.app.schema.contribution_schema import (
 )
 from contribution_score.app.services.contribution_db import load_meeting_attendance
 from contribution_score.app.services.contribution_service import compute_contribution_scores
+from core.security import verify_internal_api_key
 from ml_workload_score.app.services.workload_service import get_workload_score
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/ai/score", tags=["contribution"])
+router = APIRouter(prefix="/ai/score", tags=["contribution"], dependencies=[Depends(verify_internal_api_key)])
 
 
 @router.post("/contribution", response_model=ContributionScoreResponse)

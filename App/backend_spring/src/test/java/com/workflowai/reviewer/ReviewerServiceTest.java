@@ -169,4 +169,30 @@ class ReviewerServiceTest {
 
         assertThat(result).isEmpty();
     }
+
+    private record FakeProjectLastAccessView(Long getProjectId, LocalDateTime getLastAccessedAt)
+        implements ActivityRepository.ProjectLastAccessView {
+    }
+
+    @Test
+    void getMyLastAccess_returnsLastAccessedAtPerProject() {
+        LocalDateTime at = LocalDateTime.of(2026, 7, 28, 9, 30);
+        when(activityRepository.findLastProjectAccessByActorId(9L))
+            .thenReturn(List.of(new FakeProjectLastAccessView(3L, at)));
+
+        List<ProjectLastAccessDto> result = reviewerService.getMyLastAccess(9L);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).projectId()).isEqualTo(3L);
+        assertThat(result.get(0).lastAccessedAt()).isEqualTo("2026-07-28T09:30:00.000Z");
+    }
+
+    @Test
+    void getMyLastAccess_returnsEmptyListWhenNoAccessRecorded() {
+        when(activityRepository.findLastProjectAccessByActorId(9L)).thenReturn(List.of());
+
+        List<ProjectLastAccessDto> result = reviewerService.getMyLastAccess(9L);
+
+        assertThat(result).isEmpty();
+    }
 }

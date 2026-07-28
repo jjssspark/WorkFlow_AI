@@ -11,6 +11,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.workflowai.activity.ActivityService;
 import com.workflowai.common.DemoDataService;
 import com.workflowai.notification.NotificationRepository;
 import com.workflowai.notification.NotificationService;
@@ -37,6 +38,9 @@ import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
 import org.apache.pdfbox.pdmodel.font.PDType1Font;
 import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
+import org.apache.poi.xwpf.usermodel.XWPFDocument;
+import org.apache.poi.xwpf.usermodel.XWPFParagraph;
+import org.apache.poi.xwpf.usermodel.XWPFRun;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -71,6 +75,7 @@ class MeetingAnalysisServiceTest {
     @Mock private ProjectRepository projectRepository;
     @Mock private RagIngestService ragIngestService;
     @Mock private MeetingAnalysisPersistence meetingAnalysisPersistence;
+    @Mock private ActivityService activityService;
 
     @BeforeEach
     void authenticateAsCurrentUser() {
@@ -93,7 +98,7 @@ class MeetingAnalysisServiceTest {
             meetingAnalysisJobPublisher, demoDataService, meetingRepository, meetingAttendeeRepository,
             meetingAnalysisRepository, meetingActionItemRepository, taskRepository, notificationRepository,
             notificationService, userRepository, projectMemberRepository, projectRepository, ragIngestService,
-            meetingAnalysisPersistence, "/tmp/workflow-uploads"
+            meetingAnalysisPersistence, activityService, "/tmp/workflow-uploads"
         );
     }
 
@@ -184,6 +189,78 @@ class MeetingAnalysisServiceTest {
         verify(meetingAnalysisJobPublisher).enqueue(any(), requestCaptor.capture(), any(UUID.class), any());
         assertThat(requestCaptor.getValue().text()).contains("Meeting minutes body");
         assertThat(requestCaptor.getValue().text()).doesNotContain("텍스트 추출 예정");
+    }
+
+    @Test
+    void analyzeRejectsEmptyFile() {
+        mockMember(1L);
+        MeetingAnalysisService service = newService();
+        MockMultipartFile file = new MockMultipartFile("file", "empty.pdf", "application/pdf", new byte[0]);
+
+        assertThatThrownBy(() -> service.analyze(
+            "demo-project", file, "빈 파일 회의록", "2026-07-20", "정기회의", "document", List.of(), null
+        )).isInstanceOf(EmptyFileException.class);
+
+        verify(meetingRepository, never()).save(any());
+    }
+
+    @Test
+    void analyzeRejectsUnsupportedFileExtension() {
+        mockMember(1L);
+        MeetingAnalysisService service = newService();
+        MockMultipartFile file = new MockMultipartFile(
+            "file", "malware.exe", "application/octet-stream", "not a real exe".getBytes()
+        );
+
+        assertThatThrownBy(() -> service.analyze(
+            "demo-project", file, "악성파일 회의록", "2026-07-20", "정기회의", "document", List.of(), null
+        )).isInstanceOf(UnsupportedFileTypeException.class);
+
+        verify(meetingRepository, never()).save(any());
+    }
+
+    @Test
+    void analyzeExtractsDocxTextBeforeDispatchingAnalysisRequest() throws Exception {
+        mockMember(1L);
+        MeetingAnalysisService service = newService();
+        when(meetingRepository.save(any(Meeting.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        MockMultipartFile file = new MockMultipartFile(
+            "file",
+            "minutes.docx",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            createDocxBytes("Meeting minutes body: Park Jisu checks retry flow.")
+        );
+
+        service.analyze(
+            "demo-project", file, "DOCX 회의록", "2026-07-20", "정기회의", "document", List.of("박지수"), null
+        );
+
+        ArgumentCaptor<AiAnalyzeRequest> requestCaptor = ArgumentCaptor.forClass(AiAnalyzeRequest.class);
+        verify(meetingAnalysisJobPublisher).enqueue(any(), requestCaptor.capture(), any(UUID.class), any());
+        assertThat(requestCaptor.getValue().text()).contains("Meeting minutes body");
+        assertThat(requestCaptor.getValue().text()).doesNotContain("텍스트 추출 예정");
+    }
+
+    @Test
+    void analyzePreservesKoreanFileNameWithSpacesAndStartsAnalysis() throws Exception {
+        mockMember(1L);
+        MeetingAnalysisService service = newService();
+        when(meetingRepository.save(any(Meeting.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        String koreanFileName = "주간 회의록 1차.pdf";
+        MockMultipartFile file = new MockMultipartFile(
+            "file", koreanFileName, "application/pdf", createPdfBytes("Meeting minutes body content.")
+        );
+
+        service.analyze(
+            "demo-project", file, "한글 파일명 회의록", "2026-07-20", "정기회의", "document", List.of("박지수"), null
+        );
+
+        ArgumentCaptor<Meeting> meetingCaptor = ArgumentCaptor.forClass(Meeting.class);
+        verify(meetingRepository, atLeastOnce()).save(meetingCaptor.capture());
+        assertThat(meetingCaptor.getAllValues().get(0).getOriginalFileName()).isEqualTo(koreanFileName);
+        verify(meetingAnalysisJobPublisher).enqueue(any(), any(AiAnalyzeRequest.class), any(UUID.class), any());
     }
 
     @Test
@@ -339,6 +416,26 @@ class MeetingAnalysisServiceTest {
         )).isInstanceOf(IllegalArgumentException.class);
 
         verify(meetingRepository, never()).save(any());
+    }
+
+    @Test
+    void analyzeDeduplicatesRepeatedAttendeeIdsBeforeSaving() {
+        mockMember(1L);
+        when(projectMemberRepository.existsByProjectIdAndUserId(1L, 3L)).thenReturn(true);
+        when(projectMemberRepository.existsByProjectIdAndUserId(1L, 4L)).thenReturn(true);
+        when(meetingRepository.save(any(Meeting.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(userRepository.findAllById(any())).thenReturn(List.of());
+
+        MeetingAnalysisService service = newService();
+        MockMultipartFile file = new MockMultipartFile("file", "notes.txt", "text/plain", "회의 내용".getBytes());
+        service.analyze(
+            "demo-project", file, "7차 정기회의", "2026-07-15", "정기회의", "document", List.of(), List.of(3L, 3L, 4L)
+        );
+
+        ArgumentCaptor<MeetingAttendee> attendeeCaptor = ArgumentCaptor.forClass(MeetingAttendee.class);
+        verify(meetingAttendeeRepository, org.mockito.Mockito.times(2)).save(attendeeCaptor.capture());
+        assertThat(attendeeCaptor.getAllValues()).extracting(MeetingAttendee::getUserId)
+            .containsExactlyInAnyOrder(3L, 4L);
     }
 
     @Test
@@ -1059,6 +1156,84 @@ class MeetingAnalysisServiceTest {
         assertThat(captor.getValue().getCreatedBy()).isEqualTo(25L);
     }
 
+    // 회의록에서 등록한 업무도 보드에서 직접 만든 업무와 똑같이 대시보드 "최근 활동"에 남아야 한다.
+    // 목록/집계는 같은 tasks 테이블을 보므로 이미 맞았지만, 활동 로그는 이 경로만 통째로 빠져 있었다.
+    @Test
+    void registerTasksRecordsTaskCreatedActivityForDashboard() {
+        UserPrincipal leader = new UserPrincipal(25L, "leader@example.com", "박지수");
+        SecurityContextHolder.getContext().setAuthentication(
+            new UsernamePasswordAuthenticationToken(leader, null, List.of())
+        );
+        when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
+        when(projectMemberRepository.existsByProjectIdAndUserId(1L, 25L)).thenReturn(true);
+        Meeting meeting = new Meeting(1L, "정기회의", "document", null, "completed", LocalDate.now(), "정기회의", "a.txt", 10L, 10L);
+        when(meetingRepository.findByIdAndProjectId(5L, 1L)).thenReturn(Optional.of(meeting));
+        // 등록되는 업무의 projectId는 이 조회로 정해진다 - 활동 로그도 같은 프로젝트로 남아야 한다.
+        when(meetingRepository.findById(5L)).thenReturn(Optional.of(meeting));
+        when(taskRepository.save(any(Task.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(taskRepository.findTopByProjectIdAndStatusOrderByPositionAsc(any(), any())).thenReturn(Optional.empty());
+        MeetingAnalysisService service = newService();
+
+        service.registerTasks("demo-project", "5", new TaskRegisterRequest(List.of(
+            new MeetingTodo("로그인 API", "설명", null, null, null, "MEDIUM", "ETC", true, "")
+        )));
+
+        verify(activityService).record(
+            eq(1L), eq(25L), eq("TASK_CREATED"), any(), eq("'로그인 API' 업무를 새로 추가했습니다.")
+        );
+    }
+
+    // 보드에서 업무를 하나씩 지울 때와 달리, 회의록 삭제는 한 번의 조작으로 여러 업무가 한꺼번에
+    // 사라지는 사건이다. 건별로 남기면 "최근 활동" 목록을 삭제 로그가 뒤덮으므로 한 줄로 묶는다.
+    @Test
+    void deleteRecordsOneCombinedActivityWhenMultipleTasksAreLinked() {
+        mockLeader(1L);
+        Meeting meeting = new Meeting(1L, "삭제 회의", "document", null, "completed", LocalDate.now(), "정기회의", "notes.txt", 10L, 5L);
+        ReflectionTestUtils.setField(meeting, "id", 12L);
+        when(meetingRepository.findByIdAndProjectIdForUpdate(12L, 1L)).thenReturn(Optional.of(meeting));
+        Task task1 = new Task(1L, "로그인 API", "개발", "todo", 3L, null, "MEDIUM", null, "MEETING_AI", 12L, 25L, 0);
+        Task task2 = new Task(1L, "회원가입 API", "개발", "todo", 4L, null, "MEDIUM", null, "MEETING_AI", 12L, 25L, 1);
+        when(taskRepository.findBySourceMeetingId(12L)).thenReturn(List.of(task1, task2));
+        MeetingAnalysisService service = newService();
+
+        service.delete("demo-project", "12", true);
+
+        verify(activityService).record(
+            eq(1L), eq(CURRENT_USER_ID), eq("TASK_DELETED"), eq(12L),
+            eq("'삭제 회의' 회의록의 업무 2건을 삭제했습니다.")
+        );
+        verify(activityService, never()).record(any(), any(), eq("TASK_DELETED"), eq(task1.getId()), any());
+    }
+
+    @Test
+    void deleteRecordsSingleTaskDeletedActivityWhenOnlyOneTaskIsLinked() {
+        mockLeader(1L);
+        Meeting meeting = new Meeting(1L, "삭제 회의", "document", null, "completed", LocalDate.now(), "정기회의", "notes.txt", 10L, 5L);
+        when(meetingRepository.findByIdAndProjectIdForUpdate(12L, 1L)).thenReturn(Optional.of(meeting));
+        Task linked = new Task(1L, "로그인 API", "개발", "todo", 3L, null, "MEDIUM", null, "MEETING_AI", 12L, 25L, 0);
+        when(taskRepository.findBySourceMeetingId(12L)).thenReturn(List.of(linked));
+        MeetingAnalysisService service = newService();
+
+        service.delete("demo-project", "12", true);
+
+        verify(activityService).record(
+            eq(1L), eq(CURRENT_USER_ID), eq("TASK_DELETED"), any(), eq("'로그인 API' 업무를 삭제했습니다.")
+        );
+    }
+
+    /** 연결 업무를 남겨두는 삭제에서는 업무가 사라지지 않으므로 삭제 활동도 남기면 안 된다. */
+    @Test
+    void deleteDoesNotRecordTaskDeletedActivityWhenLinkedTasksAreKept() {
+        mockLeader(1L);
+        Meeting meeting = new Meeting(1L, "삭제 회의", "document", null, "completed", LocalDate.now(), "정기회의", "notes.txt", 10L, 5L);
+        when(meetingRepository.findByIdAndProjectIdForUpdate(12L, 1L)).thenReturn(Optional.of(meeting));
+        MeetingAnalysisService service = newService();
+
+        service.delete("demo-project", "12", false);
+
+        verify(activityService, never()).record(any(), any(), eq("TASK_DELETED"), any(), any());
+    }
+
     // 연도 없는 "07/31"이나 "2026.07.31" 같은 입력이 조용히 null이 되어 업무보드 마감일이
     // 비어버리던 문제. 회의 날짜의 연도로 채워 업무보드와 어긋나지 않게 한다.
     @Test
@@ -1440,6 +1615,16 @@ class MeetingAnalysisServiceTest {
         MeetingVersionResponse response = service.reanalyzeVersion("demo-project", "6");
 
         assertThat(response.status()).isEqualTo("PROCESSING");
+    }
+
+    private byte[] createDocxBytes(String text) throws Exception {
+        try (XWPFDocument document = new XWPFDocument(); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            XWPFParagraph paragraph = document.createParagraph();
+            XWPFRun run = paragraph.createRun();
+            run.setText(text);
+            document.write(output);
+            return output.toByteArray();
+        }
     }
 
     private byte[] createPdfBytes(String text) throws Exception {

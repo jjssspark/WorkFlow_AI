@@ -101,4 +101,32 @@ class ReviewerControllerTest {
             .andExpect(jsonPath("$.data").isArray())
             .andExpect(jsonPath("$.data.length()").value(0));
     }
+
+    @Test
+    void myLastAccessReturnsDataFromService() throws Exception {
+        ProjectLastAccessDto lastAccess = new ProjectLastAccessDto(3L, "2026-07-28T01:00:00.000Z");
+        when(reviewerService.getMyLastAccess(eq(CURRENT_USER_ID))).thenReturn(List.of(lastAccess));
+
+        ReviewerController controller = new ReviewerController(reviewerService);
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
+
+        mockMvc.perform(get("/api/v1/me/reviewer-last-access"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.success").value(true))
+            .andExpect(jsonPath("$.data[0].projectId").value(3))
+            .andExpect(jsonPath("$.data[0].lastAccessedAt").value("2026-07-28T01:00:00.000Z"));
+    }
+
+    @Test
+    void myLastAccessReturnsEmptyArrayWhenCallerHasNoAccessRecorded() throws Exception {
+        when(reviewerService.getMyLastAccess(eq(CURRENT_USER_ID))).thenReturn(List.of());
+
+        ReviewerController controller = new ReviewerController(reviewerService);
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
+
+        mockMvc.perform(get("/api/v1/me/reviewer-last-access"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data").isArray())
+            .andExpect(jsonPath("$.data.length()").value(0));
+    }
 }

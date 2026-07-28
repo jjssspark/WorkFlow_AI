@@ -1,0 +1,12 @@
+-- V20260728_1의 백필 이후에도 project_id가 NULL로 남는 행이 있다. 대표적으로
+-- target_type='project'인 진행률 보고서 알림(target_id가 애초에 NULL이라 역추적할 원본이 없음)이지만,
+-- task/meeting/milestone 알림도 백필 시점에 이미 삭제된 원본을 가리키고 있었다면(JOIN이 매칭되지
+-- 않아) 마찬가지로 NULL로 남는다. notifications.target_id는 폴리모픽이라 FK 제약이 없어(02_meeting_ai_
+-- additions.sql 주석 참고) 원본 삭제가 알림에 전혀 반영되지 않으므로 실제로 이런 행이 존재할 수 있다.
+--
+-- project_id가 NULL인 행은 조회 경로(findTop20ByUserIdAndProjectId..., countByUserIdAndProjectId...,
+-- countUnreadGroupedByProject의 명시적 project_id IS NOT NULL 필터)에서 전부 걸러져 어떤 화면에도
+-- 나타나지 않고, 정리 쿼리(deleteExcessByUserIdAndProjectId)도 project_id = :projectId 비교라
+-- NULL에는 절대 매칭되지 않아 정리 대상에서도 빠진다. 즉 원인을 막론하고 project_id가 NULL이면
+-- 영구히 보이지도 않고 정리되지도 않는 상태로 테이블에 쌓이기만 한다 - 삭제가 유일한 회수 방법이다.
+DELETE FROM notifications WHERE project_id IS NULL;
