@@ -317,7 +317,7 @@ public class DashboardAiQueueWorker implements ApplicationRunner {
             pendingLease.cancel(false);
         }
         acknowledgeAndDelete(record.getId());
-        publisher.releaseInFlight(job.projectId(), job.jobType());
+        publisher.markDone(job.projectId(), job.jobType(), job.jobId());
     }
 
     private ScheduledFuture<?> startPendingLeaseRefresh(RecordId recordId) {

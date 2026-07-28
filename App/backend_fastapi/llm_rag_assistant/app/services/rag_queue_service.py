@@ -12,7 +12,7 @@ from redis.exceptions import ResponseError
 from requests.exceptions import HTTPError as RequestsHTTPError
 
 from core.cache import get_async_redis_queue_client
-from core.db import get_pool
+from core.db import get_pool_instance
 from llm_rag_assistant.app.schema.chat_schema import RagQueryResponse
 from llm_rag_assistant.app.services.chat_service import answer_question
 from llm_rag_assistant.app.services.generation_service import RagConfigurationError
@@ -26,6 +26,12 @@ MAX_OUTSTANDING_JOBS = 200
 WAIT_TIMEOUT_SECONDS = 90.0
 BLOCK_MS = 5000
 _RESULT_CHANNEL_PREFIX = "rag-result:"
+# 워커가 이 메시지를 처리하던 중 죽으면(예외/프로세스 종료) XACK이 호출되지 않아 pending 상태로
+# 영구히 남는다 - 아무도 재시도하지 않으면 그 요청은 영영 응답을 못 받는다(요청 스레드는 결국
+# WAIT_TIMEOUT_SECONDS 뒤 타임아웃 에러만 받는다). Spring 쪽 DashboardAiQueueWorker의
+# claimStalePending()과 동일한 목적으로, 이 시간 이상 idle 상태인 pending 메시지를 회수한다.
+STALE_PENDING_IDLE_MS = 10 * 60 * 1000
+PENDING_SCAN_COUNT = 100
 
 _ERROR_LLM_UNAVAILABLE = "llm_unavailable"
 _ERROR_INTERNAL = "internal"
@@ -148,14 +154,32 @@ class RagQueueWorker:
                 await asyncio.sleep(1.0)
 
     async def _poll_once(self, client: Any) -> None:
-        response = await client.xreadgroup(
-            GROUP_NAME, self._consumer_name, {STREAM_KEY: ">"}, count=1, block=BLOCK_MS
-        )
-        if not response:
+        records = await self._claim_stale_pending(client)
+        if not records:
+            response = await client.xreadgroup(
+                GROUP_NAME, self._consumer_name, {STREAM_KEY: ">"}, count=1, block=BLOCK_MS
+            )
+            if response:
+                _, records = response[0]
+        if not records:
             return
-        _, records = response[0]
         for record_id, fields in records:
             await self._process(client, record_id, fields)
+
+    async def _claim_stale_pending(self, client: Any) -> list[tuple[str, dict[str, str]]]:
+        try:
+            pending = await client.xpending_range(
+                STREAM_KEY, GROUP_NAME, min="-", max="+", count=PENDING_SCAN_COUNT, idle=STALE_PENDING_IDLE_MS
+            )
+        except ResponseError:
+            return []
+        if not pending:
+            return []
+        message_ids = [entry["message_id"] for entry in pending]
+        claimed = await client.xclaim(
+            STREAM_KEY, GROUP_NAME, self._consumer_name, min_idle_time=STALE_PENDING_IDLE_MS, message_ids=message_ids
+        )
+        return claimed or []
 
     async def _process(self, client: Any, record_id: str, fields: dict[str, str]) -> None:
         try:
@@ -166,7 +190,7 @@ class RagQueueWorker:
             await self._ack(client, record_id)
             return
 
-        pool = await anext(get_pool())
+        pool = await get_pool_instance()
         try:
             response = await answer_question(
                 pool, job["project_id"], job["question"], job.get("user_id"), history=job.get("history") or []

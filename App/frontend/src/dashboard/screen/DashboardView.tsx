@@ -27,7 +27,6 @@ import {
   Sparkles,
   TrendingUp,
   Upload,
-  Users,
   X,
   Zap,
 } from "lucide-react";
@@ -132,8 +131,6 @@ export function DashboardView() {
     ...(deliverablesActive ? [{ label: "산출물", icon: Package, color: "#0F766E", onClick: () => navigate("/deliverables") }] : []),
     { label: "AI Assistant", icon: Sparkles, color: "#F59E0B", onClick: () => openAIAssistant() },
     { label: "업무 보드", icon: Columns3, color: "#0EA5E9", onClick: () => navigate("/board") },
-    // { label: "전체 업무", icon: Users, color: "#EC4899", onClick: () => navigate("/dashboard/all-tasks") },
-    // { label: "마감 임박", icon: Clock, color: "#EF4444", onClick: () => navigate("/dashboard/urgent") },
   ];
 
   if (currentProjectId == null) {

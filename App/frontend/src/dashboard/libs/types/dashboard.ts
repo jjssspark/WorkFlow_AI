@@ -110,5 +110,5 @@ export interface DashboardAiJobResponse {
   jobId: string;
   projectId: string;
   jobType: "DELAY_RISK" | "WORKLOAD_SCORE";
-  status: "PROCESSING" | "DONE";
+  status: "PROCESSING" | "DONE" | "FAILED";
 }

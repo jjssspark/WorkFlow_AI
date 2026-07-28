@@ -281,12 +281,26 @@ class DashboardServiceTest {
     }
 
     @Test
-    void getDelayRiskRefreshStatusReturnsDoneWhenJobNoLongerActive() {
+    void getDelayRiskRefreshStatusReturnsDoneWhenJobFinishedSuccessfully() {
         when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
         when(dashboardAiJobPublisher.isJobActive(1L, DashboardAiJobType.DELAY_RISK, "job-1")).thenReturn(false);
+        when(dashboardAiJobPublisher.isJobDone("job-1")).thenReturn(true);
 
         DashboardAiJobResponse result = newService().getDelayRiskRefreshStatus("demo-project", "job-1");
 
         assertThat(result.status()).isEqualTo("DONE");
+    }
+
+    @Test
+    void getDelayRiskRefreshStatusReturnsFailedWhenJobNeitherActiveNorDone() {
+        // in-flight 마커가 TTL 만료/재시도 대기 등으로 사라졌을 뿐 실제로 완료되지 않은 경우 —
+        // 예전에는 이 상태를 DONE으로 잘못 보고했다.
+        when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
+        when(dashboardAiJobPublisher.isJobActive(1L, DashboardAiJobType.DELAY_RISK, "job-1")).thenReturn(false);
+        when(dashboardAiJobPublisher.isJobDone("job-1")).thenReturn(false);
+
+        DashboardAiJobResponse result = newService().getDelayRiskRefreshStatus("demo-project", "job-1");
+
+        assertThat(result.status()).isEqualTo("FAILED");
     }
 }

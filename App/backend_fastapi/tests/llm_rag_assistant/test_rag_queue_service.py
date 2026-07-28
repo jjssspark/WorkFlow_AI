@@ -75,6 +75,14 @@ class _FakeQueueRedis:
     async def xack(self, key: str, group: str, record_id: str) -> None:
         return None
 
+    async def xpending_range(self, key: str, group: str, min: str, max: str, count: int, idle: int | None = None):
+        # 정체된 pending 메시지 회수 로직(claim_stale_pending)이 항상 먼저 호출되므로,
+        # 이 테스트 더블에는 정체된 메시지가 없다는 뜻으로 빈 목록을 돌려준다.
+        return []
+
+    async def xclaim(self, key: str, group: str, consumer: str, min_idle_time: int, message_ids: list[str]):
+        return []
+
     async def xdel(self, key: str, record_id: str) -> None:
         self.stream = [(rid, f) for rid, f in self.stream if rid != record_id]
 
@@ -106,7 +114,10 @@ async def test_enqueue_and_wait_returns_worker_result(fake_client: _FakeQueueRed
     with patch(
         "llm_rag_assistant.app.services.rag_queue_service.answer_question",
         new=AsyncMock(return_value=fake_result),
-    ), patch("llm_rag_assistant.app.services.rag_queue_service.get_pool", return_value=_fake_pool_agen()):
+    ), patch(
+        "llm_rag_assistant.app.services.rag_queue_service.get_pool_instance",
+        new=AsyncMock(return_value=object()),
+    ):
         worker = RagQueueWorker()
         wait_task = asyncio.create_task(
             enqueue_and_wait(project_id=1, question="질문", user_id=5, history=[], timeout=5)
@@ -125,7 +136,10 @@ async def test_enqueue_and_wait_raises_rag_configuration_error_on_llm_failure(fa
     with patch(
         "llm_rag_assistant.app.services.rag_queue_service.answer_question",
         new=AsyncMock(side_effect=RagConfigurationError("HF_TOKEN is not configured.")),
-    ), patch("llm_rag_assistant.app.services.rag_queue_service.get_pool", return_value=_fake_pool_agen()):
+    ), patch(
+        "llm_rag_assistant.app.services.rag_queue_service.get_pool_instance",
+        new=AsyncMock(return_value=object()),
+    ):
         worker = RagQueueWorker()
         wait_task = asyncio.create_task(
             enqueue_and_wait(project_id=1, question="질문", user_id=None, history=[], timeout=5)
@@ -148,7 +162,3 @@ async def test_enqueue_and_wait_raises_queue_full_without_adding(fake_client: _F
     with pytest.raises(RagQueueFullError):
         await enqueue_and_wait(project_id=1, question="질문", user_id=None, history=[], timeout=1)
     assert len(fake_client.stream) == 200  # 새 작업이 추가되지 않았어야 한다
-
-
-async def _fake_pool_agen():
-    yield object()

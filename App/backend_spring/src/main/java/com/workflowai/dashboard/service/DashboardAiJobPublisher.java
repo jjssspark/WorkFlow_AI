@@ -30,6 +30,18 @@ public class DashboardAiJobPublisher {
     private static final Duration IN_FLIGHT_TTL = Duration.ofMinutes(5);
     private static final String IN_FLIGHT_KEY_PREFIX = "dashboard-ai-inflight:";
 
+    /** 워커가 실제로 작업을 완료했을 때만 세팅되는 마커. in-flight 마커가 사라진 이유(완료/TTL 만료/
+     * 재시도 대기 중)를 구분하지 못하면 실패·정체 중인 작업도 "완료"로 잘못 보고하게 된다 — 그래서
+     * "완료"는 반드시 이 마커의 존재로만 판단한다. 클라이언트 폴링 주기(2초)보다 훨씬 길게 잡아
+     * 폴링이 놓치지 않게 한다. */
+    private static final Duration DONE_TTL = Duration.ofMinutes(5);
+    private static final String DONE_KEY_PREFIX = "dashboard-ai-done:";
+
+    /** enqueue()가 in-flight 마커 경합(다른 요청이 setIfAbsent에는 성공했지만 그 사이 TTL 만료/
+     * release로 사라진 경우)에서 무한 루프에 빠지지 않도록 하는 상한. 이 안에 반드시 승부가 난다 —
+     * 두 번째 시도에서도 실패한다면 그건 계속 새 경합자가 끼어드는 극히 이례적인 상황이다. */
+    private static final int MAX_ENQUEUE_ATTEMPTS = 2;
+
     private static final String ENQUEUE_FAILURE_MESSAGE = "Failed to enqueue dashboard AI job";
     private static final RedisScript<String> ENQUEUE_IF_CAPACITY_SCRIPT = RedisScript.of(
         new ClassPathResource("redis/dashboard-ai-enqueue.lua"),
@@ -50,31 +62,53 @@ public class DashboardAiJobPublisher {
      */
     public String enqueue(Long projectId, DashboardAiJobType jobType, Long requestedBy) {
         String inFlightKey = inFlightKey(projectId, jobType);
-        UUID jobId = UUID.randomUUID();
 
-        Boolean claimed = redisTemplate.opsForValue().setIfAbsent(inFlightKey, jobId.toString(), IN_FLIGHT_TTL);
-        if (Boolean.FALSE.equals(claimed)) {
+        for (int attempt = 0; attempt < MAX_ENQUEUE_ATTEMPTS; attempt++) {
+            UUID jobId = UUID.randomUUID();
+            Boolean claimed = redisTemplate.opsForValue().setIfAbsent(inFlightKey, jobId.toString(), IN_FLIGHT_TTL);
+            if (Boolean.TRUE.equals(claimed)) {
+                try {
+                    return doEnqueue(projectId, jobType, jobId, requestedBy);
+                } catch (RuntimeException exception) {
+                    redisTemplate.delete(inFlightKey);
+                    throw exception;
+                }
+            }
+
             String existingJobId = redisTemplate.opsForValue().get(inFlightKey);
-            return existingJobId != null ? existingJobId : jobId.toString();
+            if (existingJobId != null) {
+                return existingJobId;
+            }
+            // setIfAbsent 실패와 get 사이에 마커가 사라졌다(TTL 만료 또는 다른 워커의 release) —
+            // 아무도 실제로 큐에 넣지 않은 채 마커만 없어진 상태이므로, 새 jobId로 폴백하지 않고
+            // 우리가 직접 claim을 다시 시도한다.
         }
-
-        try {
-            return doEnqueue(projectId, jobType, jobId, requestedBy);
-        } catch (RuntimeException exception) {
-            redisTemplate.delete(inFlightKey);
-            throw exception;
-        }
+        throw new IllegalStateException(ENQUEUE_FAILURE_MESSAGE);
     }
 
-    /** 워커가 작업을 끝낸 뒤(성공/실패 모두) 호출해 in-flight 마커를 지운다. 다음 요청부터 다시 적재될 수 있다. */
+    /** 워커가 작업을 실제로 완료했을 때 호출해 완료 마커를 남기고 in-flight 마커를 지운다.
+     * 다음 요청부터 다시 적재될 수 있다. */
+    public void markDone(Long projectId, DashboardAiJobType jobType, String jobId) {
+        redisTemplate.opsForValue().set(doneKey(jobId), "1", DONE_TTL);
+        redisTemplate.delete(inFlightKey(projectId, jobType));
+    }
+
+    /** 워커가 작업을 포기(실패)했을 때 호출해 in-flight 마커만 지운다. 완료 마커는 남기지 않으므로
+     * jobStatus()는 이 작업을 FAILED로 보고한다. */
     public void releaseInFlight(Long projectId, DashboardAiJobType jobType) {
         redisTemplate.delete(inFlightKey(projectId, jobType));
     }
 
-    /** 주어진 jobId가 아직 in-flight 마커의 주인이면 처리 중, 아니면(만료/해제/다른 작업으로 교체) 완료로 본다. */
+    /** 주어진 jobId가 아직 in-flight 마커의 주인이면 처리 중이다. */
     public boolean isJobActive(Long projectId, DashboardAiJobType jobType, String jobId) {
         String current = redisTemplate.opsForValue().get(inFlightKey(projectId, jobType));
         return jobId.equals(current);
+    }
+
+    /** 워커가 이 jobId를 실제로 완료 처리했는지. in-flight 마커의 부재(TTL 만료/재시도 대기 중 포함)만으로는
+     * 완료를 뜻하지 않으므로, "완료"는 반드시 이 마커로만 판단해야 한다. */
+    public boolean isJobDone(String jobId) {
+        return Boolean.TRUE.equals(redisTemplate.hasKey(doneKey(jobId)));
     }
 
     private String doEnqueue(Long projectId, DashboardAiJobType jobType, UUID jobId, Long requestedBy) {
@@ -111,5 +145,9 @@ public class DashboardAiJobPublisher {
 
     private static String inFlightKey(Long projectId, DashboardAiJobType jobType) {
         return IN_FLIGHT_KEY_PREFIX + projectId + ":" + jobType;
+    }
+
+    private static String doneKey(String jobId) {
+        return DONE_KEY_PREFIX + jobId;
     }
 }

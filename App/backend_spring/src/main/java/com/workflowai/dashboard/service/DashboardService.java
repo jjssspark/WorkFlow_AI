@@ -323,8 +323,16 @@ public class DashboardService {
 
     private DashboardAiJobResponse jobStatus(String projectIdParam, String jobId, DashboardAiJobType jobType) {
         Long projectId = demoDataService.resolveProjectId(projectIdParam);
-        boolean active = dashboardAiJobPublisher.isJobActive(projectId, jobType, jobId);
-        return new DashboardAiJobResponse(jobId, projectIdParam, jobType.name(), active ? "PROCESSING" : "DONE");
+        // "완료"는 워커가 실제로 남긴 완료 마커로만 판단한다. in-flight 마커가 없다는 사실만으로는
+        // 완료(성공)인지 실패/정체(TTL 만료, 재시도 대기 중, 존재한 적 없는 jobId)인지 구분할 수 없어,
+        // 예전에는 이 경우를 전부 DONE으로 잘못 보고했다.
+        if (dashboardAiJobPublisher.isJobActive(projectId, jobType, jobId)) {
+            return new DashboardAiJobResponse(jobId, projectIdParam, jobType.name(), "PROCESSING");
+        }
+        if (dashboardAiJobPublisher.isJobDone(jobId)) {
+            return new DashboardAiJobResponse(jobId, projectIdParam, jobType.name(), "DONE");
+        }
+        return new DashboardAiJobResponse(jobId, projectIdParam, jobType.name(), "FAILED");
     }
 
     /** ml_workload_score(FastAPI)가 계산한 팀원별 업무 편중(과부하/저활동) 점수를 가져온다.

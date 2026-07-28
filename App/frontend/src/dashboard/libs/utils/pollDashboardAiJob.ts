@@ -5,12 +5,13 @@ const POLL_INTERVAL_MS = 2000;
 const MAX_POLL_ATTEMPTS = 60; // 2초 * 60회 = 최대 2분 대기
 
 export async function pollDashboardAiJobUntilDone(
-  checkStatus: () => Promise<{ status: "PROCESSING" | "DONE" }>
+  checkStatus: () => Promise<{ status: "PROCESSING" | "DONE" | "FAILED" }>
 ): Promise<void> {
   for (let attempt = 0; attempt < MAX_POLL_ATTEMPTS; attempt++) {
     await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
     const result = await checkStatus();
     if (result.status === "DONE") return;
+    if (result.status === "FAILED") throw new Error("분석에 실패했습니다. 잠시 후 다시 시도해주세요.");
   }
   throw new Error("분석 시간이 초과되었습니다. 잠시 후 다시 확인해주세요.");
 }
