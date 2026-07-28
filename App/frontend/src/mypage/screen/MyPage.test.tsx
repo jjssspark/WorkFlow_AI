@@ -12,7 +12,8 @@ import type { ReviewerProject } from "../libs/utils/reviewerApi";
 import { getProjectMembers } from "../../global/api/projectsApi";
 import { fetchContributionReport, fetchContributionScore } from "../../contributors/libs/utils/contributorsApi";
 import { fetchAttendanceSummary } from "../../meetings/libs/utils/meetingAiApi";
-import { fetchMyPersonalComments, replyToPersonalComment } from "../libs/api/personalCommentApi";
+import { createPersonalComment, fetchMyPersonalComments, replyToPersonalComment } from "../libs/api/personalCommentApi";
+import { toast } from "sonner";
 
 vi.mock("../../global/hooks/useAuth", () => ({
   useAuth: vi.fn(),
@@ -50,6 +51,8 @@ vi.mock("../libs/api/personalCommentApi", () => ({
   replyToPersonalComment: vi.fn(),
 }));
 
+vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
+
 function makeTask(id: string, assignee: string, status: Task["status"], dueDate: string): Task {
   return { id, title: `업무 ${id}`, status, priority: "medium", assignee, dueDate, labels: [], category: "frontend", position: 0, pendingApproval: false, startDate: "", extraFields: {} };
 }
@@ -61,9 +64,9 @@ function makeReviewerProject(projectId: number, title: string, evalStatus: Revie
   };
 }
 
-function renderMyPage() {
+function renderMyPage(initialEntry: string = "/mypage") {
   return render(
-    <MemoryRouter initialEntries={["/mypage"]}>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <MyPage />
     </MemoryRouter>
   );
@@ -297,6 +300,47 @@ describe("MyPage member view", () => {
 
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
+
+  it("?commentId=<원 코멘트 id>로 진입하면 해당 원 코멘트 팝업이 자동으로 열린다", async () => {
+    vi.mocked(fetchTasks).mockResolvedValue([]);
+    vi.mocked(fetchMyPersonalComments).mockResolvedValue([
+      { id: 1, authorId: 20, authorName: "심사자", parentId: null, content: "UI가 깔끔하네요", createdAt: "2026-07-25T05:32:00.000Z" },
+    ]);
+
+    renderMyPage("/mypage?commentId=1");
+
+    await waitFor(() => expect(screen.getByRole("dialog")).toBeInTheDocument());
+    expect(within(screen.getByRole("dialog")).getByText("UI가 깔끔하네요")).toBeInTheDocument();
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it("?commentId=<답글 id>로 진입하면 그 답글의 부모 스레드(원 코멘트+답글) 팝업이 열린다", async () => {
+    vi.mocked(fetchTasks).mockResolvedValue([]);
+    vi.mocked(fetchMyPersonalComments).mockResolvedValue([
+      { id: 1, authorId: 20, authorName: "심사자", parentId: null, content: "UI가 깔끔하네요", createdAt: "2026-07-25T05:32:00.000Z" },
+      { id: 2, authorId: 1, authorName: "이서연", parentId: 1, content: "감사합니다!", createdAt: "2026-07-25T06:01:00.000Z" },
+    ]);
+
+    renderMyPage("/mypage?commentId=2");
+
+    await waitFor(() => expect(screen.getByRole("dialog")).toBeInTheDocument());
+    const dialog = within(screen.getByRole("dialog"));
+    expect(dialog.getByText("UI가 깔끔하네요")).toBeInTheDocument();
+    expect(dialog.getByText("감사합니다!")).toBeInTheDocument();
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it("?commentId=<목록에 없는 id>로 진입하면 팝업 없이 삭제/다른 프로젝트 안내 토스트가 뜬다", async () => {
+    vi.mocked(fetchTasks).mockResolvedValue([]);
+    vi.mocked(fetchMyPersonalComments).mockResolvedValue([
+      { id: 1, authorId: 20, authorName: "심사자", parentId: null, content: "UI가 깔끔하네요", createdAt: "2026-07-25T05:32:00.000Z" },
+    ]);
+
+    renderMyPage("/mypage?commentId=999");
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("삭제되었거나 다른 프로젝트의 코멘트입니다."));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
 });
 
 describe("MyPage reviewer view", () => {
@@ -449,6 +493,29 @@ describe("MyPage reviewer view — contribution tabs", () => {
     await waitFor(() => expect(screen.getByText("기여도 리포트를 불러오지 못했습니다.")).toBeInTheDocument());
     await userEvent.click(screen.getByRole("button", { name: /다시 시도/ }));
     await waitFor(() => expect(screen.getByText("김민준")).toBeInTheDocument());
+  });
+
+  it("점수 입력 탭에서 개인 코멘트를 등록하면 createPersonalComment가 호출되고 입력창이 비워진다", async () => {
+    vi.mocked(createPersonalComment).mockResolvedValue({
+      id: 1, authorId: 6, authorName: "고무서", parentId: null, content: "잘하고 있어요", createdAt: "2026-07-25T05:32:00.000Z",
+    });
+
+    renderMyPage();
+
+    await waitFor(() => expect(screen.getAllByText("AI 기반 식단 추천 앱").length).toBeGreaterThan(0));
+    await userEvent.click(await screen.findByRole("button", { name: "점수 입력" }));
+
+    const submitButtons = await screen.findAllByRole("button", { name: "코멘트 등록" });
+    // 등록 버튼은 내용이 비어 있으면 비활성화된다(빈 코멘트 제출 방지 가드).
+    expect(submitButtons[0]).toBeDisabled();
+
+    const textarea = screen.getAllByPlaceholderText("개인 코멘트 (옵션)...")[0];
+    await userEvent.type(textarea, "잘하고 있어요");
+    expect(submitButtons[0]).toBeEnabled();
+    await userEvent.click(submitButtons[0]);
+
+    expect(createPersonalComment).toHaveBeenCalledWith(2, 1, "잘하고 있어요");
+    await waitFor(() => expect(textarea).toHaveValue(""));
   });
 
   it("does not fetch contribution data while the default 팀 요약 tab is active", async () => {

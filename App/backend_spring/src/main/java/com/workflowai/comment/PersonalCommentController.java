@@ -76,7 +76,7 @@ public class PersonalCommentController {
         PersonalComment saved = personalCommentRepository.save(
             new PersonalComment(projectId, "personal", targetUserId, authorId, request.content(), null)
         );
-        enforceLimit(projectId, targetUserId);
+        enforceLimit(projectId, targetUserId, saved.getId());
         notificationService.notifyAfterCommit(
             targetUserId, projectId, "PERSONAL_COMMENT", "새 코멘트가 도착했습니다",
             preview(request.content()), "personal_comment", saved.getId()
@@ -112,10 +112,18 @@ public class PersonalCommentController {
             return ResponseEntity.status(403)
                 .body(ApiResponse.fail("FORBIDDEN_NOT_TARGET_USER", "본인이 받은 코멘트에만 답글을 달 수 있습니다."));
         }
+        boolean replyAlreadyExists = personalCommentRepository
+            .findByProjectIdAndTargetUserIdOrderByCreatedAtAsc(projectId, parent.getTargetUserId())
+            .stream()
+            .anyMatch(c -> parent.getId().equals(c.getParentId()));
+        if (replyAlreadyExists) {
+            return ResponseEntity.badRequest()
+                .body(ApiResponse.fail("REPLY_ALREADY_EXISTS", "이미 답글이 작성된 코멘트입니다."));
+        }
         PersonalComment saved = personalCommentRepository.save(
             new PersonalComment(projectId, "personal", parent.getTargetUserId(), authorId, request.content(), parent.getId())
         );
-        enforceLimit(projectId, parent.getTargetUserId());
+        enforceLimit(projectId, parent.getTargetUserId(), parent.getId());
         notificationService.notifyAfterCommit(
             parent.getAuthorId(), projectId, "PERSONAL_COMMENT_REPLY", "답글이 달렸습니다",
             preview(request.content()), "personal_comment", parent.getId()
@@ -129,15 +137,25 @@ public class PersonalCommentController {
      * "유지" 구간에 있더라도) 함께 지운다 — 원 코멘트 없는 답글만 남는 것을 막기 위함. DB의
      * ON DELETE CASCADE에만 맡기면 이 메서드 실행 후 실제 남은 개수를 코드에서 예측할 수 없으므로
      * 애플리케이션 코드에서 명시적으로 정리한다.
+     *
+     * protectedRootId는 이번 요청이 생성/응답 중인 원 코멘트의 id다(create는 방금 저장한 코멘트
+     * 자신의 id, reply는 답글 대상 원 코멘트의 id). 이 원 코멘트와 그 답글은 "가장 오래된 것부터
+     * excess개" 계산에서 제외해, 방금 만든 결과가 자기 자신의 정리 로직에 의해 지워지는 것을 막는다.
+     * 보호 대상을 뺀 후보가 excess개보다 적으면(즉 보호 대상이 마침 가장 오래된 항목들이면), 이번
+     * 요청에 한해 스레드가 MAX_COMMENTS보다 하나 더 늘어나는 것을 허용한다 — 방금 생성한 결과를
+     * 절대 지우지 않는 쪽을 우선한다.
      */
-    private void enforceLimit(Long projectId, Long targetUserId) {
+    private void enforceLimit(Long projectId, Long targetUserId, Long protectedRootId) {
         List<PersonalComment> all = personalCommentRepository
             .findByProjectIdAndTargetUserIdOrderByCreatedAtAsc(projectId, targetUserId);
         int excess = all.size() - MAX_COMMENTS;
         if (excess <= 0) {
             return;
         }
-        List<PersonalComment> toDelete = all.subList(0, excess);
+        List<PersonalComment> candidates = all.stream()
+            .filter(comment -> !isProtected(comment, protectedRootId))
+            .toList();
+        List<PersonalComment> toDelete = candidates.subList(0, Math.min(excess, candidates.size()));
         Set<Long> deletedParentIds = new HashSet<>();
         Set<Long> idsToDelete = new HashSet<>();
         for (PersonalComment comment : toDelete) {
@@ -147,10 +165,16 @@ public class PersonalCommentController {
             }
         }
         for (PersonalComment comment : all) {
-            if (comment.getParentId() != null && deletedParentIds.contains(comment.getParentId())) {
+            if (comment.getParentId() != null && deletedParentIds.contains(comment.getParentId())
+                && !isProtected(comment, protectedRootId)) {
                 idsToDelete.add(comment.getId());
             }
         }
         personalCommentRepository.deleteAllByIdInBatch(idsToDelete);
+    }
+
+    private boolean isProtected(PersonalComment comment, Long protectedRootId) {
+        return protectedRootId != null
+            && (protectedRootId.equals(comment.getId()) || protectedRootId.equals(comment.getParentId()));
     }
 }

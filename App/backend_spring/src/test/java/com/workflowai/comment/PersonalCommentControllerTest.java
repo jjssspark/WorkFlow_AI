@@ -255,6 +255,77 @@ class PersonalCommentControllerTest {
         }));
     }
 
+    @Test
+    void replyingToOldestRootInFullThreadNeverDeletesTheThreadJustRepliedTo() throws Exception {
+        authenticateAs(10L);
+        when(projectMemberRepository.findByProjectIdAndUserId(1L, 10L))
+            .thenReturn(Optional.of(new ProjectMember(1L, 10L, ProjectRole.MEMBER)));
+        when(projectMemberRepository.existsByProjectIdAndUserId(1L, 10L)).thenReturn(true);
+        PersonalComment oldestRoot = commentWithId(1L, 1L, 10L, 20L, "가장 오래된 원 코멘트", null);
+        when(personalCommentRepository.findById(1L)).thenReturn(Optional.of(oldestRoot));
+        when(userRepository.findById(10L)).thenReturn(Optional.of(new User("member@workflow.ai", "이서연", "demo", "2")));
+        when(personalCommentRepository.save(any(PersonalComment.class)))
+            .thenAnswer(inv -> {
+                PersonalComment saved = inv.getArgument(0);
+                ReflectionTestUtils.setField(saved, "id", 11L);
+                return saved;
+            });
+
+        // 답글 중복 확인 시점(저장 전) 조회되는 목록 — 10건, 아직 id=1에는 답글이 없다.
+        List<PersonalComment> tenItemsBeforeReply = new ArrayList<>();
+        for (long i = 1; i <= 10; i++) {
+            tenItemsBeforeReply.add(commentWithId(i, 1L, 10L, 20L, "코멘트" + i, null));
+        }
+        // enforceLimit이 저장 직후 다시 조회하는 목록 — 방금 저장된 답글(id=11, parentId=1)이 추가돼 총 11건.
+        List<PersonalComment> elevenItemsAfterInsert = new ArrayList<>(tenItemsBeforeReply);
+        elevenItemsAfterInsert.add(commentWithId(11L, 1L, 10L, 10L, "답글 답니다", 1L));
+
+        when(personalCommentRepository.findByProjectIdAndTargetUserIdOrderByCreatedAtAsc(1L, 10L))
+            .thenReturn(tenItemsBeforeReply, elevenItemsAfterInsert);
+
+        mockMvc.perform(post("/api/v1/projects/1/comments/1/replies")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"content":"답글 답니다"}
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.parentId").value(1))
+            .andExpect(jsonPath("$.data.content").value("답글 답니다"));
+
+        // 방금 답글이 달린 스레드(원 코멘트 id=1, 새 답글 id=11)는 절대 삭제 대상에 포함되지 않는다 —
+        // 대신 보호되지 않은 다음으로 오래된 항목(id=2)이 지워진다.
+        verify(personalCommentRepository).deleteAllByIdInBatch(argThat(ids -> {
+            Set<Long> idSet = new HashSet<>();
+            for (Long id : (Iterable<Long>) ids) {
+                idSet.add(id);
+            }
+            return idSet.equals(Set.of(2L));
+        }));
+    }
+
+    @Test
+    void cannotReplyTwiceToSameRoot() throws Exception {
+        authenticateAs(10L);
+        when(projectMemberRepository.findByProjectIdAndUserId(1L, 10L))
+            .thenReturn(Optional.of(new ProjectMember(1L, 10L, ProjectRole.MEMBER)));
+        when(projectMemberRepository.existsByProjectIdAndUserId(1L, 10L)).thenReturn(true);
+        PersonalComment parent = commentWithId(100L, 1L, 10L, 20L, "UI가 깔끔하네요", null);
+        PersonalComment existingReply = commentWithId(101L, 1L, 10L, 10L, "감사합니다!", 100L);
+        when(personalCommentRepository.findById(100L)).thenReturn(Optional.of(parent));
+        when(personalCommentRepository.findByProjectIdAndTargetUserIdOrderByCreatedAtAsc(1L, 10L))
+            .thenReturn(List.of(parent, existingReply));
+
+        mockMvc.perform(post("/api/v1/projects/1/comments/100/replies")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"content":"두 번째 답글"}
+                    """))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.code").value("REPLY_ALREADY_EXISTS"));
+
+        verify(personalCommentRepository, never()).save(any(PersonalComment.class));
+    }
+
     @Configuration
     @EnableMethodSecurity
     @Import(PersonalCommentController.class)
