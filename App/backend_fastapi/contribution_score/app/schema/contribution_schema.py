@@ -12,10 +12,13 @@ class ContributionMemberResult(BaseModel):
     meeting_component: float
     contribution_score: float
     # --- 편중도 근거 패널용 신규 필드 (WorkloadMemberResult에서 그대로 복사) ---
-    anomaly_type: str
+    anomaly_types: list[str]
+    difficulty_score: float
+    workload_score: float
+    allocation_score: float
     task_count_active_rel: float
     task_count_total_rel: float
-    difficulty_avg_rel: float
+    difficulty_total_rel: float
     overdue_count: int
 
 
