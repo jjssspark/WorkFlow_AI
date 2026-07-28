@@ -36,9 +36,20 @@ _TOOL_LABELS = {
     "set_due_date": "마감일 지정",
     "change_assignee": "담당자 변경",
     "delete_task": "업무 삭제",
+    "approve_completion": "완료 승인",
+    "reject_completion": "완료 반려",
+    "nudge_task": "재촉 알림 발송",
 }
 
 _STATUS_LABELS = {"todo": "할 일", "inprogress": "진행중", "blocked": "보류", "done": "완료"}
+
+# 카드 요약에 그대로 노출된다. 사용자가 어떤 문구의 알림이 나가는지 보고 승인하도록,
+# Spring의 NUDGE_MESSAGE_TEMPLATES가 실제로 보내는 내용과 맞춰 적는다.
+_NUDGE_LABELS = {
+    "START": "업무를 시작해달라고",
+    "PROGRESS": "진행상황을 공유해달라고",
+    "URGENT": "긴급 확인이 필요하다고",
+}
 
 
 class ActionCardPayload(BaseModel):
@@ -74,6 +85,14 @@ def _summarize(action: Action, task_title: str) -> str:
         return f"{task_title}의 담당자를 {action.args.get('assignee_name', '')}(으)로 변경합니다"
     if action.tool == "delete_task":
         return f"{task_title}을(를) 삭제합니다"
+    if action.tool == "approve_completion":
+        return f"{task_title}의 완료 요청을 승인합니다"
+    if action.tool == "reject_completion":
+        return f"{task_title}의 완료 요청을 반려합니다"
+    if action.tool == "nudge_task":
+        # 재촉 알림은 나가면 회수가 안 된다. 어떤 내용이 가는지 요약에서 보이게 한다.
+        what = _NUDGE_LABELS.get(str(action.args.get("kind")), str(action.args.get("kind")))
+        return f"{task_title} 담당자에게 {what} 알립니다"
     return task_title
 
 

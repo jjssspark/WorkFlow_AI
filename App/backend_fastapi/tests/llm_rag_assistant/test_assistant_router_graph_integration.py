@@ -302,3 +302,67 @@ async def test_member_role_from_the_request_body_blocks_the_card(
 
     assert allowed["type"] == "confirm"
     assert allowed["card"] is not None
+
+
+@pytest.mark.asyncio
+async def test_completion_approval_card_survives_the_http_round_trip(
+    pgvector_pool, assistant_client, monkeypatch
+) -> None:
+    """새로 붙인 팀장 도구도 HTTP 왕복을 견디는지 본다.
+
+    단위 테스트는 start_command를 직접 부르므로 args가 빈 딕셔너리인 도구가 Pydantic
+    직렬화를 지나 프론트까지 그 형태로 도착하는지는 보지 못한다. approve_completion은
+    args가 비어 있어(카드에 실을 인자가 없다) 그 경로가 특히 조용히 깨질 수 있다.
+
+    resume이 성공을 알려오는 것은 "프론트가 Spring 승인 API를 호출해 200을 받았다"는 뜻이다.
+    실제 승인 여부는 Spring이 판정하고, 승인 대기가 아니면 ok=false로 돌아온다.
+    """
+    project_id = await _create_project(pgvector_pool, "IT-032 완료 승인")
+    await _seed_indexed_task(pgvector_pool, project_id, _TARGET_TASK_ID, _TARGET_TASK_CONTENT)
+    monkeypatch.setattr(
+        assistant_graph, "plan_actions", _plan(_action("approve_completion", "결제 모듈 구현"))
+    )
+
+    body = await _command(assistant_client, project_id, "결제 모듈 구현 완료 승인해줘")
+
+    assert body["type"] == "confirm"
+    card = body["card"]
+    assert card["tool"] == "approve_completion"
+    assert card["task_id"] == _TARGET_TASK_ID
+    # 인자 없는 도구가 null이나 누락이 아니라 빈 객체로 도착해야 프론트가 card.args를 읽어도 안전하다.
+    assert card["args"] == {}
+
+    resumed = await _resume(assistant_client, body["thread_id"], card["step_id"])
+    assert resumed["type"] == "done"
+    assert resumed["message"] == "1개 작업을 완료했습니다."
+
+
+@pytest.mark.asyncio
+async def test_failed_execution_reports_the_reason_the_server_gave(
+    pgvector_pool, assistant_client, monkeypatch
+) -> None:
+    """승인 대기가 아닌 업무를 승인시켰을 때 사용자가 보는 것.
+
+    그래프는 업무 상태를 모른 채 카드를 만든다(의도된 선택이다 - 미리 조회해도 승인 직전에
+    상태가 바뀔 수 있어 실패 경로는 어차피 남는다). 그래서 전제 조건 위반은 프론트가 Spring
+    에서 400을 받은 뒤 resume(ok=false)로 돌아오는 이 경로로만 드러난다. 이 경로가 막히면
+    사용자는 왜 안 됐는지 알 방법이 없다.
+    """
+    project_id = await _create_project(pgvector_pool, "IT-032 승인 실패")
+    await _seed_indexed_task(pgvector_pool, project_id, _TARGET_TASK_ID, _TARGET_TASK_CONTENT)
+    monkeypatch.setattr(
+        assistant_graph, "plan_actions", _plan(_action("approve_completion", "결제 모듈 구현"))
+    )
+
+    body = await _command(assistant_client, project_id, "결제 모듈 구현 완료 승인해줘")
+    resumed = await _resume(
+        assistant_client,
+        body["thread_id"],
+        body["card"]["step_id"],
+        ok=False,
+        error="승인 대기 중인 업무가 아닙니다.",
+    )
+
+    assert resumed["type"] == "done"
+    # Spring이 준 문구가 뭉개지지 않고 그대로 사용자에게 닿아야 한다.
+    assert "승인 대기 중인 업무가 아닙니다." in resumed["message"]
