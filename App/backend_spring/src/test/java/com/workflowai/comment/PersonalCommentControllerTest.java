@@ -90,7 +90,7 @@ class PersonalCommentControllerTest {
         when(projectMemberRepository.findByProjectIdAndUserId(1L, 20L))
             .thenReturn(Optional.of(new ProjectMember(1L, 20L, ProjectRole.REVIEWER)));
         when(projectMemberRepository.existsByProjectIdAndUserId(1L, 10L)).thenReturn(true);
-        when(personalCommentRepository.findByProjectIdAndTargetUserIdOrderByCreatedAtAsc(1L, 10L))
+        when(personalCommentRepository.findByProjectIdAndTargetTypeAndTargetUserIdOrderByCreatedAtAsc(1L, "personal", 10L))
             .thenReturn(List.of());
         when(personalCommentRepository.save(any(PersonalComment.class)))
             .thenAnswer(inv -> {
@@ -155,7 +155,7 @@ class PersonalCommentControllerTest {
         when(projectMemberRepository.existsByProjectIdAndUserId(1L, 10L)).thenReturn(true);
         PersonalComment parent = commentWithId(100L, 1L, 10L, 20L, "UI가 깔끔하네요", null);
         when(personalCommentRepository.findById(100L)).thenReturn(Optional.of(parent));
-        when(personalCommentRepository.findByProjectIdAndTargetUserIdOrderByCreatedAtAsc(1L, 10L))
+        when(personalCommentRepository.findByProjectIdAndTargetTypeAndTargetUserIdOrderByCreatedAtAsc(1L, "personal", 10L))
             .thenReturn(List.of(parent));
         when(personalCommentRepository.save(any(PersonalComment.class)))
             .thenAnswer(inv -> {
@@ -194,6 +194,54 @@ class PersonalCommentControllerTest {
                     """))
             .andExpect(status().isForbidden())
             .andExpect(jsonPath("$.error.code").value("FORBIDDEN_NOT_TARGET_USER"));
+    }
+
+    @Test
+    void replyingToNonPersonalCommentReturnsNotFoundInsteadOfNpe() throws Exception {
+        authenticateAs(10L);
+        when(projectMemberRepository.findByProjectIdAndUserId(1L, 10L))
+            .thenReturn(Optional.of(new ProjectMember(1L, 10L, ProjectRole.MEMBER)));
+        when(projectMemberRepository.existsByProjectIdAndUserId(1L, 10L)).thenReturn(true);
+        // target_type='team' 행은 스키마상 target_user_id가 null일 수 있다 — 이 값을 그대로
+        // parent.getTargetUserId().equals(authorId)에 넘기면 NPE가 난다. target_type 검증이
+        // 그 라인에 도달하기 전에 404로 걸러내는지 확인한다.
+        PersonalComment teamComment = new PersonalComment(1L, "team", null, 20L, "팀 코멘트", null);
+        ReflectionTestUtils.setField(teamComment, "id", 200L);
+        when(personalCommentRepository.findById(200L)).thenReturn(Optional.of(teamComment));
+
+        mockMvc.perform(post("/api/v1/projects/1/comments/200/replies")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"content":"답글 시도"}
+                    """))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.error.code").value("COMMENT_NOT_FOUND"));
+
+        verify(personalCommentRepository, never()).save(any(PersonalComment.class));
+    }
+
+    @Test
+    void replyingTwiceConcurrentlyReturnsBadRequestOnDbConstraintViolation() throws Exception {
+        authenticateAs(10L);
+        when(projectMemberRepository.findByProjectIdAndUserId(1L, 10L))
+            .thenReturn(Optional.of(new ProjectMember(1L, 10L, ProjectRole.MEMBER)));
+        when(projectMemberRepository.existsByProjectIdAndUserId(1L, 10L)).thenReturn(true);
+        PersonalComment parent = commentWithId(100L, 1L, 10L, 20L, "UI가 깔끔하네요", null);
+        when(personalCommentRepository.findById(100L)).thenReturn(Optional.of(parent));
+        // 애플리케이션 레벨 사전 확인은 경쟁 상태를 재현하기 위해 두 요청 모두 "아직 답글 없음"으로 본다.
+        when(personalCommentRepository.findByProjectIdAndTargetTypeAndTargetUserIdOrderByCreatedAtAsc(1L, "personal", 10L))
+            .thenReturn(List.of(parent));
+        // 사전 확인을 통과한 뒤 실제 save()에서 DB의 부분 유니크 인덱스가 경쟁에서 진 요청을 걸러낸다.
+        when(personalCommentRepository.save(any(PersonalComment.class)))
+            .thenThrow(new org.springframework.dao.DataIntegrityViolationException("duplicate key"));
+
+        mockMvc.perform(post("/api/v1/projects/1/comments/100/replies")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"content":"경쟁에서 진 답글"}
+                    """))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.code").value("REPLY_ALREADY_EXISTS"));
     }
 
     @Test
@@ -236,7 +284,7 @@ class PersonalCommentControllerTest {
         for (long i = 3; i <= 11; i++) {
             elevenItemsAfterInsert.add(commentWithId(i, 1L, 10L, 20L, "코멘트" + i, null));
         }
-        when(personalCommentRepository.findByProjectIdAndTargetUserIdOrderByCreatedAtAsc(1L, 10L))
+        when(personalCommentRepository.findByProjectIdAndTargetTypeAndTargetUserIdOrderByCreatedAtAsc(1L, "personal", 10L))
             .thenReturn(elevenItemsAfterInsert);
 
         mockMvc.perform(post("/api/v1/projects/1/members/10/comments")
@@ -280,7 +328,7 @@ class PersonalCommentControllerTest {
         List<PersonalComment> elevenItemsAfterInsert = new ArrayList<>(tenItemsBeforeReply);
         elevenItemsAfterInsert.add(commentWithId(11L, 1L, 10L, 10L, "답글 답니다", 1L));
 
-        when(personalCommentRepository.findByProjectIdAndTargetUserIdOrderByCreatedAtAsc(1L, 10L))
+        when(personalCommentRepository.findByProjectIdAndTargetTypeAndTargetUserIdOrderByCreatedAtAsc(1L, "personal", 10L))
             .thenReturn(tenItemsBeforeReply, elevenItemsAfterInsert);
 
         mockMvc.perform(post("/api/v1/projects/1/comments/1/replies")
@@ -312,7 +360,7 @@ class PersonalCommentControllerTest {
         PersonalComment parent = commentWithId(100L, 1L, 10L, 20L, "UI가 깔끔하네요", null);
         PersonalComment existingReply = commentWithId(101L, 1L, 10L, 10L, "감사합니다!", 100L);
         when(personalCommentRepository.findById(100L)).thenReturn(Optional.of(parent));
-        when(personalCommentRepository.findByProjectIdAndTargetUserIdOrderByCreatedAtAsc(1L, 10L))
+        when(personalCommentRepository.findByProjectIdAndTargetTypeAndTargetUserIdOrderByCreatedAtAsc(1L, "personal", 10L))
             .thenReturn(List.of(parent, existingReply));
 
         mockMvc.perform(post("/api/v1/projects/1/comments/100/replies")

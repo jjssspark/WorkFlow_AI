@@ -49,6 +49,7 @@ public class MeController {
     private static final int MAX_AFFILIATION_LENGTH = 100;
     private static final int MAX_FIELD_TAGS = 10;
     private static final int MAX_FIELD_TAG_LENGTH = 30;
+    private static final String TARGET_TYPE_PERSONAL = "personal";
     // GitHub 아이디 규칙: 영숫자로 시작, 하이픈은 연속/끝에 올 수 없음, 최대 39자.
     private static final java.util.regex.Pattern GITHUB_USERNAME_PATTERN =
         java.util.regex.Pattern.compile("^[a-zA-Z0-9](?:[a-zA-Z0-9]|-(?=[a-zA-Z0-9])){0,38}$");
@@ -345,7 +346,7 @@ public class MeController {
     public ApiResponse<List<PersonalCommentDto>> myComments(@RequestParam Long projectId) {
         Long userId = CurrentUser.id();
         List<PersonalComment> items = personalCommentRepository
-            .findByProjectIdAndTargetUserIdOrderByCreatedAtAsc(projectId, userId);
+            .findByProjectIdAndTargetTypeAndTargetUserIdOrderByCreatedAtAsc(projectId, TARGET_TYPE_PERSONAL, userId);
         Map<Long, User> userCache = userRepository.findAllById(
             items.stream().map(PersonalComment::getAuthorId).distinct().toList()
         ).stream().collect(Collectors.toMap(User::getId, u -> u));

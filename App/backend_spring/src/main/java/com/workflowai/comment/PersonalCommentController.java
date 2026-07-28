@@ -12,9 +12,12 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.interceptor.TransactionAspectSupport;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -27,6 +30,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class PersonalCommentController {
     private static final int MAX_COMMENTS = 10;
     private static final int PREVIEW_LENGTH = 50;
+    private static final String TARGET_TYPE_PERSONAL = "personal";
 
     private final PersonalCommentRepository personalCommentRepository;
     private final ProjectMemberRepository projectMemberRepository;
@@ -74,7 +78,7 @@ public class PersonalCommentController {
         }
         Long authorId = CurrentUser.id();
         PersonalComment saved = personalCommentRepository.save(
-            new PersonalComment(projectId, "personal", targetUserId, authorId, request.content(), null)
+            new PersonalComment(projectId, TARGET_TYPE_PERSONAL, targetUserId, authorId, request.content(), null)
         );
         enforceLimit(projectId, targetUserId, saved.getId());
         notificationService.notifyAfterCommit(
@@ -103,6 +107,9 @@ public class PersonalCommentController {
         if (parent == null || !parent.getProjectId().equals(projectId)) {
             return ResponseEntity.status(404).body(ApiResponse.fail("COMMENT_NOT_FOUND", "코멘트를 찾을 수 없습니다."));
         }
+        if (!TARGET_TYPE_PERSONAL.equals(parent.getTargetType())) {
+            return ResponseEntity.status(404).body(ApiResponse.fail("COMMENT_NOT_FOUND", "코멘트를 찾을 수 없습니다."));
+        }
         if (parent.getParentId() != null) {
             return ResponseEntity.badRequest()
                 .body(ApiResponse.fail("REPLY_TO_REPLY_NOT_ALLOWED", "답글에는 답글을 달 수 없습니다."));
@@ -113,16 +120,36 @@ public class PersonalCommentController {
                 .body(ApiResponse.fail("FORBIDDEN_NOT_TARGET_USER", "본인이 받은 코멘트에만 답글을 달 수 있습니다."));
         }
         boolean replyAlreadyExists = personalCommentRepository
-            .findByProjectIdAndTargetUserIdOrderByCreatedAtAsc(projectId, parent.getTargetUserId())
+            .findByProjectIdAndTargetTypeAndTargetUserIdOrderByCreatedAtAsc(
+                projectId, TARGET_TYPE_PERSONAL, parent.getTargetUserId()
+            )
             .stream()
             .anyMatch(c -> parent.getId().equals(c.getParentId()));
         if (replyAlreadyExists) {
             return ResponseEntity.badRequest()
                 .body(ApiResponse.fail("REPLY_ALREADY_EXISTS", "이미 답글이 작성된 코멘트입니다."));
         }
-        PersonalComment saved = personalCommentRepository.save(
-            new PersonalComment(projectId, "personal", parent.getTargetUserId(), authorId, request.content(), parent.getId())
-        );
+        PersonalComment saved;
+        try {
+            saved = personalCommentRepository.save(
+                new PersonalComment(
+                    projectId, TARGET_TYPE_PERSONAL, parent.getTargetUserId(), authorId, request.content(), parent.getId()
+                )
+            );
+        } catch (DataIntegrityViolationException e) {
+            // 위의 사전 확인(조회 후 판단)은 두 요청이 동시에 통과할 수 있는 경쟁 상태를 막지 못한다.
+            // DB의 부분 유니크 인덱스(ux_comments_one_reply_per_parent)가 최종 방어선이며, 경쟁에서
+            // 진 요청은 이 예외로 걸러져 500 대신 애플리케이션 레벨 사전 확인과 동일한 400을 받는다.
+            // Postgres는 트랜잭션 내 한 statement가 실패하면 이후 전체를 abort 상태로 두므로, 여기서
+            // 예외를 삼키고 정상 응답을 반환하면 커밋 시점에 aborted transaction 오류가 새로 난다 —
+            // rollbackOnly로 표시해 커밋 대신 롤백되게 한다. (실제 트랜잭션이 열려 있을 때만 유효한
+            // 동작이라, 트랜잭션 매니저가 없는 슬라이스 테스트에서는 조건이 거짓이라 안전하게 건너뛴다.)
+            if (TransactionSynchronizationManager.isActualTransactionActive()) {
+                TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
+            }
+            return ResponseEntity.badRequest()
+                .body(ApiResponse.fail("REPLY_ALREADY_EXISTS", "이미 답글이 작성된 코멘트입니다."));
+        }
         enforceLimit(projectId, parent.getTargetUserId(), parent.getId());
         notificationService.notifyAfterCommit(
             parent.getAuthorId(), projectId, "PERSONAL_COMMENT_REPLY", "답글이 달렸습니다",
@@ -147,7 +174,7 @@ public class PersonalCommentController {
      */
     private void enforceLimit(Long projectId, Long targetUserId, Long protectedRootId) {
         List<PersonalComment> all = personalCommentRepository
-            .findByProjectIdAndTargetUserIdOrderByCreatedAtAsc(projectId, targetUserId);
+            .findByProjectIdAndTargetTypeAndTargetUserIdOrderByCreatedAtAsc(projectId, TARGET_TYPE_PERSONAL, targetUserId);
         int excess = all.size() - MAX_COMMENTS;
         if (excess <= 0) {
             return;

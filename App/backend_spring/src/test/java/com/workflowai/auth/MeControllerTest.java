@@ -317,7 +317,7 @@ class MeControllerTest {
         ReflectionTestUtils.setField(root, "id", 100L);
         PersonalComment reply = new PersonalComment(1L, "personal", 10L, 10L, "감사합니다!", 100L);
         ReflectionTestUtils.setField(reply, "id", 101L);
-        when(personalCommentRepository.findByProjectIdAndTargetUserIdOrderByCreatedAtAsc(1L, 10L))
+        when(personalCommentRepository.findByProjectIdAndTargetTypeAndTargetUserIdOrderByCreatedAtAsc(1L, "personal", 10L))
             .thenReturn(List.of(root, reply));
         User reviewer = new User("reviewer@workflow.ai", "심사자", "demo", "9");
         ReflectionTestUtils.setField(reviewer, "id", 20L);
