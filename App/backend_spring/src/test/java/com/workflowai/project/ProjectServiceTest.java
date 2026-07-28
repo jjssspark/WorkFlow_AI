@@ -121,6 +121,22 @@ class ProjectServiceTest {
     }
 
     @Test
+    void findAllForUser_returnsOnlyProjectsUserBelongsTo() {
+        Project ownProject = new Project("소속 프로젝트", "팀프로젝트", "설명");
+        ReflectionTestUtils.setField(ownProject, "id", 1L);
+
+        when(projectRepository.findAllByMemberUserId(10L)).thenReturn(List.of(ownProject));
+        when(projectMemberRepository.countMembersByProjectIds(List.of(1L))).thenReturn(List.of());
+        when(taskRepository.summarizeProgressByProjectIds(any(), any())).thenReturn(List.of());
+
+        List<ProjectResponse> responses = projectService.findAllForUser(10L);
+
+        assertThat(responses).hasSize(1);
+        assertThat(responses.get(0).id()).isEqualTo(1L);
+        assertThat(responses.get(0).title()).isEqualTo("소속 프로젝트");
+    }
+
+    @Test
     void find_computesMemberCountAndTaskProgressFromRealData() {
         Project project = new Project("제목", "캡스톤디자인", "설명");
         ReflectionTestUtils.setField(project, "id", 10L);
@@ -280,6 +296,30 @@ class ProjectServiceTest {
         verify(projectRepository).deleteById(10L);
         verify(ragIngestService).recordDeleteProjectIntent(10L);
         verify(ragIngestService).deleteProjectSourcesBestEffort(10L);
+    }
+
+    @Test
+    void delete_projectCannotBeFoundAfterDeletion() {
+        when(projectRepository.findById(10L)).thenReturn(Optional.empty());
+
+        projectService.delete(10L);
+
+        assertThatThrownBy(() -> projectService.find(10L))
+            .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void updateMemberRole_changesRoleToRequestedValue() {
+        ProjectMember member = new ProjectMember(1L, 12L, ProjectRole.MEMBER);
+        when(projectMemberRepository.findByProjectIdAndUserId(1L, 12L)).thenReturn(Optional.of(member));
+        User user = new User("teammate@workflow.ai", "팀원", "local", "teammate@workflow.ai");
+        ReflectionTestUtils.setField(user, "id", 12L);
+        when(userRepository.findById(12L)).thenReturn(Optional.of(user));
+
+        MemberResponse response = projectService.updateMemberRole(1L, 12L, "심사자");
+
+        assertThat(member.getRole()).isEqualTo(ProjectRole.REVIEWER);
+        assertThat(response.role()).isEqualTo("심사자");
     }
 
     @Test

@@ -26,6 +26,8 @@ import org.springframework.test.context.junit.jupiter.SpringExtension;
 import org.springframework.test.context.TestPropertySource;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClientException;
 
 @ExtendWith(SpringExtension.class)
@@ -116,6 +118,16 @@ class RagIngestServiceRetryTest {
         ragIngestService.ingestBestEffort(1L, "task", 10L, "업무 내용", 99L);
 
         verify(fastApiRagClient, times(3)).ingest(any());
+    }
+
+    @Test
+    void ingestDoesNotRetryOnPermanentClientErrorFromFastApi() {
+        doThrow(new HttpClientErrorException(HttpStatus.BAD_REQUEST))
+            .when(fastApiRagClient).ingest(any());
+
+        ragIngestService.ingestBestEffort(1L, "task", 10L, "업무 내용", 99L);
+
+        verify(fastApiRagClient, times(1)).ingest(any());
     }
 
     @Test
