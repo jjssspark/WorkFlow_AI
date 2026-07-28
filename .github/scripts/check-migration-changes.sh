@@ -34,6 +34,9 @@ allowed_status='^A[[:space:]]'
 # 채워질 기회가 있던 행까지 지워진다. backfill을 20260728_2에 그대로 두고 delete만
 # 20260728_3으로 옮겨, backfill 다음에 실행되도록 한다. 두 파일 모두 flyway_schema_history에
 # 아직 기록되지 않아(운영 DB에는 20260728.1까지만 적용됨) 순서 변경이 안전하다.
+# 2026-07-28 추가: 서로 다른 두 PR이 독립적으로 V20260728_2를 잡아 생긴 충돌
+# (notifications_delete_orphaned_null_project_id.sql)을 해소하기 위한 R100
+# rename 1건도 같은 방식으로 예외 처리한다.
 approved_renames=(
   "R100	$migration_dir/V20260726_1__rag_assignee_sync_failures.sql	$migration_dir/V20260727_1__rag_assignee_sync_failures.sql"
   "R100	$migration_dir/V20260726_2__task_done_date.sql	$migration_dir/V20260727_2__task_done_date.sql"

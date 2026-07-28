@@ -27,7 +27,10 @@ export function NotificationToast({ notification, toastId }: Props) {
       console.error("알림 읽음 처리에 실패했습니다.", err);
     });
     if (notification.targetType === "task" && notification.targetId) {
-      navigate(`/board?taskId=${encodeURIComponent(notification.targetId)}`);
+      const taskPath = notification.type === "COMPLETION_REQUESTED"
+        ? `/leader/completion-approvals?taskId=${encodeURIComponent(notification.targetId)}`
+        : `/board?taskId=${encodeURIComponent(notification.targetId)}`;
+      navigate(taskPath);
     } else if (notification.targetType === "meeting" && notification.targetId) {
       navigate(`/meetings?meetingId=${notification.targetId}${meetingNotificationPanelQuery(notification.type)}`);
     } else if (notification.targetType === "evaluation" && notification.targetId) {
