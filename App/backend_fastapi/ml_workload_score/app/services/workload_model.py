@@ -247,7 +247,7 @@ def build_features(
         task_count_total=("task_id", "count"),
         task_count_active=("is_done", lambda s: (~s).sum()),
         task_count_done=("is_done", "sum"),
-        difficulty_avg=("difficulty", "mean"),
+        difficulty_total=("difficulty", "sum"),
         overdue_count=("is_overdue", "sum"),
         upcoming_due_count=("is_upcoming", "sum"),
     ).reset_index()
@@ -258,10 +258,11 @@ def build_features(
     # 팀 평균 대비 상대값 (정규화) - 과부하는 "팀 평균보다 얼마나 많은가"가 핵심.
     # task_count_total_rel(전체 배정량)은 "배정량 불균형" 판정 전용 근거다: task_count_active
     # (미완료 개수)만으로 판단하면, 배정된 업무를 전부 끝낸 사람도 진행중 업무가 0이 되어
-    # "애초에 배정량 자체가 적은 사람"과 "일을 다 끝낸 사람"이 구분되지 않는 문제가 있었다
-    # (실사용 중 발견: 12/12 완료한 팀원이 "저활동 의심"으로 오판됨 - 완료 여부와 무관하게
-    # 순수히 배정량만으로 판단하도록 라벨/근거를 분리했다).
-    for col in ["task_count_active", "task_count_total", "difficulty_avg"]:
+    # "애초에 배정량 자체가 적은 사람"과 "일을 다 끝낸 사람"이 구분되지 않는 문제가 있었다.
+    # difficulty_total_rel(총부담)은 "몇 건을 배정받았는지 + 얼마나 어려운지"를 함께 반영한다 -
+    # 건당 평균(difficulty_avg_rel, 구 필드)은 업무 개수 효과가 빠져서 난이도 편중 판정에
+    # 쓸 수 없었다(어려운 일 3건과 20건이 평균이 같으면 동일 취급되는 문제).
+    for col in ["task_count_active", "task_count_total", "difficulty_total"]:
         team_avg = grouped[col].mean()
         grouped[f"{col}_rel"] = grouped[col] / team_avg if team_avg > 0 else 0
 
@@ -277,6 +278,87 @@ FEATURE_COLUMNS = [
     "difficulty_avg_rel",
     "overdue_ratio",
 ]
+
+
+AXIS_WEIGHTS = {"difficulty": 0.6, "workload": 0.2, "allocation": 0.2}
+
+
+def _mad_anomaly(series: pd.Series, z_threshold: float = 3.5) -> tuple[np.ndarray, np.ndarray]:
+    """1개 피처 기준 MAD(Median Absolute Deviation) Modified Z-score 이상치 판정.
+    반환: (is_anomaly: bool 배열, score_0_100: 0~100 스케일 점수 배열)."""
+    x = series.fillna(0).to_numpy(dtype=float)
+    median = np.median(x)
+    mad = np.median(np.abs(x - median))
+    std = x.std()
+    denom = mad / 0.6745 if mad > 0 else (std if std > 0 else np.inf)
+
+    modified_z = np.abs(x - median) / denom
+    is_anomaly = modified_z > z_threshold
+
+    max_z = modified_z.max()
+    score = 100 * modified_z / max_z if max_z > 0 else np.zeros_like(modified_z)
+    return is_anomaly, score
+
+
+def _mad_anomaly_multi(X: np.ndarray, z_threshold: float = 3.5) -> tuple[np.ndarray, np.ndarray]:
+    """N개 피처 기준 MAD Modified Z-score 유클리드 거리 이상치 판정(기존 통합 로직과 동일한
+    방식 - 피처 집합만 축마다 다르게 적용). 반환: (is_anomaly, score_0_100)."""
+    median = np.median(X, axis=0)
+    mad = np.median(np.abs(X - median), axis=0)
+    std = X.std(axis=0)
+    denom = np.where(mad > 0, mad / 0.6745, np.where(std > 0, std, np.inf))
+
+    modified_z = (X - median) / denom
+    combined_distance = np.sqrt((modified_z ** 2).sum(axis=1))
+    is_anomaly = combined_distance > z_threshold
+
+    max_d = combined_distance.max()
+    score = 100 * combined_distance / max_d if max_d > 0 else np.zeros_like(combined_distance)
+    return is_anomaly, score
+
+
+def compute_axis_results(feature_df: pd.DataFrame, team_mean_completion: float) -> pd.DataFrame:
+    """세 축(난이도 편중/업무량 편중/배정량 불균형)을 각각 독립적으로 MAD 판정하고,
+    axis별 is_anomaly/score와 통합 anomaly_types/overload_score_0_100을 채운
+    DataFrame을 반환한다. 한 사람이 여러 축에서 동시에 이상치일 수 있다."""
+    result = feature_df.reset_index(drop=True).copy()
+
+    diff_anomaly, result["difficulty_score"] = _mad_anomaly_multi(
+        result[["difficulty_total_rel", "overdue_ratio"]].fillna(0).to_numpy(dtype=float)
+    )
+    workload_anomaly, result["workload_score"] = _mad_anomaly_multi(
+        result[["task_count_active_rel", "completion_rate"]].fillna(0).to_numpy(dtype=float)
+    )
+    alloc_anomaly, result["allocation_score"] = _mad_anomaly(result["task_count_total_rel"])
+
+    def _labels(row) -> list[str]:
+        labels: list[str] = []
+        idx = row.name
+        if diff_anomaly[idx]:
+            labels.append(
+                "난이도 편중 의심" if row["difficulty_total_rel"] > 1.0
+                else "난이도 이상 패턴(방향 불명확)"
+            )
+        if workload_anomaly[idx]:
+            if row["task_count_active_rel"] > 1.0 and row["completion_rate"] < team_mean_completion:
+                labels.append("업무량 편중 의심")
+            else:
+                labels.append("업무량 이상 패턴(방향 불명확)")
+        if alloc_anomaly[idx]:
+            if row["task_count_total_rel"] < 1.0 and row["completion_rate"] > team_mean_completion:
+                labels.append("배정량 불균형")
+            else:
+                labels.append("배정 이상 패턴(방향 불명확)")
+        return labels
+
+    result["anomaly_types"] = result.apply(_labels, axis=1)
+    result["is_anomaly"] = result["anomaly_types"].apply(lambda t: len(t) > 0)
+    result["overload_score_0_100"] = (
+        result["difficulty_score"] * AXIS_WEIGHTS["difficulty"]
+        + result["workload_score"] * AXIS_WEIGHTS["workload"]
+        + result["allocation_score"] * AXIS_WEIGHTS["allocation"]
+    )
+    return result
 
 
 def detect_overload_anomalies_robust(feature_df: pd.DataFrame, z_threshold: float = 3.5) -> pd.DataFrame:
