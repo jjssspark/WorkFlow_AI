@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import {
   ACTION_REQUIRED_NOTIFICATION_TYPES,
   markNotificationsRead,
-  notificationShortcutPath,
+  meetingNotificationPanelQuery,
   type NotificationResponse,
 } from "../../api/notificationApi";
 
@@ -16,13 +16,26 @@ type Props = {
 export function NotificationToast({ notification, toastId }: Props) {
   const navigate = useNavigate();
   const isActionRequired = ACTION_REQUIRED_NOTIFICATION_TYPES.has(notification.type);
-  const shortcutPath = notificationShortcutPath(notification);
+  const hasTarget =
+    (notification.targetType === "task" ||
+      notification.targetType === "meeting" ||
+      notification.targetType === "evaluation") &&
+    !!notification.targetId;
 
   const handleActivate = () => {
     markNotificationsRead([notification.id]).catch((err) => {
       console.error("알림 읽음 처리에 실패했습니다.", err);
     });
-    if (shortcutPath) navigate(shortcutPath);
+    if (notification.targetType === "task" && notification.targetId) {
+      const taskPath = notification.type === "COMPLETION_REQUESTED"
+        ? `/leader/completion-approvals?taskId=${encodeURIComponent(notification.targetId)}`
+        : `/board?taskId=${encodeURIComponent(notification.targetId)}`;
+      navigate(taskPath);
+    } else if (notification.targetType === "meeting" && notification.targetId) {
+      navigate(`/meetings?meetingId=${notification.targetId}${meetingNotificationPanelQuery(notification.type)}`);
+    } else if (notification.targetType === "evaluation" && notification.targetId) {
+      navigate("/mypage");
+    }
     toast.dismiss(toastId);
   };
 
@@ -65,7 +78,7 @@ export function NotificationToast({ notification, toastId }: Props) {
               month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "Asia/Seoul",
             })}
           </span>
-          {shortcutPath && (
+          {hasTarget && (
             <button
               onClick={(e) => {
                 e.stopPropagation();

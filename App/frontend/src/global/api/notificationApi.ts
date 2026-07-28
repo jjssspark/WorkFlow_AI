@@ -41,31 +41,6 @@ export function meetingNotificationPanelQuery(type: string): string {
   return type === "MEETING_ANALYSIS_COMPLETED_NOTIFY_LEADER" ? "&panel=todos" : "";
 }
 
-/** 알림 대상과 유형을 실제 화면의 딥링크로 변환한다. */
-export function notificationShortcutPath(notification: NotificationResponse): string | null {
-  if (
-    notification.targetType === "meeting" &&
-    notification.targetId &&
-    MEETING_SHORTCUT_NOTIFICATION_TYPES.has(notification.type)
-  ) {
-    return `/meetings?meetingId=${encodeURIComponent(notification.targetId)}${meetingNotificationPanelQuery(notification.type)}`;
-  }
-  if (
-    notification.type === "COMPLETION_REQUESTED" &&
-    notification.targetType === "task" &&
-    notification.targetId
-  ) {
-    return `/leader/completion-approvals?taskId=${encodeURIComponent(notification.targetId)}`;
-  }
-  if (notification.targetType === "task" && notification.targetId) {
-    return `/board?taskId=${encodeURIComponent(notification.targetId)}`;
-  }
-  if (notification.targetType === "evaluation" && notification.targetId) {
-    return "/mypage";
-  }
-  return null;
-}
-
 export function fetchNotifications(projectId: number): Promise<NotificationResponse[]> {
   return apiFetch<NotificationResponse[]>(`/notifications?projectId=${projectId}`);
 }
