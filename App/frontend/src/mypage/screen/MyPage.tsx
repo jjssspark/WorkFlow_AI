@@ -47,8 +47,8 @@ function formatPersonalCommentDate(iso: string): string {
 }
 
 // ─── Member My Page ───────────────────────────────────────────────────────────
-function MemberMyPage({ name, email, onLogout, projectId, userId, avatarUrl, affiliation, field, githubUsername }: {
-  name: string; email: string; onLogout: () => void; projectId: number | null; userId: number | null;
+function MemberMyPage({ name, email, onLogout, projectId, projectContextReady, userId, avatarUrl, affiliation, field, githubUsername }: {
+  name: string; email: string; onLogout: () => void; projectId: number | null; projectContextReady: boolean; userId: number | null;
   avatarUrl: string | null; affiliation: string | null; field: string[] | null; githubUsername: string | null;
 }) {
   const navigate = useNavigate();
@@ -74,6 +74,11 @@ function MemberMyPage({ name, email, onLogout, projectId, userId, avatarUrl, aff
   const [detailModal, setDetailModal] = useState<CommentDetailModalData | null>(null);
 
   const reloadPersonalComments = useCallback(() => {
+    // useAuth()가 currentProjectId를 아직 확정하지 못한 콜드 로드 구간에서는 projectId가 일시적으로
+    // null로 보인다. 이때 "프로젝트 없음"으로 오판해 목록을 로드 완료 처리하면, 딥링크 effect가
+    // 아직 못 찾은 것으로 착각해 거짓 not-found 토스트를 띄운다. projectContextReady가 true가 될
+    // 때까지는 로드 완료로 취급하지 않는다.
+    if (!projectContextReady) return;
     if (projectId == null) {
       setPersonalComments([]);
       setPersonalCommentsLoaded(true);
@@ -82,7 +87,7 @@ function MemberMyPage({ name, email, onLogout, projectId, userId, avatarUrl, aff
     fetchMyPersonalComments(projectId)
       .then((list) => { setPersonalComments(list); setPersonalCommentsLoaded(true); })
       .catch(() => { setPersonalComments([]); setPersonalCommentsLoaded(true); });
-  }, [projectId]);
+  }, [projectId, projectContextReady]);
 
   useEffect(() => {
     reloadPersonalComments();
@@ -923,7 +928,7 @@ function ReviewerMyPage({ name, email, onLogout, avatarUrl }: { name: string; em
 // ─── Main MyPage export ───────────────────────────────────────────────────────
 export function MyPage() {
   const navigate = useNavigate();
-  const { user, currentProject, currentProjectId, logout } = useAuth();
+  const { user, currentProject, currentProjectId, projectContextReady, logout } = useAuth();
 
   const role: MyPageRole = currentProject?.role === "심사자" ? "reviewer" : "member";
   const name = user?.name ?? "";
@@ -935,7 +940,7 @@ export function MyPage() {
 
   return role === "member"
     ? <MemberMyPage
-        name={name} email={email} onLogout={handleLogout} projectId={currentProjectId} userId={user?.id ?? null}
+        name={name} email={email} onLogout={handleLogout} projectId={currentProjectId} projectContextReady={projectContextReady} userId={user?.id ?? null}
         avatarUrl={user?.avatarUrl ?? null} affiliation={user?.affiliation ?? null} field={user?.field ?? null} githubUsername={user?.githubUsername ?? null}
       />
     : <ReviewerMyPage name={name} email={email} onLogout={handleLogout} avatarUrl={user?.avatarUrl ?? null} />;

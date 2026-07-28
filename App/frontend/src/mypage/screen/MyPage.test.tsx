@@ -83,6 +83,7 @@ describe("MyPage member view", () => {
     vi.mocked(useAuth).mockReturnValue({
       isAuthenticated: true,
       loading: false,
+      projectContextReady: true,
       user: { id: 1, email: "seo.yeon@university.ac.kr", name: "이서연" },
       projectRoles: [{ projectId: 1, projectTitle: "스마트 주차 관리 시스템", role: "팀원" }],
       currentProjectId: 1,
@@ -341,6 +342,61 @@ describe("MyPage member view", () => {
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith("삭제되었거나 다른 프로젝트의 코멘트입니다."));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
+
+  it("콜드 로드 중(useAuth의 projectContextReady가 아직 false)에는 목록이 비어 있어도 거짓 not-found 토스트를 띄우지 않고, projectContextReady가 true로 바뀌며 실제 데이터가 로드되면 그제서야 팝업을 연다", async () => {
+    vi.mocked(fetchTasks).mockResolvedValue([]);
+    vi.mocked(fetchMyPersonalComments).mockResolvedValue([
+      { id: 1, authorId: 20, authorName: "심사자", parentId: null, content: "UI가 깔끔하네요", createdAt: "2026-07-25T05:32:00.000Z" },
+    ]);
+
+    // useAuth()가 아직 currentProjectId를 확정하지 못한 콜드 로드 첫 렌더 상태를 흉내낸다.
+    const authState = {
+      isAuthenticated: false,
+      loading: true,
+      projectContextReady: false,
+      user: null,
+      projectRoles: [],
+      currentProjectId: null,
+      currentProject: null,
+      selectProject: vi.fn(),
+      addLocalProjectRole: vi.fn(),
+      loginWithGoogle: vi.fn(),
+      logout: vi.fn(),
+      refreshMe: vi.fn(),
+    };
+    vi.mocked(useAuth).mockImplementation(() => authState);
+
+    const { rerender } = render(
+      <MemoryRouter initialEntries={["/mypage?commentId=1"]}>
+        <MyPage />
+      </MemoryRouter>
+    );
+
+    // 아직 projectContextReady가 false인 동안에는 목록이 비어 있어도 "찾을 수 없음" 토스트를 띄우면 안 된다.
+    expect(toast.error).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    // useAuth가 실제 프로젝트로 resolve된 상태를 흉내낸다.
+    Object.assign(authState, {
+      isAuthenticated: true,
+      loading: false,
+      projectContextReady: true,
+      user: { id: 1, email: "seo.yeon@university.ac.kr", name: "이서연" },
+      projectRoles: [{ projectId: 1, projectTitle: "스마트 주차 관리 시스템", role: "팀원" }],
+      currentProjectId: 1,
+      currentProject: { projectId: 1, projectTitle: "스마트 주차 관리 시스템", role: "팀원" },
+    });
+
+    rerender(
+      <MemoryRouter initialEntries={["/mypage?commentId=1"]}>
+        <MyPage />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(screen.getByRole("dialog")).toBeInTheDocument());
+    expect(within(screen.getByRole("dialog")).getByText("UI가 깔끔하네요")).toBeInTheDocument();
+    expect(toast.error).not.toHaveBeenCalled();
+  });
 });
 
 describe("MyPage reviewer view", () => {
@@ -349,6 +405,7 @@ describe("MyPage reviewer view", () => {
     vi.mocked(useAuth).mockReturnValue({
       isAuthenticated: true,
       loading: false,
+      projectContextReady: true,
       user: { id: 6, email: "reviewer@university.ac.kr", name: "고무서" },
       projectRoles: [
         { projectId: 1, projectTitle: "스마트 주차 관리 시스템", role: "팀원" },
@@ -420,6 +477,7 @@ describe("MyPage reviewer view — contribution tabs", () => {
     vi.mocked(useAuth).mockReturnValue({
       isAuthenticated: true,
       loading: false,
+      projectContextReady: true,
       user: { id: 6, email: "reviewer@university.ac.kr", name: "고무서" },
       projectRoles: [{ projectId: 2, projectTitle: "AI 기반 식단 추천 앱", role: "심사자" }],
       currentProjectId: 2,
