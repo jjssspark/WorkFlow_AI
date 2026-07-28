@@ -126,7 +126,7 @@ class MeetingAnalysisPersistenceTest {
         when(projectMemberRepository.findByProjectIdAndRole(1L, com.workflowai.project.ProjectRole.LEADER))
             .thenReturn(Optional.of(leaderMember));
         doThrow(new RuntimeException("notification service down"))
-            .when(notificationService).notifyAfterCommit(any(), any(), any(), any(), any(), any());
+            .when(notificationService).notifyAfterCommit(any(), any(), any(), any(), any(), any(), any());
 
         MeetingAnalysisResult result = new MeetingAnalysisResult(
             "요약", List.of(), List.of(), List.of(), List.of(),
@@ -161,7 +161,7 @@ class MeetingAnalysisPersistenceTest {
         try {
             persistence.saveAnalysisSuccess(5L, result, "FASTAPI");
 
-            verify(notificationService, never()).notifyAfterCommit(any(), any(), any(), any(), any(), any());
+            verify(notificationService, never()).notifyAfterCommit(any(), any(), any(), any(), any(), any(), any());
             verify(ragIngestService, never()).ingestBestEffort(any(), any(), any(), any());
 
             List<TransactionSynchronization> synchronizations = TransactionSynchronizationManager.getSynchronizations();
@@ -169,7 +169,7 @@ class MeetingAnalysisPersistenceTest {
             synchronizations.forEach(TransactionSynchronization::afterCommit);
 
             verify(ragIngestService).ingestBestEffort(1L, "meeting", 5L, "요약");
-            verify(notificationService).notifyAfterCommit(eq(99L), eq("MEETING_ANALYSIS_COMPLETED_NOTIFY_LEADER"),
+            verify(notificationService).notifyAfterCommit(eq(99L), eq(1L), eq("MEETING_ANALYSIS_COMPLETED_NOTIFY_LEADER"),
                 any(), any(), eq("meeting"), eq(5L));
         } finally {
             TransactionSynchronizationManager.clearSynchronization();
@@ -200,7 +200,7 @@ class MeetingAnalysisPersistenceTest {
             TransactionSynchronizationManager.clearSynchronization();
         }
 
-        verify(notificationService, never()).notifyAfterCommit(any(), any(), any(), any(), any(), any());
+        verify(notificationService, never()).notifyAfterCommit(any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -221,9 +221,9 @@ class MeetingAnalysisPersistenceTest {
 
         persistence.saveAnalysisSuccess(5L, result, "FASTAPI");
 
-        verify(notificationService).notifyAfterCommit(eq(99L), eq("MEETING_ANALYSIS_COMPLETED_NOTIFY_LEADER"), any(), any(), eq("meeting"), eq(5L));
+        verify(notificationService).notifyAfterCommit(eq(99L), eq(1L), eq("MEETING_ANALYSIS_COMPLETED_NOTIFY_LEADER"), any(), any(), eq("meeting"), eq(5L));
         // 분석을 실행한 본인(10L)에게는 알림이 가지 않는다.
-        verify(notificationService, never()).notifyAfterCommit(eq(10L), any(), any(), any(), any(), any());
+        verify(notificationService, never()).notifyAfterCommit(eq(10L), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -245,7 +245,7 @@ class MeetingAnalysisPersistenceTest {
         persistence.saveAnalysisSuccess(5L, result, "FASTAPI");
 
         // 팀장 본인이 올리고 분석까지 했으므로 알릴 상대가 없다.
-        verify(notificationService, never()).notifyAfterCommit(any(), any(), any(), any(), any(), any());
+        verify(notificationService, never()).notifyAfterCommit(any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -275,12 +275,12 @@ class MeetingAnalysisPersistenceTest {
 
         ArgumentCaptor<String> contentCaptor = ArgumentCaptor.forClass(String.class);
         verify(notificationService).notifyAfterCommit(
-            eq(99L), eq("MEETING_ANALYSIS_COMPLETED_NOTIFY_LEADER"), any(), contentCaptor.capture(), eq("meeting"), eq(5L)
+            eq(99L), eq(1L), eq("MEETING_ANALYSIS_COMPLETED_NOTIFY_LEADER"), any(), contentCaptor.capture(), eq("meeting"), eq(5L)
         );
         assertThat(contentCaptor.getValue()).contains("박지수님이");
         // 원본 업로더(10L)에게도, 재분석을 실행한 본인(20L)에게도 알림이 가지 않는다.
-        verify(notificationService, never()).notifyAfterCommit(eq(10L), any(), any(), any(), any(), any());
-        verify(notificationService, never()).notifyAfterCommit(eq(20L), any(), any(), any(), any(), any());
+        verify(notificationService, never()).notifyAfterCommit(eq(10L), any(), any(), any(), any(), any(), any());
+        verify(notificationService, never()).notifyAfterCommit(eq(20L), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -637,13 +637,13 @@ class MeetingAnalysisPersistenceTest {
         try {
             persistence.saveAnalysisFailure(7L, "FastAPI 연결 실패");
 
-            verify(notificationService, never()).notifyAfterCommit(any(), any(), any(), any(), any(), any());
+            verify(notificationService, never()).notifyAfterCommit(any(), any(), any(), any(), any(), any(), any());
 
             List<TransactionSynchronization> synchronizations = TransactionSynchronizationManager.getSynchronizations();
             assertThat(synchronizations).hasSize(1);
             synchronizations.forEach(TransactionSynchronization::afterCommit);
 
-            verify(notificationService).notifyAfterCommit(10L, "MEETING_ANALYSIS_FAILED", "회의 분석에 실패했습니다.",
+            verify(notificationService).notifyAfterCommit(10L, 1L, "MEETING_ANALYSIS_FAILED", "회의 분석에 실패했습니다.",
                 "'정기회의' 회의록 분석에 실패했습니다. 다시 시도해주세요.", "meeting", 7L);
         } finally {
             TransactionSynchronizationManager.clearSynchronization();
@@ -663,6 +663,6 @@ class MeetingAnalysisPersistenceTest {
             TransactionSynchronizationManager.clearSynchronization();
         }
 
-        verify(notificationService, never()).notifyAfterCommit(any(), any(), any(), any(), any(), any());
+        verify(notificationService, never()).notifyAfterCommit(any(), any(), any(), any(), any(), any(), any());
     }
 }
