@@ -232,6 +232,37 @@ describe("BoardView - 실시간 동기화", () => {
     expect(countBadgeFor("할 일")).toBe("0");
   });
 
+  it("같은 version(밀리초 동률)의 이벤트가 도착하면 폐기하지 않고 반영한다", async () => {
+    // version은 System.currentTimeMillis() 기반이라 두 커밋이 같은 밀리초에 캡처될 수 있다.
+    // "<="로 동률까지 버리면, 실제로 더 최신인 이벤트가 이전 것과 값이 같다는 이유만으로
+    // 조용히 폐기돼 보드가 오래된 상태에 머무른다 - 이 테스트가 그 회귀를 잡는다.
+    const task: Task = {
+      id: "42", title: "동기화 대상 업무", status: "todo", priority: "medium",
+      assignee: "", startDate: "", dueDate: "", labels: [], category: "backend",
+      position: 0, pendingApproval: false, extraFields: {},
+    };
+    vi.mocked(fetchTasks).mockResolvedValue([task]);
+    mockUseAuth.mockReturnValue({ currentProjectId: 20, currentProject: { role: "팀장" }, projectContextReady: true });
+
+    renderBoard();
+    await waitFor(() => expect(mockSubscribeTaskMove).toHaveBeenCalled());
+    await screen.findByText("동기화 대상 업무");
+
+    act(() => {
+      capturedTaskMoveHandler!({ taskId: "42", projectId: "20", status: "inprogress", position: 1, version: 200 });
+    });
+    await waitFor(() => expect(countBadgeFor("진행 중")).toBe("1"));
+
+    act(() => {
+      capturedTaskMoveHandler!({ taskId: "42", projectId: "20", status: "blocked", position: 2, version: 200 });
+    });
+
+    await waitFor(() => {
+      expect(countBadgeFor("보류/블로커")).toBe("1");
+      expect(countBadgeFor("진행 중")).toBe("0");
+    });
+  });
+
   it("알 수 없는 status 값의 task-move 이벤트는 무시한다", async () => {
     const task: Task = {
       id: "42", title: "동기화 대상 업무", status: "todo", priority: "medium",
