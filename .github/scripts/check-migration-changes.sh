@@ -26,15 +26,17 @@ allowed_status='^A[[:space:]]'
 # 여부와 무관하게 이 고정된 목록만 허용해, "guard 도입 이전 base면 rename을 통째로
 # 허용" 같은 정책 우회 여지를 남기지 않는다. source 파일들은 이미 merge되어 더 이상
 # base에 존재하지 않으므로 이 예외를 다시 악용할 수 없다.
-# 2026-07-28: 서로 다른 PR이 각각 V20260728_2를 잡아 다시 같은 충돌이 생겼다
-# (11:38 삭제 마이그레이션, 12:02 백필 마이그레이션). 삭제 쪽을 _3으로 미뤄 해소한다.
-# 백필이 구제하도록 만든 행(target_type='project' + target_id IS NOT NULL)을 삭제가
-# 먼저 지워버리지 않도록 순서를 백필 → 삭제로 두는 쪽이 맞다.
 #
-# "아직 적용되지 않았음"을 아래로 확인했으므로 체크섬 위험이 없다.
-#   - 배포는 main push 트리거뿐이고 origin/main에는 V20260728_1만 있다.
-#   - 두 파일이 함께 있는 dev는 Flyway가 파일 해석 단계에서 거부하므로 적용 자체가 불가능하다.
-#   - 두 SQL 모두 조건부 DML이라 재실행해도 같은 상태로 수렴한다.
+# 20260728_1: 두 브랜치가 독립적으로 V20260728_2를 잡아(backfill_legacy_notification_projects,
+# notifications_delete_orphaned_null_project_id) 같은 문제가 재발했다. 파일명 순서와 무관하게
+# 실행 순서 의존성이 있다 - delete_orphaned는 "백필 이후에도 NULL로 남는 행"을 지우는데,
+# target_type='project' 행을 채우는 쪽은 backfill_legacy다. delete가 backfill보다 먼저 돌면
+# 채워질 기회가 있던 행까지 지워진다. backfill을 20260728_2에 그대로 두고 delete만
+# 20260728_3으로 옮겨, backfill 다음에 실행되도록 한다. 두 파일 모두 flyway_schema_history에
+# 아직 기록되지 않아(운영 DB에는 20260728.1까지만 적용됨) 순서 변경이 안전하다.
+# 2026-07-28 추가: 서로 다른 두 PR이 독립적으로 V20260728_2를 잡아 생긴 충돌
+# (notifications_delete_orphaned_null_project_id.sql)을 해소하기 위한 R100
+# rename 1건도 같은 방식으로 예외 처리한다.
 approved_renames=(
   "R100	$migration_dir/V20260726_1__rag_assignee_sync_failures.sql	$migration_dir/V20260727_1__rag_assignee_sync_failures.sql"
   "R100	$migration_dir/V20260726_2__task_done_date.sql	$migration_dir/V20260727_2__task_done_date.sql"

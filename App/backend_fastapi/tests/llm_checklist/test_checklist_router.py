@@ -6,11 +6,13 @@ from unittest.mock import patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from core.security import verify_internal_api_key
 from llm_checklist.app.checklist_schema import ChecklistGenerateResponse, ChecklistItemSuggestion
 from llm_checklist.app.routers.checklist_router import router
 
 app = FastAPI()
 app.include_router(router)
+app.dependency_overrides[verify_internal_api_key] = lambda: None
 client = TestClient(app, raise_server_exceptions=False)
 
 

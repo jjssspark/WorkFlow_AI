@@ -22,7 +22,7 @@ from httpx import ASGITransport, AsyncClient
 
 from app.main import app
 from core.db import get_pool
-from llm_rag_assistant.app.security import verify_internal_api_key
+from core.security import verify_internal_api_key
 from llm_rag_assistant.app.services import chat_service, ingestion_service
 
 _EMBEDDING_DIMENSIONS = 1024

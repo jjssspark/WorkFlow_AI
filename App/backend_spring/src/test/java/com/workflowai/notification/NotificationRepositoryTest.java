@@ -132,6 +132,48 @@ class NotificationRepositoryTest {
         assertThat(projectOne.get(0).getTitle()).isEqualTo("a");
     }
 
+    /**
+     * UT-135. 미읽음 뱃지 숫자를 만드는 쿼리다. NotificationControllerTest는 이 메서드를 목으로 두고
+     * 반환값을 그대로 응답에 싣는지만 보므로, 조건 세 개(본인·해당 프로젝트·안 읽음) 중 어느 하나가
+     * 빠져도 거기서는 드러나지 않는다. 그래서 세 조건 각각에 대해 걸러져야 할 행을 함께 넣는다.
+     */
+    @Test
+    @DisplayName("미읽음 개수는 본인·해당 프로젝트·안 읽은 알림만 센다")
+    void countUnreadScopesByUserProjectAndReadFlag() {
+        Long userId = 203L;
+        Long otherUserId = 204L;
+        save(userId, 1L, "미읽음1", LocalDateTime.now());
+        save(userId, 1L, "미읽음2", LocalDateTime.now());
+
+        Notification alreadyRead = save(userId, 1L, "읽음", LocalDateTime.now());
+        alreadyRead.markRead();
+        notificationRepository.save(alreadyRead);
+
+        save(userId, 2L, "다른 프로젝트", LocalDateTime.now());
+        save(otherUserId, 1L, "다른 사람", LocalDateTime.now());
+
+        assertThat(notificationRepository.countByUserIdAndProjectIdAndReadFalse(userId, 1L)).isEqualTo(2);
+    }
+
+    /**
+     * UT-136. 읽음 처리는 id 목록만 받는다. 남의 알림 id를 끼워 넣어도 이 쿼리에서 걸러지지 않으면
+     * 그 알림이 그대로 읽음 처리되어 상대의 뱃지가 임의로 꺼진다. 컨트롤러에는 이 외에 소유자 검사가
+     * 없으므로, 여기가 유일한 방어선이다.
+     */
+    @Test
+    @DisplayName("id로 조회해도 본인 소유가 아닌 알림은 반환되지 않는다")
+    void findByIdInAndUserIdExcludesOtherUsersNotifications() {
+        Long userId = 205L;
+        Long otherUserId = 206L;
+        Notification mine = save(userId, 1L, "내 알림", LocalDateTime.now());
+        Notification theirs = save(otherUserId, 1L, "남의 알림", LocalDateTime.now());
+
+        List<Notification> found =
+            notificationRepository.findByIdInAndUserId(List.of(mine.getId(), theirs.getId()), userId);
+
+        assertThat(found).extracting(Notification::getId).containsExactly(mine.getId());
+    }
+
     @Test
     @DisplayName("미읽음 개수를 프로젝트별로 집계한다")
     void countUnreadGroupedByProject() {

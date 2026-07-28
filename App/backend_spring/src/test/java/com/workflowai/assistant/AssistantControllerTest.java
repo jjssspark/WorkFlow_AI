@@ -120,6 +120,10 @@ class AssistantControllerTest {
                 .contentType(MediaType.APPLICATION_JSON).content(body))
             .andExpect(status().isForbidden())
             .andExpect(jsonPath("$.error.code").value("NOT_PROJECT_MEMBER"));
+
+        // 거부만으로는 부족하다. 403을 돌려주면서 이미 FastAPI를 호출했다면 비멤버의 질문이
+        // 그래프를 태우고 LLM 비용까지 쓴 뒤 결과만 감춘 셈이 된다.
+        verify(fastApiAssistantClient, org.mockito.Mockito.never()).command(any());
     }
 
     @Test
@@ -159,6 +163,7 @@ class AssistantControllerTest {
                 .contentType(MediaType.APPLICATION_JSON).content(body))
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.error.code").value("INVALID_QUESTION"));
+        verify(fastApiAssistantClient, org.mockito.Mockito.never()).command(any());
     }
 
     @Test
@@ -223,7 +228,8 @@ class AssistantControllerTest {
         authenticateAs(5L);
         stubRole(5L, ProjectRole.MEMBER);
         when(fastApiAssistantClient.command(any(FastApiAssistantRequest.class)))
-            .thenThrow(new org.springframework.web.client.ResourceAccessException("refused"));
+            .thenThrow(new org.springframework.web.client.ResourceAccessException(
+                "I/O error on POST for \"http://ai-backend:8000/ai/assistant/command\": Connection refused"));
 
         String body = """
             {"project_id":1,"question":"질문","history":[]}""";
@@ -231,6 +237,10 @@ class AssistantControllerTest {
         mockMvc().perform(post("/api/v1/ai/assistant/command")
                 .contentType(MediaType.APPLICATION_JSON).content(body))
             .andExpect(status().isServiceUnavailable())
-            .andExpect(jsonPath("$.error.code").value("ASSISTANT_UNAVAILABLE"));
+            .andExpect(jsonPath("$.error.code").value("ASSISTANT_UNAVAILABLE"))
+            // 예외 메시지를 그대로 실어 보내면 내부 호스트명·포트가 클라이언트에 노출된다.
+            .andExpect(jsonPath("$.error.message").value("일시적으로 처리할 수 없습니다."))
+            .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                .doesNotContain("ai-backend").doesNotContain("Connection refused"));
     }
 }

@@ -56,6 +56,12 @@ import org.springframework.web.multipart.MultipartFile;
 public class MeetingAnalysisService {
     private static final Logger log = LoggerFactory.getLogger(MeetingAnalysisService.class);
     private static final Set<String> AUDIO_FILE_EXTENSIONS = Set.of(".mp3", ".wav", ".m4a", ".ogg", ".webm");
+    // extractText()가 실제로 처리할 수 있는 문서 확장자 화이트리스트. 여기 없는 확장자(.exe 등)는
+    // analyze() 초입에서 거부한다 — 바이너리 실행파일이 "추출 예정" placeholder로 조용히 통과해
+    // 분석 큐까지 들어가는 것을 막기 위함.
+    private static final Set<String> ALLOWED_DOCUMENT_EXTENSIONS = Set.of(
+        ".txt", ".md", ".csv", ".json", ".pdf", ".docx", ".doc", ".pptx", ".ppt"
+    );
     // 스캔본 PDF OCR 설정. 페이지가 많은 회의 자료 전체를 인식하면 분석 요청이 몇 분씩 걸리므로 상한을 둔다.
     private static final int OCR_MAX_PAGES = 30;
     private static final int OCR_DPI = 200;
@@ -147,6 +153,12 @@ public class MeetingAnalysisService {
         }
 
         String fileName = file == null ? null : file.getOriginalFilename();
+        if (file != null) {
+            if (file.isEmpty()) {
+                throw new EmptyFileException("빈 파일은 업로드할 수 없습니다.");
+            }
+            validateFileType(fileName);
+        }
         // 음성 파일은 STT에 수 초~수십 초가 걸려 업로드 요청 안에서 동기 처리하면 타임아웃 위험이 크다.
         // 여기서는 텍스트를 비워두고, 실제 추출은 비동기 분석 큐(MeetingAnalysisRunner)에서 수행한다.
         boolean isAudioUpload = fileName != null && isAudioFile(fileName.toLowerCase());
@@ -1230,6 +1242,18 @@ public class MeetingAnalysisService {
     /** 음성 파일은 analyze()에서 STT를 건너뛰고 비동기 큐(MeetingAnalysisRunner)로 넘기므로 extractText()가 호출되지 않는다. */
     private boolean isAudioFile(String lowerCaseFileName) {
         return AUDIO_FILE_EXTENSIONS.stream().anyMatch(lowerCaseFileName::endsWith);
+    }
+
+    private void validateFileType(String fileName) {
+        if (fileName == null || fileName.isBlank()) {
+            return;
+        }
+        String lowerCaseFileName = fileName.toLowerCase();
+        boolean allowed = ALLOWED_DOCUMENT_EXTENSIONS.stream().anyMatch(lowerCaseFileName::endsWith)
+            || isAudioFile(lowerCaseFileName);
+        if (!allowed) {
+            throw new UnsupportedFileTypeException("지원하지 않는 파일 형식입니다: " + fileName);
+        }
     }
 
     private void validateAudioFileSize(MultipartFile file) {

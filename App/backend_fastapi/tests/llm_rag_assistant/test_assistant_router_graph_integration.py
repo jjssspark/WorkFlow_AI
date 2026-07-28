@@ -37,7 +37,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from app.main import app
 from core.db import get_pool
 from llm_rag_assistant.app.graph import assistant_graph, task_resolver
-from llm_rag_assistant.app.security import verify_internal_api_key
+from core.security import verify_internal_api_key
 from llm_rag_assistant.app.services import ingestion_service
 
 _EMBEDDING_DIMENSIONS = 1024
