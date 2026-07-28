@@ -22,6 +22,9 @@ SUITES = (
     # 알아챌 다른 방법이 없다.
     "com.workflowai.rag.FastApiRagClientWireContractTest",
     "com.workflowai.rag.RagFastApiBoundaryIntegrationTest",
+    # 어시스턴트 응답은 들어오는 방향이라 필드명이 어긋나도 예외가 없다. card가 조용히
+    # null이 되어 확인 카드만 화면에서 사라지므로, 이 테스트가 안 돌면 알 방법이 없다.
+    "com.workflowai.assistant.FastApiAssistantClientWireContractTest",
 )
 REPORT_DIR = Path("build/test-results/test")
 
