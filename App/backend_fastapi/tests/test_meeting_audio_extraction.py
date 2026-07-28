@@ -7,6 +7,14 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import DocumentTextExtractionError, app, extract_audio_text, extract_uploaded_text
+from core.security import verify_internal_api_key
+
+
+@pytest.fixture(autouse=True)
+def _bypass_internal_api_key():
+    app.dependency_overrides[verify_internal_api_key] = lambda: None
+    yield
+    app.dependency_overrides.pop(verify_internal_api_key, None)
 
 
 @dataclass

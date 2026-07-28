@@ -18,11 +18,12 @@ from typing import List, Optional
 
 import httpx
 import ollama
-from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from core.cache import get_redis_client
+from core.security import verify_internal_api_key
 from llm_rag_assistant.app.routers.chat_router import router as rag_router
 from llm_rag_assistant.app.routers.assistant_router import router as assistant_router
 from llm_rag_assistant.app.graph.assistant_graph import close_graph
@@ -158,7 +159,7 @@ def health():
 
 
 @app.post("/api/v1/meetings/analyze-json", response_model=MeetingAnalysisResult)
-def analyze_json(request: AnalyzeRequest):
+def analyze_json(request: AnalyzeRequest, _: None = Depends(verify_internal_api_key)):
     canonical_request = _canonicalize_analysis_request(request)
     cache_key = _meeting_analysis_cache_key(canonical_request)
     cache_client = None
@@ -286,6 +287,7 @@ async def analyze_upload(
     meeting_kind: str = Form(default="정기회의"),
     source_type: str = Form(default="document"),
     participants: List[str] = Form(default=[]),
+    _: None = Depends(verify_internal_api_key),
 ):
     text = ""
     file_name = None
@@ -307,7 +309,7 @@ async def analyze_upload(
 
 
 @app.post("/api/v1/meetings/transcribe", response_model=AudioTranscribeResult)
-async def transcribe_audio(file: UploadFile = File(...)):
+async def transcribe_audio(file: UploadFile = File(...), _: None = Depends(verify_internal_api_key)):
     """Spring이 음성 회의록 업로드 시 텍스트만 필요할 때 호출하는 STT 전용 엔드포인트.
     분석까지 함께 하는 /analyze와 달리, 추출된 텍스트만 반환해 Spring 쪽 기존 분석 파이프라인(큐/폴백/알림)을 그대로 재사용할 수 있게 한다."""
     raw = await file.read()

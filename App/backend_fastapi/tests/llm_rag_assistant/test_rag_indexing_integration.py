@@ -20,7 +20,7 @@ from httpx import ASGITransport, AsyncClient
 
 from app.main import app
 from core.db import get_pool
-from llm_rag_assistant.app.security import verify_internal_api_key
+from core.security import verify_internal_api_key
 from llm_rag_assistant.app.services import chat_service, ingestion_service
 
 # 운영 컬럼 타입 vector(1024)와 같은 차원. 다르면 pgvector가 INSERT에서 거부한다.
