@@ -327,6 +327,19 @@ describe("MemberDrilldownPanel workload mode", () => {
 
     expect(screen.getByText("편중도 근거 데이터가 불완전합니다. 새로고침 후 다시 시도해주세요.")).toBeInTheDocument();
   });
+
+  it("anomalyTypes가 undefined이면(구버전 FastAPI 혼합 배포) .map() 크래시 대신 안내 문구를 표시한다", () => {
+    render(
+      <MemberDrilldownPanel
+        mode="workload" memberName="김민준" memberTasks={[]} projectId={1} userId={1}
+        onClose={() => {}}
+        workloadEvidence={makeEvidence({ anomalyTypes: undefined as unknown as string[] })}
+        teamMeanCompletion={0.6}
+      />
+    );
+
+    expect(screen.getByText("편중도 근거 데이터가 불완전합니다. 새로고침 후 다시 시도해주세요.")).toBeInTheDocument();
+  });
 });
 
 describe("buildWorkloadEvidenceSentences", () => {
@@ -362,6 +375,20 @@ describe("buildWorkloadEvidenceSentences", () => {
       "담당 업무의 전체 난이도 부담이 팀 평균 대비 1.7배 높습니다.",
       "마감이 지난 업무가 3건 있습니다.",
     ]);
+  });
+
+  it("난이도 편중 의심이지만 difficultyTotalRel이 1.0 이하면 난이도/연체 문장을 생성하지 않는다(업무량 축과 동일한 가드)", () => {
+    const sentences = buildWorkloadEvidenceSentences({
+      anomalyTypes: ["난이도 편중 의심"],
+      taskCountActiveRel: 1.0,
+      taskCountTotalRel: 1.0,
+      difficultyTotalRel: 1.0,
+      overdueCount: 5,
+      completionRate: 0.5,
+      teamMeanCompletionRate: 0.5,
+    });
+
+    expect(sentences).toEqual([]);
   });
 
   it("배정량 불균형: 배정량 감소와 완료율 문장을 생성한다(진행중 업무 개수가 아니라 전체 배정량 기준)", () => {

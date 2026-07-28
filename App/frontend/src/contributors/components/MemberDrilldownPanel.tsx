@@ -54,7 +54,7 @@ export function buildWorkloadEvidenceSentences(input: WorkloadEvidenceInput): st
     return ["팀 평균과 비교했을 때 업무량·난이도·완료율 모두 특별한 편중이 없습니다."];
   }
 
-  if (input.anomalyTypes.includes("난이도 편중 의심")) {
+  if (input.anomalyTypes.includes("난이도 편중 의심") && input.difficultyTotalRel > 1.0) {
     sentences.push(`담당 업무의 전체 난이도 부담이 팀 평균 대비 ${difficultyMultiple}배 높습니다.`);
     if (input.overdueCount > 0) {
       sentences.push(`마감이 지난 업무가 ${input.overdueCount}건 있습니다.`);
@@ -272,7 +272,11 @@ function WorkloadEvidenceDetails({ workloadEvidence, teamMeanCompletion }: Workl
     workloadEvidence.overdueCount,
     workloadEvidence.taskComponent,
   ];
-  if (numericFields.some((v) => v == null || Number.isNaN(v))) {
+  // anomalyTypes도 같은 이유(구버전 FastAPI 혼합 배포)로 undefined/null이 올 수 있다 —
+  // Task 9에서 anomalyType(단수) → anomalyTypes(배열)로 바뀐 필드라 특히 위험하고,
+  // contributorsApi.ts가 anomaly_types를 그대로 전달할 뿐 ?? [] 폴백을 두지 않으므로
+  // 여기서 막지 않으면 아래 .map() 호출에서 바로 크래시한다.
+  if (numericFields.some((v) => v == null || Number.isNaN(v)) || workloadEvidence.anomalyTypes == null) {
     return <p className="p-4 text-xs text-muted-foreground">편중도 근거 데이터가 불완전합니다. 새로고침 후 다시 시도해주세요.</p>;
   }
 
