@@ -256,4 +256,27 @@ describe("BoardView - 실시간 동기화", () => {
 
     await waitFor(() => expect(fetchTasks).toHaveBeenCalledTimes(2));
   });
+
+  it("연결된 상태를 유지한 채 프로젝트만 전환하면(재연결 아님) 재조회는 프로젝트 전환분 한 번만 일어난다", async () => {
+    vi.mocked(fetchTasks).mockResolvedValue([]);
+    mockIsStreamConnected = true;
+    mockUseAuth.mockReturnValue({ currentProjectId: 20, currentProject: { role: "팀장" }, projectContextReady: true });
+
+    const { rerender } = renderBoard();
+    await waitFor(() => expect(fetchTasks).toHaveBeenCalledTimes(1));
+
+    // isStreamConnected는 true인 채로 계속 유지되고(한 번도 false로 전이하지 않음), 프로젝트만 바뀐다.
+    mockUseAuth.mockReturnValue({ currentProjectId: 21, currentProject: { role: "팀장" }, projectContextReady: true });
+    rerender(
+      <MemoryRouter initialEntries={["/board"]}>
+        <BoardView />
+      </MemoryRouter>
+    );
+
+    // 새 프로젝트에 대한 마운트성 재조회 1회만 있어야 하고(총 2회), 재연결로 오인한 추가 재조회(총 3회)는
+    // 없어야 한다.
+    await waitFor(() => expect(fetchTasks).toHaveBeenCalledTimes(2));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(fetchTasks).toHaveBeenCalledTimes(2);
+  });
 });

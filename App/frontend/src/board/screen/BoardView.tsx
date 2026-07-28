@@ -107,11 +107,21 @@ export function BoardView() {
     loadTasks();
   }, [loadTasks, projectContextReady]);
 
-  // 최초 연결은 재연결이 아니다(loadTasks가 이미 마운트 시 한 번 불렸다) - 두 번째 이후의
-  // false→true 전이(=재연결)에서만 놓쳤을 수 있는 이동을 따라잡기 위해 다시 불러온다.
-  const hasConnectedOnceRef = useRef(false);
+  // isStreamConnected의 "직전 값"을 렌더마다 추적해, 실제 false→true 전이가 일어난 순간에만
+  // 재연결 여부를 판단한다. loadTasks는 projectId가 바뀔 때마다 identity가 바뀌므로(useCallback),
+  // 그것만으로도 이 effect가 재실행될 수 있다 - 이때 isStreamConnected 자체는 계속 true였다면
+  // (연결이 유지된 채로 프로젝트만 전환한 경우) 실제 전이가 아니므로 재조회하면 안 된다. 그래서
+  // "한 번이라도 연결된 적 있는가" 같은 단순 플래그만으로는 판단하지 않고, 매 실행마다 갱신되는
+  // 직전 값(previousIsStreamConnectedRef)을 기준으로 "지금 이 렌더에서 진짜로 전이가 일어났는가"를 먼저 확인한다.
+  // 다만 마운트 후 최초로 연결되는 것은 재연결이 아니다(loadTasks가 이미 마운트 시 한 번 불렸다) -
+  // 그래서 "이미 한 번이라도 연결된 적이 있었는가"(hasConnectedOnceRef)도 함께 확인해, 두 번째
+  // 이후의 false→true 전이(=진짜 재연결)에서만 다시 불러온다.
+  const previousIsStreamConnectedRef = useRef(isStreamConnected);
+  const hasConnectedOnceRef = useRef(isStreamConnected);
   useEffect(() => {
-    if (isStreamConnected) {
+    const wasConnected = previousIsStreamConnectedRef.current;
+    previousIsStreamConnectedRef.current = isStreamConnected;
+    if (isStreamConnected && !wasConnected) {
       if (hasConnectedOnceRef.current) {
         loadTasks();
       }
