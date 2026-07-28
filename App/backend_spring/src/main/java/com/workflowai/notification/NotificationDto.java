@@ -6,6 +6,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 @Schema(description = "알림 항목")
 public record NotificationDto(
     @Schema(description = "알림 ID", example = "17") String id,
+    @Schema(description = "프로젝트 ID", example = "12") String projectId,
     @Schema(description = "종류", example = "TASK_ASSIGNED") String type,
     @Schema(description = "제목") String title,
     @Schema(description = "내용") String content,
@@ -22,6 +23,7 @@ public record NotificationDto(
     public static NotificationDto from(Notification notification, Long projectId) {
         return new NotificationDto(
             String.valueOf(notification.getId()),
+            notification.getProjectId() == null ? null : String.valueOf(notification.getProjectId()),
             notification.getType(),
             notification.getTitle(),
             notification.getContent(),

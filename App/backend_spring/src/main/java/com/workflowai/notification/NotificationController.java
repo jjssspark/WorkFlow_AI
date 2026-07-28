@@ -3,16 +3,21 @@ package com.workflowai.notification;
 import com.workflowai.common.ApiResponse;
 import com.workflowai.security.CurrentUser;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.stream.Collectors;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -37,24 +42,44 @@ public class NotificationController {
         this.projectResolver = projectResolver;
     }
 
-    @Operation(summary = "내 알림 목록 조회", description = "로그인 사용자의 알림을 최신순으로 최대 20건 조회합니다.")
+    @Operation(summary = "내 알림 목록 조회", description = "현재 프로젝트의 알림을 최신순으로 최대 20건 조회합니다.")
     @GetMapping
-    public ResponseEntity<ApiResponse<List<NotificationDto>>> getNotifications() {
+    @PreAuthorize("@projectAccess.isMember(#projectId)")
+    public ResponseEntity<ApiResponse<List<NotificationDto>>> getNotifications(
+        @Parameter(description = "프로젝트 ID") @RequestParam Long projectId
+    ) {
         Long userId = CurrentUser.id();
         List<NotificationDto> notifications = notificationRepository
-            .findTop20ByUserIdOrderByCreatedAtDesc(userId)
+            .findTop20ByUserIdAndProjectIdOrderByCreatedAtDesc(userId, projectId)
             .stream()
             .map(n -> NotificationDto.from(n, projectResolver.resolve(n)))
             .toList();
         return ResponseEntity.ok(ApiResponse.ok(notifications));
     }
 
-    @Operation(summary = "안 읽은 알림 개수 조회")
+    @Operation(summary = "현재 프로젝트의 안 읽은 알림 개수 조회")
     @GetMapping("/unread-count")
-    public ResponseEntity<ApiResponse<UnreadCountResponse>> getUnreadCount() {
+    @PreAuthorize("@projectAccess.isMember(#projectId)")
+    public ResponseEntity<ApiResponse<UnreadCountResponse>> getUnreadCount(
+        @Parameter(description = "프로젝트 ID") @RequestParam Long projectId
+    ) {
         Long userId = CurrentUser.id();
-        long count = notificationRepository.countByUserIdAndReadFalse(userId);
+        long count = notificationRepository.countByUserIdAndProjectIdAndReadFalse(userId, projectId);
         return ResponseEntity.ok(ApiResponse.ok(new UnreadCountResponse(count)));
+    }
+
+    @Operation(
+        summary = "프로젝트별 안 읽은 알림 개수 조회",
+        description = "프로젝트 전환 메뉴의 뱃지용. 본인이 속한 모든 프로젝트의 미읽음 개수를 한 번에 반환합니다."
+    )
+    @GetMapping("/unread-counts")
+    public ResponseEntity<ApiResponse<ProjectUnreadCountsResponse>> getUnreadCounts() {
+        Long userId = CurrentUser.id();
+        Map<String, Long> counts = notificationRepository.countUnreadGroupedByProject(userId).stream()
+            .collect(Collectors.toMap(
+                row -> String.valueOf(row.getProjectId()),
+                NotificationRepository.UnreadCountByProject::getUnreadCount));
+        return ResponseEntity.ok(ApiResponse.ok(new ProjectUnreadCountsResponse(counts)));
     }
 
     @Operation(summary = "알림 실시간 구독", description = "SSE로 새 알림을 즉시 push 받는다. 연결이 끊기면 클라이언트가 재연결해야 한다.")
@@ -98,17 +123,14 @@ public class NotificationController {
         description = "AI 진행률 보고서 생성에 성공했을 때, 요청한 사용자 본인에게 완료 알림을 남깁니다."
     )
     @PostMapping("/progress-report")
+    @PreAuthorize("@projectAccess.isMember(#request.projectId())")
     public ResponseEntity<ApiResponse<Void>> notifyProgressReportReady(
         @RequestBody ProgressReportNotificationRequest request
     ) {
         Long userId = CurrentUser.id();
         notificationService.notifyAfterCommit(
-            userId,
-            "PROGRESS_REPORT",
-            "진행률 보고서가 생성되었습니다.",
-            request.content(),
-            "project",
-            null
+            userId, request.projectId(), "PROGRESS_REPORT",
+            "진행률 보고서가 생성되었습니다.", request.content(), "project", null
         );
         return ResponseEntity.ok(ApiResponse.ok(null));
     }

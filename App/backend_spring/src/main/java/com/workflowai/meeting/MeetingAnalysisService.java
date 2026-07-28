@@ -545,6 +545,7 @@ public class MeetingAnalysisService {
             .distinct()
             .forEach(userId ->
                 notificationService.notifyAfterCommit(userId, type, title, content, targetType, targetId)
+                notificationService.notifyAfterCommit(userId, projectDbId, type, title, content, "meeting", meetingDbId)
             );
     }
 
@@ -638,7 +639,8 @@ public class MeetingAnalysisService {
         }
         String registeredByName = defaultString(resolveNameById(registeredBy), "팀장");
         notificationService.notifyCounterpart(
-            registeredBy, meeting.getUploadedBy(), "MEETING_TASKS_REGISTERED_NOTIFY_MEMBER", "역할분배가 완료되었습니다",
+            registeredBy, meeting.getUploadedBy(), meeting.getProjectId(),
+            "MEETING_TASKS_REGISTERED_NOTIFY_MEMBER", "역할분배가 완료되었습니다",
             registeredByName + "님이 '" + meeting.getTitle() + "' 회의록의 역할분배를 완료했습니다. 확인해주세요.",
             "meeting", meetingDbId
         );
@@ -750,7 +752,7 @@ public class MeetingAnalysisService {
         Long counterpartId = editorId != null && editorId.equals(leaderId) ? original.getUploadedBy() : leaderId;
         String editorName = defaultString(resolveNameById(editorId), "누군가");
         notificationService.notifyCounterpart(
-            editorId, counterpartId, "MEETING_EDITED", "회의록이 수정되었습니다",
+            editorId, counterpartId, original.getProjectId(), "MEETING_EDITED", "회의록이 수정되었습니다",
             editorName + "님이 '" + original.getTitle() + "' 회의록을 수정했습니다.",
             "meeting", version.getId()
         );
@@ -839,13 +841,14 @@ public class MeetingAnalysisService {
         if (assigneeId != null) {
             notificationRepository.save(new Notification(
                 assigneeId,
+                task.getProjectId(),
                 "TASK_ASSIGNED",
                 "새 업무가 배정되었습니다",
                 "'" + todo.title() + "' 업무가 배정되었습니다.",
                 "task",
                 task.getId()
             ));
-            notificationRepository.deleteExcessByUserId(assigneeId);
+            notificationRepository.deleteExcessByUserIdAndProjectId(assigneeId, task.getProjectId());
         }
         return true;
     }

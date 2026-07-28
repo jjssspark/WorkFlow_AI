@@ -3,6 +3,7 @@ import { tokenStore } from "./tokenStore";
 
 export interface NotificationResponse {
   id: string;
+  projectId: string | null;
   type: string;
   title: string;
   content: string | null;
@@ -37,13 +38,19 @@ export function meetingNotificationPanelQuery(type: string): string {
   return type === "MEETING_ANALYSIS_COMPLETED_NOTIFY_LEADER" ? "&panel=todos" : "";
 }
 
-export function fetchNotifications(): Promise<NotificationResponse[]> {
-  return apiFetch<NotificationResponse[]>("/notifications");
+export function fetchNotifications(projectId: number): Promise<NotificationResponse[]> {
+  return apiFetch<NotificationResponse[]>(`/notifications?projectId=${projectId}`);
 }
 
-export async function fetchUnreadNotificationCount(): Promise<number> {
-  const { count } = await apiFetch<{ count: number }>("/notifications/unread-count");
+export async function fetchUnreadNotificationCount(projectId: number): Promise<number> {
+  const { count } = await apiFetch<{ count: number }>(`/notifications/unread-count?projectId=${projectId}`);
   return count;
+}
+
+/** 프로젝트 전환 뱃지용. projectId 문자열을 키로 하는 미읽음 개수 맵. */
+export async function fetchProjectUnreadCounts(): Promise<Record<string, number>> {
+  const { counts } = await apiFetch<{ counts: Record<string, number> }>("/notifications/unread-counts");
+  return counts;
 }
 
 // 서버가 이 id들만 읽음 처리한다. "전체 읽음"이 아니라 방금 화면에 보여준 것만 넘겨야,
@@ -176,9 +183,9 @@ function parseEvent(rawEvent: string, onNotification: (notification: Notificatio
 }
 
 /** AI 진행률 보고서 생성에 성공했을 때, 요청한 본인에게 완료 알림을 남긴다. */
-export async function notifyProgressReportReady(content: string): Promise<void> {
+export async function notifyProgressReportReady(projectId: number, content: string): Promise<void> {
   await apiFetch<null>("/notifications/progress-report", {
     method: "POST",
-    body: JSON.stringify({ content }),
+    body: JSON.stringify({ projectId, content }),
   });
 }

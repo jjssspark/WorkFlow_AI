@@ -28,20 +28,21 @@ interface NotificationsState {
 const NotificationsContext = createContext<NotificationsState | null>(null);
 
 export function NotificationProvider({ children }: { children: ReactNode }) {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, currentProjectId, projectContextReady } = useAuth();
   const [unreadCount, setUnreadCount] = useState(0);
   const [activeProjectId, setActiveProjectId] = useState<number | null>(null);
   // 프로젝트를 옮겨 다닐 때마다 밀린 알림을 다시 띄우지 않도록, 이미 보여준 알림을 기억한다.
   const toastedIds = useRef(new Set<string>());
 
   const refreshUnreadCount = useCallback(async () => {
+    if (!currentProjectId || currentProjectId < 0) return;
     try {
-      const count = await fetchUnreadNotificationCount();
+      const count = await fetchUnreadNotificationCount(currentProjectId);
       setUnreadCount(count);
     } catch (err) {
       console.error("안 읽은 알림 개수를 불러오지 못했습니다.", err);
     }
-  }, []);
+  }, [currentProjectId]);
 
   // SSE 구독은 로그인당 한 번만 열어야 한다. 콜백이 activeProjectId에 의존하면 프로젝트를 옮길
   // 때마다 스트림이 끊겼다 다시 붙으므로, 판정에 쓰는 값만 ref로 따로 들고 있는다.
@@ -74,6 +75,15 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       { duration: TOAST_DURATION_MS }
     );
   }, [belongsToActiveProject]);
+  }, []);
+
+  const handleNotification = useCallback((notification: NotificationResponse) => {
+    // SSE는 사용자 단위로 구독하므로 다른 프로젝트의 알림도 도착한다.
+    // 현재 보고 있는 프로젝트의 것만 화면에 반영한다.
+    if (String(notification.projectId) !== String(currentProjectId)) return;
+    setUnreadCount((prev) => prev + 1);
+    showToast(notification);
+  }, [showToast, currentProjectId]);
 
   /**
    * 아직 못 띄운 알림. 프로젝트에 들어오는 순간 네트워크를 기다리지 않고 곧바로 띄우려고, 목록을
@@ -96,9 +106,20 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     if (belongsToActiveProject(notification)) showToast(notification);
     else pending.current.push(notification);
   }, [belongsToActiveProject, showToast]);
+  const showPendingNotifications = useCallback(async () => {
+    if (!currentProjectId || currentProjectId < 0) return;
+    try {
+      const notifications = await fetchNotifications(currentProjectId);
+      // 목록이 최신순이라 그대로 띄우면 가장 오래된 게 맨 위에 남는다 - 뒤집어서 최신이 위로 오게 한다.
+      const pending = notifications.filter((n) => !n.read).slice(0, MAX_PENDING_TOASTS).reverse();
+      pending.forEach(showToast);
+    } catch (err) {
+      console.error("미확인 알림을 불러오지 못했습니다.", err);
+    }
+  }, [showToast, currentProjectId]);
 
   useEffect(() => {
-    if (!isAuthenticated) {
+    if (!isAuthenticated || !projectContextReady || !currentProjectId || currentProjectId < 0) {
       setUnreadCount(0);
       toastedIds.current.clear();
       pending.current = [];
@@ -131,6 +152,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     if (!isAuthenticated || activeProjectId === null) return;
     flushPending();
   }, [isAuthenticated, activeProjectId, flushPending]);
+  }, [isAuthenticated, projectContextReady, currentProjectId, handleNotification, refreshUnreadCount, showPendingNotifications]);
 
   return (
     <NotificationsContext.Provider value={{ unreadCount, refreshUnreadCount, setActiveProjectId }}>

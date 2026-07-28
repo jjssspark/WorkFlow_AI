@@ -40,21 +40,24 @@ public class NotificationAsyncSender {
     }
 
     @Async("notificationExecutor")
-    public void sendAsync(Long userId, String type, String title, String content, String targetType, Long targetId) {
-        sendSafely(userId, type, title, content, targetType, targetId);
+    public void sendAsync(Long userId, Long projectId, String type, String title, String content,
+                          String targetType, Long targetId) {
+        sendSafely(userId, projectId, type, title, content, targetType, targetId);
     }
 
-    public void sendSafely(Long userId, String type, String title, String content, String targetType, Long targetId) {
+    public void sendSafely(Long userId, Long projectId, String type, String title, String content,
+                           String targetType, Long targetId) {
         try {
             Notification saved = requiresNewTransaction.execute(status -> {
                 Notification created = notificationRepository.save(
-                    new Notification(userId, type, title, content, targetType, targetId));
-                notificationRepository.deleteExcessByUserId(userId);
+                    new Notification(userId, projectId, type, title, content, targetType, targetId));
+                notificationRepository.deleteExcessByUserIdAndProjectId(userId, projectId);
                 return created;
             });
             broadcaster.broadcast(userId, NotificationDto.from(saved, projectResolver.resolve(saved)));
         } catch (Exception e) {
-            log.warn("알림 발송 실패. userId={}, type={}, targetType={}, targetId={}", userId, type, targetType, targetId, e);
+            log.warn("알림 발송 실패. userId={}, projectId={}, type={}, targetType={}, targetId={}",
+                userId, projectId, type, targetType, targetId, e);
         }
     }
 }

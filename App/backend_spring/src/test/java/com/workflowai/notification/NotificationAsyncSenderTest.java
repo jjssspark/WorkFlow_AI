@@ -7,6 +7,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -37,7 +38,7 @@ class NotificationAsyncSenderTest {
         when(projectResolver.resolve(any(Notification.class))).thenReturn(7L);
         NotificationAsyncSender sender = newSender();
 
-        sender.sendSafely(5L, "TASK_ASSIGNED", "새 업무 배정", "'로그인 API' 업무가 배정되었습니다.", "task", 42L);
+        sender.sendSafely(5L, 42L, "TASK_ASSIGNED", "새 업무 배정", "'로그인 API' 업무가 배정되었습니다.", "task", 42L);
 
         ArgumentCaptor<NotificationDto> captor = ArgumentCaptor.forClass(NotificationDto.class);
         verify(broadcaster).broadcast(eq(5L), captor.capture());
@@ -48,6 +49,7 @@ class NotificationAsyncSenderTest {
         assertThat(dto.targetId()).isEqualTo("42");
         assertThat(dto.projectId()).isEqualTo("7");
         verify(notificationRepository).deleteExcessByUserId(5L);
+        verify(notificationRepository).deleteExcessByUserIdAndProjectId(5L, 42L);
     }
 
     @Test
@@ -55,8 +57,18 @@ class NotificationAsyncSenderTest {
         when(notificationRepository.save(any(Notification.class))).thenThrow(new RuntimeException("db down"));
         NotificationAsyncSender sender = newSender();
 
-        sender.sendSafely(5L, "TASK_ASSIGNED", "제목", "내용", "task", 42L);
+        sender.sendSafely(5L, 42L, "TASK_ASSIGNED", "제목", "내용", "task", 42L);
 
         verify(broadcaster, never()).broadcast(any(), any());
+    }
+
+    @Test
+    @DisplayName("정리 쿼리를 해당 프로젝트 스코프로 호출한다")
+    void deletesExcessWithinProjectScope() {
+        NotificationAsyncSender sender = newSender();
+
+        sender.sendSafely(7L, 42L, "TASK_ASSIGNED", "제목", "내용", "task", 3L);
+
+        verify(notificationRepository).deleteExcessByUserIdAndProjectId(7L, 42L);
     }
 }

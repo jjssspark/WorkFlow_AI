@@ -557,10 +557,13 @@ class MeetingAnalysisServiceTest {
             eq(uploaderId), eq("MEETING_DELETED"), any(), any(), eq("project"), eq(1L));
         verify(notificationService).notifyAfterCommit(
             eq(51L), eq("MEETING_DELETED"), any(), any(), eq("project"), eq(1L));
+            eq(uploaderId), eq(1L), eq("MEETING_DELETED"), any(), any(), eq("meeting"), eq(12L));
+        verify(notificationService).notifyAfterCommit(
+            eq(51L), eq(1L), eq("MEETING_DELETED"), any(), any(), eq("meeting"), eq(12L));
         verify(notificationService, never()).notifyAfterCommit(
-            eq(CURRENT_USER_ID), any(), any(), any(), any(), any());
+            eq(CURRENT_USER_ID), any(), any(), any(), any(), any(), any());
         verify(notificationService, never()).notifyAfterCommit(
-            eq(99L), any(), any(), any(), any(), any());
+            eq(99L), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -756,13 +759,13 @@ class MeetingAnalysisServiceTest {
         service.deleteAnalysis("demo-project", "12", false);
 
         verify(notificationService).notifyAfterCommit(
-            eq(uploaderId), eq("MEETING_ANALYSIS_DELETED"), any(), any(), eq("meeting"), eq(12L));
+            eq(uploaderId), eq(1L), eq("MEETING_ANALYSIS_DELETED"), any(), any(), eq("meeting"), eq(12L));
         verify(notificationService).notifyAfterCommit(
-            eq(51L), eq("MEETING_ANALYSIS_DELETED"), any(), any(), eq("meeting"), eq(12L));
+            eq(51L), eq(1L), eq("MEETING_ANALYSIS_DELETED"), any(), any(), eq("meeting"), eq(12L));
         verify(notificationService, never()).notifyAfterCommit(
-            eq(CURRENT_USER_ID), any(), any(), any(), any(), any());
+            eq(CURRENT_USER_ID), any(), any(), any(), any(), any(), any());
         verify(notificationService, never()).notifyAfterCommit(
-            eq(99L), any(), any(), any(), any(), any());
+            eq(99L), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -1204,7 +1207,7 @@ class MeetingAnalysisServiceTest {
         service.registerTasks("demo-project", "5", request);
 
         verify(notificationService).notifyCounterpart(
-            eq(99L), eq(10L), eq("MEETING_TASKS_REGISTERED_NOTIFY_MEMBER"), any(), any(),
+            eq(99L), eq(10L), eq(1L), eq("MEETING_TASKS_REGISTERED_NOTIFY_MEMBER"), any(), any(),
             eq("meeting"), eq(5L)
         );
     }
@@ -1229,7 +1232,7 @@ class MeetingAnalysisServiceTest {
         assertThat(response.status()).isEqualTo("SAVED");
         assertThat(meeting.getSavedAt()).isNotNull();
         verify(notificationService, never()).notifyCounterpart(
-            any(), any(), any(), any(), any(), any(), any()
+            any(), any(), any(), any(), any(), any(), any(), any()
         );
     }
 
