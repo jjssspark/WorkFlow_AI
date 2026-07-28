@@ -16,53 +16,66 @@ import type { ContributionMemberScoreDto } from "../libs/utils/contributorsApi";
 const STATUS_ORDER: TaskStatus[] = ["todo", "inprogress", "blocked", "done"];
 
 export interface WorkloadEvidenceInput {
-  anomalyType: string;
+  // 이상치로 판정된 축들의 라벨 목록. 정상이면 빈 배열. 한 사람이 여러 축에서 동시에
+  // 이상치일 수 있으므로(예: 배정량은 적은데 난이도는 몰림) 배열이다.
+  anomalyTypes: string[];
   taskCountActiveRel: number;
   // "배정량 불균형" 문구 전용: 애초에 배정받은 전체 업무 수의 팀 평균 대비 비율.
   // taskCountActiveRel(진행중 업무 비율)은 배정된 업무를 전부 끝낸 사람도 0이 되므로
-  // 이 근거 문구에는 이 필드를 쓴다(백엔드 anomaly_type 판정과 동일한 기준).
+  // 이 근거 문구에는 이 필드를 쓴다(백엔드 anomaly_types 판정과 동일한 기준).
   taskCountTotalRel: number;
-  difficultyAvgRel: number;
+  // "난이도 편중" 문구 전용: assignee별 난이도 합산(sum)의 팀 평균 대비 비율. 건당 평균이
+  // 아니라 총부담이라 업무 개수 효과가 반영된다(어려운 일 3건과 20건을 구분할 수 있음).
+  difficultyTotalRel: number;
   overdueCount: number;
   completionRate: number;
-  // anomaly_type 판정에 실제로 쓰인 팀 평균 완료율(0~1). 없으면(팀 평균을
+  // anomaly_types 판정에 실제로 쓰인 팀 평균 완료율(0~1). 없으면(팀 평균을
   // 아직 못 불러온 경우) "팀 평균보다 높음/낮음" 같은 단정적 비교 문구를 만들지 않는다.
   teamMeanCompletionRate: number | null;
 }
 
 // LLM 미개입 결정론적 문장 생성기 — 근거가 이미 계산된 수치이므로 자연어 생성에
-// 불확실성을 끌어들일 이유가 없다.
+// 불확실성을 끌어들일 이유가 없다. anomalyTypes 배열을 순회하며 각 축의 문장을 이어붙인다.
 export function buildWorkloadEvidenceSentences(input: WorkloadEvidenceInput): string[] {
   const sentences: string[] = [];
   const activeMultiple = input.taskCountActiveRel.toFixed(1);
   const totalMultiple = input.taskCountTotalRel.toFixed(1);
-  const difficultyMultiple = input.difficultyAvgRel.toFixed(1);
+  const difficultyMultiple = input.difficultyTotalRel.toFixed(1);
   const completionPct = Math.round(input.completionRate * 100);
   // 팀 평균값이 있을 때만 "팀 평균 N%보다 낮음/높음"처럼 실측 비교를 보여준다.
   // 팀 평균을 모르면서 방향만 단정하면 심사 근거를 오도할 수 있다(리뷰 지적사항).
   const teamMeanPct = input.teamMeanCompletionRate != null ? Math.round(input.teamMeanCompletionRate * 100) : null;
-  const completionVsTeam = (comparison: "낮습니다" | "높습니다") =>
+  const completionSentence = (comparison: "낮습니다" | "높습니다") =>
     teamMeanPct != null
       ? `업무 완료율은 ${completionPct}%로 팀 평균(${teamMeanPct}%)보다 ${comparison}.`
       : `업무 완료율은 ${completionPct}%입니다. (팀 평균값을 불러오지 못해 비교는 표시하지 않습니다.)`;
 
-  if (input.anomalyType === "과부하 의심") {
-    if (input.taskCountActiveRel > 1.0) {
-      sentences.push(`진행 중인 업무가 팀 평균 대비 ${activeMultiple}배 많습니다.`);
-    }
-    if (input.difficultyAvgRel > 1.0) {
-      sentences.push(`담당 업무의 평균 난이도가 팀 평균보다 ${difficultyMultiple}배 높습니다.`);
-    }
+  if (input.anomalyTypes.length === 0) {
+    return ["팀 평균과 비교했을 때 업무량·난이도·완료율 모두 특별한 편중이 없습니다."];
+  }
+
+  if (input.anomalyTypes.includes("난이도 편중 의심")) {
+    sentences.push(`담당 업무의 전체 난이도 부담이 팀 평균 대비 ${difficultyMultiple}배 높습니다.`);
     if (input.overdueCount > 0) {
       sentences.push(`마감이 지난 업무가 ${input.overdueCount}건 있습니다.`);
     }
-    sentences.push(completionVsTeam("낮습니다"));
-  } else if (input.anomalyType === "배정량 불균형") {
-    sentences.push(`배정된 업무 자체가 팀 평균 대비 ${totalMultiple}배 적습니다.`);
-    sentences.push(completionVsTeam("높습니다"));
-  } else {
-    sentences.push("팀 평균과 비교했을 때 업무량·난이도·완료율 모두 특별한 편중이 없습니다.");
   }
+  if (input.anomalyTypes.includes("업무량 편중 의심") && input.taskCountActiveRel > 1.0) {
+    sentences.push(`진행 중인 업무가 팀 평균 대비 ${activeMultiple}배 많습니다.`);
+  }
+  if (input.anomalyTypes.includes("배정량 불균형")) {
+    sentences.push(`배정된 업무 자체가 팀 평균 대비 ${totalMultiple}배 적습니다.`);
+  }
+
+  // 완료율 방향은 축에 따라 다르다: 업무량 편중은 "낮은 완료율", 배정량 불균형은 "높은
+  // 완료율"이 전형적인 신호다. 둘 다 없으면(난이도 편중만 걸린 경우) 완료율 문장은 생략 —
+  // 난이도 편중은 완료율과 직접 관련이 없으므로.
+  if (input.anomalyTypes.includes("업무량 편중 의심")) {
+    sentences.push(completionSentence("낮습니다"));
+  } else if (input.anomalyTypes.includes("배정량 불균형")) {
+    sentences.push(completionSentence("높습니다"));
+  }
+
   return sentences;
 }
 
@@ -223,17 +236,20 @@ function MeetingEvidenceDetails({ projectId, meetingId }: MeetingEvidenceDetails
 }
 
 const ANOMALY_BADGE_STYLE: Record<string, { label: string; color: string; bg: string }> = {
-  "과부하 의심": { label: "과부하 의심", color: "#DC2626", bg: "#FEF2F2" },
+  "난이도 편중 의심": { label: "난이도 편중 의심", color: "#DC2626", bg: "#FEF2F2" },
+  "업무량 편중 의심": { label: "업무량 편중 의심", color: "#EA580C", bg: "#FFF7ED" },
   // "저활동 의심"이 아니라 중립적 라벨을 쓴다: 배정량이 팀 평균보다 적다는 관찰 사실은
   // 맞지만, 완료율이 높은 사람에게도 뜨므로(예: 배정받은 일을 전부 끝낸 경우) 태만을
   // 단정하는 표현은 피하고 심사자가 직접 판단하도록 한다.
   "배정량 불균형": { label: "배정량 불균형", color: "#D97706", bg: "#FFFBEB" },
+  "난이도 이상 패턴(방향 불명확)": { label: "난이도 이상 패턴", color: "#64748B", bg: "#F1F5F9" },
+  "업무량 이상 패턴(방향 불명확)": { label: "업무량 이상 패턴", color: "#64748B", bg: "#F1F5F9" },
+  "배정 이상 패턴(방향 불명확)": { label: "배정 이상 패턴", color: "#64748B", bg: "#F1F5F9" },
 };
-const DEFAULT_ANOMALY_BADGE = { label: "정상", color: "#64748B", bg: "#F1F5F9" };
 
 interface WorkloadEvidenceDetailsProps {
   workloadEvidence: ContributionMemberScoreDto | undefined;
-  // anomaly_type 판정에 쓰인 실제 팀 평균 완료율(0~1). ContributorsView가
+  // anomaly_types 판정에 쓰인 실제 팀 평균 완료율(0~1). ContributorsView가
   // fetchContributionScore()의 team_mean_completion을 그대로 내려준다.
   teamMeanCompletion: number | null;
 }
@@ -245,14 +261,14 @@ function WorkloadEvidenceDetails({ workloadEvidence, teamMeanCompletion }: Workl
     return <p className="p-4 text-xs text-muted-foreground">편중도 근거를 불러오지 못했습니다.</p>;
   }
 
-  // taskCountActiveRel/difficultyAvgRel/overdueCount는 TS 타입상 number지만, Spring
+  // taskCountActiveRel/difficultyTotalRel/overdueCount는 TS 타입상 number지만, Spring
   // ContributionMemberScoreDto의 실제 필드는 boxed Double/Integer라 구버전 FastAPI가
   // 이 신규 필드를 응답에 안 담아 보내면(혼합 배포 롤백 등) 런타임에 null이 올 수 있다.
   // toFixed() 등에서 크래시하지 않도록 수치 필드가 전부 유효한 숫자인지 먼저 확인한다.
   const numericFields = [
     workloadEvidence.taskCountActiveRel,
     workloadEvidence.taskCountTotalRel,
-    workloadEvidence.difficultyAvgRel,
+    workloadEvidence.difficultyTotalRel,
     workloadEvidence.overdueCount,
     workloadEvidence.taskComponent,
   ];
@@ -260,12 +276,12 @@ function WorkloadEvidenceDetails({ workloadEvidence, teamMeanCompletion }: Workl
     return <p className="p-4 text-xs text-muted-foreground">편중도 근거 데이터가 불완전합니다. 새로고침 후 다시 시도해주세요.</p>;
   }
 
-  const badge = ANOMALY_BADGE_STYLE[workloadEvidence.anomalyType] ?? DEFAULT_ANOMALY_BADGE;
+  const badges = workloadEvidence.anomalyTypes.map((type) => ANOMALY_BADGE_STYLE[type]).filter(Boolean);
   const sentences = buildWorkloadEvidenceSentences({
-    anomalyType: workloadEvidence.anomalyType,
+    anomalyTypes: workloadEvidence.anomalyTypes,
     taskCountActiveRel: workloadEvidence.taskCountActiveRel,
     taskCountTotalRel: workloadEvidence.taskCountTotalRel,
-    difficultyAvgRel: workloadEvidence.difficultyAvgRel,
+    difficultyTotalRel: workloadEvidence.difficultyTotalRel,
     overdueCount: workloadEvidence.overdueCount,
     completionRate: workloadEvidence.taskComponent / 100,
     teamMeanCompletionRate: teamMeanCompletion,
@@ -273,12 +289,26 @@ function WorkloadEvidenceDetails({ workloadEvidence, teamMeanCompletion }: Workl
 
   return (
     <div className="p-4 space-y-3">
-      <span
-        className="inline-flex items-center text-xs font-bold px-2.5 py-1 rounded-full"
-        style={{ color: badge.color, background: badge.bg }}
-      >
-        {badge.label}
-      </span>
+      <div className="flex flex-wrap gap-1.5">
+        {badges.length === 0 ? (
+          <span
+            className="inline-flex items-center text-xs font-bold px-2.5 py-1 rounded-full"
+            style={{ color: "#64748B", background: "#F1F5F9" }}
+          >
+            정상
+          </span>
+        ) : (
+          badges.map((badge, i) => (
+            <span
+              key={i}
+              className="inline-flex items-center text-xs font-bold px-2.5 py-1 rounded-full"
+              style={{ color: badge.color, background: badge.bg }}
+            >
+              {badge.label}
+            </span>
+          ))
+        )}
+      </div>
       <div className="space-y-1.5">
         {sentences.map((sentence, i) => (
           <p key={i} className="text-xs text-foreground"><span aria-hidden="true">· </span><span>{sentence}</span></p>

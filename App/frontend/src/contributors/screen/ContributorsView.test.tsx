@@ -85,8 +85,8 @@ describe("ContributorsView drilldown panels", () => {
       members: [
         {
           assigneeId: "1", workloadComponent: 17.5, taskComponent: 80.0, meetingComponent: 80.0,
-          contributionScore: 60.0, anomalyType: "배정량 불균형", taskCountActiveRel: 0.3, taskCountTotalRel: 0.3,
-          difficultyAvgRel: 0.9, overdueCount: 0,
+          contributionScore: 60.0, anomalyTypes: ["배정량 불균형"], taskCountActiveRel: 0.3, taskCountTotalRel: 0.3,
+          difficultyTotalRel: 0.9, overdueCount: 0,
         },
       ],
       note: null,
@@ -202,8 +202,8 @@ describe("ContributorsView 학점 계산기", () => {
       members: [
         {
           assigneeId: "1", workloadComponent: 17.5, taskComponent: 80.0, meetingComponent: 80.0,
-          contributionScore: 60.0, anomalyType: "배정량 불균형", taskCountActiveRel: 0.3, taskCountTotalRel: 0.3,
-          difficultyAvgRel: 0.9, overdueCount: 0,
+          contributionScore: 60.0, anomalyTypes: ["배정량 불균형"], taskCountActiveRel: 0.3, taskCountTotalRel: 0.3,
+          difficultyTotalRel: 0.9, overdueCount: 0,
         },
       ],
       note: null,
@@ -399,13 +399,13 @@ describe("ContributorsView 학점 계산기", () => {
       members: [
         {
           assigneeId: "1", workloadComponent: 17.5, taskComponent: 80.0, meetingComponent: 80.0,
-          contributionScore: 30.0, anomalyType: "정상", taskCountActiveRel: 0.3, taskCountTotalRel: 0.3,
-          difficultyAvgRel: 0.9, overdueCount: 0,
+          contributionScore: 30.0, anomalyTypes: [], taskCountActiveRel: 0.3, taskCountTotalRel: 0.3,
+          difficultyTotalRel: 0.9, overdueCount: 0,
         },
         {
           assigneeId: "2", workloadComponent: 17.5, taskComponent: 80.0, meetingComponent: 80.0,
-          contributionScore: 90.0, anomalyType: "정상", taskCountActiveRel: 0.3, taskCountTotalRel: 0.3,
-          difficultyAvgRel: 0.9, overdueCount: 0,
+          contributionScore: 90.0, anomalyTypes: [], taskCountActiveRel: 0.3, taskCountTotalRel: 0.3,
+          difficultyTotalRel: 0.9, overdueCount: 0,
         },
       ],
       note: null,
@@ -453,8 +453,8 @@ describe("ContributorsView 평가 확정 토글", () => {
       members: [
         {
           assigneeId: "1", workloadComponent: 17.5, taskComponent: 80.0, meetingComponent: 80.0,
-          contributionScore: 60.0, anomalyType: "배정량 불균형", taskCountActiveRel: 0.3, taskCountTotalRel: 0.3,
-          difficultyAvgRel: 0.9, overdueCount: 0,
+          contributionScore: 60.0, anomalyTypes: ["배정량 불균형"], taskCountActiveRel: 0.3, taskCountTotalRel: 0.3,
+          difficultyTotalRel: 0.9, overdueCount: 0,
         },
       ],
       note: null,
