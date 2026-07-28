@@ -55,7 +55,10 @@ export function __resetInsightConcurrencyStateForTests() {
  * 기다린다(요청 자체를 취소하지는 않는다 — 언마운트 시에만 대기열에서 제거). */
 export function useAiInsight(projectId: number | null | undefined, prompt: string, ready: boolean) {
   const { status, answer, error, ask } = useRagQuery();
-  const askedRef = useRef(false);
+  // 프로젝트를 전환한 뒤에도 이전 프로젝트의 답변을 재사용하지 않도록,
+  // 마지막으로 질의한 프로젝트를 기록한다. 같은 프로젝트 안에서 prompt가
+  // 다시 계산되는 것만으로는 재질의하지 않아 자동 호출 비용을 제한한다.
+  const askedProjectIdRef = useRef<number | null>(null);
   // React StrictMode는 effect를 mount → cleanup → mount로 두 번 실행한다. 대기열에서
   // 순서를 기다리는 동안 첫 mount가 cleanup되면, queuedRef를 true로 남겨두는 방식으로는
   // 두 번째 mount가 "이미 대기열에 있다"고 착각해 재등록을 건너뛰어 요청이 영구 누락된다.
@@ -64,9 +67,9 @@ export function useAiInsight(projectId: number | null | undefined, prompt: strin
   const cancelQueueEntryRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
-    if (!ready || projectId == null || askedRef.current || cancelQueueEntryRef.current) return;
+    if (!ready || projectId == null || askedProjectIdRef.current === projectId || cancelQueueEntryRef.current) return;
     cancelQueueEntryRef.current = runWhenSlotAvailable(() => {
-      askedRef.current = true;
+      askedProjectIdRef.current = projectId;
       let result: unknown;
       try {
         result = ask(projectId, prompt);
@@ -82,7 +85,7 @@ export function useAiInsight(projectId: number | null | undefined, prompt: strin
       cancelQueueEntryRef.current?.();
       cancelQueueEntryRef.current = null;
     };
-    // prompt/ask는 매 렌더 계산값이라 의존성에 넣지 않는다 — askedRef가 최초 1회만
+    // prompt/ask는 매 렌더 계산값이라 의존성에 넣지 않는다 — askedProjectIdRef가 프로젝트별 최초 1회만
     // 실행되게 막고, cancelQueueEntryRef는 대기열 등록 여부 자체를 추적한다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, projectId]);
@@ -91,7 +94,7 @@ export function useAiInsight(projectId: number | null | undefined, prompt: strin
     text: answer?.content ?? null,
     loading:
       status === "loading" ||
-      (ready && projectId != null && !askedRef.current),
+      (ready && projectId != null && askedProjectIdRef.current !== projectId),
     error,
   };
 }

@@ -15,11 +15,17 @@ import pandas as pd
 from sqlalchemy import create_engine, text
 from dotenv import dotenv_values
 
+from core.database_url import normalize_database_url
+
 # os.environ을 직접 변경하면 다른 모듈(core.config.Settings 등)의 환경변수까지
 # 전역으로 오염시키므로, .env는 별도 딕셔너리로만 읽는다.
 _env = {**dotenv_values(), **os.environ}
 
-DATABASE_URL = _env.get("DATABASE_URL")
+DATABASE_URL = normalize_database_url(
+    _env.get("DATABASE_URL") or "",
+    use_transaction_pooler=str(_env.get("DATABASE_USE_TRANSACTION_POOLER", "")).lower()
+    in {"1", "true", "yes", "on"},
+)
 
 
 def get_engine():

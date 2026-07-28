@@ -7,6 +7,7 @@ export interface UpcomingTaskDto {
   title: string;
   status: string;
   dueDate: string | null;
+  assigneeId: string | null;
   assigneeName: string | null;
 }
 

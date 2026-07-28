@@ -1,13 +1,9 @@
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router";
-import { AlertTriangle, Calendar, Check, Clock, RefreshCw, Sparkles, Target, Plus, X } from "lucide-react";
+import { AlertTriangle, Calendar, Check, Clock, RefreshCw, Target, Plus, X } from "lucide-react";
 import { PriorityBadge } from "../../../board/components/PriorityBadge";
 import { TaskStatusPill } from "../../../board/components/TaskStatusPill";
-import { AiInsightBox } from "../../../ai/components/AiInsightBox";
-import { openAIAssistant } from "../../../ai/libs/utils/openAIAssistant";
-import { queryRag } from "../../../ai/libs/utils/ragApi";
-import { notifyProgressReportReady } from "../../../global/api/notificationApi";
 import { BackBtn } from "../../../global/component/BackBtn";
 import { DetailStatCard } from "../../../global/component/DetailStatCard";
 import type { TaskStatus } from "../../../board/libs/types/task";
@@ -28,7 +24,6 @@ import {
 } from "../../components/ProgressFrequencyChart";
 import {
   daysUntilDue,
-  expectedProgressPercent,
   formatDashboardDueDate,
   formatDDay,
   isDelayRisk,
@@ -171,7 +166,7 @@ function DailyCompletionTooltip({
 }
 
 export function DashProgressPage() {
-  const { user, currentProjectId, currentProject } = useAuth();
+  const { currentProjectId, currentProject } = useAuth();
   const isLeader = currentProject?.role === "팀장";
   const navigate = useNavigate();
   const onBack = () => navigate("/dashboard");
@@ -181,7 +176,6 @@ export function DashProgressPage() {
   const [showMilestonePopup, setShowMilestonePopup] = useState(false);
   const [detailTarget, setDetailTarget] = useState<DashboardTaskDto | null>(null);
   const [milestoneTasksTarget, setMilestoneTasksTarget] = useState<MilestoneProgressDto | null>(null);
-  const [generatingReport, setGeneratingReport] = useState(false);
   const [bulkEditMode, setBulkEditMode] = useState(false);
   const [bulkSelectedIds, setBulkSelectedIds] = useState<Set<string>>(new Set());
   const [bulkEdits, setBulkEdits] = useState<Record<string, { title: string; startDate: string; dueDate: string }>>({});
@@ -212,10 +206,7 @@ export function DashProgressPage() {
   const milestones = progress?.milestones ?? [];
   const projectCreatedAt = progress?.projectCreatedAt ?? null;
   const projectDeadline = progress?.projectDeadline ?? null;
-  const expectedProgress = expectedProgressPercent(projectCreatedAt, projectDeadline);
   const projectDDay = formatDDay(projectDeadline);
-  const insightPrompt = `현재 프로젝트의 진행률 보고서를 만들어 줘. 실제 완료율은 ${progressPercent}%, 계획상 예상 진행률은 ${expectedProgress ?? "미정"}%, 지연 주의·위험 업무는 ${delayRisks.length}개, 프로젝트 마감은 ${projectDDay}(이)야. 진행 상황을 분석하고, 계획 대비 차이와 주요 위험, 권장 조치를 정리해줘. 출력은 PDF 형식으로 해.`;
-  const insightFallback = "계획 대비 진행률과 지연 예측을 바탕으로 다음 액션을 추천받을 수 있습니다.";
 
   const { points: dailyCompletionPoints, members: dailyCompletionMembers } = buildDailyCompletionChart(
     tasks,
@@ -229,20 +220,6 @@ export function DashProgressPage() {
     ...dailyCompletionPoints.map(point => dailyCompletionMembers.reduce((sum, member) => sum + (point[member.key] as number), 0)),
     1
   );
-  const handleGenerateReport = async () => {
-    if (currentProjectId == null || generatingReport) return;
-    openAIAssistant(insightPrompt);
-    setGeneratingReport(true);
-    try {
-      const { answer } = await queryRag(currentProjectId, insightPrompt);
-      await notifyProgressReportReady(answer.length > 200 ? `${answer.slice(0, 200)}...` : answer);
-    } catch {
-      // 알림 전송 실패는 조용히 무시한다 — 보고서 자체는 이미 AI 어시스턴트 패널에 표시된다.
-    } finally {
-      setGeneratingReport(false);
-    }
-  };
-
   const enterBulkEditMode = () => {
     const initial: Record<string, { title: string; startDate: string; dueDate: string }> = {};
     milestones.forEach(item => {
@@ -384,9 +361,6 @@ export function DashProgressPage() {
             className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-border bg-card text-foreground rounded-lg hover:bg-muted transition-colors disabled:opacity-50"
           ><RefreshCw className={`w-3.5 h-3.5 ${delayRiskRefreshing ? "animate-spin" : ""}`} />{delayRiskRefreshing ? "AI 재분석 중..." : "AI 지연 위험도 재분석"}</button>
           <button onClick={onGoUrgent} className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-red-200 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors"><AlertTriangle className="w-3.5 h-3.5" />마감 임박 업무</button>
-          {/* <button onClick={handleGenerateReport} disabled={generatingReport} className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-white rounded-lg disabled:opacity-60" style={{ background: "linear-gradient(135deg,#7048E8,#4F6EF7)" }}>
-            <Sparkles className="w-3.5 h-3.5" />{generatingReport ? "생성 중..." : "진행률 보고서"}
-          </button> */}
         </div>
       </div>
 
@@ -397,13 +371,6 @@ export function DashProgressPage() {
         <DetailStatCard label="지연 업무" value={loading || tasksLoading ? "..." : `${overdueTaskCount}개`} sub="마감일 경과 · 미완료" color="#EF4444" icon={Clock} />
         <DetailStatCard label="마감 D-day" value={loading ? "..." : projectDDay} sub={formatDashboardDueDate(projectDeadline)} color="#F59E0B" icon={Calendar} />
       </div>
-
-      <AiInsightBox
-        projectId={currentProjectId}
-        prompt={insightPrompt}
-        ready={!loading}
-        fallbackText={insightFallback}
-      />
 
       <div className="grid grid-cols-3 gap-4">
         <div className="col-span-2 bg-card rounded-xl p-5 border border-border shadow-sm">

@@ -11,6 +11,7 @@ import static org.mockito.ArgumentMatchers.any;
 import com.workflowai.activity.ActivityRepository;
 import com.workflowai.common.DemoDataService;
 import com.workflowai.dashboard.DTO.DashboardAiJobResponse;
+import com.workflowai.dashboard.DTO.DashboardSummaryResponse;
 import com.workflowai.dashboard.DTO.DashboardTaskDto;
 import com.workflowai.dashboard.DTO.DelayRiskDto;
 import com.workflowai.dashboard.DTO.MilestoneProgressDto;
@@ -152,6 +153,20 @@ class DashboardServiceTest {
         // UtcTimeFormat이 서버 시각(UTC)임을 명시하기 위해 "Z"를 붙인다 - new Date(iso)가 브라우저 로컬시간으로 오해석하는 것을 막는다.
         assertThat(result.get(0).createdAt()).isEqualTo("2026-07-01T09:00:00.000Z");
         assertThat(result.get(0).updatedAt()).isEqualTo("2026-07-19T15:30:00.000Z");
+    }
+
+    @Test
+    void getSummaryIncludesAssigneeIdForUpcomingTasks() {
+        when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
+        when(taskRepository.findByProjectIdOrderByCreatedAtDesc(1L)).thenReturn(List.of(taskWithId(10L, 5L)));
+        when(activityRepository.findTop10ByProjectIdOrderByCreatedAtDesc(1L)).thenReturn(List.of());
+        when(projectMemberRepository.findAllByProjectId(1L)).thenReturn(List.of());
+        when(userRepository.findAllById(List.of(5L))).thenReturn(List.of());
+
+        DashboardSummaryResponse result = newService().getSummary("demo-project");
+
+        assertThat(result.upcomingDeadlines()).hasSize(1);
+        assertThat(result.upcomingDeadlines().get(0).assigneeId()).isEqualTo("5");
     }
 
     @Test

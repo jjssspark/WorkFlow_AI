@@ -44,13 +44,6 @@ vi.mock("../../libs/hooks/useDashboardProgress", () => ({
 vi.mock("../../../global/api/projectsApi", () => ({
   getProjectMembers: vi.fn(() => new Promise(() => undefined)),
 }));
-vi.mock("../../../global/hooks/useInViewport", () => ({
-  useInViewport: () => [{ current: null }, false],
-}));
-vi.mock("../../../ai/libs/hooks/useAiInsight", () => ({
-  useAiInsight: () => ({ text: "", loading: false, error: null }),
-}));
-vi.mock("../../../ai/components/AiInsightBox", () => ({ AiInsightBox: () => null }));
 vi.mock("../../components/TaskDueDatePopup", () => ({ TaskDueDatePopup: () => null }));
 vi.mock("../../components/TaskDetailPopup", () => ({ TaskDetailPopup: () => null }));
 vi.mock("../../../board/components/AddTaskModal", () => ({ AddTaskModal: () => null }));

@@ -2,14 +2,17 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from core.database_url import normalize_database_url
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     database_url: str
+    database_use_transaction_pooler: bool = False
     redis_url: str = "redis://localhost:6379/0"
     redis_username: str | None = None
     redis_password: str | None = None
@@ -39,6 +42,14 @@ class Settings(BaseSettings):
     # Spring(RagController)만 RAG 라우터를 호출할 수 있도록 검증하는 서비스 간 공유 시크릿.
     # 미설정 시 llm_rag_assistant/app/security.py가 모든 요청을 거부한다(fail-closed).
     rag_internal_api_key: str | None = None
+
+    @model_validator(mode="after")
+    def normalize_postgres_url(self) -> "Settings":
+        self.database_url = normalize_database_url(
+            self.database_url,
+            use_transaction_pooler=self.database_use_transaction_pooler,
+        )
+        return self
 
 
 @lru_cache

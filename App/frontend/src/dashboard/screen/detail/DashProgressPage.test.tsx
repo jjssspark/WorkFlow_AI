@@ -25,10 +25,6 @@ vi.mock("../../../global/hooks/useAuth", () => ({
   }),
 }));
 
-vi.mock("../../../ai/components/AiInsightBox", () => ({
-  AiInsightBox: () => <div data-testid="ai-insight-box" />,
-}));
-
 const refetchMock = vi.fn().mockResolvedValue(undefined);
 let progressData: ProgressDetailResponse;
 

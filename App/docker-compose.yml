@@ -137,6 +137,9 @@ services:
       # ml_workload_score 등 FastAPI DB 조회가 전부 연결 실패로 죽는다(2026-07-24 실측).
       # Supabase(원격)에 직접 연결하려면 .env의 DATABASE_URL 값으로 이 기본값을 덮어쓴다.
       DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:root@db:5432/workflow}
+      # Supabase Session Pooler의 작은 세션 한도를 피한다. core.database_url이 Supabase
+      # pooler 호스트의 5432만 6543(Transaction Pooler)로 바꾸며 로컬 DB에는 영향이 없다.
+      DATABASE_USE_TRANSACTION_POOLER: ${DATABASE_USE_TRANSACTION_POOLER:-true}
       REDIS_URL: redis://redis:6379/0
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       # Spring(RagController) 외의 직접 호출로부터 /ai/rag/* 를 보호하는 서비스 간 공유 시크릿.

@@ -126,6 +126,7 @@ public class DashboardService {
                 t.getTitle(),
                 t.getStatus(),
                 t.getDueDate() == null ? null : t.getDueDate().toString(),
+                t.getAssigneeId() == null ? null : String.valueOf(t.getAssigneeId()),
                 userNames.get(t.getAssigneeId())
             ))
             .toList();

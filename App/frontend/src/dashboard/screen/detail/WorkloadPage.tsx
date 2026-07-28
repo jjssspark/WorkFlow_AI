@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { AlertTriangle, Layers, Plus, RefreshCw, Users, X } from "lucide-react";
-import { AIBox } from "../../../ai/components/AIBox";
 import { BackBtn } from "../../../global/component/BackBtn";
 import { DetailStatCard } from "../../../global/component/DetailStatCard";
 import { PriorityBadge } from "../../../board/components/PriorityBadge";
@@ -104,7 +103,7 @@ export function WorkloadPage() {
 
   // "과부하 위험" 판정은 ml_workload_score(FastAPI)의 실제 이상치 탐지 결과만 신뢰한다.
   // 점수를 못 불러왔을 때 휴리스틱으로 조용히 대체하면, "N명 과부하"라고 카운트/배지는 뜨는데
-  // AI 추천 액션이나 최고 위험 팀원 이름은 "데이터 없음"이라고 나오는 모순이 생긴다(실제 발생 사례).
+  // 과부하 위험 카드와 최고 위험 팀원 이름이 "데이터 없음"이라고 나오는 모순이 생긴다(실제 발생 사례).
   const workloadScoreByAssignee = new Map<string, WorkloadScoreMemberDto>(
     (workloadScore?.members ?? []).map(member => [member.assigneeId, member])
   );
@@ -120,7 +119,6 @@ export function WorkloadPage() {
   };
 
   const overloadedByMl = (workloadScore?.members ?? []).filter(member => member.anomalyType === "과부하 의심");
-  const underloadedByMl = (workloadScore?.members ?? []).filter(member => member.anomalyType === "저활동 의심");
   const memberNameFor = (assigneeId: string) => {
     const index = workload.findIndex(entry => entry.assigneeId === assigneeId);
     const assigneeName = index >= 0 ? workload[index].assigneeName : null;
@@ -133,16 +131,6 @@ export function WorkloadPage() {
     null
   );
   const topOverloadedName = topOverloadedMember ? memberNameFor(topOverloadedMember.assigneeId) : null;
-  const workloadInsightText = workloadScoreLoading
-    ? "AI가 팀원별 업무 편중도를 분석하고 있습니다..."
-    : !workloadScore || workloadScore.members.length === 0
-      ? (workloadScore?.note ?? "편중 점수를 계산할 업무 데이터가 없습니다.")
-      : overloadedByMl.length === 0 && underloadedByMl.length === 0
-        ? "AI 분석 결과 팀원 간 뚜렷한 업무 편중은 감지되지 않았습니다."
-        : [
-            ...overloadedByMl.map(member => `${memberNameFor(member.assigneeId)}님 과부하 의심(${Math.round(member.overloadScore)}점)`),
-            ...underloadedByMl.map(member => `${memberNameFor(member.assigneeId)}님 저활동 의심(${Math.round(member.overloadScore)}점)`),
-          ].join(", ") + " — 업무 재배분을 검토해보세요.";
   const barData = workload.map((entry, index) => ({
     id: entry.assigneeId,
     name: resolveMemberDisplay(entry.assigneeName, index, entry.assigneeId).name,
@@ -198,8 +186,6 @@ export function WorkloadPage() {
           icon={AlertTriangle}
         />
       </div>
-
-      <AIBox text={pageRefreshing ? "데이터를 불러오는 중입니다." : workloadInsightText} />
 
       <div className="grid grid-cols-3 gap-4">
         <div className="col-span-2 bg-card rounded-xl p-5 border border-border shadow-sm">

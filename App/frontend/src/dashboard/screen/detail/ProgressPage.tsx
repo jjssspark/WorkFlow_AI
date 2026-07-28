@@ -1,14 +1,10 @@
 import { useState, type MouseEvent as ReactMouseEvent } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router";
-import { Calendar, CheckCircle2, CheckSquare, Sparkles, TrendingUp } from "lucide-react";
-import { AiInsightBox } from "../../../ai/components/AiInsightBox";
-// import { openAIAssistant } from "../../../ai/libs/utils/openAIAssistant"; // "진행률 보고서 생성" 기능 미사용 처리
-// import { queryRag } from "../../../ai/libs/utils/ragApi"; // "진행률 보고서 생성" 기능 미사용 처리
+import { Calendar, CheckCircle2, CheckSquare, TrendingUp } from "lucide-react";
 import { BackBtn } from "../../../global/component/BackBtn";
 import { CircleProgress } from "../../../global/component/CircleProgress";
 import { DetailStatCard } from "../../../global/component/DetailStatCard";
-// import { notifyProgressReportReady } from "../../../global/api/notificationApi"; // "진행률 보고서 생성" 기능 미사용 처리
 import { useAuth } from "../../../global/hooks/useAuth";
 import { useDashboardProgress } from "../../libs/hooks/useDashboardProgress";
 import { useDashboardSummary } from "../../libs/hooks/useDashboardSummary";
@@ -17,8 +13,6 @@ import {
   daysSince,
   formatDDay,
   formatDashboardDueDate,
-  isDangerDelayRisk,
-  isDelayRisk,
   normalizeTaskStatus,
   parseKstDateTime,
   taskAssignee,
@@ -28,11 +22,10 @@ import { resolveMemberDisplay, stableColorForId } from "../../libs/utils/memberD
 const CATEGORY_COLORS = ["#3B5BDB", "#7048E8", "#10B981", "#F59E0B", "#EF4444", "#06B6D4"];
 
 export function ProgressPage() {
-  const { user, currentProjectId } = useAuth();
+  const { currentProjectId } = useAuth();
   const { data: summary, loading: summaryLoading, error: summaryError } = useDashboardSummary(currentProjectId);
   const { data: progress, loading, error: progressError } = useDashboardProgress(currentProjectId);
   const { data: tasks, loading: tasksLoading } = useDashboardTasks(currentProjectId);
-  // const [generatingReport, setGeneratingReport] = useState(false); // "진행률 보고서 생성" 기능 미사용 처리
   const [hoveredMilestoneId, setHoveredMilestoneId] = useState<string | null>(null);
   const [milestoneHoverPos, setMilestoneHoverPos] = useState<{ x: number; y: number } | null>(null);
   const navigate = useNavigate();
@@ -74,37 +67,6 @@ export function ProgressPage() {
   const projectDDay = formatDDay(progress?.projectDeadline);
   const error = summaryError ?? progressError;
 
-  const dangerRiskTaskIds = new Set((progress?.delayRisks ?? []).filter(risk => isDangerDelayRisk(risk.result)).map(risk => risk.taskId));
-  const longestStalledDangerTask = tasks
-    .filter(task => dangerRiskTaskIds.has(task.id))
-    .reduce<{ title: string; days: number } | null>((longest, task) => {
-      const days = daysSince(task.updatedAt) ?? 0;
-      return !longest || days > longest.days ? { title: task.title, days } : longest;
-    }, null);
-  const aiInsightReady = !summaryLoading && !loading && !tasksLoading;
-  const aiInsightPrompt = longestStalledDangerTask
-    ? `사용자의 지연 위험도 '위험' 업무 중, 가장 현재 상태 체류시간이 긴 업무인 '${longestStalledDangerTask.title}'에 대해 먼저 처리할 일과 다음 액션을 알려줘.`
-    : "";
-  const aiInsightFallback = longestStalledDangerTask
-    ? `${user?.name ?? "담당자"}님의 ${longestStalledDangerTask.title}이 지연 위험입니다.`
-    : "현재 지연 위험('위험') 업무가 없습니다.";
-  // "진행률 보고서 생성" 기능 미사용 처리로 주석 처리(관련 코드)
-  // const delayRiskCount = progress?.delayRisks.filter(risk => isDelayRisk(risk.result)).length ?? 0;
-  // const reportQuestion = `현재 프로젝트의 진행률 보고서를 생성해줘. 전체 업무 ${totalTasks}개 중 ${doneTasks}개가 완료되어 완료율은 ${progressPercent}%이고, 미완료 업무는 ${openTasks}개, 지연 주의·위험 업무는 ${delayRiskCount}개야. 핵심 현황과 일정 위험, 다음 액션을 요약해줘.`;
-  // const handleGenerateReport = async () => {
-  //   if (currentProjectId == null || generatingReport) return;
-  //   openAIAssistant(reportQuestion);
-  //   setGeneratingReport(true);
-  //   try {
-  //     const { answer } = await queryRag(currentProjectId, reportQuestion);
-  //     await notifyProgressReportReady(answer.length > 200 ? `${answer.slice(0, 200)}...` : answer);
-  //   } catch {
-  //     // 알림 전송 실패는 조용히 무시한다 — 보고서 자체는 이미 AI 어시스턴트 패널에 표시된다.
-  //   } finally {
-  //     setGeneratingReport(false);
-  //   }
-  // };
-
   return (
     <div className="h-full overflow-y-auto p-6 space-y-4" style={{ fontFamily: "'Inter','Noto Sans KR',sans-serif" }}>
       <div className="flex items-start justify-between">
@@ -113,16 +75,6 @@ export function ProgressPage() {
           <h1 className="text-xl font-bold text-foreground">진행률 분석</h1>
           <p className="text-sm text-muted-foreground mt-0.5">업무와 마일스톤 기준으로 완료 현황을 분석합니다.</p>
         </div>
-        {/* "진행률 보고서 생성" 기능 미사용 처리 (주석 처리)
-        <button
-          onClick={handleGenerateReport}
-          disabled={generatingReport}
-          className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white rounded-lg disabled:opacity-60"
-          style={{ background: "linear-gradient(135deg,#7048E8,#4F6EF7)" }}
-        >
-          <Sparkles className="w-4 h-4" /> {generatingReport ? "생성 중..." : "진행률 보고서 생성"}
-        </button>
-        */}
       </div>
 
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700">{error}</div>}
@@ -133,14 +85,6 @@ export function ProgressPage() {
         <DetailStatCard label="목표 완료율" value="100%" sub={progress?.projectDeadline ? formatDashboardDueDate(progress.projectDeadline) : "마감일 미정"} color="#7048E8" icon={CheckSquare} />
         <DetailStatCard label="D-day" value={loading ? "..." : projectDDay} sub={formatDashboardDueDate(progress?.projectDeadline)} color="#F59E0B" icon={Calendar} />
       </div>
-
-      <AiInsightBox
-        projectId={currentProjectId}
-        prompt={aiInsightPrompt}
-        ready={aiInsightReady && longestStalledDangerTask != null}
-        fallbackText={aiInsightFallback}
-        formatAnswer={answer => `${aiInsightFallback} ${answer}`}
-      />
 
       <div className="grid grid-cols-3 gap-4">
         <div className="bg-card rounded-xl p-5 border border-border shadow-sm flex flex-col items-center justify-center gap-4">
