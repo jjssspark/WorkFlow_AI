@@ -3,7 +3,9 @@ package com.workflowai.task;
 import com.workflowai.activity.ActivityService;
 import com.workflowai.common.ApiResponse;
 import com.workflowai.common.DemoDataService;
+import com.workflowai.notification.NotificationBroadcaster;
 import com.workflowai.notification.NotificationService;
+import com.workflowai.notification.TaskMoveEvent;
 import com.workflowai.project.Project;
 import com.workflowai.project.ProjectMemberRepository;
 import com.workflowai.project.ProjectRepository;
@@ -65,6 +67,7 @@ public class TaskController {
     private final DemoDataService demoDataService;
     private final ActivityService activityService;
     private final NotificationService notificationService;
+    private final NotificationBroadcaster notificationBroadcaster;
     private final ProjectMemberRepository projectMemberRepository;
     private final ProjectRepository projectRepository;
     private final RagIngestService ragIngestService;
@@ -75,6 +78,7 @@ public class TaskController {
         DemoDataService demoDataService,
         ActivityService activityService,
         NotificationService notificationService,
+        NotificationBroadcaster notificationBroadcaster,
         ProjectMemberRepository projectMemberRepository,
         ProjectRepository projectRepository,
         RagIngestService ragIngestService
@@ -84,6 +88,7 @@ public class TaskController {
         this.demoDataService = demoDataService;
         this.activityService = activityService;
         this.notificationService = notificationService;
+        this.notificationBroadcaster = notificationBroadcaster;
         this.projectMemberRepository = projectMemberRepository;
         this.projectRepository = projectRepository;
         this.ragIngestService = ragIngestService;
@@ -252,6 +257,13 @@ public class TaskController {
         String previousStatus = task.getStatus();
         task.moveTo(request.status(), request.position());
         taskRepository.save(task);
+        runAfterCommit(() -> {
+            TaskMoveEvent event = TaskMoveEvent.from(task.getId(), projectDbId, task.getStatus(), task.getPosition());
+            projectMemberRepository.findAllByProjectId(projectDbId).stream()
+                .map(com.workflowai.project.ProjectMember::getUserId)
+                .filter(memberId -> !memberId.equals(currentUserId))
+                .forEach(memberId -> notificationBroadcaster.broadcast(memberId, "task-move", event));
+        });
         if (!previousStatus.equals(task.getStatus())) {
             String label = STATUS_LABELS.getOrDefault(task.getStatus(), task.getStatus());
             Long moveActorId = currentActorId();
