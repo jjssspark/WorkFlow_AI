@@ -345,6 +345,13 @@ public class TaskResultController {
             String url = storageClient.createSignedUrl(
                 taskResultFile.getStoragePath(), SIGNED_URL_EXPIRES_SECONDS, taskResultFile.getFileName()
             );
+            if (url == null) {
+                // 스토리지 자격증명이 없는 환경(S3StorageClient.createSignedUrl 주석 참고).
+                // null을 200에 실어 보내면 프론트가 null을 URL로 받아 원인 모를 실패로 나타난다.
+                log.error("스토리지가 설정되지 않아 다운로드 URL을 발급할 수 없습니다: fileId={}", fileId);
+                return ResponseEntity.status(503)
+                    .body(ApiResponse.fail("STORAGE_NOT_CONFIGURED", "파일 저장소가 설정되지 않았습니다."));
+            }
             return ResponseEntity.ok(ApiResponse.ok(url));
         } catch (RuntimeException e) {
             log.error("Supabase Storage signed URL 발급 실패: fileId={}, path={}", fileId, taskResultFile.getStoragePath(), e);
