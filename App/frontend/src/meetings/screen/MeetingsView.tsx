@@ -2033,7 +2033,6 @@ export function MeetingsView() {
                   {["ID","업무명","카테고리","담당자","시작일","마감일","우선순위","근거"].map(h => (
                     <th key={h} className="px-3 py-3 text-left text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">{h}</th>
                   ))}
-                  <th className="px-3 py-3 w-8" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -2087,9 +2086,6 @@ export function MeetingsView() {
                       </td>
                       <td className="px-3 py-3"><PriorityBadge priority={todo.priority} /></td>
                       <td className="px-3 py-3 text-[10px] text-muted-foreground max-w-[120px] truncate" title={todo.basis}>{todo.basis}</td>
-                      <td className="px-3 py-3">
-                        <button className="p-1 hover:bg-muted rounded transition-colors"><X className="w-3.5 h-3.5 text-muted-foreground" /></button>
-                      </td>
                     </tr>
                   );
                 })}
