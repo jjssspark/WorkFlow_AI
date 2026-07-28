@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import logging
 import os
 import re
 
+import aiohttp
 import ollama
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
 
 from core.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 _SYSTEM_PROMPT = (
     "당신은 WorkFlow AI 프로젝트 어시스턴트입니다. "
@@ -203,25 +207,38 @@ class RagConfigurationError(RuntimeError):
 
 
 _HUGGINGFACE_PROVIDER = "huggingface"
+_GEMINI_PROVIDER = "gemini"
 _OLLAMA_PROVIDER = "ollama"
-_KNOWN_PROVIDERS = frozenset({_HUGGINGFACE_PROVIDER, _OLLAMA_PROVIDER})
+_KNOWN_PROVIDERS = frozenset({_HUGGINGFACE_PROVIDER, _GEMINI_PROVIDER, _OLLAMA_PROVIDER})
+
+# 자동 모드(운영자가 RAG_PROVIDER를 강제 지정하지 않았을 때) 실제 시도 순서.
+# Qwen(HF) 1순위 -> 미설정/실패 시 Gemini -> Gemini도 실패하면 Ollama(로컬, 설정 불필요라
+# 항상 마지막 보루가 된다).
+_FALLBACK_CHAIN = (_HUGGINGFACE_PROVIDER, _GEMINI_PROVIDER, _OLLAMA_PROVIDER)
+
+# resolve_generation_provider()가 자동 모드에서 캐시 키에 넣는 값. 자동 모드는 그때그때
+# 장애 상황에 따라 실제 사용 백엔드가 달라지므로, 개별 프로바이더 이름 대신 모드 자체를 키로
+# 삼는다(전환마다 캐시를 무효화하면 일시 장애로 넘어간 답까지 영구 캐시 무효화가 반복된다).
+_AUTO_PROVIDER_CACHE_KEY = "auto"
 
 
-def _resolve_provider() -> str:
-    """생성 백엔드를 고른다: RAG_PROVIDER > MEETING_ANALYSIS_PROVIDER > huggingface.
+def _explicit_provider() -> str | None:
+    """운영자가 RAG_PROVIDER(또는 공유 앱 설정)로 백엔드를 강제 지정했으면 그 값을,
+    아니면 None(자동 폴백 체인 모드)을 반환한다.
 
-    llm_checklist와 같은 규칙이되 기본값만 다르다. 체크리스트는 ollama가 기본이지만
-    RAG는 지금까지 HF만 써 왔으므로, 아무 설정이 없을 때 동작이 바뀌면 안 된다.
+    llm_checklist와 같은 우선순위 규칙(RAG_PROVIDER > MEETING_ANALYSIS_PROVIDER)이되
+    최종 기본값만 다르다 - 아무 설정이 없으면 고정된 하나의 백엔드가 아니라 자동 체인으로
+    빠진다.
     """
     explicit = os.getenv("RAG_PROVIDER")
     if explicit:
         return _normalize(explicit)
 
     # 앱 전역 값은 회의록 분석용이라 RAG가 모르는 값이 들어 있을 수 있다(compose 기본값은 "auto").
-    # 빌려 쓰는 값이므로 아는 값일 때만 따르고, 아니면 기존 동작인 HF로 남는다. RAG_PROVIDER는
-    # 반대로 엄격하게 본다 - 그건 RAG를 콕 집어 지정한 값이라 오타를 삼키면 안 된다.
+    # 빌려 쓰는 값이므로 아는 값일 때만 강제 지정으로 따르고, 아니면 자동 체인으로 남는다.
+    # RAG_PROVIDER는 반대로 엄격하게 본다 - 그건 RAG를 콕 집어 지정한 값이라 오타를 삼키면 안 된다.
     shared = _normalize(os.getenv("MEETING_ANALYSIS_PROVIDER", ""))
-    return shared if shared in _KNOWN_PROVIDERS else _HUGGINGFACE_PROVIDER
+    return shared if shared in _KNOWN_PROVIDERS else None
 
 
 def _normalize(provider: str) -> str:
@@ -235,12 +252,16 @@ def resolve_generation_provider() -> str:
     프로바이더가 다르면 같은 질문에도 답이 다르다. 이 값이 키에 없으면 로컬(ollama)로 만든
     답변이 HF로 되돌린 뒤에도 TTL 동안 그대로 나간다.
 
+    운영자가 RAG_PROVIDER 등으로 강제 지정했으면 그 이름을 그대로 쓴다. 강제 지정이 없는
+    자동 체인 모드에서는 실제 응답 백엔드가 매 호출 장애 상황에 따라 달라질 수 있어
+    "auto"라는 모드 이름 자체를 키로 쓴다.
+
     프로바이더 이름만 넣고 모델명은 넣지 않는다 - 모델명은 Settings에 있어서 넣는 순간 캐시 키
     계산이 DB 접속 문자열까지 요구하는 앱 전역 설정에 묶인다. 같은 프로바이더 안에서 모델을
     바꾸는 건 배포 시점 설정 변경이라, 프롬프트 변경과 같이 _ANSWER_CACHE_SCHEMA_VERSION을
     손으로 올려서 처리한다.
     """
-    return _resolve_provider()
+    return _explicit_provider() or _AUTO_PROVIDER_CACHE_KEY
 
 
 async def _generate_with_huggingface(settings, context: str, question: str) -> str:
@@ -275,6 +296,63 @@ async def _generate_with_ollama(settings, context: str, question: str) -> str:
     return response["message"]["content"]
 
 
+_GEMINI_ENDPOINT_TEMPLATE = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+
+
+async def _generate_with_gemini(settings, context: str, question: str) -> str:
+    if not settings.gemini_api_key:
+        raise RagConfigurationError("GEMINI_API_KEY is not configured.")
+
+    url = _GEMINI_ENDPOINT_TEMPLATE.format(model=settings.gemini_rag_generation_model)
+    payload = {
+        "systemInstruction": {"parts": [{"text": _SYSTEM_PROMPT}]},
+        "contents": [
+            {"role": "user", "parts": [{"text": f"컨텍스트:\n{context}\n\n질문: {question}"}]}
+        ],
+        "generationConfig": {"temperature": _GENERATION_TEMPERATURE},
+    }
+    # 쿼리 파라미터(?key=)는 프록시·접근 로그에 API 키가 그대로 남는다. 헤더로 보내면
+    # 로그에 URL만 남고 키는 남지 않는다.
+    headers = {"x-goog-api-key": settings.gemini_api_key, "Content-Type": "application/json"}
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, json=payload, headers=headers) as response:
+            response.raise_for_status()
+            data = await response.json()
+
+    try:
+        return data["candidates"][0]["content"]["parts"][0]["text"]
+    except (KeyError, IndexError) as exc:
+        raise RagConfigurationError("Gemini 응답 형식이 예상과 다릅니다.") from exc
+
+
+_PROVIDER_GENERATORS = {
+    _HUGGINGFACE_PROVIDER: _generate_with_huggingface,
+    _GEMINI_PROVIDER: _generate_with_gemini,
+    _OLLAMA_PROVIDER: _generate_with_ollama,
+}
+
+
+async def _generate_with_fallback_chain(settings, context: str, question: str) -> str:
+    """RAG_PROVIDER를 강제 지정하지 않았을 때의 기본 동작.
+
+    Qwen(HF) -> Gemini -> Ollama 순으로 실제로 호출을 시도해 첫 성공을 반환한다. 앞 단계가
+    미설정(RagConfigurationError)이거나 호출 자체가 실패해도 다음 단계로 넘어가고, 마지막
+    단계(Ollama)까지 전부 실패했을 때만 예외를 올린다 - Ollama는 설정이 필요 없어 사실상
+    항상 시도되는 마지막 보루다.
+    """
+    last_error: Exception | None = None
+    for provider in _FALLBACK_CHAIN:
+        try:
+            return await _PROVIDER_GENERATORS[provider](settings, context, question)
+        except Exception as exc:  # noqa: BLE001 - 다음 백엔드로 넘어가기 위한 의도된 전면 포착
+            logger.warning(
+                "RAG 생성 프로바이더 실패, 다음 단계로 전환합니다: provider=%s", provider, exc_info=True
+            )
+            last_error = exc
+    raise RagConfigurationError("사용 가능한 RAG 생성 프로바이더가 없습니다.") from last_error
+
+
 async def generate_answer(
     question: str,
     sources: list[dict],
@@ -282,15 +360,17 @@ async def generate_answer(
     stats: dict | None = None,
 ) -> str:
     settings = get_settings()
-    provider = _resolve_provider()
 
     # 컨텍스트 조립은 프로바이더보다 앞에 둔다. 갈리는 건 전송 계층뿐이라야 로컬로 검증한
-    # 프롬프트가 HF 경로에서도 그대로 나간다.
+    # 프롬프트가 어떤 백엔드 경로에서도 그대로 나간다.
     context = _build_context(sources, is_personal, stats)
 
-    if provider == _OLLAMA_PROVIDER:
-        return await _generate_with_ollama(settings, context, question)
-    if provider == _HUGGINGFACE_PROVIDER:
-        return await _generate_with_huggingface(settings, context, question)
-    # 오타를 HF로 흘려보내면 로컬 전환이 안 된 걸 모른 채 크레딧을 계속 쓴다.
-    raise RagConfigurationError(f"지원하지 않는 RAG 생성 프로바이더: {provider}")
+    explicit = _explicit_provider()
+    if explicit is None:
+        return await _generate_with_fallback_chain(settings, context, question)
+
+    generator = _PROVIDER_GENERATORS.get(explicit)
+    if generator is None:
+        # 오타를 HF로 흘려보내면 로컬 전환이 안 된 걸 모른 채 크레딧을 계속 쓴다.
+        raise RagConfigurationError(f"지원하지 않는 RAG 생성 프로바이더: {explicit}")
+    return await generator(settings, context, question)

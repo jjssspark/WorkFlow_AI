@@ -10,6 +10,10 @@ redis==7.4.1  # 캐시·rag_epoch 등 순수 Redis 클라이언트. 어시스턴
 pytest==8.3.4
 pytest-asyncio==0.25.2
 httpx==0.28.1
+# 실제 pgvector를 띄우는 통합 테스트(tests/llm_rag_assistant/conftest.py)용. RAG 검색 SQL은
+# 가짜 풀 위에서만 검증돼 왔고 <=> 연산자·vector 캐스팅·project_id 격리는 실행된 적이 없었다.
+# 런타임에는 쓰이지 않지만 pytest와 마찬가지로 이 파일 하나로 관리한다.
+testcontainers==4.15.0
 
 # ML / DL (docs/WorkFlow_AI_기술_스택_버전.md 6.5)
 numpy==2.2.6

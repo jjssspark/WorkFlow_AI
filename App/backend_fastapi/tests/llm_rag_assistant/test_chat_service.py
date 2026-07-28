@@ -942,7 +942,7 @@ def test_cache_schema_version_matches_the_current_prompt_shape() -> None:
     이 테스트는 실패하라고 있는 것이다 - 프롬프트를 건드리면 여기서 걸리고, 그때 버전을
     올렸는지 스스로 확인하게 된다. 값만 고쳐 통과시키지 말 것.
     """
-    assert _ANSWER_CACHE_SCHEMA_VERSION == "v10"
+    assert _ANSWER_CACHE_SCHEMA_VERSION == "v11"
 
 
 @pytest.mark.asyncio

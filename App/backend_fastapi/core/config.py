@@ -31,6 +31,11 @@ class Settings(BaseSettings):
     # 끌려간다(compose 기본값도 gemma2로 서로 다르다).
     rag_ollama_model: str = "gemma4:e2b"
 
+    # RAG 생성 체인의 2순위(HF 미설정/실패 시) 백엔드. 미설정이면 Gemini 단계를 건너뛰고
+    # 바로 Ollama로 넘어간다(fail-closed, generation_service._generate_with_gemini 참고).
+    gemini_api_key: str | None = None
+    gemini_rag_generation_model: str = "gemini-2.5-flash"
+
     # Spring(RagController)만 RAG 라우터를 호출할 수 있도록 검증하는 서비스 간 공유 시크릿.
     # 미설정 시 llm_rag_assistant/app/security.py가 모든 요청을 거부한다(fail-closed).
     rag_internal_api_key: str | None = None
