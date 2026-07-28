@@ -1,17 +1,21 @@
 package com.workflowai.notification;
 
 /**
- * version은 브로드캐스트 시점(커밋 직후)의 벽시계 타임스탬프(epoch millis)다. 같은 업무를
- * 두 사용자가 거의 동시에 옮기면, DB 커밋은 비관적 잠금으로 순서가 보장되지만 그 이후 각
- * 요청 스레드가 커밋 후 콜백을 실행해 브로드캐스트하는 시점은 스레드 스케줄링에 달려 있어
- * 늦게 커밋된(=최신) 이벤트가 먼저 도착할 수 있다. version은 각 브로드캐스트가 실행되는
- * 실제 시각을 담으므로, 도착 순서가 뒤바뀌어도 수신 측이 "더 나중 시각"의 이벤트만 반영하면
- * 오래된 상태로 덮어써지지 않는다.
+ * version은 실제 커밋 순서를 보존하는 벽시계 타임스탬프(epoch millis)여야 한다 - 반드시
+ * 호출자가 트랜잭션 커밋 "이전"(비관적 잠금을 아직 쥐고 있는 시점, 즉 taskRepository.save()
+ * 직후)에 캡처해서 넘겨야 한다.
+ *
+ * 커밋 "이후"(after-commit 콜백 안)에 캡처하면 안 된다. 같은 업무를 두 사용자가 거의 동시에
+ * 옮기면 DB 커밋 자체는 비관적 잠금으로 순서가 보장되지만(A 커밋 → 잠금 해제 → B가 그제서야
+ * 시작), 커밋 이후 콜백이 언제 스레드를 받아 실행되는지는 스레드 스케줄링에 달려 있다. A의
+ * 콜백이 지연되는 사이 B가 자기 요청 전체(잠금 획득~커밋~콜백)를 먼저 끝내버리면, 나중에
+ * 실행된 A의 캡처 시각이 B의 것보다 더 커져 정확히 역전된 순서를 만든다.
+ *
+ * 커밋 "이전", 잠금을 쥔 채로 캡처하면 이 문제가 없다 - B는 A가 커밋(=잠금 해제)하기 전까지
+ * save()조차 호출할 수 없으므로, A의 캡처 시각은 B의 캡처 시각보다 항상 먼저다.
  */
 public record TaskMoveEvent(String taskId, String projectId, String status, double position, long version) {
-    public static TaskMoveEvent from(Long taskId, Long projectId, String status, double position) {
-        return new TaskMoveEvent(
-            String.valueOf(taskId), String.valueOf(projectId), status, position, System.currentTimeMillis()
-        );
+    public static TaskMoveEvent from(Long taskId, Long projectId, String status, double position, long version) {
+        return new TaskMoveEvent(String.valueOf(taskId), String.valueOf(projectId), status, position, version);
     }
 }

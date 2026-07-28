@@ -257,8 +257,14 @@ public class TaskController {
         String previousStatus = task.getStatus();
         task.moveTo(request.status(), request.position());
         taskRepository.save(task);
+        // 이 업무의 비관적 잠금을 아직 쥐고 있는 시점(커밋 이전)에 캡처해야 한다 - TaskMoveEvent의
+        // Javadoc 참고. 커밋 이후 콜백 안에서 캡처하면, 두 사용자가 같은 업무를 거의 동시에 옮길 때
+        // 콜백 실행 순서가 스레드 스케줄링에 따라 뒤바뀌어 오래된 커밋이 더 큰 version을 받을 수 있다.
+        long moveVersion = System.currentTimeMillis();
         runAfterCommit(() -> {
-            TaskMoveEvent event = TaskMoveEvent.from(task.getId(), projectDbId, task.getStatus(), task.getPosition());
+            TaskMoveEvent event = TaskMoveEvent.from(
+                task.getId(), projectDbId, task.getStatus(), task.getPosition(), moveVersion
+            );
             projectMemberRepository.findAllByProjectId(projectDbId).stream()
                 .map(com.workflowai.project.ProjectMember::getUserId)
                 .filter(memberId -> !memberId.equals(currentUserId))
