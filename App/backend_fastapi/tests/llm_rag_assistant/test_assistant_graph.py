@@ -526,3 +526,63 @@ async def test_sweep_removes_only_expired_pending_threads(monkeypatch: pytest.Mo
     assert deleted == ["old"]
     assert "old" not in assistant_graph._pending_threads
     assert "fresh" in assistant_graph._pending_threads
+
+
+@pytest.mark.asyncio
+async def test_nudge_card_shows_what_the_notification_will_say() -> None:
+    """재촉 알림도 되돌릴 수 없다. 어떤 내용이 나가는지 요약에 드러나야 한다.
+
+    delete_task와 같은 이유다. 다만 이쪽은 지워지는 게 아니라 남에게 알림이 가는 것이라,
+    "재촉한다"만으로는 부족하고 세 종류 중 무엇인지가 보여야 사용자가 판단할 수 있다.
+    """
+    from llm_rag_assistant.app.graph.assistant_graph import start_command
+
+    plan = [Action(tool="nudge_task", task_ref="결제 모듈", args={"kind": "URGENT"})]
+    with patch(
+        "llm_rag_assistant.app.graph.assistant_graph.plan_actions", new=AsyncMock(return_value=plan)
+    ), patch(
+        "llm_rag_assistant.app.graph.assistant_graph.resolve_task_ref",
+        new=AsyncMock(return_value=TaskMatch(task_id=91, title="결제 모듈 구현")),
+    ):
+        outcome = await start_command(
+            object(), _state("결제 모듈 급하니 확인하라고 알려줘", role="LEADER")
+        )
+
+    assert outcome.type == "confirm"
+    assert outcome.card is not None
+    assert outcome.card.tool == "nudge_task"
+    assert outcome.card.args == {"kind": "URGENT"}
+    assert "결제 모듈 구현" in outcome.card.summary
+    # 종류 코드(URGENT)가 아니라 사람이 읽을 수 있는 문구여야 한다.
+    assert "긴급" in outcome.card.summary
+    assert "URGENT" not in outcome.card.summary
+
+
+@pytest.mark.asyncio
+async def test_completion_approval_is_blocked_for_member_role() -> None:
+    """완료 승인은 팀장 전용이다. 멤버에게는 카드를 만들지 않는다.
+
+    최종 방어선은 Spring의 @PreAuthorize지만, 누르면 반드시 403이 될 버튼을 보여주지
+    않기 위해 여기서 먼저 막는다.
+    """
+    from llm_rag_assistant.app.graph.assistant_graph import start_command
+
+    plan = [Action(tool="approve_completion", task_ref="결제 모듈", args={})]
+    with patch(
+        "llm_rag_assistant.app.graph.assistant_graph.plan_actions", new=AsyncMock(return_value=plan)
+    ), patch(
+        "llm_rag_assistant.app.graph.assistant_graph.resolve_task_ref",
+        new=AsyncMock(return_value=TaskMatch(task_id=91, title="결제 모듈 구현")),
+    ):
+        blocked = await start_command(
+            object(), _state("결제 모듈 완료 승인해줘", role="MEMBER")
+        )
+        allowed = await start_command(
+            object(), _state("결제 모듈 완료 승인해줘", role="LEADER")
+        )
+
+    assert blocked.card is None
+    # 거부만 확인하면 "무조건 거부"하는 구현도 통과한다. 팀장은 통과해야 한다.
+    assert allowed.type == "confirm"
+    assert allowed.card is not None
+    assert allowed.card.tool == "approve_completion"

@@ -367,6 +367,19 @@ public class TaskController {
                     "'" + task.getTitle() + "' 업무 담당자로 지정되었습니다.", "task", task.getId()
                 );
             }
+            // 이전 담당자에게도 알린다. 새 담당자만 알리면 업무가 자기 목록에서 사라진 사람은
+            // 그 사실을 어디서도 통보받지 못한다(RAG 쪽은 syncAssigneeBestEffort로 이미
+            // 떼어내는데 알림만 그 대칭이 없었다).
+            // task.getAssigneeId()가 null인 경우는 없다. applyUpdate가 null을 "변경 없음"으로
+            // 처리하므로(Task.applyUpdate), 이 API로는 담당자를 해제할 수 없고 재배정만 된다.
+            if (assigneeBefore != null && !assigneeBefore.equals(actorId)) {
+                notificationService.notifyAfterCommit(
+                    assigneeBefore, "TASK_UNASSIGNED", "담당 업무에서 제외되었습니다.",
+                    "'" + task.getTitle() + "' 업무가 '" + userName(task.getAssigneeId())
+                        + "'님에게 재배정되었습니다.",
+                    "task", task.getId()
+                );
+            }
         }
         if (otherFieldsChanged) {
             String ragContent = buildRagContent(task);
