@@ -55,6 +55,10 @@ public class Activity {
         return id;
     }
 
+    public Long getProjectId() {
+        return projectId;
+    }
+
     public Long getActorId() {
         return actorId;
     }

@@ -70,4 +70,35 @@ class ReviewerControllerTest {
             .andExpect(jsonPath("$.data").isArray())
             .andExpect(jsonPath("$.data.length()").value(0));
     }
+
+    @Test
+    void myRecentActivitiesReturnsDataFromService() throws Exception {
+        ReviewerActivityDto activity = new ReviewerActivityDto(
+            "100", "실시간 버스 도착 알리미", "김민준님의 학점을 공개했습니다.", "2026-07-28T01:00:00Z"
+        );
+        when(reviewerService.getMyRecentActivities(eq(CURRENT_USER_ID))).thenReturn(List.of(activity));
+
+        ReviewerController controller = new ReviewerController(reviewerService);
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
+
+        mockMvc.perform(get("/api/v1/me/reviewer-activities"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.success").value(true))
+            .andExpect(jsonPath("$.data[0].id").value("100"))
+            .andExpect(jsonPath("$.data[0].projectTitle").value("실시간 버스 도착 알리미"))
+            .andExpect(jsonPath("$.data[0].message").value("김민준님의 학점을 공개했습니다."));
+    }
+
+    @Test
+    void myRecentActivitiesReturnsEmptyArrayWhenCallerHasNoActivities() throws Exception {
+        when(reviewerService.getMyRecentActivities(eq(CURRENT_USER_ID))).thenReturn(List.of());
+
+        ReviewerController controller = new ReviewerController(reviewerService);
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
+
+        mockMvc.perform(get("/api/v1/me/reviewer-activities"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data").isArray())
+            .andExpect(jsonPath("$.data.length()").value(0));
+    }
 }
