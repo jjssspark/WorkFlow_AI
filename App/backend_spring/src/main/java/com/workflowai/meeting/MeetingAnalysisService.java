@@ -492,10 +492,10 @@ public class MeetingAnalysisService {
             meetingActionItemRepository.clearMeetingId(meetingDbId);
             taskRepository.clearSourceMeetingId(meetingDbId);
         }
-        // 삭제는 팀장 전용이라 actorId가 항상 팀장이다 — 반대편(counterpart)은 팀장 자신이 아니라
-        // 원본 업로더로 잡아야, 팀장이 남이 올린 회의록을 지웠을 때 그 업로더에게도 알림이 간다.
+        // 삭제는 팀장 전용이라 actorId가 항상 팀장이다. 회의록이 사라지는 것은 팀 전원에게 영향을
+        // 주므로 업로더 한 명이 아니라 팀 전원에게 알린다(예전에는 업로더만 받아서 나머지 팀원은
+        // 알림을 아예 받지 못했다).
         Long actorId = CurrentUser.id();
-        Long uploaderId = meeting.getUploadedBy();
         String title = meeting.getTitle();
         String actorName = defaultString(resolveNameById(actorId), "누군가");
         String scopeSuffix = deleteLinkedTasks ? " (등록된 업무도 함께 삭제됨)" : " (등록된 업무는 유지됨)";
@@ -516,12 +516,34 @@ public class MeetingAnalysisService {
         );
         deleteUploadedFile(filePath);
 
-        notificationService.notifyCounterpart(
-            actorId, uploaderId, "MEETING_DELETED", "회의록이 삭제되었습니다",
+        notifyProjectTeamExceptActor(
+            projectDbId, actorId, "MEETING_DELETED", "회의록이 삭제되었습니다",
             actorName + "님이 '" + title + "' 회의록을 삭제했습니다." + scopeSuffix,
-            "meeting", meetingDbId
+            meetingDbId
         );
         return new MeetingDeleteResponse(meetingId, "DELETED");
+    }
+
+    /**
+     * 회의록/분석 결과 삭제는 팀 전원이 보던 내용이 사라지는 일이라 팀 전원에게 알린다.
+     * 행위자 본인은 방금 자기가 한 일의 결과를 화면에서 이미 보고 있으므로 제외하고, 심사자는
+     * 팀원이 아니므로(팀원 수/목록 집계에서도 제외된다) 대상에서 뺀다.
+     *
+     * targetType을 "meeting"으로 고정해 프론트가 "바로가기" 버튼을 붙일 수 있게 한다. 전체 삭제된
+     * 회의록은 딥링크로 열 대상이 이미 없으므로, 프론트에서 해당 회의록을 못 찾으면 회의록 화면까지만
+     * 이동하고 조용히 멈춘다.
+     */
+    private void notifyProjectTeamExceptActor(
+        Long projectDbId, Long actorId, String type, String title, String content, Long meetingDbId
+    ) {
+        projectMemberRepository.findAllByProjectId(projectDbId).stream()
+            .filter(member -> member.getRole() != ProjectRole.REVIEWER)
+            .map(ProjectMember::getUserId)
+            .filter(userId -> userId != null && !userId.equals(actorId))
+            .distinct()
+            .forEach(userId ->
+                notificationService.notifyAfterCommit(userId, type, title, content, "meeting", meetingDbId)
+            );
     }
 
     /**
@@ -586,15 +608,14 @@ public class MeetingAnalysisService {
         );
 
         Long actorId = CurrentUser.id();
-        Long uploaderId = meeting.getUploadedBy();
         String title = meeting.getTitle();
         String actorName = defaultString(resolveNameById(actorId), "누군가");
         String scopeSuffix = deleteLinkedTasks ? " (등록된 업무도 함께 삭제됨)" : " (등록된 업무는 유지됨)";
 
-        notificationService.notifyCounterpart(
-            actorId, uploaderId, "MEETING_ANALYSIS_DELETED", "회의록 분석 결과가 삭제되었습니다",
+        notifyProjectTeamExceptActor(
+            projectDbId, actorId, "MEETING_ANALYSIS_DELETED", "회의록 분석 결과가 삭제되었습니다",
             actorName + "님이 '" + title + "' 회의록의 분석 결과를 삭제했습니다." + scopeSuffix,
-            "meeting", meetingDbId
+            meetingDbId
         );
         return new MeetingDeleteResponse(meetingId, "DELETED");
     }

@@ -5,6 +5,7 @@ import { TAB_TITLES } from "../../lib/constants/nav";
 import type { Tab } from "../../../board/libs/types/task";
 import {
   ACTION_REQUIRED_NOTIFICATION_TYPES, fetchNotifications, markNotificationsRead, meetingNotificationPanelQuery,
+  MEETING_SHORTCUT_NOTIFICATION_TYPES,
   type NotificationResponse,
 } from "../../api/notificationApi";
 import { useAuth } from "../../hooks/useAuth";
@@ -195,7 +196,7 @@ export function Header({ onOpenMobileMenu }: { onOpenMobileMenu?: () => void }) 
                         </div>
                         {n.content && <div className="text-muted-foreground mt-0.5">{n.content}</div>}
                         <div className="text-[10px] text-muted-foreground mt-0.5">{new Date(n.createdAt).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "Asia/Seoul" })}</div>
-                        {isActionRequired && n.targetType === "meeting" && n.targetId && (
+                        {MEETING_SHORTCUT_NOTIFICATION_TYPES.has(n.type) && n.targetType === "meeting" && n.targetId && (
                           <button
                             onClick={() => {
                               setNotifOpen(false);
