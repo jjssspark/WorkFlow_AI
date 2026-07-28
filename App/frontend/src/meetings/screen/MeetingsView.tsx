@@ -609,6 +609,25 @@ export function MeetingsView() {
       const next = new URLSearchParams(searchParams);
       next.delete("upload");
       setSearchParams(next, { replace: true });
+      return;
+    }
+    // 대시보드의 회의록 업로드 팝업(MeetingUploadModal)에서 업로드가 이미 완료된 뒤 넘어온 경우 —
+    // 업로드 모달을 다시 띄우지 않고, 바로 해당 회의의 분석 진행 상황(polling) 화면으로 진입한다.
+    const resumeMeetingId = searchParams.get("resume");
+    if (resumeMeetingId) {
+      const title = searchParams.get("title") ?? "";
+      const uploadedAt = searchParams.get("uploadedAt") ?? new Date().toISOString();
+      setMeetTitle(title);
+      setActiveMeetingId(resumeMeetingId);
+      setAnalysisPhase("queued");
+      setAnalyzeProgressTarget(28);
+      setUploadFlow("analyzing");
+      pollMeetingStatus(resumeMeetingId, title, uploadedAt);
+      const next = new URLSearchParams(searchParams);
+      next.delete("resume");
+      next.delete("title");
+      next.delete("uploadedAt");
+      setSearchParams(next, { replace: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

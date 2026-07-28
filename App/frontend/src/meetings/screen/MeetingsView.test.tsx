@@ -671,3 +671,38 @@ describe("MeetingsView 분석 결과 삭제 후 재분석", () => {
     expect(screen.queryByRole("button", { name: "재분석하기" })).not.toBeInTheDocument();
   });
 });
+
+describe("MeetingsView 대시보드 업로드 이어보기", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.clearAllMocks();
+    mockUseAuth.mockReturnValue(asLeader());
+    fetchMeetings.mockResolvedValue([]);
+    fetchMeeting.mockResolvedValue({
+      meetingId: "meeting-77",
+      projectId: "1",
+      status: "PROCESSING",
+      sourceType: "document",
+      fileName: "7차 정기회의.txt",
+      analysisSource: null,
+      analysis: null,
+      errorMessage: null,
+      attendees: [],
+      transcript: null,
+    });
+  });
+
+  it("resume 파라미터로 들어오면 업로드 모달을 다시 열지 않고 해당 회의의 분석 상태 폴링을 시작한다", async () => {
+    const { unmount } = render(
+      <MemoryRouter initialEntries={["/meetings?resume=meeting-77&title=7%EC%B0%A8%20%EC%A0%95%EA%B8%B0%ED%9A%8C%EC%9D%98&uploadedAt=2026-07-28T02%3A00%3A00.000Z"]}>
+        <MeetingsView />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(fetchMeeting).toHaveBeenCalledWith("1", "meeting-77"));
+    expect(screen.getByText("분석 중")).toBeInTheDocument();
+    expect(screen.queryByText("업로드 유형 선택")).not.toBeInTheDocument();
+
+    unmount();
+  });
+});

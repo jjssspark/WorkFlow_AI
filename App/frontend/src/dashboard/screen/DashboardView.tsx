@@ -47,6 +47,7 @@ import { AiInsightBox } from "../../ai/components/AiInsightBox";
 import { openAIAssistant } from "../../ai/libs/utils/openAIAssistant";
 import { ProgressFrequencyChart } from "../components/ProgressFrequencyChart";
 import { AddTaskModal } from "../../board/components/AddTaskModal";
+import { MeetingUploadModal } from "../../meetings/components/MeetingUploadModal";
 import { TaskDetailPopup } from "../components/TaskDetailPopup";
 import { TaskStatusPill } from "../../board/components/TaskStatusPill";
 import { PriorityBadge } from "../../board/components/PriorityBadge";
@@ -85,6 +86,7 @@ export function DashboardView() {
   const { data: progress, loading: progressLoading, error: progressError } = useDashboardProgress(currentProjectId);
   const { data: tasks, loading: tasksLoading } = useDashboardTasks(currentProjectId);
   const [showAddTask, setShowAddTask] = useState(false);
+  const [showUploadMeeting, setShowUploadMeeting] = useState(false);
   const [showMyTasks, setShowMyTasks] = useState(false);
   const [detailTarget, setDetailTarget] = useState<DashboardTaskDto | null>(null);
   const [projectMembers, setProjectMembers] = useState<MemberResponse[]>([]);
@@ -140,7 +142,7 @@ export function DashboardView() {
     ...(isLeader
       ? [{ label: "업무 추가", icon: Plus, color: "#3B5BDB", onClick: () => setShowAddTask(true) }]
       : [{ label: "내업무 조회", icon: Plus, color: "#3B5BDB", onClick: () => setShowMyTasks(true) }]),
-    { label: "회의록 업로드", icon: Upload, color: "#7048E8", onClick: () => navigate("/meetings?upload=1") },
+    { label: "회의록 업로드", icon: Upload, color: "#7048E8", onClick: () => setShowUploadMeeting(true) },
     ...(deliverablesActive ? [{ label: "산출물", icon: Package, color: "#0F766E", onClick: () => navigate("/deliverables") }] : []),
     { label: "AI 어시스턴트", icon: Sparkles, color: "#F59E0B", onClick: () => openAIAssistant() },
     { label: "업무 보드", icon: Columns3, color: "#0EA5E9", onClick: () => navigate("/board") },
@@ -348,6 +350,18 @@ export function DashboardView() {
         onClose={() => setShowAddTask(false)}
         onCreated={() => setShowAddTask(false)}
       />
+
+      {showUploadMeeting && (
+        <MeetingUploadModal
+          projectId={String(currentProjectId)}
+          projectMembers={projectMembers}
+          onClose={() => setShowUploadMeeting(false)}
+          onUploaded={(meetingId, title, uploadedAt) => {
+            setShowUploadMeeting(false);
+            navigate(`/meetings?resume=${encodeURIComponent(meetingId)}&title=${encodeURIComponent(title)}&uploadedAt=${encodeURIComponent(uploadedAt)}`);
+          }}
+        />
+      )}
 
       {showMyTasks && (
         <>
