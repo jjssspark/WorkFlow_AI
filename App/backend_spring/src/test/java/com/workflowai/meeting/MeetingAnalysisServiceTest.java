@@ -38,6 +38,9 @@ import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
 import org.apache.pdfbox.pdmodel.font.PDType1Font;
 import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
+import org.apache.poi.xwpf.usermodel.XWPFDocument;
+import org.apache.poi.xwpf.usermodel.XWPFParagraph;
+import org.apache.poi.xwpf.usermodel.XWPFRun;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -186,6 +189,78 @@ class MeetingAnalysisServiceTest {
         verify(meetingAnalysisJobPublisher).enqueue(any(), requestCaptor.capture(), any(UUID.class), any());
         assertThat(requestCaptor.getValue().text()).contains("Meeting minutes body");
         assertThat(requestCaptor.getValue().text()).doesNotContain("텍스트 추출 예정");
+    }
+
+    @Test
+    void analyzeRejectsEmptyFile() {
+        mockMember(1L);
+        MeetingAnalysisService service = newService();
+        MockMultipartFile file = new MockMultipartFile("file", "empty.pdf", "application/pdf", new byte[0]);
+
+        assertThatThrownBy(() -> service.analyze(
+            "demo-project", file, "빈 파일 회의록", "2026-07-20", "정기회의", "document", List.of(), null
+        )).isInstanceOf(EmptyFileException.class);
+
+        verify(meetingRepository, never()).save(any());
+    }
+
+    @Test
+    void analyzeRejectsUnsupportedFileExtension() {
+        mockMember(1L);
+        MeetingAnalysisService service = newService();
+        MockMultipartFile file = new MockMultipartFile(
+            "file", "malware.exe", "application/octet-stream", "not a real exe".getBytes()
+        );
+
+        assertThatThrownBy(() -> service.analyze(
+            "demo-project", file, "악성파일 회의록", "2026-07-20", "정기회의", "document", List.of(), null
+        )).isInstanceOf(UnsupportedFileTypeException.class);
+
+        verify(meetingRepository, never()).save(any());
+    }
+
+    @Test
+    void analyzeExtractsDocxTextBeforeDispatchingAnalysisRequest() throws Exception {
+        mockMember(1L);
+        MeetingAnalysisService service = newService();
+        when(meetingRepository.save(any(Meeting.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        MockMultipartFile file = new MockMultipartFile(
+            "file",
+            "minutes.docx",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            createDocxBytes("Meeting minutes body: Park Jisu checks retry flow.")
+        );
+
+        service.analyze(
+            "demo-project", file, "DOCX 회의록", "2026-07-20", "정기회의", "document", List.of("박지수"), null
+        );
+
+        ArgumentCaptor<AiAnalyzeRequest> requestCaptor = ArgumentCaptor.forClass(AiAnalyzeRequest.class);
+        verify(meetingAnalysisJobPublisher).enqueue(any(), requestCaptor.capture(), any(UUID.class), any());
+        assertThat(requestCaptor.getValue().text()).contains("Meeting minutes body");
+        assertThat(requestCaptor.getValue().text()).doesNotContain("텍스트 추출 예정");
+    }
+
+    @Test
+    void analyzePreservesKoreanFileNameWithSpacesAndStartsAnalysis() throws Exception {
+        mockMember(1L);
+        MeetingAnalysisService service = newService();
+        when(meetingRepository.save(any(Meeting.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        String koreanFileName = "주간 회의록 1차.pdf";
+        MockMultipartFile file = new MockMultipartFile(
+            "file", koreanFileName, "application/pdf", createPdfBytes("Meeting minutes body content.")
+        );
+
+        service.analyze(
+            "demo-project", file, "한글 파일명 회의록", "2026-07-20", "정기회의", "document", List.of("박지수"), null
+        );
+
+        ArgumentCaptor<Meeting> meetingCaptor = ArgumentCaptor.forClass(Meeting.class);
+        verify(meetingRepository, atLeastOnce()).save(meetingCaptor.capture());
+        assertThat(meetingCaptor.getAllValues().get(0).getOriginalFileName()).isEqualTo(koreanFileName);
+        verify(meetingAnalysisJobPublisher).enqueue(any(), any(AiAnalyzeRequest.class), any(UUID.class), any());
     }
 
     @Test
@@ -341,6 +416,26 @@ class MeetingAnalysisServiceTest {
         )).isInstanceOf(IllegalArgumentException.class);
 
         verify(meetingRepository, never()).save(any());
+    }
+
+    @Test
+    void analyzeDeduplicatesRepeatedAttendeeIdsBeforeSaving() {
+        mockMember(1L);
+        when(projectMemberRepository.existsByProjectIdAndUserId(1L, 3L)).thenReturn(true);
+        when(projectMemberRepository.existsByProjectIdAndUserId(1L, 4L)).thenReturn(true);
+        when(meetingRepository.save(any(Meeting.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(userRepository.findAllById(any())).thenReturn(List.of());
+
+        MeetingAnalysisService service = newService();
+        MockMultipartFile file = new MockMultipartFile("file", "notes.txt", "text/plain", "회의 내용".getBytes());
+        service.analyze(
+            "demo-project", file, "7차 정기회의", "2026-07-15", "정기회의", "document", List.of(), List.of(3L, 3L, 4L)
+        );
+
+        ArgumentCaptor<MeetingAttendee> attendeeCaptor = ArgumentCaptor.forClass(MeetingAttendee.class);
+        verify(meetingAttendeeRepository, org.mockito.Mockito.times(2)).save(attendeeCaptor.capture());
+        assertThat(attendeeCaptor.getAllValues()).extracting(MeetingAttendee::getUserId)
+            .containsExactlyInAnyOrder(3L, 4L);
     }
 
     @Test
@@ -1520,6 +1615,16 @@ class MeetingAnalysisServiceTest {
         MeetingVersionResponse response = service.reanalyzeVersion("demo-project", "6");
 
         assertThat(response.status()).isEqualTo("PROCESSING");
+    }
+
+    private byte[] createDocxBytes(String text) throws Exception {
+        try (XWPFDocument document = new XWPFDocument(); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            XWPFParagraph paragraph = document.createParagraph();
+            XWPFRun run = paragraph.createRun();
+            run.setText(text);
+            document.write(output);
+            return output.toByteArray();
+        }
     }
 
     private byte[] createPdfBytes(String text) throws Exception {

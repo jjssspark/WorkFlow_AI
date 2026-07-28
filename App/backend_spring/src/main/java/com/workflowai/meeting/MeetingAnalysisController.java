@@ -71,6 +71,10 @@ public class MeetingAnalysisController {
                 participants,
                 attendeeIds
             )));
+        } catch (EmptyFileException e) {
+            return ResponseEntity.status(422).body(ApiResponse.fail("EMPTY_FILE", e.getMessage()));
+        } catch (UnsupportedFileTypeException e) {
+            return ResponseEntity.status(422).body(ApiResponse.fail("INVALID_FILE_TYPE", e.getMessage()));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.status(400).body(ApiResponse.fail("INVALID_ATTENDEE", e.getMessage()));
         }
