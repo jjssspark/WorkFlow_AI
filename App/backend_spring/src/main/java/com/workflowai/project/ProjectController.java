@@ -1,6 +1,8 @@
 package com.workflowai.project;
 
 import com.workflowai.common.ApiResponse;
+import com.workflowai.reviewer.ReviewerActivityService;
+import com.workflowai.reviewer.ReviewerActivityType;
 import com.workflowai.security.CurrentUser;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -23,9 +25,11 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/projects")
 public class ProjectController {
     private final ProjectService projectService;
+    private final ReviewerActivityService reviewerActivityService;
 
-    public ProjectController(ProjectService projectService) {
+    public ProjectController(ProjectService projectService, ReviewerActivityService reviewerActivityService) {
         this.projectService = projectService;
+        this.reviewerActivityService = reviewerActivityService;
     }
 
     @Operation(summary = "내가 접근 가능한 프로젝트 목록 조회")
@@ -98,7 +102,9 @@ public class ProjectController {
     @PostMapping("/{projectId}/finalize-evaluation")
     @PreAuthorize("@projectAccess.hasRole(#projectId, 'REVIEWER')")
     public ApiResponse<ProjectResponse> finalizeEvaluation(@PathVariable Long projectId) {
-        return ApiResponse.ok(projectService.finalizeEvaluation(projectId));
+        ProjectResponse response = projectService.finalizeEvaluation(projectId);
+        reviewerActivityService.record(CurrentUser.id(), projectId, ReviewerActivityType.EVALUATION_FINALIZED);
+        return ApiResponse.ok(response);
     }
 
     @Operation(
@@ -109,7 +115,9 @@ public class ProjectController {
     @PostMapping("/{projectId}/unfinalize-evaluation")
     @PreAuthorize("@projectAccess.hasRole(#projectId, 'REVIEWER')")
     public ApiResponse<ProjectResponse> unfinalizeEvaluation(@PathVariable Long projectId) {
-        return ApiResponse.ok(projectService.unfinalizeEvaluation(projectId));
+        ProjectResponse response = projectService.unfinalizeEvaluation(projectId);
+        reviewerActivityService.record(CurrentUser.id(), projectId, ReviewerActivityType.EVALUATION_UNFINALIZED);
+        return ApiResponse.ok(response);
     }
 
     @Operation(summary = "프로젝트 멤버 목록 조회")
