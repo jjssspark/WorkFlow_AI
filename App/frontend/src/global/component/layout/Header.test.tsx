@@ -234,6 +234,21 @@ describe("Header 알림", () => {
     expect(mockNavigate).toHaveBeenCalledWith("/board?taskId=42");
   });
 
+  it("완료 승인 요청 알림은 팀장 페이지의 해당 승인 대기 업무로 이동한다", async () => {
+    vi.mocked(fetchNotifications).mockResolvedValue([
+      { id: "1", projectId: "1", type: "COMPLETION_REQUESTED", title: "완료 승인 요청이 도착했습니다.", content: null, targetType: "task", targetId: "42", read: false, createdAt: new Date().toISOString() },
+    ]);
+    vi.mocked(markNotificationsRead).mockResolvedValue(undefined);
+
+    renderHeader();
+    await openBell();
+
+    expect(screen.getByText("할 일")).toBeInTheDocument();
+    await userEvent.click(await screen.findByRole("button", { name: "바로가기" }));
+
+    expect(mockNavigate).toHaveBeenCalledWith("/leader/completion-approvals?taskId=42");
+  });
+
   it("액션불필요 알림에는 바로가기 버튼이 없다", async () => {
     vi.mocked(fetchNotifications).mockResolvedValue([
       { id: "1", projectId: "1", type: "MEETING_SAVED", title: "회의록이 저장됐습니다", content: null, targetType: "meeting", targetId: "7", read: false, createdAt: new Date().toISOString() },

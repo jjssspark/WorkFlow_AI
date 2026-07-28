@@ -228,7 +228,10 @@ export function Header({ onOpenMobileMenu }: { onOpenMobileMenu?: () => void }) 
                           <button
                             onClick={() => {
                               setNotifOpen(false);
-                              navigate(`/board?taskId=${encodeURIComponent(n.targetId)}`);
+                              const taskPath = n.type === "COMPLETION_REQUESTED"
+                                ? `/leader/completion-approvals?taskId=${encodeURIComponent(n.targetId)}`
+                                : `/board?taskId=${encodeURIComponent(n.targetId)}`;
+                              navigate(taskPath);
                             }}
                             className="mt-1.5 px-2 py-1 rounded bg-blue-600 text-white text-[10px] font-semibold hover:bg-blue-700"
                           >
