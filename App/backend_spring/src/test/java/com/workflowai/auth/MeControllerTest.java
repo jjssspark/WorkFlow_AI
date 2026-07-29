@@ -15,8 +15,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.workflowai.comment.PersonalComment;
 import com.workflowai.comment.PersonalCommentRepository;
+import com.workflowai.project.Project;
+import com.workflowai.project.ProjectMember;
 import com.workflowai.project.ProjectMemberRepository;
 import com.workflowai.project.ProjectRepository;
+import com.workflowai.project.ProjectResponse;
+import com.workflowai.project.ProjectRole;
+import com.workflowai.project.ProjectService;
 import com.workflowai.security.UserPrincipal;
 import com.workflowai.task.S3StorageClient;
 import com.workflowai.user.User;
@@ -62,6 +67,9 @@ class MeControllerTest {
     private ProjectRepository projectRepository;
 
     @MockitoBean
+    private ProjectService projectService;
+
+    @MockitoBean
     private S3StorageClient storageClient;
 
     @MockitoBean
@@ -84,6 +92,34 @@ class MeControllerTest {
         User user = new User("user" + id + "@workflow.ai", "테스트유저", "local", "user" + id + "@workflow.ai", "hash");
         ReflectionTestUtils.setField(user, "id", id);
         return user;
+    }
+
+    // ─── 내 정보 조회: 프로젝트 역할에 유형/연도/진행률이 함께 온다 ──────────────
+
+    @Test
+    void meReturnsProjectRolesEnrichedWithTypeYearAndTaskProgress() throws Exception {
+        authenticateAs(1L);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(userWithId(1L)));
+
+        ProjectMember membership = new ProjectMember(10L, 1L, ProjectRole.LEADER);
+        when(projectMemberRepository.findAllByUserIdOrderByRecency(1L)).thenReturn(List.of(membership));
+
+        Project project = new Project("데모 프로젝트", "캡스톤디자인", null, null);
+        ReflectionTestUtils.setField(project, "id", 10L);
+        when(projectRepository.findAllById(List.of(10L))).thenReturn(List.of(project));
+
+        ProjectResponse fullResponse = new ProjectResponse(
+            10L, "데모 프로젝트", "캡스톤디자인", 2026, null, null, null, null,
+            null, null, null, null, null, null, 4, 36, "PENDING"
+        );
+        when(projectService.findAllForUser(1L)).thenReturn(List.of(fullResponse));
+
+        mockMvc.perform(get("/api/v1/me"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.projectRoles[0].projectId").value(10))
+            .andExpect(jsonPath("$.data.projectRoles[0].type").value("캡스톤디자인"))
+            .andExpect(jsonPath("$.data.projectRoles[0].year").value(2026))
+            .andExpect(jsonPath("$.data.projectRoles[0].taskProgress").value(36));
     }
 
     // ─── 프로필 수정: 분야 태그 필터링/경계값 ──────────────────────────────────

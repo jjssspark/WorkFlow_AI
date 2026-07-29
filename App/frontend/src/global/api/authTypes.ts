@@ -15,6 +15,9 @@ export interface ProjectRoleSummary {
   projectId: number;
   projectTitle: string | null;
   role: ProjectRoleKo;
+  type: string | null;
+  year: number | null;
+  taskProgress: number;
 }
 
 export interface MeResponse {

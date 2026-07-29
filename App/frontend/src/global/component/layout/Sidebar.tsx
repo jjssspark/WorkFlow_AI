@@ -76,7 +76,7 @@ export function Sidebar({ active, onSelect, onAI, collapsed, onToggleCollapsed, 
             <div className="flex-1 min-w-0">
               <div className="text-xs font-medium text-white truncate">{currentProjectName || "스마트 주차 관리"}</div>
               <div className="text-[10px] flex items-center gap-1" style={{ color: "var(--muted-foreground)" }}>
-                <span>캡스톤디자인 2024</span>
+                <span>{[currentProject?.type, currentProject?.year].filter(Boolean).join(" ") || "프로젝트 정보 없음"}</span>
                 <span className="px-1.5 py-0.5 rounded font-semibold" style={{ color: "#fff", background: ROLE_COLORS[role] }}>
                   {role}
                 </span>
