@@ -47,9 +47,12 @@ export function OnboardingScreen() {
     listProjects()
       .then((projects) => {
         if (projects.length === 0) return;
-        const mostRecent = projects[projects.length - 1];
+        // listProjects()는 이제 최근 접근 순으로 정렬되어 오므로 첫 항목이 가장 최근 프로젝트다.
+        const mostRecent = projects[0];
         const matchedType = PROJECT_TYPES.find((t) => t.label === mostRecent.type);
-        if (matchedType) setProjectType(matchedType.id);
+        // 함수형 업데이트로 적용 시점의 최신 값을 확인 — 사용자가 이미 유형 카드를
+        // 직접 선택했다면(projectType이 비어있지 않다면) 프리셋으로 덮어쓰지 않는다.
+        if (matchedType) setProjectType((prev) => (prev ? prev : matchedType.id));
       })
       .catch(() => {
         // 프리셋은 부가 기능이므로 실패해도 빈 선택 상태로 둔다.
