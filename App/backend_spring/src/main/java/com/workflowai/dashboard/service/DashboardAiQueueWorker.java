@@ -313,7 +313,7 @@ public class DashboardAiQueueWorker implements ApplicationRunner {
             return false;
         }
 
-        ScheduledFuture<?> pendingLease = startPendingLeaseRefresh(record.getId());
+        ScheduledFuture<?> pendingLease = startPendingLeaseRefresh(record.getId(), job);
         if (pendingLease == null) {
             return true;
         }
@@ -347,10 +347,20 @@ public class DashboardAiQueueWorker implements ApplicationRunner {
         return false;
     }
 
-    private ScheduledFuture<?> startPendingLeaseRefresh(RecordId recordId) {
+    /**
+     * 처리하는 동안 1분마다 (1) 스트림 pending 리스와 (2) 중복 방지 in-flight 마커를 함께 갱신한다.
+     *
+     * <p>둘 다 "워커가 죽었다"를 판정하는 시계라, 작업이 오래 걸린다는 이유로 만료되면 안 된다.
+     * 예전에는 리스만 갱신해서, IN_FLIGHT_TTL(5분)을 넘기는 재분석은 아직 돌고 있는데도 마커가
+     * 사라져 중복 적재·실행되고 상태 조회가 FAILED로 나왔다.
+     */
+    private ScheduledFuture<?> startPendingLeaseRefresh(RecordId recordId, DashboardAiJob job) {
         try {
             return pendingLeaseExecutor.scheduleWithFixedDelay(
-                () -> refreshPendingLease(recordId),
+                () -> {
+                    refreshPendingLease(recordId);
+                    renewInFlightMarker(job);
+                },
                 1L,
                 1L,
                 TimeUnit.MINUTES
@@ -375,6 +385,19 @@ public class DashboardAiQueueWorker implements ApplicationRunner {
             );
         } catch (RuntimeException exception) {
             log.warn("Pending lease refresh failed. recordId={}, errorType={}", recordId.getValue(), exception.getClass().getSimpleName());
+        }
+    }
+
+    private void renewInFlightMarker(DashboardAiJob job) {
+        try {
+            publisher.renewInFlight(job.projectId(), job.jobType(), job.jobId());
+        } catch (RuntimeException exception) {
+            // 다음 회차에 다시 시도한다. 여기서 예외가 스케줄러 밖으로 나가면
+            // scheduleWithFixedDelay가 그 작업을 영구히 중단해 리스 갱신까지 함께 멈춘다.
+            log.warn(
+                "In-flight marker renewal failed. jobId={}, projectId={}, errorType={}",
+                job.jobId(), job.projectId(), exception.getClass().getSimpleName()
+            );
         }
     }
 

@@ -1,6 +1,7 @@
 package com.workflowai.dashboard.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -15,6 +16,7 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workflowai.project.ProjectRepository;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -24,6 +26,7 @@ import java.util.concurrent.ScheduledFuture;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -117,6 +120,45 @@ class DashboardAiQueueWorkerTest {
         newWorker().pollOnce();
 
         verify(redisTemplate, never()).execute(any(RedisScript.class), anyList(), any(Object[].class));
+    }
+
+    @Test
+    void periodicRefreshRenewsBothTheStreamLeaseAndTheInFlightMarker() throws Exception {
+        // IN_FLIGHT_TTL(5분)은 "워커가 죽었다"를 판정하는 시계이지 작업 시간 상한이 아니다.
+        // 처리 중에 갱신하지 않으면 5분을 넘기는 재분석은 아직 돌고 있는데도 마커가 사라져
+        // 중복 적재·실행되고, 상태 조회가 실행 중인 작업을 FAILED로 보고한다.
+        givenSingleRecord("8-0");
+        givenProjectExistsAndLeaseScheduled();
+        when(runner.runJob(any(DashboardAiJob.class))).thenReturn(true);
+
+        newWorker().pollOnce();
+
+        ArgumentCaptor<Runnable> refreshTask = ArgumentCaptor.forClass(Runnable.class);
+        verify(pendingLeaseExecutor)
+            .scheduleWithFixedDelay(refreshTask.capture(), anyLong(), anyLong(), any());
+        refreshTask.getValue().run();
+
+        verify(publisher).renewInFlight(eq(PROJECT_ID), eq(DashboardAiJobType.DELAY_RISK), anyString());
+        verify(streamOperations).claim(anyString(), anyString(), anyString(), any(Duration.class), any(RecordId.class));
+    }
+
+    @Test
+    void inFlightRenewalFailureDoesNotKillThePeriodicRefresh() throws Exception {
+        // scheduleWithFixedDelay는 작업이 예외를 던지면 그 작업을 영구히 중단한다 - 마커 갱신이
+        // 한 번 실패했다고 리스 갱신까지 같이 멈추면 레코드가 다른 워커에게 가로채인다.
+        givenSingleRecord("9-0");
+        givenProjectExistsAndLeaseScheduled();
+        when(runner.runJob(any(DashboardAiJob.class))).thenReturn(true);
+        org.mockito.Mockito.doThrow(new DataAccessResourceFailureException("redis down"))
+            .when(publisher).renewInFlight(anyLong(), any(DashboardAiJobType.class), anyString());
+
+        newWorker().pollOnce();
+
+        ArgumentCaptor<Runnable> refreshTask = ArgumentCaptor.forClass(Runnable.class);
+        verify(pendingLeaseExecutor)
+            .scheduleWithFixedDelay(refreshTask.capture(), anyLong(), anyLong(), any());
+
+        assertThatCode(() -> refreshTask.getValue().run()).doesNotThrowAnyException();
     }
 
     @Test

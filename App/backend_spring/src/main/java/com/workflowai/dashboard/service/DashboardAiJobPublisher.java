@@ -51,6 +51,10 @@ public class DashboardAiJobPublisher {
         new ClassPathResource("redis/dashboard-ai-release-inflight.lua"),
         Long.class
     );
+    private static final RedisScript<Long> RENEW_IN_FLIGHT_SCRIPT = RedisScript.of(
+        new ClassPathResource("redis/dashboard-ai-renew-inflight.lua"),
+        Long.class
+    );
 
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
@@ -105,6 +109,27 @@ public class DashboardAiJobPublisher {
         // 무조건 DEL 하면, IN_FLIGHT_TTL 만료 후 새 작업이 같은 키를 다시 claim한 상태에서
         // 늦게 끝난 이전 워커가 새 작업의 마커까지 지운다 - 반드시 소유권을 확인하고 지운다.
         redisTemplate.execute(RELEASE_IN_FLIGHT_SCRIPT, List.of(inFlightKey(projectId, jobType)), jobId);
+    }
+
+    /**
+     * 처리 중인 작업의 in-flight 마커 수명을 IN_FLIGHT_TTL만큼 다시 늘린다.
+     *
+     * <p>TTL은 "워커가 죽어 마커를 못 지우는 경우"를 위한 안전장치이지 작업 시간 상한이 아니다.
+     * 그런데 마커는 enqueue() 때 한 번만 설정되므로, 재분석이 TTL(5분)보다 오래 걸리면 아직
+     * 돌고 있는 도중에 마커가 사라져 (1) 같은 프로젝트 작업이 중복 적재·실행되고
+     * (2) 상태 조회가 실행 중인 작업을 FAILED로 보고한다. 그래서 워커가 처리하는 동안
+     * 주기적으로 이 메서드를 호출해 마커를 살려 둔다.
+     *
+     * <p>소유권을 확인하고 늘린다 - 이미 만료돼 다른 요청이 새 jobId로 다시 claim한 마커를
+     * 늦게 끝난 이전 워커가 연장하면 안 된다. 키가 이미 없으면 아무 일도 하지 않는다(되살리지 않음).
+     */
+    public void renewInFlight(Long projectId, DashboardAiJobType jobType, String jobId) {
+        redisTemplate.execute(
+            RENEW_IN_FLIGHT_SCRIPT,
+            List.of(inFlightKey(projectId, jobType)),
+            jobId,
+            Long.toString(IN_FLIGHT_TTL.toMillis())
+        );
     }
 
     /** 주어진 jobId가 아직 in-flight 마커의 주인이면 처리 중이다. */

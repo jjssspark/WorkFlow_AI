@@ -119,6 +119,20 @@ class DashboardAiJobPublisherTest {
     }
 
     @Test
+    void renewInFlightExtendsTheMarkerThroughOwnershipCheckedScript() {
+        // 처리 중 마커를 갱신하지 않으면 IN_FLIGHT_TTL(5분)을 넘기는 작업이 아직 돌고 있는데도
+        // 중복 방지가 풀린다. 갱신도 소유권을 확인해야 남의 마커 수명을 늘리지 않는다.
+        newPublisher().renewInFlight(1L, DashboardAiJobType.DELAY_RISK, "job-1");
+
+        verify(redisTemplate).execute(
+            any(RedisScript.class),
+            eq(List.of("dashboard-ai-inflight:1:DELAY_RISK")),
+            eq("job-1"),
+            eq(Long.toString(Duration.ofMinutes(5).toMillis()))
+        );
+    }
+
+    @Test
     void releaseInFlightGoesThroughOwnershipCheckedScript() {
         newPublisher().releaseInFlight(1L, DashboardAiJobType.WORKLOAD_SCORE, "job-9");
 
