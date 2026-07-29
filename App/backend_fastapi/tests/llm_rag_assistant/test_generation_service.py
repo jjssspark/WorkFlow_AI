@@ -1061,3 +1061,38 @@ def test_strip_markdown_keeps_multiplication_with_several_asterisks() -> None:
     answer = "3 * 4 * 5 = 60"
 
     assert _strip_markdown(answer) == answer
+
+
+def test_strip_markdown_keeps_multiplication_written_without_spaces() -> None:
+    """'3*4*5'를 강조로 보면 '345'가 되어 계산식이 다른 수로 바뀐다."""
+    answer = "3*4*5 = 60"
+
+    assert _strip_markdown(answer) == answer
+
+
+def test_strip_markdown_keeps_an_asterisk_inside_a_word() -> None:
+    answer = "필터 표기는 A*B*C 순서입니다"
+
+    assert _strip_markdown(answer) == answer
+
+
+def test_strip_markdown_still_removes_emphasis_at_a_word_boundary() -> None:
+    answer = "담당자는 *유소은* 입니다"
+
+    assert _strip_markdown(answer) == "담당자는 유소은 입니다"
+
+
+def test_strip_markdown_keeps_an_indented_description_with_its_list_item() -> None:
+    """항목과 그 설명 사이에 빈 줄이 끼면 설명이 다른 얘기처럼 읽힌다."""
+    answer = "- 결제 모듈 (이영희) 마감 2026-08-05\n  사유: 외부 API 승인 대기\n- 로그인 개선"
+
+    assert _strip_markdown(answer) == answer
+
+
+def test_strip_markdown_separates_a_new_block_even_after_an_indented_description() -> None:
+    """설명 줄이 끼어도 목록은 이어지는 중이다. 직전 줄만 보면 묶음 경계를 놓친다."""
+    answer = "- 결제 모듈 마감 2026-08-05\n  사유: 승인 대기\n블로커 업무는 다음과 같습니다"
+
+    assert _strip_markdown(answer) == (
+        "- 결제 모듈 마감 2026-08-05\n  사유: 승인 대기\n\n블로커 업무는 다음과 같습니다"
+    )

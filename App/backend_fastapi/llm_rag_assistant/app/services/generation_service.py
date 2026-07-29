@@ -234,7 +234,10 @@ _MARKDOWN_QUOTE_PATTERN = re.compile(r"^[ \t]{0,3}>[ \t]+", re.MULTILINE)
 _MARKDOWN_BULLET_PATTERN = re.compile(r"^([ \t]*)[*+][ \t]+", re.MULTILINE)
 # 강조는 한 줄 안에서만 찾는다(DOTALL 금지). 줄바꿈을 넘겨 짝을 지으면 서로 무관한 두 줄의
 # 짝 없는 '*'가 하나의 강조로 묶여, 두 별표가 함께 사라진다.
-_MARKDOWN_EMPHASIS_PATTERN = re.compile(r"(\*{1,3})(\S|\S[^\n]*?\S)\1")
+_MARKDOWN_STRONG_PATTERN = re.compile(r"(\*{2,3})(\S|\S[^\n]*?\S)\1")
+# 별표 하나짜리 강조는 단어 안에서는 인정하지 않는다. '3*4*5'를 강조로 보면 '345'가 되어
+# 계산식이 다른 수로 바뀐다(마크다운 규격상으론 강조지만, 여기 답변에는 곱셈이 더 흔하다).
+_MARKDOWN_EMPHASIS_PATTERN = re.compile(r"(?<![\w*])\*(\S|\S[^\n]*?\S)\*(?![\w*])")
 
 
 # 표는 프롬프트로만 막고 있어 새면 파이프가 그대로 화면에 남는다. 다만 파이프가 들어간 줄을
@@ -290,13 +293,19 @@ def _is_list_item(line: str) -> bool:
 
 
 def _space_out_list_blocks(text: str) -> str:
-    lines = text.split("\n")
     spaced: list[str] = []
-    for line in lines:
-        ends_a_list = spaced and _is_list_item(spaced[-1])
-        starts_new_block = line.strip() and not _is_list_item(line)
-        if ends_a_list and starts_new_block:
-            spaced.append("")
+    in_list = False
+    for line in text.split("\n"):
+        # 들여쓴 줄은 앞 항목의 설명이 이어지는 것으로 본다. 새 문단으로 보면 항목과 그 설명
+        # 사이에 빈 줄이 끼어 설명이 다른 얘기처럼 읽힌다. 설명 줄이 끼어도 목록은 이어지는
+        # 중이므로, 직전 줄만 보지 않고 목록 안에 있는지를 들고 간다.
+        continues_the_item = in_list and line[:1].isspace() and bool(line.strip())
+        if _is_list_item(line):
+            in_list = True
+        elif not continues_the_item:
+            if in_list and line.strip():
+                spaced.append("")
+            in_list = False
         spaced.append(line)
     return "\n".join(spaced)
 
@@ -310,7 +319,8 @@ def _strip_markdown(answer: str) -> str:
     text = _MARKDOWN_HEADING_PATTERN.sub("", text)
     text = _MARKDOWN_QUOTE_PATTERN.sub("", text)
     text = _MARKDOWN_BULLET_PATTERN.sub(r"\1- ", text)
-    text = _MARKDOWN_EMPHASIS_PATTERN.sub(r"\2", text)
+    text = _MARKDOWN_STRONG_PATTERN.sub(r"\2", text)
+    text = _MARKDOWN_EMPHASIS_PATTERN.sub(r"\1", text)
     return _space_out_list_blocks(text.strip())
 
 
