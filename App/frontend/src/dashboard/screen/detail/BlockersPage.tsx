@@ -36,7 +36,11 @@ type BlockerSortBy = "duration" | "id" | "priority" | "risk" | "dueDate" | "assi
 export function BlockersPage() {
   const { currentProjectId, currentProject } = useAuth();
   const isLeader = currentProject?.role === "팀장";
-  const { data: tasks, loading, error, refetch } = useDashboardTasks(currentProjectId);
+  const { data: tasks, loading: tasksLoadingRaw, error, refetch } = useDashboardTasks(currentProjectId);
+  const [pageRefreshing, setPageRefreshing] = useState(false);
+  // useDashboardTasks의 loading은 최초 로드 이후 refetch에서는 true로 안 바뀌므로,
+  // 새로고침 버튼을 눌렀을 때 스피너/문구가 뜨려면 별도의 pageRefreshing으로 합쳐서 써야 한다.
+  const loading = tasksLoadingRaw || pageRefreshing;
   const [actionError, setActionError] = useState<string | null>(null);
   const [resolvingTaskId, setResolvingTaskId] = useState<string | null>(null);
   const [dueDateTarget, setDueDateTarget] = useState<DashboardTaskDto | null>(null);
@@ -108,7 +112,11 @@ export function BlockersPage() {
           <p className="text-sm text-muted-foreground mt-0.5">막힌 업무를 파악하고 해결 담당자와 기한을 지정해 위험을 제거합니다.</p>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={() => refetch()} disabled={loading} className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-border bg-card text-foreground rounded-lg hover:bg-muted transition-colors disabled:opacity-50">
+          <button
+            onClick={async () => { setPageRefreshing(true); await refetch(); setPageRefreshing(false); }}
+            disabled={loading}
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-border bg-card text-foreground rounded-lg hover:bg-muted transition-colors disabled:opacity-50"
+          >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} /> {loading ? "새로고침 중..." : "새로고침"}
           </button>
           {isLeader && (
@@ -161,7 +169,7 @@ export function BlockersPage() {
                       <span className="text-[10px] font-mono text-muted-foreground">{task.id}</span>
                       {isRisk && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 border border-orange-200">지연 위험</span>}
                     </div>
-                    <div className="text-sm font-semibold text-foreground">{task.title}</div>
+                    <div onClick={() => setCommentTarget(task)} className="text-sm font-semibold text-foreground cursor-pointer hover:text-blue-700">{task.title}</div>
                   </div>
                 </div>
                 <span className="text-xs font-medium px-2.5 py-1 rounded-lg bg-red-100 text-red-700 shrink-0 whitespace-nowrap">
@@ -235,6 +243,9 @@ export function BlockersPage() {
           projectId={currentProjectId}
           focusComments
           onClose={() => setCommentTarget(null)}
+          isLeader={isLeader}
+          projectMembers={projectMembers}
+          onUpdated={() => refetch()}
         />
       )}
       <AddTaskModal

@@ -24,6 +24,7 @@ import {
   Layers,
   Package,
   Plus,
+  RefreshCw,
   Sparkles,
   TrendingUp,
   Upload,
@@ -80,9 +81,20 @@ export function DashboardView() {
   const onCardClick = (p: DetailPage) => navigate(`/dashboard/${p}`);
   const { user, currentProjectId, currentProject } = useAuth();
   const isLeader = currentProject?.role === "팀장";
-  const { data: summary, loading: summaryLoading, error: summaryError } = useDashboardSummary(currentProjectId);
-  const { data: progress, loading: progressLoading, error: progressError } = useDashboardProgress(currentProjectId);
-  const { data: tasks, loading: tasksLoading } = useDashboardTasks(currentProjectId);
+  const { data: summary, loading: summaryLoadingRaw, error: summaryError, refetch: refetchSummary } = useDashboardSummary(currentProjectId);
+  const { data: progress, loading: progressLoadingRaw, error: progressError, refetch: refetchProgress } = useDashboardProgress(currentProjectId);
+  const { data: tasks, loading: tasksLoadingRaw, refetch: refetchTasks } = useDashboardTasks(currentProjectId);
+  const [pageRefreshing, setPageRefreshing] = useState(false);
+  // 새로고침 버튼을 누른 동안은 각 데이터 영역이 "데이터를 불러오는 중입니다"로 보이도록,
+  // 개별 훅의 loading 상태에 pageRefreshing을 합쳐서 쓴다.
+  const summaryLoading = summaryLoadingRaw || pageRefreshing;
+  const progressLoading = progressLoadingRaw || pageRefreshing;
+  const tasksLoading = tasksLoadingRaw || pageRefreshing;
+  const refreshAll = async () => {
+    setPageRefreshing(true);
+    await Promise.all([refetchSummary(), refetchProgress(), refetchTasks()]);
+    setPageRefreshing(false);
+  };
   const [showAddTask, setShowAddTask] = useState(false);
   const [showUploadMeeting, setShowUploadMeeting] = useState(false);
   const [showMyTasks, setShowMyTasks] = useState(false);
@@ -143,6 +155,16 @@ export function DashboardView() {
 
   return (
     <div className="p-6 space-y-6 overflow-y-auto h-full relative" style={{ fontFamily: "'Inter', 'Noto Sans KR', sans-serif" }}>
+      <div className="flex items-center justify-end">
+        <button
+          onClick={refreshAll}
+          disabled={pageRefreshing}
+          className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-border bg-card text-foreground rounded-lg hover:bg-muted transition-colors disabled:opacity-50"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${pageRefreshing ? "animate-spin" : ""}`} />{pageRefreshing ? "새로고침 중..." : "새로고침"}
+        </button>
+      </div>
+
       {(summaryError || progressError) && (
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs font-medium text-red-700">
           데이터를 불러오지 못했습니다. {summaryError ?? progressError}
@@ -305,7 +327,7 @@ export function DashboardView() {
         initialStatus="todo"
         projectMembers={projectMembers}
         onClose={() => setShowAddTask(false)}
-        onCreated={() => setShowAddTask(false)}
+        onCreated={() => { refetchSummary(); refetchProgress(); refetchTasks(); }}
       />
 
       {showUploadMeeting && (
@@ -345,7 +367,7 @@ export function DashboardView() {
                 ) : myTasks.map(task => (
                   <div key={task.id} className="flex items-center gap-3 px-5 py-3 hover:bg-muted/30 transition-colors">
                     <span className="font-mono text-[10px] text-muted-foreground w-12">{task.id}</span>
-                    <span className="flex-1 text-xs font-medium text-foreground truncate">{task.title}</span>
+                    <span onClick={() => setDetailTarget(task)} className="flex-1 text-xs font-medium text-foreground truncate cursor-pointer hover:text-blue-700">{task.title}</span>
                     <TaskStatusPill status={normalizeTaskStatus(task.status)} />
                     <PriorityBadge priority={normalizePriority(task.priority)} />
                     <span className="text-xs text-muted-foreground w-12 text-right">{formatDashboardDueDate(task.dueDate)}</span>
@@ -362,6 +384,9 @@ export function DashboardView() {
           task={detailTarget}
           projectId={currentProjectId}
           onClose={() => setDetailTarget(null)}
+          isLeader={isLeader}
+          projectMembers={projectMembers}
+          onUpdated={() => refreshAll()}
         />
       )}
     </div>

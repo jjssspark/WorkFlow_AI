@@ -81,7 +81,9 @@ export function ActivityPage() {
     return activities.filter(activity => {
       const matchesType = matchesTypeFilter(activity.type, typeFilter);
       const matchesMember = memberFilter === "전체" || activity.actorName === memberFilter;
-      const matchesSearch = !query || activityMessage(activity).toLowerCase().includes(query);
+      const matchesSearch = !query
+        || activityMessage(activity).toLowerCase().includes(query)
+        || (activity.actorName?.toLowerCase().includes(query) ?? false);
       return matchesType && matchesMember && matchesSearch;
     });
   }, [activities, memberFilter, search, typeFilter]);
@@ -102,7 +104,7 @@ export function ActivityPage() {
         </div>
         <div className="flex items-center gap-2">
           <button onClick={manualRefresh} disabled={refreshing} className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-border bg-card text-foreground rounded-lg hover:bg-muted transition-colors disabled:opacity-50">
-            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} /> 새로고침
+            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} /> {refreshing ? "새로고침 중..." : "새로고침"}
           </button>
         </div>
       </div>
@@ -128,7 +130,7 @@ export function ActivityPage() {
         </select>
         <div className="relative ml-auto">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="활동 검색" className="pl-9 pr-4 py-2 text-xs rounded-lg border border-border bg-card outline-none focus:border-blue-400 w-44" />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="활동/담당자 검색" className="pl-9 pr-4 py-2 text-xs rounded-lg border border-border bg-card outline-none focus:border-blue-400 w-44" />
         </div>
       </div>
 

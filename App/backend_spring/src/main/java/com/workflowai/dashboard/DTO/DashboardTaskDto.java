@@ -1,6 +1,7 @@
 package com.workflowai.dashboard.DTO;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import java.util.Map;
 
 @Schema(description = "대시보드 업무 목록 항목")
 public record DashboardTaskDto(
@@ -10,6 +11,7 @@ public record DashboardTaskDto(
     @Schema(description = "상태", example = "inprogress") String status,
     @Schema(description = "담당자 ID", example = "1") String assigneeId,
     @Schema(description = "담당자 이름", example = "김민준") String assigneeName,
+    @Schema(description = "시작일(YYYY-MM-DD)", example = "2026-07-15") String startDate,
     @Schema(description = "마감일(YYYY-MM-DD)", example = "2026-07-21") String dueDate,
     @Schema(description = "완료일(YYYY-MM-DD) — status가 done으로 바뀐 날짜, done이 아니면 null", example = "2026-07-20") String doneDate,
     @Schema(description = "우선순위", example = "high") String priority,
@@ -17,6 +19,7 @@ public record DashboardTaskDto(
     @Schema(description = "업무 생성 출처", example = "MEETING_AI") String sourceType,
     @Schema(description = "같은 상태 안에서의 칸반 카드 순서", example = "0.0") double position,
     @Schema(description = "업무 생성 시각(ISO-8601)", example = "2026-07-01T09:00:00") String createdAt,
-    @Schema(description = "업무 마지막 수정 시각(ISO-8601)", example = "2026-07-19T15:30:00") String updatedAt
+    @Schema(description = "업무 마지막 수정 시각(ISO-8601)", example = "2026-07-19T15:30:00") String updatedAt,
+    @Schema(description = "카테고리 전용 정보(자유 키-값)") Map<String, String> extraFields
 ) {
 }
