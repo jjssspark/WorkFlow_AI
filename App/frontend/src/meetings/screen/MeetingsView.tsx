@@ -782,10 +782,13 @@ export function MeetingsView() {
 
   const generatedTodos = analysisResult ? buildGeneratedTodos(analysisResult) : [];
   const riskCards = analysisResult ? buildRiskCards(analysisResult.risks) : [];
-  const unassignedCount = generatedTodos.filter(t => !getAssignee(t)).length;
-  const assignedCount = generatedTodos.filter(t => Boolean(getAssignee(t))).length;
   const nextActions = generatedTodos.slice(0, 3).map(t => t.title);
   const reviewTodos = [...generatedTodos, ...manualTodos];
+  // 역할 분배 검토 화면(저장된 회의록의 "업무로 등록" 경로 포함)은 manualTodos에도 실제
+  // 검토 대상 To-Do가 담기므로, 배정/미배정 집계는 generatedTodos만이 아니라 화면에 실제로
+  // 표시되는 reviewTodos 전체를 기준으로 해야 한다.
+  const unassignedCount = reviewTodos.filter(t => !getAssignee(t)).length;
+  const assignedCount = reviewTodos.filter(t => Boolean(getAssignee(t))).length;
   // 담당자 기준으로 묶어서 표시 (같은 담당자 업무가 연속 배치되도록) — 표시 순서만 바뀌고 원본 배열/등록 로직은 그대로 유지.
   const groupedGeneratedTodos = groupTodosByAssignee(generatedTodos, getAssignee);
   const isReviewBatchAlreadyRegistered = reviewTodos.length > 0 && reviewTodos.every(todo => {

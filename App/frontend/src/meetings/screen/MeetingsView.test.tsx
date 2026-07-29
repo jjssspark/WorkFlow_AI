@@ -395,6 +395,46 @@ describe("MeetingsView 홈 탭", () => {
     ));
   });
 
+  it("저장된 회의록에서 '업무로 등록'으로 들어간 역할 분배 검토 화면도 배정/미배정 요약이 실제 항목 수를 반영한다", async () => {
+    const user = userEvent.setup();
+    fetchMeeting.mockResolvedValue({
+      meetingId: "1",
+      projectId: "1",
+      status: "COMPLETED",
+      sourceType: "document",
+      fileName: "meeting.txt",
+      analysisSource: "FASTAPI",
+      errorMessage: null,
+      attendees: [],
+      analysis: {
+        summary: "요약",
+        decisions: [],
+        risks: [],
+        keywords: [],
+        meeting_meta: { title: "저장된 정기회의", meeting_date: "2026-07-19", participants: [] },
+        todos: [
+          { title: "인증 구조 설계", description: "", assignee_candidate: "김민준", assignee_id: "1", due_date: "2026-07-20", priority: "HIGH", category: "BACKEND", needs_leader_review: false },
+          { title: "테스트 케이스 작성", description: "", assignee_candidate: null, assignee_id: null, due_date: "2026-07-22", priority: "MEDIUM", category: "OTHER", needs_leader_review: true },
+        ],
+      },
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/meetings?meetingId=1"]}>
+        <MeetingsView />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(fetchMeetings).toHaveBeenCalled());
+    await user.click(await screen.findByRole("button", { name: "업무로 등록" }));
+
+    expect(await screen.findByRole("heading", { name: "역할 분배 검토" })).toBeInTheDocument();
+    // 이 화면은 analysisResult가 아니라 저장된 meeting.todos를 변환해 채워지므로,
+    // 요약 배지가 generatedTodos만 세면 항상 0으로 보이는 회귀를 막는다.
+    expect(screen.getByText("1개 배정 완료")).toBeInTheDocument();
+    expect(screen.getByText("1개 미배정")).toBeInTheDocument();
+  });
+
   it("meetingId 쿼리파라미터의 회의록이 아직 저장되지 않았어도(savedAt null) 분석/업로드 탭으로 전환된다", async () => {
     // "2"는 beforeEach의 fetchMeetings 목록에서 savedAt: null(분석 완료, 저장 확정 전) 상태다.
     render(
