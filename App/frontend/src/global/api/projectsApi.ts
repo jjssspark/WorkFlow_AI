@@ -5,6 +5,7 @@ export interface ProjectResponse {
   id: number;
   title: string;
   type: string | null;
+  year: number | null;
   deadline: string | null;
   description: string | null;
   startDate: string | null;
@@ -25,6 +26,7 @@ export interface ProjectResponse {
 export interface CreateProjectRequest {
   title: string;
   type?: string;
+  year?: number;
   description?: string;
   startDate?: string;
   deadline?: string;
@@ -126,4 +128,8 @@ export function acceptInvitation(token: string) {
   return apiFetch<AcceptInvitationResponse>(`/invitations/${token}/accept`, {
     method: "POST",
   });
+}
+
+export function touchProjectAccess(projectId: number) {
+  return apiFetch<void>(`/projects/${projectId}/access`, { method: "POST" });
 }

@@ -82,6 +82,7 @@ public class ProjectService {
                     Project project = projectRepository.saveAndFlush(new Project(
                         request.title(),
                         request.type(),
+                        request.year(),
                         request.description(),
                         request.startDate(),
                         request.deadline(),
@@ -123,6 +124,16 @@ public class ProjectService {
             projectMemberRepository.save(new ProjectMember(project.getId(), userId, ProjectRole.MEMBER));
         }
         return toResponse(project);
+    }
+
+    /** 사용자가 프로젝트에 진입(선택)할 때마다 호출되어 "최근 접근" 순서의 기준이 된다. */
+    @Transactional
+    public void touchAccess(Long projectId, Long userId) {
+        projectMemberRepository.findByProjectIdAndUserId(projectId, userId)
+            .ifPresent(pm -> {
+                pm.touchLastAccessed();
+                projectMemberRepository.save(pm);
+            });
     }
 
     public List<ProjectResponse> findAllForUser(Long userId) {
@@ -340,6 +351,7 @@ public class ProjectService {
             project.getId(),
             project.getTitle(),
             project.getType(),
+            project.getYear(),
             project.getDeadline(),
             project.getDescription(),
             project.getStartDate(),

@@ -115,4 +115,33 @@ class ProjectMemberRepositoryTest {
         assertThat(counts).hasSize(1);
         assertThat(counts.get(0).getMemberCount()).isEqualTo(1L);
     }
+
+    @Test
+    void findAllByUserIdOrderByRecencyOrdersByLastAccessedThenCreatedAt() throws InterruptedException {
+        // Arrange
+        User user = userRepository.save(new User("recency@example.com", "Recency User", "email", "recency"));
+        Project oldProject = projectRepository.save(new Project("Old Project", "Type", "Description"));
+        Project recentProject = projectRepository.save(new Project("Recent Project", "Type", "Description"));
+        Project neverAccessedProject = projectRepository.save(new Project("Never Accessed Project", "Type", "Description"));
+
+        ProjectMember old = projectMemberRepository.save(
+            new ProjectMember(oldProject.getId(), user.getId(), ProjectRole.MEMBER));
+        ProjectMember recentlyAccessed = projectMemberRepository.save(
+            new ProjectMember(recentProject.getId(), user.getId(), ProjectRole.MEMBER));
+        ProjectMember neverAccessed = projectMemberRepository.save(
+            new ProjectMember(neverAccessedProject.getId(), user.getId(), ProjectRole.MEMBER));
+
+        old.touchLastAccessed();
+        projectMemberRepository.save(old);
+        Thread.sleep(10);
+        recentlyAccessed.touchLastAccessed();
+        projectMemberRepository.save(recentlyAccessed);
+
+        // Act
+        List<ProjectMember> result = projectMemberRepository.findAllByUserIdOrderByRecency(user.getId());
+
+        // Assert
+        assertThat(result).extracting(ProjectMember::getProjectId)
+            .containsExactly(recentlyAccessed.getProjectId(), old.getProjectId(), neverAccessed.getProjectId());
+    }
 }

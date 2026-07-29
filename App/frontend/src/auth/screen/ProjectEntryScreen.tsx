@@ -21,6 +21,7 @@ import {
   fetchReviewerActivities, recordReviewerAccess, type ReviewerActivity,
 } from "../../global/api/reviewerActivityApi";
 import { EVAL_STATUS_META, resolveEvalStatus } from "../../global/lib/evalStatus";
+import { Button } from "../../global/component/ui/button";
 
 // 백엔드가 이 코드로 응답할 때만 "이메일/링크 초대 토큰이 아니라 프로젝트 참여 코드였다"고 확신할 수
 // 있다(InvitationController.accept 참고) - InviteAcceptScreen과 동일한 계약.
@@ -320,14 +321,10 @@ export function ProjectEntryScreen() {
                     className="w-full rounded-xl border border-border bg-input-background px-3 py-2.5 text-sm outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
                   />
                   {judgeMessage && <div className="mt-2 text-xs text-violet-600 leading-relaxed">{judgeMessage}</div>}
-                  <button
-                    type="button"
-                    onClick={handleAddJudgeProject}
-                    className="mt-3 w-full py-2.5 rounded-xl text-white text-sm font-semibold flex items-center justify-center gap-2 bg-violet-600 hover:bg-violet-700 transition-colors"
-                  >
+                  <Button type="button" onClick={handleAddJudgeProject} className="mt-3 w-full">
                     <ShieldCheck className="w-4 h-4" />
                     프로젝트 추가
-                  </button>
+                  </Button>
                 </section>
 
                 <section className="bg-card border border-border rounded-xl p-5 shadow-sm">
@@ -443,14 +440,10 @@ export function ProjectEntryScreen() {
                     <p className="text-xs text-muted-foreground">생성 즉시 팀장 권한으로 시작합니다.</p>
                   </div>
                 </div>
-                <button
-                  onClick={() => navigate("/onboarding")}
-                  className="w-full py-2.5 rounded-xl text-white text-sm font-semibold flex items-center justify-center gap-2 hover:opacity-90 transition-opacity"
-                  style={{ background: "linear-gradient(135deg, #3B5BDB 0%, #4F6EF7 100%)" }}
-                >
+                <Button onClick={() => navigate("/onboarding")} className="w-full">
                   <Crown className="w-4 h-4" />
                   프로젝트 정보 입력하고 시작하기
-                </button>
+                </Button>
               </div>
 
               <div className="bg-card border border-border rounded-xl p-4 shadow-sm">

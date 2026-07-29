@@ -5,6 +5,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { buildGeneratedTodos, deriveCurrentUserRole, MeetingsView } from "./MeetingsView";
 import type { MeetingAiResult } from "../libs/types/meetingAiTypes";
 import { ApiRequestError } from "../../global/api/apiClient";
+import { toast } from "sonner";
 
 const mockUseAuth = vi.fn();
 vi.mock("../../global/hooks/useAuth", () => ({
@@ -81,6 +82,10 @@ vi.mock("jspdf", () => ({
     addPage: vi.fn(),
     save: mockPdfSave,
   })),
+}));
+
+vi.mock("sonner", () => ({
+  toast: { success: vi.fn(), error: vi.fn() },
 }));
 
 const baseResult = (assignee_id: string | null): MeetingAiResult => ({
@@ -737,6 +742,25 @@ describe("MeetingsView 삭제 플로우 분리", () => {
 
     await waitFor(() => expect(deleteMeeting).toHaveBeenCalledWith("1", "3", false));
     expect(deleteMeetingAnalysis).not.toHaveBeenCalled();
+  });
+
+  it("회의록 삭제 성공 시 sonner toast.success가 호출된다", async () => {
+    fetchMeetings.mockResolvedValue([
+      { meetingId: "2", title: "분석중 회의", meetingDate: "2026-07-20", meetingType: "정기회의", analysisStatus: "processing", savedAt: null, originalMeetingId: null, tasksRegistered: false },
+    ]);
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={["/meetings"]}>
+        <MeetingsView />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(fetchMeetings).toHaveBeenCalled());
+    await user.click(await screen.findByLabelText("분석중 회의 회의록 삭제"));
+    await user.click(screen.getByText("삭제"));
+
+    await waitFor(() => expect(deleteMeeting).toHaveBeenCalledWith("1", "2", false));
+    expect(vi.mocked(toast.success)).toHaveBeenCalledWith("회의록이 삭제되었습니다.");
   });
 });
 
