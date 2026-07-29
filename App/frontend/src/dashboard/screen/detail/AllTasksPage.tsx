@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { AlertTriangle, Check, CheckCircle2, Clock, Layers, MessageSquare, Plus, RefreshCw, Search } from "lucide-react";
-import { AiInsightBox } from "../../../ai/components/AiInsightBox";
 import { BackBtn } from "../../../global/component/BackBtn";
 import { DetailStatCard } from "../../../global/component/DetailStatCard";
 import { PriorityBadge } from "../../../board/components/PriorityBadge";
@@ -11,9 +10,7 @@ import { useDashboardProgress } from "../../libs/hooks/useDashboardProgress";
 import { useDashboardTasks } from "../../libs/hooks/useDashboardTasks";
 import { fetchDashboardTasks } from "../../libs/utils/dashboardApi";
 import {
-  daysSince,
   daysUntilDue,
-  isDangerDelayRisk,
   normalizePriority,
   normalizeTaskStatus,
   sourceLabel,
@@ -73,10 +70,10 @@ const PRIORITY_SEARCH_LABEL: Record<Priority, string> = { high: "높음", medium
 export function AllTasksPage() {
   const navigate = useNavigate();
   const onBack = () => navigate("/dashboard");
-  const { user, currentProjectId, currentProject } = useAuth();
+  const { currentProjectId, currentProject } = useAuth();
   const isLeader = currentProject?.role === "팀장";
   const { data: tasks, loading, error, refetch } = useDashboardTasks(currentProjectId);
-  const { data: progress, loading: progressLoading } = useDashboardProgress(currentProjectId);
+  const { data: progress } = useDashboardProgress(currentProjectId);
   const [search, setSearch] = useState("");
   const [searchDraft, setSearchDraft] = useState("");
   const [searchCategory, setSearchCategory] = useState<SearchCategory>("all");
@@ -181,29 +178,14 @@ export function AllTasksPage() {
     });
   }, [filterStatus, search, searchCategory, sortBy, showMeetingPendingOnly, tasks, delayRiskByTaskId]);
 
-  const dangerRiskTaskIds = new Set((progress?.delayRisks ?? []).filter(risk => isDangerDelayRisk(risk.result)).map(risk => risk.taskId));
-  const longestStalledDangerTask = tasks
-    .filter(task => dangerRiskTaskIds.has(task.id))
-    .reduce<{ title: string; days: number } | null>((longest, task) => {
-      const days = daysSince(task.updatedAt) ?? 0;
-      return !longest || days > longest.days ? { title: task.title, days } : longest;
-    }, null);
-  const aiInsightReady = !loading && !progressLoading;
-  const aiInsightPrompt = longestStalledDangerTask
-    ? `사용자의 지연 위험도 '위험' 업무 중, 가장 현재 상태 체류시간이 긴 업무인 '${longestStalledDangerTask.title}'에 대해 먼저 처리할 일과 다음 액션을 알려줘.`
-    : "";
-  const aiInsightFallback = longestStalledDangerTask
-    ? `${user?.name ?? "담당자"}님의 ${longestStalledDangerTask.title}이 지연 위험입니다.`
-    : "현재 지연 위험('위험') 업무가 없습니다.";
-
   const counts = {
     total: tasks.length,
     done: tasks.filter(t => normalizeTaskStatus(t.status) === "done").length,
     inProgress: tasks.filter(t => normalizeTaskStatus(t.status) === "inprogress").length,
     blocked: tasks.filter(t => normalizeTaskStatus(t.status) === "blocked").length,
   };
-
   const donePct = counts.total === 0 ? 0 : Math.round((counts.done / counts.total) * 100);
+
   const allSelected = filtered.length > 0 && filtered.every(t => selected.includes(t.id));
   const toggleAll = () => setSelected(allSelected ? [] : filtered.map(t => t.id));
   const toggle = (id: string) => setSelected(prev => prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]);
@@ -236,14 +218,6 @@ export function AllTasksPage() {
         <DetailStatCard label="진행중" value={loading ? "..." : counts.inProgress} sub="활성 업무" color="#3B5BDB" icon={Clock} />
         <DetailStatCard label="블로커" value={loading ? "..." : counts.blocked} sub="즉시 해결 필요" color="#EF4444" icon={AlertTriangle} />
       </div>
-
-      <AiInsightBox
-        projectId={currentProjectId}
-        prompt={aiInsightPrompt}
-        ready={aiInsightReady && longestStalledDangerTask != null}
-        fallbackText={aiInsightFallback}
-        formatAnswer={answer => `${aiInsightFallback} ${answer}`}
-      />
 
       <div className="flex items-center gap-2 flex-wrap">
         <select

@@ -11,7 +11,6 @@ WorkFlow AI - FS-5 업무 편중 점수 (Workload/Overload Score)
 
 import numpy as np
 import pandas as pd
-from langsmith import traceable
 from sklearn.ensemble import IsolationForest
 from sklearn.preprocessing import StandardScaler
 
@@ -182,35 +181,9 @@ def generate_synthetic_tasks(n_members: int = 7, seed: int = RANDOM_SEED) -> pd.
 # ============================================================
 # 2. 피처 엔지니어링 (실제 DB 연결 시 이 함수 입력만 실제 tasks df로 교체)
 # ============================================================
-def _summarize_build_features_inputs(inputs: dict) -> dict:
-    """LangSmith 트레이스에 tasks_df 전체 대신 행 수/컬럼명 요약만 기록한다."""
-    tasks_df = inputs.get("tasks_df")
-    embedding_adjustments = inputs.get("embedding_adjustments")
-    return {
-        "tasks_df_rows": len(tasks_df),
-        "tasks_df_columns": list(tasks_df.columns),
-        "embedding_adjustments_count": len(embedding_adjustments) if embedding_adjustments else 0,
-    }
-
-
-def _summarize_build_features_outputs(outputs: pd.DataFrame) -> dict:
-    """LangSmith 트레이스에 feature_df 전체 대신 행 수/컬럼명 요약만 기록한다."""
-    return {
-        "feature_df_rows": len(outputs),
-        "feature_df_columns": list(outputs.columns),
-    }
-
-
-@traceable(
-    run_type="tool",
-    name="build_features",
-    process_inputs=_summarize_build_features_inputs,
-    process_outputs=_summarize_build_features_outputs,
-)
 def build_features(
     tasks_df: pd.DataFrame,
     today: pd.Timestamp = None,
-    embedding_adjustments: dict[int, float] | None = None,
 ) -> pd.DataFrame:
     """
     팀원별(assignee_id) 피처 테이블 생성.
@@ -222,8 +195,8 @@ def build_features(
     - upcoming_due_count: 마감 3일 이내 미완료
     모두 '팀 평균 대비 상대값'으로도 같이 계산한다 (과부하/저활동은 상대 개념이므로).
 
-    embedding_adjustments: {task_id: 보정치} — embedding_difficulty.compute_embedding_adjustments()의
-    반환값을 그대로 넘긴다. None이면(기본값) 기존 동작과 완전히 동일.
+    난이도는 업무의 priority와 category에 정의된 고정 가중치만 사용한다.
+    외부 생성형 AI 서비스는 호출하지 않는다.
     """
     if today is None:
         today = pd.Timestamp("2026-07-14")
@@ -234,14 +207,7 @@ def build_features(
     df["is_upcoming"] = (~df["is_done"]) & (df["due_date"] >= today) & \
                          (df["due_date"] <= today + pd.Timedelta(days=3))
 
-    if embedding_adjustments:
-        df["difficulty"] = df.apply(
-            lambda r: difficulty_of(r["priority"], r["category"])
-            + embedding_adjustments.get(r["task_id"], 0.0),
-            axis=1,
-        )
-    else:
-        df["difficulty"] = df.apply(lambda r: difficulty_of(r["priority"], r["category"]), axis=1)
+    df["difficulty"] = df.apply(lambda r: difficulty_of(r["priority"], r["category"]), axis=1)
 
     grouped = df.groupby("assignee_id").agg(
         task_count_total=("task_id", "count"),
@@ -306,8 +272,11 @@ def detect_overload_anomalies_robust(feature_df: pd.DataFrame, z_threshold: floa
     result["anomaly_score_raw"] = combined_distance
     result["is_anomaly"] = combined_distance > z_threshold
 
-    max_d = combined_distance.max()
-    result["overload_score_0_100"] = 100 * combined_distance / max_d if max_d > 0 else 0.0
+    # 점수는 "팀 내 최댓값" 기준이 아니라 이상치 임계값(z_threshold) 기준으로 스케일링한다.
+    # 팀 내 최댓값 기준으로 하면, 아무도 임계값을 넘지 않아도(전원 정상) 그중 상대적으로 가장
+    # 튀는 사람이 무조건 100점을 받는 모순이 생긴다(실제로 "정상"인데 100점이 뜨는 문제로 확인됨).
+    # 임계값 기준으로 하면 거리==임계값일 때 100점이 되어, 실제 이상치만 100점 근처에 도달한다.
+    result["overload_score_0_100"] = np.minimum(100.0, 100 * combined_distance / z_threshold)
 
     team_mean_completion = feature_df["completion_rate"].mean()
 
@@ -334,32 +303,6 @@ def detect_overload_anomalies_robust(feature_df: pd.DataFrame, z_threshold: floa
     return result
 
 
-def _summarize_detect_overload_inputs(inputs: dict) -> dict:
-    """LangSmith 트레이스에 feature_df 전체 대신 행 수/임계값 요약만 기록한다."""
-    feature_df = inputs.get("feature_df")
-    return {
-        "feature_df_rows": len(feature_df),
-        "small_team_threshold": inputs.get("small_team_threshold"),
-    }
-
-
-def _summarize_detect_overload_outputs(outputs: pd.DataFrame) -> dict:
-    """LangSmith 트레이스에 result df 전체 대신 이상치 개수/상위 점수 요약만 기록한다."""
-    top_score = outputs["overload_score_0_100"].max() if len(outputs) > 0 else None
-    return {
-        "result_rows": len(outputs),
-        "anomaly_count": int(outputs["is_anomaly"].sum()),
-        "top_score": float(top_score) if top_score is not None else None,
-        "method_used": outputs.attrs.get("method_used"),
-    }
-
-
-@traceable(
-    run_type="tool",
-    name="detect_overload_anomalies_auto",
-    process_inputs=_summarize_detect_overload_inputs,
-    process_outputs=_summarize_detect_overload_outputs,
-)
 def detect_overload_anomalies_auto(feature_df: pd.DataFrame, small_team_threshold: int = 15) -> pd.DataFrame:
     """
     팀 규모에 따라 자동으로 방법을 선택.

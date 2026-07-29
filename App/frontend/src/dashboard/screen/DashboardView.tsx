@@ -27,7 +27,6 @@ import {
   Sparkles,
   TrendingUp,
   Upload,
-  Users,
   X,
   Zap,
 } from "lucide-react";
@@ -41,12 +40,12 @@ import { useDashboardProgress } from "../libs/hooks/useDashboardProgress";
 import { useDashboardSummary } from "../libs/hooks/useDashboardSummary";
 import { useDashboardTasks } from "../libs/hooks/useDashboardTasks";
 import { activityIconMeta, activityMessage, activityTypeLabel, formatRelativeTime } from "../libs/utils/activityDisplay";
-import { daysSince, daysUntilDue, formatDashboardDueDate, isDelayRisk, normalizePriority, normalizeTaskStatus } from "../libs/utils/dashboardTaskUtils";
+import { daysUntilDue, formatDashboardDueDate, normalizePriority, normalizeTaskStatus } from "../libs/utils/dashboardTaskUtils";
 import { resolveMemberDisplay } from "../libs/utils/memberDisplay";
-import { AiInsightBox } from "../../ai/components/AiInsightBox";
 import { openAIAssistant } from "../../ai/libs/utils/openAIAssistant";
 import { ProgressFrequencyChart } from "../components/ProgressFrequencyChart";
 import { AddTaskModal } from "../../board/components/AddTaskModal";
+import { MeetingUploadModal } from "../../meetings/components/MeetingUploadModal";
 import { TaskDetailPopup } from "../components/TaskDetailPopup";
 import { TaskStatusPill } from "../../board/components/TaskStatusPill";
 import { PriorityBadge } from "../../board/components/PriorityBadge";
@@ -85,6 +84,7 @@ export function DashboardView() {
   const { data: progress, loading: progressLoading, error: progressError } = useDashboardProgress(currentProjectId);
   const { data: tasks, loading: tasksLoading } = useDashboardTasks(currentProjectId);
   const [showAddTask, setShowAddTask] = useState(false);
+  const [showUploadMeeting, setShowUploadMeeting] = useState(false);
   const [showMyTasks, setShowMyTasks] = useState(false);
   const [detailTarget, setDetailTarget] = useState<DashboardTaskDto | null>(null);
   const [projectMembers, setProjectMembers] = useState<MemberResponse[]>([]);
@@ -121,31 +121,16 @@ export function DashboardView() {
   const projectStart = progress?.projectCreatedAt ?? null;
   const projectDeadline = progress?.projectDeadline ?? null;
 
-  // "AI 추천 액션" 기능 미사용 처리로 아래 변수들도 함께 주석 처리(관련 코드)
-  // const dangerRiskTaskIds = new Set((progress?.delayRisks ?? []).filter(risk => isDelayRisk(risk.result)).map(risk => risk.taskId));
-  // const longestStalledDangerTask = tasks
-  //   .filter(task => dangerRiskTaskIds.has(task.id))
-  //   .reduce<{ title: string; days: number } | null>((longest, task) => {
-  //     const days = daysSince(task.updatedAt) ?? 0;
-  //     return !longest || days > longest.days ? { title: task.title, days } : longest;
-  //   }, null);
-  // const aiInsightReady = !summaryLoading && !progressLoading && !tasksLoading;
-  // const aiInsightPrompt = longestStalledDangerTask
-  //   ? `지연위험도 주의/위험 업무 중, 가장 오래 정체된 업무인 '${longestStalledDangerTask.title}'의 대응법을 알려줘 (2~3문장).`
-  //   : "";
-
   const myTasks = user == null ? [] : tasks.filter(task => task.assigneeId === String(user.id));
 
   const quickActions = [
     ...(isLeader
       ? [{ label: "업무 추가", icon: Plus, color: "#3B5BDB", onClick: () => setShowAddTask(true) }]
       : [{ label: "내업무 조회", icon: Plus, color: "#3B5BDB", onClick: () => setShowMyTasks(true) }]),
-    { label: "회의록 업로드", icon: Upload, color: "#7048E8", onClick: () => navigate("/meetings?upload=1") },
+    { label: "회의록 업로드", icon: Upload, color: "#7048E8", onClick: () => setShowUploadMeeting(true) },
     ...(deliverablesActive ? [{ label: "산출물", icon: Package, color: "#0F766E", onClick: () => navigate("/deliverables") }] : []),
-    { label: "AI 어시스턴트", icon: Sparkles, color: "#F59E0B", onClick: () => openAIAssistant() },
+    { label: "AI Assistant", icon: Sparkles, color: "#F59E0B", onClick: () => openAIAssistant() },
     { label: "업무 보드", icon: Columns3, color: "#0EA5E9", onClick: () => navigate("/board") },
-    // { label: "전체 업무", icon: Users, color: "#EC4899", onClick: () => navigate("/dashboard/all-tasks") },
-    // { label: "마감 임박", icon: Clock, color: "#EF4444", onClick: () => navigate("/dashboard/urgent") },
   ];
 
   if (currentProjectId == null) {
@@ -163,34 +148,6 @@ export function DashboardView() {
           데이터를 불러오지 못했습니다. {summaryError ?? progressError}
         </div>
       )}
-
-      {/* "AI 추천 액션" 기능 미사용 처리 (주석 처리)
-      {longestStalledDangerTask ? (
-        <AiInsightBox
-          projectId={currentProjectId}
-          prompt={aiInsightPrompt}
-          ready={aiInsightReady}
-          formatAnswer={answer => `${user?.name ?? "담당자"}님의 ${longestStalledDangerTask.title}이 지연 위험입니다. ${answer}`}
-          actionLabel="자세히"
-          variant="banner"
-        />
-      ) : (
-        <div className="rounded-xl p-4 flex items-center gap-3 text-white" style={{ background: "linear-gradient(135deg,#7048E8,#4F6EF7)" }}>
-          <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 bg-white/20">
-            <Sparkles className="w-4 h-4" />
-          </div>
-          <div className="flex-1">
-            <div className="text-sm font-semibold">AI 추천 액션</div>
-            <div className="text-xs text-white/85 mt-0.5">
-              {aiInsightReady ? "현재 지연 위험('위험') 업무가 없습니다." : "데이터를 불러오는 중입니다..."}
-            </div>
-          </div>
-          <button onClick={() => openAIAssistant()} className="text-xs font-semibold px-3 py-1.5 rounded-lg shrink-0 bg-white/20 hover:bg-white/30 transition-colors">
-            자세히
-          </button>
-        </div>
-      )}
-      */}
 
       <div className="bg-card rounded-xl p-4 shadow-sm border border-border">
         <div className="text-sm font-semibold text-foreground mb-3">빠른 액션</div>
@@ -248,9 +205,11 @@ export function DashboardView() {
             {isSummaryPending ? (
               <EmptyState>데이터를 불러오는 중입니다</EmptyState>
             ) : upcomingDeadlines.length ? upcomingDeadlines.map((task, index) => {
-              // UpcomingTaskDto에는 assigneeId가 없어 index를 색상 키로 넘기면 렌더 순서에
-              // 따라 같은 사람이 다른 색을 받는다 - 이름을 안정적인 키로 대신 사용한다.
-              const member = resolveMemberDisplay(task.assigneeName, index, task.assigneeName);
+              // 사용자 ID를 색상 키로 써서 이름이나 목록 순서가 바뀌어도 같은 색을 유지한다.
+              // 구버전 응답에는 ID가 없을 수 있으므로 이름, 미배정 고정 키 순서로 대체한다.
+              const assigneeColorKey = task.assigneeId
+                ?? (task.assigneeName ? `name:${task.assigneeName}` : "unassigned");
+              const member = resolveMemberDisplay(task.assigneeName, index, assigneeColorKey);
               const dueSoon = (daysUntilDue(task.dueDate) ?? Infinity) <= 3;
               return (
                 <div key={task.id} className="flex items-center gap-2.5">
@@ -348,6 +307,18 @@ export function DashboardView() {
         onClose={() => setShowAddTask(false)}
         onCreated={() => setShowAddTask(false)}
       />
+
+      {showUploadMeeting && (
+        <MeetingUploadModal
+          projectId={String(currentProjectId)}
+          projectMembers={projectMembers}
+          onClose={() => setShowUploadMeeting(false)}
+          onUploaded={(meetingId, title, uploadedAt) => {
+            setShowUploadMeeting(false);
+            navigate(`/meetings?resume=${encodeURIComponent(meetingId)}&title=${encodeURIComponent(title)}&uploadedAt=${encodeURIComponent(uploadedAt)}`);
+          }}
+        />
+      )}
 
       {showMyTasks && (
         <>

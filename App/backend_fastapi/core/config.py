@@ -2,14 +2,17 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from core.database_url import normalize_database_url
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     database_url: str
+    database_use_transaction_pooler: bool = False
     redis_url: str = "redis://localhost:6379/0"
     redis_username: str | None = None
     redis_password: str | None = None
@@ -35,9 +38,22 @@ class Settings(BaseSettings):
     # 어시스턴트는 회의 중 띄엄띄엄 쓰는 화면이라 5분 간격을 넘기기 쉬워 더 길게 잡는다.
     rag_ollama_keep_alive: str = "30m"
 
+    # RAG 생성 체인의 2순위(HF 미설정/실패 시) 백엔드. 미설정이면 Gemini 단계를 건너뛰고
+    # 바로 Ollama로 넘어간다(fail-closed, generation_service._generate_with_gemini 참고).
+    gemini_api_key: str | None = None
+    gemini_rag_generation_model: str = "gemini-2.5-flash"
+
     # Spring만 내부 AI 엔드포인트를 호출할 수 있도록 검증하는 서비스 간 공유 시크릿.
     # 미설정 시 core/security.py가 모든 요청을 거부한다(fail-closed).
     rag_internal_api_key: str | None = None
+
+    @model_validator(mode="after")
+    def normalize_postgres_url(self) -> "Settings":
+        self.database_url = normalize_database_url(
+            self.database_url,
+            use_transaction_pooler=self.database_use_transaction_pooler,
+        )
+        return self
 
 
 @lru_cache
