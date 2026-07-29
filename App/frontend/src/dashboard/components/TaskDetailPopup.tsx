@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { MessageSquare, Send, X } from "lucide-react";
+import { MessageSquare, Pencil, Send, X } from "lucide-react";
 import { PriorityBadge } from "../../board/components/PriorityBadge";
 import { TaskStatusPill } from "../../board/components/TaskStatusPill";
 import type { DashboardTaskDto } from "../libs/types/dashboard";
@@ -8,7 +8,9 @@ import {
   fetchTaskComments,
   type TaskCommentDto,
 } from "../../board/libs/utils/taskCommentApi";
-import { formatDashboardDueDate, normalizePriority, normalizeTaskStatus, parseKstDateTime, sourceLabel } from "../libs/utils/dashboardTaskUtils";
+import { dashboardTaskToBoardTask, formatDashboardDueDate, normalizePriority, normalizeTaskStatus, parseKstDateTime, sourceLabel } from "../libs/utils/dashboardTaskUtils";
+import { EditTaskModal } from "../../board/components/EditTaskModal";
+import type { MemberResponse } from "../../global/api/projectsApi";
 
 interface TaskDetailPopupProps {
   task: DashboardTaskDto;
@@ -16,13 +18,20 @@ interface TaskDetailPopupProps {
   onClose: () => void;
   /** 댓글 이모지로 열었을 때 댓글란까지 스크롤해 보여준다. */
   focusComments?: boolean;
+  /** true면 헤더에 '수정' 버튼을 노출해 업무 수정창으로 바로 연결한다(팀장 전용). */
+  isLeader?: boolean;
+  /** 업무 수정창의 담당자 배정 드롭다운에 쓰인다. */
+  projectMembers?: MemberResponse[];
+  /** 업무 수정 완료 후 호출 — 부모 목록을 새로고침하는 용도. */
+  onUpdated?: () => void;
 }
 
-export function TaskDetailPopup({ task, projectId, onClose, focusComments = false }: TaskDetailPopupProps) {
+export function TaskDetailPopup({ task, projectId, onClose, focusComments = false, isLeader = false, projectMembers = [], onUpdated }: TaskDetailPopupProps) {
   const [comments, setComments] = useState<TaskCommentDto[]>([]);
   const [commentsLoading, setCommentsLoading] = useState(true);
   const [newComment, setNewComment] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
   const commentsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -65,7 +74,14 @@ export function TaskDetailPopup({ task, projectId, onClose, focusComments = fals
               <div className="text-[10px] font-mono text-muted-foreground">{task.id}</div>
               <h2 className="text-lg font-bold text-foreground">{task.title}</h2>
             </div>
-            <button onClick={onClose} className="p-1.5 hover:bg-muted rounded-lg transition-colors"><X className="w-5 h-5 text-muted-foreground" /></button>
+            <div className="flex items-center gap-1">
+              {isLeader && (
+                <button onClick={() => setShowEdit(true)} className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium border border-border rounded-lg hover:bg-muted transition-colors text-foreground">
+                  <Pencil className="w-3.5 h-3.5" />수정
+                </button>
+              )}
+              <button onClick={onClose} className="p-1.5 hover:bg-muted rounded-lg transition-colors"><X className="w-5 h-5 text-muted-foreground" /></button>
+            </div>
           </div>
 
           <div className="flex-1 overflow-y-auto scrollbar-thin p-6 space-y-4">
@@ -132,6 +148,18 @@ export function TaskDetailPopup({ task, projectId, onClose, focusComments = fals
           </div>
         </div>
       </div>
+      {showEdit && (
+        <EditTaskModal
+          task={dashboardTaskToBoardTask(task)}
+          projectMembers={projectMembers}
+          onClose={() => setShowEdit(false)}
+          onUpdated={() => {
+            setShowEdit(false);
+            onUpdated?.();
+            onClose();
+          }}
+        />
+      )}
     </>
   );
 }

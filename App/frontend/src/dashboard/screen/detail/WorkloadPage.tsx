@@ -12,6 +12,7 @@ import { useDashboardTasks } from "../../libs/hooks/useDashboardTasks";
 import { useWorkloadScore } from "../../libs/hooks/useWorkloadScore";
 import type { WorkloadScoreMemberDto } from "../../libs/utils/workloadScoreApi";
 import {
+  dashboardTaskToBoardTask,
   formatDashboardDueDate,
   normalizePriority,
   normalizeTaskStatus,
@@ -21,8 +22,6 @@ import { EditTaskModal } from "../../../board/components/EditTaskModal";
 import { TaskDetailPopup } from "../../components/TaskDetailPopup";
 import { getProjectMembers, type MemberResponse } from "../../../global/api/projectsApi";
 import type { DashboardTaskDto } from "../../libs/types/dashboard";
-import type { Priority, Task, TaskStatus } from "../../../board/libs/types/task";
-
 // 계산 시각을 기록하기 전에 캐시된 옛 결과는 null로 온다 - 그 경우 시각을 지어내지 않고
 // 알 수 없음을 그대로 밝힌다.
 export function formatWorkloadCalculatedAt(isoString: string | null): string {
@@ -30,25 +29,6 @@ export function formatWorkloadCalculatedAt(isoString: string | null): string {
   const parsed = new Date(isoString);
   if (Number.isNaN(parsed.getTime())) return "알 수 없음 (재계산하면 기록됩니다)";
   return parsed.toLocaleString("ko-KR", { dateStyle: "medium", timeStyle: "short" });
-}
-
-// 대시보드 업무 카드(DashboardTaskDto)를 업무 상세창의 '업무 수정' 모달이 기대하는 Task 형태로 변환한다.
-function dashboardTaskToBoardTask(task: DashboardTaskDto): Task {
-  return {
-    id: task.id,
-    title: task.title,
-    status: normalizeTaskStatus(task.status) as TaskStatus,
-    priority: normalizePriority(task.priority) as Priority,
-    assignee: task.assigneeId ?? "",
-    startDate: "",
-    dueDate: task.dueDate ?? "",
-    labels: [],
-    category: task.category ?? "other",
-    position: task.position,
-    description: task.description ?? undefined,
-    pendingApproval: false,
-    extraFields: {},
-  };
 }
 
 // "대기" 계열(#C1C9D9)은 밝아서 기본 툴팁 텍스트로는 눈에 잘 안 띄기 때문에, 항목별로 글자색을 따로 지정한다.
@@ -175,7 +155,7 @@ export function WorkloadPage() {
             onClick={async () => { setPageRefreshing(true); await Promise.all([refetch(), refetchSummary(), refreshWorkloadScore()]); setPageRefreshing(false); }}
             disabled={pageRefreshing}
             className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-border bg-card text-foreground rounded-lg hover:bg-muted transition-colors disabled:opacity-50"
-          ><RefreshCw className={`w-3.5 h-3.5 ${pageRefreshing ? "animate-spin" : ""}`} />새로고침</button>
+          ><RefreshCw className={`w-3.5 h-3.5 ${pageRefreshing ? "animate-spin" : ""}`} />{pageRefreshing ? "새로고침 중..." : "새로고침"}</button>
           {isLeader && (
             <button onClick={() => setShowAssignPicker(true)} className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-white rounded-lg" style={{ background: "linear-gradient(135deg,#7048E8,#4F6EF7)" }}><Plus className="w-3.5 h-3.5" />업무 배정</button>
           )}
@@ -360,7 +340,7 @@ export function WorkloadPage() {
                   ) : selectedTasks.map(task => (
                     <div key={task.id} className="flex items-center gap-3 px-5 py-3 hover:bg-muted/30 transition-colors">
                       <span className="font-mono text-[10px] text-muted-foreground w-12">{task.id}</span>
-                      <span className="flex-1 text-xs font-medium text-foreground truncate">{task.title}</span>
+                      <span onClick={() => setDetailTarget(task)} className="flex-1 text-xs font-medium text-foreground truncate cursor-pointer hover:text-blue-700">{task.title}</span>
                       <TaskStatusPill status={normalizeTaskStatus(task.status)} />
                       <PriorityBadge priority={normalizePriority(task.priority)} />
                       <span className="text-xs text-muted-foreground w-12 text-right">{formatDashboardDueDate(task.dueDate)}</span>
@@ -431,6 +411,9 @@ export function WorkloadPage() {
           task={detailTarget}
           projectId={currentProjectId}
           onClose={() => setDetailTarget(null)}
+          isLeader={isLeader}
+          projectMembers={projectMembers}
+          onUpdated={() => refetch()}
         />
       )}
     </div>

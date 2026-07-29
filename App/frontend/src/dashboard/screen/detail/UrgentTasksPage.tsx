@@ -179,7 +179,7 @@ export function UrgentTasksPage() {
         </div>
         <div className="flex items-center gap-2">
           <button onClick={manualRefresh} disabled={listRefreshing} className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-border bg-card text-foreground rounded-lg hover:bg-muted transition-colors disabled:opacity-50">
-            <RefreshCw className={`w-3.5 h-3.5 ${listRefreshing ? "animate-spin" : ""}`} />새로고침
+            <RefreshCw className={`w-3.5 h-3.5 ${listRefreshing ? "animate-spin" : ""}`} />{listRefreshing ? "새로고침 중..." : "새로고침"}
           </button>
         </div>
       </div>
