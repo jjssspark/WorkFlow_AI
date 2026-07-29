@@ -20,7 +20,9 @@ FastAPI 0.139 + Python 3.12 기반 AI 서버. LLM(회의록 분석·RAG·기여�
 설치·실행: `py -3.12 -m venv .venv && .venv/Scripts/pip install -r requirements.txt` (저장소 루트의 `requirements.txt` 사용)
 
 - PyTorch는 용량 문제로 기본 설치 제외 — 필요 시 `pip install torch==2.13.0 --index-url https://download.pytorch.org/whl/cpu`
-- LangChain은 RAG 챗봇 라우터에 적용됨(langchain-core/langchain-huggingface). LangSmith로 트레이싱.
+- LangChain은 RAG 챗봇 라우터(langchain-core/langchain-huggingface)와 워크로드/기여도 스코어
+  파이프라인(`ml_workload_score`, `contribution_score` - langchain-core `@chain`)에 적용됨.
+  LangSmith로 트레이싱.
 
 ## 폴더 구조 (모델·기능별 분리)
 
