@@ -1,14 +1,17 @@
 package com.workflowai.project;
 
+import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.workflowai.security.UserPrincipal;
+import java.time.LocalDateTime;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -92,5 +95,21 @@ class InvitationControllerTest {
             .andExpect(status().isConflict())
             .andExpect(jsonPath("$.success").value(false))
             .andExpect(jsonPath("$.error.code").value("INVITE_ALREADY_PROCESSED"));
+    }
+
+    @Test
+    void createLinkReturnsIssuedTokenWithMemberRole() throws Exception {
+        authenticateAs(1L);
+        InvitationResponse response = new InvitationResponse(
+            10L, null, "팀원", "LINK-TOKEN", "pending", LocalDateTime.now().plusDays(7)
+        );
+        when(invitationService.createLinkInvitation(10L)).thenReturn(response);
+
+        mockMvc.perform(post("/api/v1/projects/10/invitations/link"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.success").value(true))
+            .andExpect(jsonPath("$.data.token").value("LINK-TOKEN"))
+            .andExpect(jsonPath("$.data.role").value("팀원"))
+            .andExpect(jsonPath("$.data.email").value(nullValue()));
     }
 }

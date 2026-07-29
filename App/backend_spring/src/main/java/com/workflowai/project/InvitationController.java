@@ -33,6 +33,17 @@ public class InvitationController {
     }
 
     @Operation(
+        summary = "링크 공유용 팀원 초대 토큰 발급",
+        description = "팀장만 가능하다. 역할은 항상 팀원으로 고정된다. 아직 아무도 쓰지 않은 유효한 링크 초대가 "
+            + "이미 있으면 새로 만들지 않고 재사용한다."
+    )
+    @PostMapping("/api/v1/projects/{projectId}/invitations/link")
+    @PreAuthorize("@projectAccess.hasRole(#projectId, 'LEADER')")
+    public ApiResponse<InvitationResponse> createLink(@PathVariable Long projectId) {
+        return ApiResponse.ok(invitationService.createLinkInvitation(projectId));
+    }
+
+    @Operation(
         summary = "초대 토큰을 사용해 프로젝트 참여 수락",
         description = "토큰이 이메일 초대(Invitation) 테이블에 없으면 404/INVITE_NOT_FOUND를 반환한다. "
             + "프론트엔드는 이 코드일 때만 프로젝트 참여 코드(inviteCode)로의 폴백을 시도해야 한다 — "
