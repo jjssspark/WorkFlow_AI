@@ -1,18 +1,19 @@
 package com.workflowai.notification;
 
 /**
- * version은 실제 커밋 순서를 보존하는 벽시계 타임스탬프(epoch millis)여야 한다 - 반드시
- * 호출자가 트랜잭션 커밋 "이전"(비관적 잠금을 아직 쥐고 있는 시점, 즉 taskRepository.save()
- * 직후)에 캡처해서 넘겨야 한다.
+ * version은 {@link com.workflowai.task.Task#getMoveVersion()} - 칸반 이동마다 DB에 저장되며
+ * 1씩 증가하는 업무별 카운터다. 클라이언트가 SSE 도착 순서와 무관하게 최신 상태를 가려낼
+ * 근거로 쓴다.
  *
- * 커밋 "이후"(after-commit 콜백 안)에 캡처하면 안 된다. 같은 업무를 두 사용자가 거의 동시에
- * 옮기면 DB 커밋 자체는 비관적 잠금으로 순서가 보장되지만(A 커밋 → 잠금 해제 → B가 그제서야
- * 시작), 커밋 이후 콜백이 언제 스레드를 받아 실행되는지는 스레드 스케줄링에 달려 있다. A의
- * 콜백이 지연되는 사이 B가 자기 요청 전체(잠금 획득~커밋~콜백)를 먼저 끝내버리면, 나중에
- * 실행된 A의 캡처 시각이 B의 것보다 더 커져 정확히 역전된 순서를 만든다.
+ * epoch millis 같은 벽시계 타임스탬프를 쓰지 않는 이유: (1) OS 타이머 해상도 탓에 두 커밋이
+ * 같은 밀리초를 캡처할 수 있어 동률이 생기고, (2) 시스템 시계가 NTP 등으로 보정되면 나중
+ * 커밋이 더 작은 값을 받는 역행도 가능하다. 두 경우 모두 "동률/역전이면 버린다"와
+ * "동률/역전이어도 적용한다" 중 어느 쪽을 골라도 다른 실패 사례가 남는다 - 애초에 시계에
+ * 의존하지 않는 값이어야 한다. DB에 저장되는 정수 카운터는 그 문제가 없다.
  *
- * 커밋 "이전", 잠금을 쥔 채로 캡처하면 이 문제가 없다 - B는 A가 커밋(=잠금 해제)하기 전까지
- * save()조차 호출할 수 없으므로, A의 캡처 시각은 B의 캡처 시각보다 항상 먼저다.
+ * 호출자는 이 값을 반드시 트랜잭션 커밋 "이전"(비관적 잠금을 아직 쥐고 있는 시점, 즉
+ * taskRepository.save() 직후)에 읽어서 넘겨야 한다 - moveTo()가 이미 그 시점에 카운터를
+ * 증가시켜 두므로 별도 재조회 없이 task.getMoveVersion()을 그대로 쓰면 된다.
  */
 public record TaskMoveEvent(String taskId, String projectId, String status, double position, long version) {
     public static TaskMoveEvent from(Long taskId, Long projectId, String status, double position, long version) {

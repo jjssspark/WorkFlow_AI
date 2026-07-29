@@ -232,10 +232,12 @@ describe("BoardView - 실시간 동기화", () => {
     expect(countBadgeFor("할 일")).toBe("0");
   });
 
-  it("같은 version(밀리초 동률)의 이벤트가 도착하면 폐기하지 않고 반영한다", async () => {
-    // version은 System.currentTimeMillis() 기반이라 두 커밋이 같은 밀리초에 캡처될 수 있다.
-    // "<="로 동률까지 버리면, 실제로 더 최신인 이벤트가 이전 것과 값이 같다는 이유만으로
-    // 조용히 폐기돼 보드가 오래된 상태에 머무른다 - 이 테스트가 그 회귀를 잡는다.
+  it("같은 version(동률)의 이벤트가 도착하면 폐기하지 않고 반영한다", async () => {
+    // version은 Task.moveVersion(칸반 이동마다 DB에서 1씩 증가하는 정수 카운터)이라 서로 다른
+    // 두 커밋이 동률일 수는 없다 - 동률은 항상 같은 이벤트의 재전송(예: 재연결 시 중복 수신)을
+    // 뜻한다. "<="로 동률까지 버리면, 그 재전송된(=이미 반영된 것과 같은) 최신 이벤트가 조용히
+    // 폐기돼도 상태 자체는 이미 맞으므로 문제가 되진 않지만, 이 테스트는 "동률은 버리지 않고
+    // 그대로 적용해도 안전하다"는 계약을 고정해 둔다.
     const task: Task = {
       id: "42", title: "동기화 대상 업무", status: "todo", priority: "medium",
       assignee: "", startDate: "", dueDate: "", labels: [], category: "backend",

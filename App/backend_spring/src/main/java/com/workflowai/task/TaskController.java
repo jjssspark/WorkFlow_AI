@@ -261,10 +261,9 @@ public class TaskController {
         // 브로드캐스트(항상)와 아래 팀장 알림(상태 변경 시만)이 같은 프로젝트 멤버 목록을 쓰므로
         // 한 번만 조회해 공유한다 - 상태가 바뀌는 매 이동마다 같은 쿼리를 두 번 낼 이유가 없다.
         List<ProjectMember> projectMembers = projectMemberRepository.findAllByProjectId(projectDbId);
-        // 이 업무의 비관적 잠금을 아직 쥐고 있는 시점(커밋 이전)에 캡처해야 한다 - TaskMoveEvent의
-        // Javadoc 참고. 커밋 이후 콜백 안에서 캡처하면, 두 사용자가 같은 업무를 거의 동시에 옮길 때
-        // 콜백 실행 순서가 스레드 스케줄링에 따라 뒤바뀌어 오래된 커밋이 더 큰 version을 받을 수 있다.
-        long moveVersion = System.currentTimeMillis();
+        // moveTo()가 이미 moveVersion을 증가시켜 뒀다(TaskMoveEvent Javadoc 참고) - DB에 저장되는
+        // 정수 카운터라 벽시계 타임스탬프와 달리 동률·시계 역행 문제가 없다.
+        long moveVersion = task.getMoveVersion();
         runAfterCommit(() -> {
             TaskMoveEvent event = TaskMoveEvent.from(
                 task.getId(), projectDbId, task.getStatus(), task.getPosition(), moveVersion

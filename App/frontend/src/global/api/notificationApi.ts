@@ -71,7 +71,11 @@ export interface TaskMoveEvent {
   projectId: string;
   status: string;
   position: number;
-  /** 브로드캐스트 시점(커밋 직후)의 epoch millis. 도착 순서가 뒤바뀌어도 최신 이벤트를 가려낼 때 쓴다. */
+  /**
+   * 업무별로 칸반 이동마다 1씩 증가하는 DB 저장 카운터(Task.moveVersion). 도착 순서가
+   * 뒤바뀌어도 최신 이벤트를 가려낼 때 쓴다. epoch millis가 아니다 - 벽시계 값은 동률·시계
+   * 역행 가능성이 있어 순서를 보장 못 하지만, 이 값은 정수 카운터라 그 문제가 없다.
+   */
   version: number;
 }
 

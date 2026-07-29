@@ -51,10 +51,12 @@ export function BoardView() {
   }, [tasks]);
 
   const { subscribeTaskMove, isStreamConnected } = useNotifications();
-  // 업무별로 마지막으로 반영한 이벤트의 version(브로드캐스트 시점 타임스탬프)을 기억한다.
-  // 두 사용자가 같은 업무를 거의 동시에 옮기면 커밋은 잠금으로 순서가 보장돼도 브로드캐스트
-  // 도착 순서는 스레드 스케줄링에 달려 있어 뒤바뀔 수 있다 - 이 맵으로 역전된(더 오래된)
-  // 이벤트를 걸러내 최신 상태가 오래된 상태로 덮어써지지 않게 한다.
+  // 업무별로 마지막으로 반영한 이벤트의 version(Task.moveVersion - 칸반 이동마다 DB에서
+  // 1씩 증가하는 정수 카운터)을 기억한다. 두 사용자가 같은 업무를 거의 동시에 옮기면 커밋은
+  // 잠금으로 순서가 보장돼도 브로드캐스트 도착 순서는 스레드 스케줄링에 달려 있어 뒤바뀔 수
+  // 있다 - 이 맵으로 역전된(더 오래된) 이벤트를 걸러내 최신 상태가 오래된 상태로 덮어써지지
+  // 않게 한다. 정수 카운터라 동률이 나오면 항상 같은 이벤트의 재전송(예: 재연결 시 중복
+  // 수신)이라는 뜻이므로, 동률을 버리지 않고 그대로 적용해도 안전하다.
   const remoteMoveVersionsRef = useRef<Map<string, number>>(new Map());
 
   useEffect(() => {
@@ -62,10 +64,6 @@ export function BoardView() {
       if (event.projectId !== String(projectId)) return;
       if (!isTaskStatus(event.status)) return;
       const lastVersion = remoteMoveVersionsRef.current.get(event.taskId);
-      // version은 System.currentTimeMillis() 기반이라 두 커밋이 같은 밀리초에 캡처될 수 있다
-      // (OS 타이머 해상도, 특히 Windows에서 흔함). "<="로 동률까지 버리면 실제로 더 최신인
-      // 이벤트가 같은 값을 가졌다는 이유만으로 조용히 폐기돼 보드가 오래된 상태에 머무른다.
-      // "더 오래된 것만" 걸러내도록 엄격한 "<"만 쓴다 - 동률은 적용한다.
       if (lastVersion !== undefined && event.version < lastVersion) return;
       remoteMoveVersionsRef.current.set(event.taskId, event.version);
       setTasks((current) => applyRemoteTaskMove(current, event.taskId, event.status, event.position));

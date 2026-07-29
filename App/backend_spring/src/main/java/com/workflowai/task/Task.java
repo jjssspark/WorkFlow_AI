@@ -78,6 +78,15 @@ public class Task {
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
 
+    /**
+     * 칸반 이동(moveTo)마다 1씩 증가하는 업무별 카운터. 실시간 동기화(TaskMoveEvent)가 이벤트
+     * 도착 순서와 무관하게 최신 상태를 가려낼 근거로 쓴다. epoch millis 같은 벽시계 값은 두
+     * 커밋이 같은 밀리초에 캡처될 수 있고(OS 타이머 해상도) 시스템 시계가 보정되면 역행할 수도
+     * 있어 순서를 보장하지 못한다 - DB에 저장되는 정수 카운터는 그런 문제가 없다.
+     */
+    @Column(name = "move_version", nullable = false)
+    private long moveVersion;
+
     protected Task() {
     }
 
@@ -222,6 +231,10 @@ public class Task {
         return updatedAt;
     }
 
+    public long getMoveVersion() {
+        return moveVersion;
+    }
+
     /** 칸반 드래그앤드롭: 카드를 다른 컬럼/다른 위치로 옮긴다.
      * status가 새로 "done"이 되면 done_date를 오늘로 채우고, "done"에서 다른 상태로 되돌아가면 비운다. */
     public void moveTo(String status, double position) {
@@ -232,6 +245,7 @@ public class Task {
         }
         this.status = status;
         this.position = position;
+        this.moveVersion++;
     }
 
     /** 팀원이 완료 승인을 요청한다. status는 그대로 두고 대기 상태만 켠다. */
