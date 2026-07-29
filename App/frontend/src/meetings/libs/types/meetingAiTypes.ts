@@ -5,6 +5,7 @@ export interface MeetingAiTodo {
   description: string;
   assignee_candidate: string;
   assignee_id: string | null;
+  start_date?: string | null;
   due_date: string | null;
   priority: MeetingAiPriority;
   category: string;

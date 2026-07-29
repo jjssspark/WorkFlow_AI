@@ -12,6 +12,31 @@ from pathlib import Path
 SUITES = (
     "com.workflowai.ApplicationContextLoadTest",
     "com.workflowai.migration.ProductionSchemaMigrationTest",
+    # 통합 테스트(PostgresRedisIntegrationTest 상속)도 Docker가 없으면 통째로 건너뛴다.
+    # 여기 등록하지 않으면 러너에 Docker가 없을 때 아무 경고 없이 초록불이 된다.
+    "com.workflowai.common.HealthReadinessIntegrationTest",
+    "com.workflowai.common.ErrorEnvelopeIntegrationTest",
+    "com.workflowai.assistant.AssistantThreadIntegrationTest",
+    # 이건 Docker를 쓰지 않지만 같은 이유로 등록한다. RAG 색인은 best-effort라 실패해도
+    # 화면이 깨지지 않으므로, 이 테스트가 조용히 실행되지 않으면 와이어 포맷이 깨진 사실을
+    # 알아챌 다른 방법이 없다.
+    "com.workflowai.rag.FastApiRagClientWireContractTest",
+    "com.workflowai.rag.RagFastApiBoundaryIntegrationTest",
+    # 어시스턴트 응답은 들어오는 방향이라 필드명이 어긋나도 예외가 없다. card가 조용히
+    # null이 되어 확인 카드만 화면에서 사라지므로, 이 테스트가 안 돌면 알 방법이 없다.
+    "com.workflowai.assistant.FastApiAssistantClientWireContractTest",
+    # 인증 경로(IT-003/004/006/007). 토큰 발급과 검증이 서로를 목으로 두고 있어, 이 세 클래스가
+    # 건너뛰어지면 "발급한 토큰을 이 앱이 받아들이는가"를 확인하는 테스트가 하나도 남지 않는다.
+    "com.workflowai.auth.AuthLifecycleIntegrationTest",
+    "com.workflowai.auth.GoogleOAuthLoginIntegrationTest",
+    "com.workflowai.auth.TestAccountConcurrentLoginIntegrationTest",
+    # 프로젝트 인가 경로(IT-008~011). project_members에 쓴 역할이 ProjectAccess의 판정에
+    # 즉시 반영되는지는 요청 두 개를 실제로 태워야만 보인다.
+    "com.workflowai.project.ProjectMembershipIntegrationTest",
+    "com.workflowai.project.ProjectInvitationIntegrationTest",
+    # 알림 실시간 경로(IT-025). 요청 스레드 → afterCommit → @Async 스레드 → SSE로 이어지는
+    # 구간이라, 건너뛰어지면 "저장은 되는데 화면에 안 뜬다"를 볼 테스트가 없다.
+    "com.workflowai.notification.NotificationRealtimeIntegrationTest",
 )
 REPORT_DIR = Path("build/test-results/test")
 

@@ -13,6 +13,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.workflowai.activity.ActivityService;
 import com.workflowai.common.DemoDataService;
+import com.workflowai.notification.NotificationBroadcaster;
 import com.workflowai.notification.NotificationService;
 import com.workflowai.project.ProjectMember;
 import com.workflowai.project.ProjectMemberRepository;
@@ -55,6 +56,9 @@ class TaskControllerCompletionApprovalTest {
     private NotificationService notificationService;
 
     @Mock
+    private NotificationBroadcaster notificationBroadcaster;
+
+    @Mock
     private ProjectMemberRepository projectMemberRepository;
 
     @Mock
@@ -70,7 +74,7 @@ class TaskControllerCompletionApprovalTest {
         mockMvc = MockMvcBuilders
             .standaloneSetup(new TaskController(
                 taskRepository, userRepository, demoDataService, activityService,
-                notificationService, projectMemberRepository, projectRepository, ragIngestService
+                notificationService, notificationBroadcaster, projectMemberRepository, projectRepository, ragIngestService
             ))
             .build();
     }
@@ -120,7 +124,7 @@ class TaskControllerCompletionApprovalTest {
 
         assertThat(task.isPendingApproval()).isTrue();
         verify(activityService).record(eq(1L), eq(3L), eq("COMPLETION_REQUESTED"), any(), any());
-        verify(notificationService).notifyAfterCommit(eq(9L), eq("COMPLETION_REQUESTED"), any(), any(), eq("task"), any());
+        verify(notificationService).notifyAfterCommit(eq(9L), eq(1L), eq("COMPLETION_REQUESTED"), any(), any(), eq("task"), any());
     }
 
     @Test
@@ -218,7 +222,7 @@ class TaskControllerCompletionApprovalTest {
 
         assertThat(task.getStatus()).isEqualTo("done");
         assertThat(task.isPendingApproval()).isFalse();
-        verify(notificationService).notifyAfterCommit(eq(3L), eq("COMPLETION_APPROVED"), any(), any(), eq("task"), any());
+        verify(notificationService).notifyAfterCommit(eq(3L), eq(1L), eq("COMPLETION_APPROVED"), any(), any(), eq("task"), any());
     }
 
     @Test
@@ -235,6 +239,6 @@ class TaskControllerCompletionApprovalTest {
             .andExpect(jsonPath("$.data.pendingApproval").value(false));
 
         assertThat(task.getStatus()).isEqualTo("inprogress");
-        verify(notificationService).notifyAfterCommit(eq(3L), eq("COMPLETION_REJECTED"), any(), any(), eq("task"), any());
+        verify(notificationService).notifyAfterCommit(eq(3L), eq(1L), eq("COMPLETION_REJECTED"), any(), any(), eq("task"), any());
     }
 }

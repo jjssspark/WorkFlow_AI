@@ -2,6 +2,7 @@ package com.workflowai.task;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -13,12 +14,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.workflowai.activity.ActivityService;
 import com.workflowai.common.DemoDataService;
 import com.workflowai.common.GlobalExceptionHandler;
+import com.workflowai.notification.NotificationBroadcaster;
 import com.workflowai.notification.NotificationService;
 import com.workflowai.project.Project;
 import com.workflowai.project.ProjectMemberRepository;
 import com.workflowai.project.ProjectRepository;
 import com.workflowai.rag.RagIngestService;
 import com.workflowai.security.UserPrincipal;
+import com.workflowai.user.User;
 import com.workflowai.user.UserRepository;
 import java.time.LocalDate;
 import java.util.List;
@@ -54,6 +57,9 @@ class TaskControllerUpdateTest {
     private NotificationService notificationService;
 
     @Mock
+    private NotificationBroadcaster notificationBroadcaster;
+
+    @Mock
     private ProjectMemberRepository projectMemberRepository;
 
     @Mock
@@ -69,7 +75,7 @@ class TaskControllerUpdateTest {
         mockMvc = MockMvcBuilders
             .standaloneSetup(new TaskController(
                 taskRepository, userRepository, demoDataService, activityService,
-                notificationService, projectMemberRepository, projectRepository, ragIngestService
+                notificationService, notificationBroadcaster, projectMemberRepository, projectRepository, ragIngestService
             ))
             .setControllerAdvice(new GlobalExceptionHandler())
             .build();
@@ -137,7 +143,7 @@ class TaskControllerUpdateTest {
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.error.code").value("INVALID_ASSIGNEE_ID"));
 
-        verify(notificationService, never()).notifyAfterCommit(any(), any(), any(), any(), any(), any());
+        verify(notificationService, never()).notifyAfterCommit(any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -218,7 +224,7 @@ class TaskControllerUpdateTest {
                 .content("{\"assigneeId\":\"5\"}"))
             .andExpect(status().isOk());
 
-        verify(notificationService).notifyAfterCommit(eq(5L), eq("TASK_ASSIGNED"), any(), any(), eq("task"), any());
+        verify(notificationService).notifyAfterCommit(eq(5L), eq(1L), eq("TASK_ASSIGNED"), any(), any(), eq("task"), any());
     }
 
     @Test
@@ -250,7 +256,7 @@ class TaskControllerUpdateTest {
             .andExpect(status().isOk());
 
         // existingTask()의 담당자는 3L
-        verify(notificationService).notifyAfterCommit(eq(3L), eq("TASK_UPDATED"), any(), any(), eq("task"), any());
+        verify(notificationService).notifyAfterCommit(eq(3L), eq(1L), eq("TASK_UPDATED"), any(), any(), eq("task"), any());
         verify(ragIngestService).ingestBestEffort(1L, "task", null, "새 제목 - 원래 설명", 3L);
     }
 
@@ -265,6 +271,85 @@ class TaskControllerUpdateTest {
                 .content("{}"))
             .andExpect(status().isOk());
 
-        verify(notificationService, never()).notifyAfterCommit(any(), any(), any(), any(), any(), any());
+        verify(notificationService, never()).notifyAfterCommit(any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void notifiesPreviousAssigneeWhenTaskIsReassigned() throws Exception {
+        // 새 담당자만 알리면, 업무가 자기 목록에서 사라진 사람은 그 사실을 어디서도 통보받지
+        // 못한다. RAG 쪽은 syncAssigneeBestEffort로 이미 떼어내는데 알림만 그 대칭이 없었다.
+        when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
+        when(taskRepository.findById(anyLong())).thenReturn(Optional.of(existingTask()));
+        when(taskRepository.save(any(Task.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(userRepository.findById(5L)).thenReturn(Optional.of(userNamed("이영희")));
+
+        mockMvc.perform(patch("/api/v1/projects/demo-project/tasks/42")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"assigneeId\":\"5\"}"))
+            .andExpect(status().isOk());
+
+        // 이전 담당자(3L)와 새 담당자(5L) 양쪽에 가야 한다. 한쪽만 검증하면 반대쪽이
+        // 빠져도 통과하므로 둘 다 못 박는다.
+        verify(notificationService).notifyAfterCommit(eq(5L), eq(1L), eq("TASK_ASSIGNED"), any(), any(), eq("task"), any());
+        verify(notificationService).notifyAfterCommit(
+            eq(3L), eq(1L), eq("TASK_UNASSIGNED"), any(),
+            // 누구에게 넘어갔는지가 본문에 있어야 이전 담당자가 인수인계 상대를 안다.
+            contains("이영희"), eq("task"), any()
+        );
+    }
+
+    @Test
+    void doesNotNotifyPreviousAssigneeWhenTheyHandedItOffThemselves() throws Exception {
+        // 자기가 자기 업무를 남에게 넘긴 경우다. 기존 알림들과 같은 규칙을 따른다.
+        SecurityContextHolder.getContext().setAuthentication(
+            new UsernamePasswordAuthenticationToken(
+                new UserPrincipal(3L, "user3@workflow.ai", "원담당자"), null, List.of()
+            )
+        );
+        when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
+        when(taskRepository.findById(anyLong())).thenReturn(Optional.of(existingTask()));
+        when(taskRepository.save(any(Task.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        mockMvc.perform(patch("/api/v1/projects/demo-project/tasks/42")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"assigneeId\":\"5\"}"))
+            .andExpect(status().isOk());
+
+        verify(notificationService, never()).notifyAfterCommit(
+            eq(3L), any(), eq("TASK_UNASSIGNED"), any(), any(), any(), any()
+        );
+        // 새 담당자에게는 그대로 가야 한다(위 규칙이 알림 전체를 막아버리지 않았는지 확인).
+        verify(notificationService).notifyAfterCommit(eq(5L), eq(1L), eq("TASK_ASSIGNED"), any(), any(), eq("task"), any());
+    }
+
+    @Test
+    void doesNotNotifyAnyoneAsPreviousAssigneeWhenTaskHadNone() throws Exception {
+        // 담당자가 없던 업무에 처음 배정하는 경우. 이전 담당자가 없으므로 TASK_UNASSIGNED는
+        // 나가면 안 된다(null 담당자에게 알림을 보내려 하면 저장 단계에서 터진다).
+        when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
+        when(taskRepository.findById(anyLong())).thenReturn(Optional.of(unassignedTask()));
+        when(taskRepository.save(any(Task.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        mockMvc.perform(patch("/api/v1/projects/demo-project/tasks/42")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"assigneeId\":\"5\"}"))
+            .andExpect(status().isOk());
+
+        verify(notificationService).notifyAfterCommit(eq(5L), eq(1L), eq("TASK_ASSIGNED"), any(), any(), eq("task"), any());
+        verify(notificationService, never()).notifyAfterCommit(
+            any(), any(), eq("TASK_UNASSIGNED"), any(), any(), any(), any()
+        );
+    }
+
+    private Task unassignedTask() {
+        return new Task(
+            1L, "담당자 없는 업무", "frontend", "todo", null,
+            LocalDate.of(2026, 7, 1), "medium", "설명",
+            "MANUAL", null, 1L, 0.0
+        );
+    }
+
+    private User userNamed(String name) {
+        return new User(name + "@workflow.ai", name, "local", name);
     }
 }

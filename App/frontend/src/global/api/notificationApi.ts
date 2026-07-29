@@ -3,6 +3,7 @@ import { tokenStore } from "./tokenStore";
 
 export interface NotificationResponse {
   id: string;
+  projectId: string | null;
   type: string;
   title: string;
   content: string | null;
@@ -16,6 +17,23 @@ export const ACTION_REQUIRED_NOTIFICATION_TYPES = new Set([
   "MEETING_ANALYSIS_COMPLETED_NOTIFY_LEADER",
   "MEETING_SAVED_NOTIFY_LEADER",
   "MEETING_EDITED",
+  "COMPLETION_REQUESTED",
+]);
+
+/**
+ * 회의록으로 딥링크할 수 있어 "바로가기" 버튼을 붙일 알림 타입.
+ *
+ * 삭제 알림(MEETING_DELETED / MEETING_ANALYSIS_DELETED)은 제외한다. 눌러도 열어볼 대상이 이미
+ * 없어 버튼이 헛돌기 때문이다 - 분석 결과만 지운 경우 회의록 자체는 남지만, 사용자가 확인하려던
+ * 분석 내용은 없는 것이 마찬가지다. 삭제는 "확인할 것"이 아니라 통보로만 다룬다.
+ *
+ * ACTION_REQUIRED와 지금은 구성이 같지만 뜻이 다르다("할 일" 배지 / "바로가기" 버튼). 한쪽만
+ * 바뀌는 일이 실제로 있었으므로 상수를 합치지 않는다.
+ */
+export const MEETING_SHORTCUT_NOTIFICATION_TYPES = new Set([
+  "MEETING_ANALYSIS_COMPLETED_NOTIFY_LEADER",
+  "MEETING_SAVED_NOTIFY_LEADER",
+  "MEETING_EDITED",
 ]);
 
 /** 팀장에게 역할분배를 요청하는 알림은 "바로가기"를 누르면 역할분배 검토 탭으로 바로 이동해야 한다. */
@@ -23,13 +41,19 @@ export function meetingNotificationPanelQuery(type: string): string {
   return type === "MEETING_ANALYSIS_COMPLETED_NOTIFY_LEADER" ? "&panel=todos" : "";
 }
 
-export function fetchNotifications(): Promise<NotificationResponse[]> {
-  return apiFetch<NotificationResponse[]>("/notifications");
+export function fetchNotifications(projectId: number): Promise<NotificationResponse[]> {
+  return apiFetch<NotificationResponse[]>(`/notifications?projectId=${projectId}`);
 }
 
-export async function fetchUnreadNotificationCount(): Promise<number> {
-  const { count } = await apiFetch<{ count: number }>("/notifications/unread-count");
+export async function fetchUnreadNotificationCount(projectId: number): Promise<number> {
+  const { count } = await apiFetch<{ count: number }>(`/notifications/unread-count?projectId=${projectId}`);
   return count;
+}
+
+/** 프로젝트 전환 뱃지용. projectId 문자열을 키로 하는 미읽음 개수 맵. */
+export async function fetchProjectUnreadCounts(): Promise<Record<string, number>> {
+  const { counts } = await apiFetch<{ counts: Record<string, number> }>("/notifications/unread-counts");
+  return counts;
 }
 
 // 서버가 이 id들만 읽음 처리한다. "전체 읽음"이 아니라 방금 화면에 보여준 것만 넘겨야,
@@ -42,8 +66,18 @@ export async function markNotificationsRead(ids: string[]): Promise<void> {
   });
 }
 
+export interface TaskMoveEvent {
+  taskId: string;
+  projectId: string;
+  status: string;
+  position: number;
+  /** 브로드캐스트 시점(커밋 직후)의 epoch millis. 도착 순서가 뒤바뀌어도 최신 이벤트를 가려낼 때 쓴다. */
+  version: number;
+}
+
 export interface NotificationStreamHandlers {
   onNotification: (notification: NotificationResponse) => void;
+  onTaskMove?: (event: TaskMoveEvent) => void;
   onConnectedChange?: (connected: boolean) => void;
 }
 
@@ -92,7 +126,7 @@ export function subscribeNotificationStream(handlers: NotificationStreamHandlers
 
       handlers.onConnectedChange?.(true);
       attempt = 0;
-      await readStream(response.body, handlers.onNotification);
+      await readStream(response.body, handlers);
     } catch {
       if (signal.aborted) return;
     } finally {
@@ -126,7 +160,7 @@ export function subscribeNotificationStream(handlers: NotificationStreamHandlers
 
 async function readStream(
   body: ReadableStream<Uint8Array>,
-  onNotification: (notification: NotificationResponse) => void
+  handlers: NotificationStreamHandlers
 ): Promise<void> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
@@ -141,30 +175,34 @@ async function readStream(
     while (separatorIndex !== -1) {
       const rawEvent = buffer.slice(0, separatorIndex);
       buffer = buffer.slice(separatorIndex + 2);
-      parseEvent(rawEvent, onNotification);
+      parseEvent(rawEvent, handlers);
       separatorIndex = buffer.indexOf("\n\n");
     }
   }
 }
 
-function parseEvent(rawEvent: string, onNotification: (notification: NotificationResponse) => void): void {
-  const dataLines = rawEvent
-    .split("\n")
-    .filter((line) => line.startsWith("data:"))
-    .map((line) => line.slice(5).trim());
+function parseEvent(rawEvent: string, handlers: NotificationStreamHandlers): void {
+  const lines = rawEvent.split("\n");
+  const eventName = lines.find((line) => line.startsWith("event:"))?.slice(6).trim();
+  const dataLines = lines.filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trim());
   if (dataLines.length === 0) return; // 하트비트(주석 전용) 등 data 없는 프레임은 무시
 
   try {
-    onNotification(JSON.parse(dataLines.join("\n")) as NotificationResponse);
+    const data = JSON.parse(dataLines.join("\n"));
+    if (eventName === "task-move") {
+      handlers.onTaskMove?.(data as TaskMoveEvent);
+    } else {
+      handlers.onNotification(data as NotificationResponse);
+    }
   } catch {
     // 파싱 불가능한 프레임은 조용히 무시한다
   }
 }
 
 /** AI 진행률 보고서 생성에 성공했을 때, 요청한 본인에게 완료 알림을 남긴다. */
-export async function notifyProgressReportReady(content: string): Promise<void> {
+export async function notifyProgressReportReady(projectId: number, content: string): Promise<void> {
   await apiFetch<null>("/notifications/progress-report", {
     method: "POST",
-    body: JSON.stringify({ content }),
+    body: JSON.stringify({ projectId, content }),
   });
 }

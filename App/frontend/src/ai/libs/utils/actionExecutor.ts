@@ -1,6 +1,15 @@
-import { updateTaskPosition, updateTask } from "../../../board/libs/utils/taskApi";
+import {
+  updateTaskPosition,
+  updateTask,
+  deleteTask,
+  approveTaskCompletion,
+  rejectTaskCompletion,
+  sendTaskNudge,
+  type NudgeKind,
+} from "../../../board/libs/utils/taskApi";
 import { createTaskComment } from "../../../board/libs/utils/taskCommentApi";
 import { fetchChecklist, updateChecklistItem } from "../../../board/libs/utils/checklistApi";
+import { getProjectMembers, type MemberResponse } from "../../../global/api/projectsApi";
 import type { TaskStatus } from "../../../board/libs/types/task";
 import type { ActionCard } from "../types/command";
 
@@ -10,6 +19,25 @@ export interface ExecutionResult {
 }
 
 const VALID_STATUSES: TaskStatus[] = ["todo", "inprogress", "blocked", "done"];
+
+// 그래프(state.py _VALID_NUDGE_KINDS)·Spring(NUDGE_MESSAGE_TEMPLATES)과 같은 세 값이라야 한다.
+const VALID_NUDGE_KINDS: NudgeKind[] = ["START", "PROGRESS", "URGENT"];
+
+// tasks.title은 VARCHAR(200)이다. 그래프(state.py _TITLE_MAX_LENGTH)와 같은 값이라야
+// 계획 단계를 통과한 제목이 여기서 다시 거부되지 않는다.
+const TITLE_MAX_LENGTH = 200;
+
+/**
+ * 제목 길이를 코드포인트 수로 센다.
+ *
+ * String.length는 UTF-16 코드 단위라 이모지 등 BMP 밖 문자를 2로 센다. 반면 Postgres
+ * varchar(200)과 그래프의 파이썬 len()은 코드포인트를 센다. 그대로 두면 세 곳의 기준이
+ * 어긋나, 계획 단계와 DB는 통과시키는 제목을 프론트만 거부해 "카드는 떴는데 안 되는"
+ * 계약 불일치가 된다(이모지 50개 + 한글 150자 = 코드포인트 200, UTF-16 250).
+ */
+function titleLength(value: string): number {
+  return [...value].length;
+}
 
 function toMessage(error: unknown): string {
   return error instanceof Error ? error.message : "요청을 처리하지 못했습니다.";
@@ -21,6 +49,48 @@ function isValidCalendarDate(value: string): boolean {
   const [y, m, d] = value.split("-").map(Number);
   const dt = new Date(Date.UTC(y, m - 1, d));
   return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
+}
+
+/**
+ * 이름 비교용 정규화.
+ *
+ * - NFC: 같은 한글도 입력 경로에 따라 조합형(NFD)으로 들어올 수 있다. 정규화하지 않으면
+ *   눈에 똑같이 보이는 "김철수"가 서로 다른 문자열이라 일치도 부분 일치도 실패한다.
+ * - 소문자화: 영문 이름의 "Kim"과 "kim"이 갈리는 것을 막는다.
+ * - 공백 접기: 이름 중간에 들어간 여러 칸 공백을 한 칸으로 맞춘다.
+ */
+function normalizeName(value: string): string {
+  return value.normalize("NFC").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+/**
+ * 담당자 이름을 프로젝트 멤버 한 명으로 좁힌다.
+ *
+ * 카드는 사용자가 말한 이름("김철수")만 담고 있고 업무 수정 API는 id를 요구하므로, 멤버
+ * 목록을 받아 여기서 해소한다. 정확히 한 명으로 좁혀지지 않으면 실행하지 않는다 - 엉뚱한
+ * 사람에게 업무를 넘기는 것이 되묻는 것보다 훨씬 나쁘다.
+ *
+ * 정확 일치가 여러 건일 수 있다(동명이인). 그때 첫 번째를 고르면 조용히 틀린 사람에게
+ * 배정되므로, 정확 일치도 1건일 때만 확정한다.
+ */
+function resolveMember(
+  members: readonly MemberResponse[],
+  name: string
+): { ok: true; member: MemberResponse } | { ok: false; error: string } {
+  const target = normalizeName(name);
+  const exact = members.filter(member => normalizeName(member.name) === target);
+  const matches =
+    exact.length > 0 ? exact : members.filter(member => normalizeName(member.name).includes(target));
+
+  if (matches.length === 0) {
+    return { ok: false, error: `'${name}' 담당자를 프로젝트 멤버에서 찾지 못했습니다.` };
+  }
+  if (matches.length > 1) {
+    const names = matches.map(member => member.name).join(", ");
+    // 어느 후보들 사이에서 막혔는지 알려줘야 사용자가 무엇을 더 구체적으로 말해야 할지 안다.
+    return { ok: false, error: `이름이 겹치는 멤버가 여러 명입니다(${names}). 더 구체적으로 말씀해주세요.` };
+  }
+  return { ok: true, member: matches[0] };
 }
 
 /**
@@ -79,9 +149,56 @@ export async function executeAction(card: ActionCard, projectId: number): Promis
         await updateTask(taskId, { dueDate: date }, projectId);
         return { ok: true };
       }
+      case "rename_task": {
+        const title = String(card.args.title ?? "").trim();
+        if (!title) return { ok: false, error: "새 제목이 비어 있습니다." };
+        // 그래프(state.py)와 같은 길이 검증. 백엔드를 우회한 값이 DB 제약에 걸려
+        // 원인 모를 500으로 보이지 않게 한다.
+        if (titleLength(title) > TITLE_MAX_LENGTH) {
+          return { ok: false, error: `제목이 너무 깁니다(${TITLE_MAX_LENGTH}자 이내).` };
+        }
+        await updateTask(taskId, { title }, projectId);
+        return { ok: true };
+      }
+      case "change_assignee": {
+        const name = String(card.args.assignee_name ?? "").trim();
+        // 빈 이름이면 members.includes("")가 모두 참이라 아무나 걸린다.
+        if (!name) return { ok: false, error: "담당자 이름이 지정되지 않았습니다." };
+        const resolved = resolveMember(await getProjectMembers(projectId), name);
+        if (!resolved.ok) return { ok: false, error: resolved.error };
+        await updateTask(taskId, { assigneeId: String(resolved.member.userId) }, projectId);
+        return { ok: true };
+      }
+      case "approve_completion": {
+        // 전제 조건(승인 대기 상태)은 확인하지 않는다. 그래프는 업무 상태를 모른 채 카드를
+        // 만들고, 여기서 미리 조회해도 승인 직전에 상태가 바뀔 수 있어 실패 경로는 남는다.
+        // Spring이 400 NOT_PENDING을 주면 그 메시지가 그대로 사용자에게 전달된다.
+        await approveTaskCompletion(taskId, projectId);
+        return { ok: true };
+      }
+      case "reject_completion": {
+        await rejectTaskCompletion(taskId, projectId);
+        return { ok: true };
+      }
+      case "nudge_task": {
+        const kind = String(card.args.kind ?? "");
+        // 그래프가 이미 막지만 여기서도 확인한다. 이 함수는 카드만 받으면 실행하므로,
+        // 그래프를 우회한 값이 들어오면 엉뚱한 재촉 알림이 나가고 회수할 수 없다.
+        if (!VALID_NUDGE_KINDS.includes(kind as NudgeKind)) {
+          return { ok: false, error: "알 수 없는 재촉 종류입니다." };
+        }
+        await sendTaskNudge(taskId, kind as NudgeKind, projectId);
+        return { ok: true };
+      }
+      case "delete_task": {
+        // 되돌릴 수 없는 유일한 도구다. 안전장치는 확인 카드뿐이므로 여기서 대상 업무를
+        // 다시 좁히거나 추측하지 않는다 - 카드에 실린 task_id 그대로만 지운다.
+        await deleteTask(taskId, projectId);
+        return { ok: true };
+      }
       default:
-        // 나머지 팀장 전용 도구(rename_task·change_assignee·delete_task)는 아직 미구현이다.
-        // 그래프 SUPPORTED_TOOLS에도 없어 카드 자체가 오지 않지만, 방어적으로 거부한다.
+        // 그래프 SUPPORTED_TOOLS와 이 switch가 어긋나면 "카드는 떴는데 안 되는" 상태가 된다.
+        // 도달할 일이 없어야 정상이지만, 어긋났을 때 조용히 실패하지 않도록 방어적으로 거부한다.
         return { ok: false, error: "아직 지원하지 않는 작업입니다." };
     }
   } catch (error) {

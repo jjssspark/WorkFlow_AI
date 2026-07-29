@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.workflowai.activity.ActivityService;
 import com.workflowai.common.DemoDataService;
+import com.workflowai.notification.NotificationBroadcaster;
 import com.workflowai.notification.NotificationService;
 import com.workflowai.project.ProjectMemberRepository;
 import com.workflowai.project.ProjectRepository;
@@ -49,6 +50,9 @@ class TaskControllerDeleteTest {
     private NotificationService notificationService;
 
     @Mock
+    private NotificationBroadcaster notificationBroadcaster;
+
+    @Mock
     private ProjectMemberRepository projectMemberRepository;
 
     @Mock
@@ -64,7 +68,7 @@ class TaskControllerDeleteTest {
         mockMvc = MockMvcBuilders
             .standaloneSetup(new TaskController(
                 taskRepository, userRepository, demoDataService, activityService,
-                notificationService, projectMemberRepository, projectRepository, ragIngestService
+                notificationService, notificationBroadcaster, projectMemberRepository, projectRepository, ragIngestService
             ))
             .build();
         SecurityContextHolder.getContext().setAuthentication(
@@ -96,7 +100,7 @@ class TaskControllerDeleteTest {
             .andExpect(status().isOk());
 
         // existingTask()의 담당자는 3L, currentActorId()는 mock "1" -> 1L 이라 서로 다르므로 알림 발생
-        verify(notificationService).notifyAfterCommit(eq(3L), eq("TASK_DELETED"), any(), any(), eq("task"), any());
+        verify(notificationService).notifyAfterCommit(eq(3L), eq(1L), eq("TASK_DELETED"), any(), any(), eq("task"), any());
         verify(ragIngestService).recordDeleteSourceIntent(1L, "task", 42L);
         verify(ragIngestService).deleteSourceBestEffort(1L, "task", 42L);
     }

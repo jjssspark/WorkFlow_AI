@@ -74,6 +74,15 @@ export function finalizeEvaluation(projectId: number) {
   });
 }
 
+// 심사자가 기여도 분석 화면의 "평가 확정 취소" 버튼을 누를 때 호출한다.
+// 프로젝트의 eval_status를 EVALUATING으로 되돌린다(REVIEWER 권한 필요).
+// 팀원별 점수/공개 여부는 변경하지 않는다 — 상태 배지/버튼만 되돌린다.
+export function unfinalizeEvaluation(projectId: number) {
+  return apiFetch<ProjectResponse>(`/projects/${projectId}/unfinalize-evaluation`, {
+    method: "POST",
+  });
+}
+
 export interface MemberResponse {
   userId: number;
   name: string;

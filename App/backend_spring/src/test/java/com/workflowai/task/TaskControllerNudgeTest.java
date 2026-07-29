@@ -12,6 +12,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.workflowai.activity.ActivityService;
 import com.workflowai.common.DemoDataService;
+import com.workflowai.notification.NotificationBroadcaster;
 import com.workflowai.notification.NotificationService;
 import com.workflowai.project.ProjectMemberRepository;
 import com.workflowai.project.ProjectRepository;
@@ -52,6 +53,9 @@ class TaskControllerNudgeTest {
     private NotificationService notificationService;
 
     @Mock
+    private NotificationBroadcaster notificationBroadcaster;
+
+    @Mock
     private ProjectMemberRepository projectMemberRepository;
 
     @Mock
@@ -67,7 +71,7 @@ class TaskControllerNudgeTest {
         mockMvc = MockMvcBuilders
             .standaloneSetup(new TaskController(
                 taskRepository, userRepository, demoDataService, activityService,
-                notificationService, projectMemberRepository, projectRepository, ragIngestService
+                notificationService, notificationBroadcaster, projectMemberRepository, projectRepository, ragIngestService
             ))
             .build();
     }
@@ -105,7 +109,7 @@ class TaskControllerNudgeTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.success").value(true));
 
-        verify(notificationService).notifyAfterCommit(eq(3L), eq("TASK_NUDGE"), any(), any(), eq("task"), any());
+        verify(notificationService).notifyAfterCommit(eq(3L), eq(1L), eq("TASK_NUDGE"), any(), any(), eq("task"), any());
     }
 
     @Test
@@ -119,7 +123,7 @@ class TaskControllerNudgeTest {
                 .content("{\"kind\":\"PROGRESS\"}"))
             .andExpect(status().isOk());
 
-        verify(notificationService).notifyAfterCommit(eq(3L), eq("TASK_NUDGE"), any(), any(), eq("task"), any());
+        verify(notificationService).notifyAfterCommit(eq(3L), eq(1L), eq("TASK_NUDGE"), any(), any(), eq("task"), any());
     }
 
     @Test
@@ -133,7 +137,7 @@ class TaskControllerNudgeTest {
                 .content("{\"kind\":\"URGENT\"}"))
             .andExpect(status().isOk());
 
-        verify(notificationService).notifyAfterCommit(eq(3L), eq("TASK_NUDGE"), any(), any(), eq("task"), any());
+        verify(notificationService).notifyAfterCommit(eq(3L), eq(1L), eq("TASK_NUDGE"), any(), any(), eq("task"), any());
     }
 
     @Test
@@ -144,7 +148,7 @@ class TaskControllerNudgeTest {
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.error.code").value("INVALID_NUDGE_KIND"));
 
-        verify(notificationService, never()).notifyAfterCommit(any(), any(), any(), any(), any(), any());
+        verify(notificationService, never()).notifyAfterCommit(any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -155,7 +159,7 @@ class TaskControllerNudgeTest {
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.error.code").value("INVALID_NUDGE_KIND"));
 
-        verify(notificationService, never()).notifyAfterCommit(any(), any(), any(), any(), any(), any());
+        verify(notificationService, never()).notifyAfterCommit(any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -166,7 +170,7 @@ class TaskControllerNudgeTest {
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.error.code").value("INVALID_NUDGE_KIND"));
 
-        verify(notificationService, never()).notifyAfterCommit(any(), any(), any(), any(), any(), any());
+        verify(notificationService, never()).notifyAfterCommit(any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -193,6 +197,6 @@ class TaskControllerNudgeTest {
                 .content("{\"kind\":\"START\"}"))
             .andExpect(status().isOk());
 
-        verify(notificationService, never()).notifyAfterCommit(any(), any(), any(), any(), any(), any());
+        verify(notificationService, never()).notifyAfterCommit(any(), any(), any(), any(), any(), any(), any());
     }
 }

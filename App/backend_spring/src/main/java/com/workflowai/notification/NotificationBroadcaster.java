@@ -33,11 +33,15 @@ public class NotificationBroadcaster {
   }
 
   public void broadcast(Long userId, NotificationDto dto) {
+    broadcast(userId, "notification", dto);
+  }
+
+  public void broadcast(Long userId, String eventName, Object payload) {
     List<SseEmitter> emitters = emittersByUser.get(userId);
     if (emitters == null) return;
     for (SseEmitter emitter : emitters) {
       try {
-        emitter.send(SseEmitter.event().name("notification").data(dto));
+        emitter.send(SseEmitter.event().name(eventName).data(payload));
       } catch (Exception e) {
         remove(userId, emitter);
       }

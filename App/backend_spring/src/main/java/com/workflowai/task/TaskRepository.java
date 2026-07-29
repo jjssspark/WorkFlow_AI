@@ -1,14 +1,24 @@
 package com.workflowai.task;
 
+import jakarta.persistence.LockModeType;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface TaskRepository extends JpaRepository<Task, Long> {
+    /**
+     * 상태 이동은 알림 생성 여부까지 현재 상태에 의존하므로 같은 업무의 동시 요청을 직렬화한다.
+     * 두 번째 요청은 첫 번째 커밋 이후 상태를 읽어 동일 상태 이동 알림을 다시 만들지 않는다.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select t from Task t where t.id = :taskId")
+    Optional<Task> findByIdForUpdate(@Param("taskId") Long taskId);
+
     List<Task> findByProjectIdOrderByCreatedAtDesc(Long projectId);
 
     List<Task> findByProjectIdOrderByStatusAscPositionAsc(Long projectId);
@@ -24,6 +34,8 @@ public interface TaskRepository extends JpaRepository<Task, Long> {
 
     /** 새 업무를 컬럼 맨 끝에 추가할 때 쓸 기준값(해당 프로젝트+상태에서 가장 큰 position). */
     Optional<Task> findTopByProjectIdAndStatusOrderByPositionDesc(Long projectId, String status);
+
+    Optional<Task> findTopByProjectIdAndStatusOrderByPositionAsc(Long projectId, String status);
 
     /** 완료 승인 대기 목록 화면용 — 팀원이 완료를 요청했고 아직 팀장이 승인/반려하지 않은 업무. */
     List<Task> findByProjectIdAndPendingApprovalTrueOrderByUpdatedAtAsc(Long projectId);

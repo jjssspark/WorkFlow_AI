@@ -24,7 +24,11 @@ def use_memory_checkpointer(monkeypatch: pytest.MonkeyPatch) -> None:
     assistant_graph._pending_threads.clear()
 
 
-def _state(question: str, role: str = "MEMBER") -> dict:
+# role에 기본값을 두지 않는다. 모든 도구가 팀장 전용이라 기본값을 LEADER로 두면, 권한을
+# 검증하려던 테스트가 역할을 빠뜨렸을 때 조용히 통과해버린다(권한 검사가 prepare 노드 맨
+# 앞이라 MEMBER면 대상 업무 해소 전에 막히는데 그 차이가 드러나지 않는다).
+# 명시를 강제해 각 테스트가 어떤 역할을 전제하는지 호출부에서 바로 보이게 한다.
+def _state(question: str, *, role: str) -> dict:
     return {
         "question": question,
         "history": [],
@@ -35,7 +39,7 @@ def _state(question: str, role: str = "MEMBER") -> dict:
 
 
 @pytest.mark.asyncio
-async def test_member_command_produces_confirm_card() -> None:
+async def test_leader_command_produces_confirm_card() -> None:
     from llm_rag_assistant.app.graph.assistant_graph import start_command
 
     plan = [Action(tool="change_status", task_ref="WF-250", args={"to": "done"})]
@@ -45,13 +49,32 @@ async def test_member_command_produces_confirm_card() -> None:
         "llm_rag_assistant.app.graph.assistant_graph.resolve_task_ref",
         new=AsyncMock(return_value=TaskMatch(task_id=37, title="업무 생성 모달 구현")),
     ):
-        outcome = await start_command(object(), _state("WF-250 완료로 바꿔줘"))
+        outcome = await start_command(object(), _state("WF-250 완료로 바꿔줘", role="LEADER"))
 
     assert outcome.type == "confirm"
     assert outcome.card is not None
     assert outcome.card.tool == "change_status"
     assert outcome.card.task_id == 37
     assert outcome.thread_id
+
+
+@pytest.mark.asyncio
+async def test_member_is_blocked_for_status_change() -> None:
+    """상태 변경은 보드 화면에서는 멤버도 할 수 있지만 어시스턴트 경로는 팀장 전용이다."""
+    from llm_rag_assistant.app.graph.assistant_graph import start_command
+
+    plan = [Action(tool="change_status", task_ref="WF-250", args={"to": "done"})]
+    with patch(
+        "llm_rag_assistant.app.graph.assistant_graph.plan_actions", new=AsyncMock(return_value=plan)
+    ), patch(
+        "llm_rag_assistant.app.graph.assistant_graph.resolve_task_ref",
+        new=AsyncMock(return_value=TaskMatch(task_id=37, title="업무 생성 모달 구현")),
+    ):
+        outcome = await start_command(object(), _state("WF-250 완료로 바꿔줘", role="MEMBER"))
+
+    assert outcome.type == "done"
+    assert outcome.card is None
+    assert "팀장" in outcome.message
 
 
 @pytest.mark.asyncio
@@ -74,20 +97,26 @@ async def test_member_is_blocked_before_card_for_leader_tool() -> None:
 
 
 @pytest.mark.asyncio
-async def test_leader_tool_blocked_as_unsupported_even_for_leader() -> None:
-    """실행기가 아직 수행 못 하는 팀장 도구는 권한을 통과해도 카드를 만들지 않는다
-    (누르면 프론트가 거부하는 계약 불일치 방지)."""
+async def test_tool_outside_supported_set_is_blocked_even_for_leader() -> None:
+    """실행기가 수행 못 하는 도구는 권한을 통과해도 카드를 만들지 않는다
+    (누르면 프론트가 거부하는 계약 불일치 방지).
+
+    지금은 모든 도구를 실행기가 지원해 실제 미지원 도구가 없다. 그래도 이 가드는 도구를
+    추가할 때 실행기 구현을 잊지 않게 하는 장치라, 집합을 좁혀 주입해 살려둔다.
+    """
     from llm_rag_assistant.app.graph.assistant_graph import start_command
 
-    # change_assignee는 아직 실행기 미구현이라 SUPPORTED_TOOLS에 없다.
-    plan = [Action(tool="change_assignee", task_ref="WF-250", args={"assignee_name": "김철수"})]
+    plan = [Action(tool="delete_task", task_ref="WF-250", args={})]
     with patch(
         "llm_rag_assistant.app.graph.assistant_graph.plan_actions", new=AsyncMock(return_value=plan)
     ), patch(
         "llm_rag_assistant.app.graph.assistant_graph.resolve_task_ref",
         new=AsyncMock(return_value=TaskMatch(task_id=37, title="업무")),
+    ), patch(
+        "llm_rag_assistant.app.graph.assistant_graph.SUPPORTED_TOOLS",
+        frozenset({"change_status"}),
     ):
-        outcome = await start_command(object(), _state("담당자 바꿔줘", role="LEADER"))
+        outcome = await start_command(object(), _state("업무 삭제해줘", role="LEADER"))
 
     assert outcome.type == "done"
     assert outcome.card is None
@@ -116,13 +145,136 @@ async def test_leader_can_set_due_date() -> None:
 
 
 @pytest.mark.asyncio
+async def test_leader_can_rename_task() -> None:
+    """rename_task는 팀장 전용이고 실행기가 지원한다. 팀장은 확인 카드를 받는다."""
+    from llm_rag_assistant.app.graph.assistant_graph import start_command
+
+    plan = [Action(tool="rename_task", task_ref="WF-250", args={"title": "로그인 API 리팩터링"})]
+    with patch(
+        "llm_rag_assistant.app.graph.assistant_graph.plan_actions", new=AsyncMock(return_value=plan)
+    ), patch(
+        "llm_rag_assistant.app.graph.assistant_graph.resolve_task_ref",
+        new=AsyncMock(return_value=TaskMatch(task_id=61, title="로그인 개선")),
+    ):
+        outcome = await start_command(object(), _state("WF-250 이름 바꿔줘", role="LEADER"))
+
+    assert outcome.type == "confirm"
+    assert outcome.card is not None
+    assert outcome.card.tool == "rename_task"
+    assert outcome.card.task_id == 61
+    assert outcome.card.args["title"] == "로그인 API 리팩터링"
+    # 카드 요약에 바뀔 이름이 보여야 사용자가 승인 전에 확인할 수 있다.
+    assert "로그인 API 리팩터링" in outcome.card.summary
+
+
+@pytest.mark.asyncio
+async def test_leader_can_change_assignee() -> None:
+    """change_assignee는 팀장 전용이고 실행기가 지원한다. 팀장은 확인 카드를 받는다."""
+    from llm_rag_assistant.app.graph.assistant_graph import start_command
+
+    plan = [Action(tool="change_assignee", task_ref="WF-250", args={"assignee_name": "김철수"})]
+    with patch(
+        "llm_rag_assistant.app.graph.assistant_graph.plan_actions", new=AsyncMock(return_value=plan)
+    ), patch(
+        "llm_rag_assistant.app.graph.assistant_graph.resolve_task_ref",
+        new=AsyncMock(return_value=TaskMatch(task_id=72, title="결제 모듈 연동")),
+    ):
+        outcome = await start_command(object(), _state("WF-250 담당자 김철수로 바꿔줘", role="LEADER"))
+
+    assert outcome.type == "confirm"
+    assert outcome.card is not None
+    assert outcome.card.tool == "change_assignee"
+    assert outcome.card.task_id == 72
+    assert outcome.card.args["assignee_name"] == "김철수"
+    # 카드는 이름만 싣는다. 실제 id 해소는 프론트 실행기가 멤버 목록을 받아 처리한다.
+    assert "김철수" in outcome.card.summary
+
+
+@pytest.mark.asyncio
+async def test_leader_can_delete_task() -> None:
+    """delete_task는 되돌릴 수 없어 확인 카드가 유일한 안전장치다. 카드가 반드시 떠야 한다."""
+    from llm_rag_assistant.app.graph.assistant_graph import start_command
+
+    plan = [Action(tool="delete_task", task_ref="WF-250", args={})]
+    with patch(
+        "llm_rag_assistant.app.graph.assistant_graph.plan_actions", new=AsyncMock(return_value=plan)
+    ), patch(
+        "llm_rag_assistant.app.graph.assistant_graph.resolve_task_ref",
+        new=AsyncMock(return_value=TaskMatch(task_id=88, title="쓰지 않는 배치 스크립트")),
+    ):
+        outcome = await start_command(object(), _state("WF-250 삭제해줘", role="LEADER"))
+
+    assert outcome.type == "confirm"
+    assert outcome.card is not None
+    assert outcome.card.tool == "delete_task"
+    assert outcome.card.task_id == 88
+    # 무엇이 지워지는지 요약에 드러나야 사용자가 승인 전에 되돌릴 수 없음을 판단할 수 있다.
+    assert "쓰지 않는 배치 스크립트" in outcome.card.summary
+    assert "삭제" in outcome.card.summary
+
+
+@pytest.mark.asyncio
+async def test_member_is_blocked_for_delete_task() -> None:
+    from llm_rag_assistant.app.graph.assistant_graph import start_command
+
+    plan = [Action(tool="delete_task", task_ref="WF-250", args={})]
+    with patch(
+        "llm_rag_assistant.app.graph.assistant_graph.plan_actions", new=AsyncMock(return_value=plan)
+    ), patch(
+        "llm_rag_assistant.app.graph.assistant_graph.resolve_task_ref",
+        new=AsyncMock(return_value=TaskMatch(task_id=88, title="쓰지 않는 배치 스크립트")),
+    ):
+        outcome = await start_command(object(), _state("삭제해줘", role="MEMBER"))
+
+    assert outcome.type == "done"
+    assert outcome.card is None
+    assert "팀장" in outcome.message
+
+
+@pytest.mark.asyncio
+async def test_member_is_blocked_for_change_assignee() -> None:
+    from llm_rag_assistant.app.graph.assistant_graph import start_command
+
+    plan = [Action(tool="change_assignee", task_ref="WF-250", args={"assignee_name": "김철수"})]
+    with patch(
+        "llm_rag_assistant.app.graph.assistant_graph.plan_actions", new=AsyncMock(return_value=plan)
+    ), patch(
+        "llm_rag_assistant.app.graph.assistant_graph.resolve_task_ref",
+        new=AsyncMock(return_value=TaskMatch(task_id=72, title="결제 모듈 연동")),
+    ):
+        outcome = await start_command(object(), _state("담당자 바꿔줘", role="MEMBER"))
+
+    assert outcome.type == "done"
+    assert outcome.card is None
+    assert "팀장" in outcome.message
+
+
+@pytest.mark.asyncio
+async def test_member_is_blocked_for_rename_task() -> None:
+    from llm_rag_assistant.app.graph.assistant_graph import start_command
+
+    plan = [Action(tool="rename_task", task_ref="WF-250", args={"title": "새 이름"})]
+    with patch(
+        "llm_rag_assistant.app.graph.assistant_graph.plan_actions", new=AsyncMock(return_value=plan)
+    ), patch(
+        "llm_rag_assistant.app.graph.assistant_graph.resolve_task_ref",
+        new=AsyncMock(return_value=TaskMatch(task_id=61, title="로그인 개선")),
+    ):
+        outcome = await start_command(object(), _state("이름 바꿔줘", role="MEMBER"))
+
+    assert outcome.type == "done"
+    assert outcome.card is None
+    assert "팀장" in outcome.message
+
+
+@pytest.mark.asyncio
 async def test_empty_plan_asks_again() -> None:
     from llm_rag_assistant.app.graph.assistant_graph import start_command
 
     with patch(
         "llm_rag_assistant.app.graph.assistant_graph.plan_actions", new=AsyncMock(return_value=[])
     ):
-        outcome = await start_command(object(), _state("어쩌구 저쩌구 해줘"))
+        outcome = await start_command(object(), _state("어쩌구 저쩌구 해줘", role="LEADER"))
 
     assert outcome.type == "done"
     assert outcome.card is None
@@ -139,7 +291,7 @@ async def test_unresolved_task_reports_not_found() -> None:
         "llm_rag_assistant.app.graph.assistant_graph.resolve_task_ref",
         new=AsyncMock(return_value=TaskMatch()),
     ):
-        outcome = await start_command(object(), _state("없는 업무에 코멘트 남겨줘"))
+        outcome = await start_command(object(), _state("없는 업무에 코멘트 남겨줘", role="LEADER"))
 
     assert outcome.type == "done"
     assert outcome.card is None
@@ -163,7 +315,7 @@ async def test_ambiguous_task_asks_user_to_choose() -> None:
         "llm_rag_assistant.app.graph.assistant_graph.resolve_task_ref",
         new=AsyncMock(return_value=match),
     ):
-        outcome = await start_command(object(), _state("로그인에 코멘트 남겨줘"))
+        outcome = await start_command(object(), _state("로그인에 코멘트 남겨줘", role="LEADER"))
 
     assert outcome.type == "done"
     assert "로그인 API 구현" in outcome.message
@@ -181,7 +333,7 @@ async def test_resume_with_success_completes_command() -> None:
         "llm_rag_assistant.app.graph.assistant_graph.resolve_task_ref",
         new=AsyncMock(return_value=TaskMatch(task_id=37, title="업무 생성 모달 구현")),
     ):
-        started = await start_command(object(), _state("WF-250 완료로 바꿔줘"))
+        started = await start_command(object(), _state("WF-250 완료로 바꿔줘", role="LEADER"))
         resumed = await resume_command(
             started.thread_id, {"step_id": started.card.step_id, "ok": True}
         )
@@ -210,7 +362,7 @@ async def test_multi_action_plan_resumes_each_step_sequentially() -> None:
         "llm_rag_assistant.app.graph.assistant_graph.resolve_task_ref",
         new=AsyncMock(return_value=TaskMatch(task_id=37, title="업무")),
     ):
-        first = await start_command(object(), _state("두 업무 상태 바꿔줘"))
+        first = await start_command(object(), _state("두 업무 상태 바꿔줘", role="LEADER"))
         assert first.type == "confirm"
 
         second = await resume_command(first.thread_id, {"step_id": first.card.step_id, "ok": True})
@@ -238,7 +390,7 @@ async def test_resume_with_failure_reports_it() -> None:
         "llm_rag_assistant.app.graph.assistant_graph.resolve_task_ref",
         new=AsyncMock(return_value=TaskMatch(task_id=37, title="업무")),
     ):
-        started = await start_command(object(), _state("WF-250 완료로 바꿔줘"))
+        started = await start_command(object(), _state("WF-250 완료로 바꿔줘", role="LEADER"))
         resumed = await resume_command(
             started.thread_id,
             {"step_id": started.card.step_id, "ok": False, "error": "업무를 찾을 수 없습니다"},
@@ -261,7 +413,7 @@ async def test_resume_rejects_mismatched_step_id() -> None:
         "llm_rag_assistant.app.graph.assistant_graph.resolve_task_ref",
         new=AsyncMock(return_value=TaskMatch(task_id=37, title="업무")),
     ):
-        started = await start_command(object(), _state("WF-250 완료로 바꿔줘"))
+        started = await start_command(object(), _state("WF-250 완료로 바꿔줘", role="LEADER"))
         resumed = await resume_command(
             started.thread_id, {"step_id": "9-deadbeef", "ok": True}
         )
@@ -286,7 +438,7 @@ async def test_resume_rejects_when_pending_step_cannot_be_determined(
         "llm_rag_assistant.app.graph.assistant_graph.resolve_task_ref",
         new=AsyncMock(return_value=TaskMatch(task_id=37, title="업무")),
     ):
-        started = await start_command(object(), _state("WF-250 완료로 바꿔줘"))
+        started = await start_command(object(), _state("WF-250 완료로 바꿔줘", role="LEADER"))
         monkeypatch.setattr(assistant_graph, "_pending_step_id", lambda snapshot: None)
         resumed = await resume_command(
             started.thread_id, {"step_id": started.card.step_id, "ok": True}
@@ -319,7 +471,7 @@ async def test_resume_discards_checkpoint_to_reclaim_memory() -> None:
         "llm_rag_assistant.app.graph.assistant_graph.resolve_task_ref",
         new=AsyncMock(return_value=TaskMatch(task_id=37, title="업무")),
     ):
-        started = await start_command(object(), _state("WF-250 완료로 바꿔줘"))
+        started = await start_command(object(), _state("WF-250 완료로 바꿔줘", role="LEADER"))
         # 승인 대기 스레드는 추적되고 체크포인트가 남아 있다.
         assert started.thread_id in assistant_graph._pending_threads
         await resume_command(started.thread_id, {"step_id": started.card.step_id, "ok": True})
@@ -340,7 +492,7 @@ async def test_start_command_discards_thread_for_terminal_outcome() -> None:
     with patch(
         "llm_rag_assistant.app.graph.assistant_graph.plan_actions", new=AsyncMock(return_value=[])
     ):
-        outcome = await start_command(object(), _state("어쩌구 저쩌구 해줘"))
+        outcome = await start_command(object(), _state("어쩌구 저쩌구 해줘", role="LEADER"))
 
     assert outcome.type == "done"
     assert outcome.thread_id not in assistant_graph._pending_threads
@@ -374,3 +526,63 @@ async def test_sweep_removes_only_expired_pending_threads(monkeypatch: pytest.Mo
     assert deleted == ["old"]
     assert "old" not in assistant_graph._pending_threads
     assert "fresh" in assistant_graph._pending_threads
+
+
+@pytest.mark.asyncio
+async def test_nudge_card_shows_what_the_notification_will_say() -> None:
+    """재촉 알림도 되돌릴 수 없다. 어떤 내용이 나가는지 요약에 드러나야 한다.
+
+    delete_task와 같은 이유다. 다만 이쪽은 지워지는 게 아니라 남에게 알림이 가는 것이라,
+    "재촉한다"만으로는 부족하고 세 종류 중 무엇인지가 보여야 사용자가 판단할 수 있다.
+    """
+    from llm_rag_assistant.app.graph.assistant_graph import start_command
+
+    plan = [Action(tool="nudge_task", task_ref="결제 모듈", args={"kind": "URGENT"})]
+    with patch(
+        "llm_rag_assistant.app.graph.assistant_graph.plan_actions", new=AsyncMock(return_value=plan)
+    ), patch(
+        "llm_rag_assistant.app.graph.assistant_graph.resolve_task_ref",
+        new=AsyncMock(return_value=TaskMatch(task_id=91, title="결제 모듈 구현")),
+    ):
+        outcome = await start_command(
+            object(), _state("결제 모듈 급하니 확인하라고 알려줘", role="LEADER")
+        )
+
+    assert outcome.type == "confirm"
+    assert outcome.card is not None
+    assert outcome.card.tool == "nudge_task"
+    assert outcome.card.args == {"kind": "URGENT"}
+    assert "결제 모듈 구현" in outcome.card.summary
+    # 종류 코드(URGENT)가 아니라 사람이 읽을 수 있는 문구여야 한다.
+    assert "긴급" in outcome.card.summary
+    assert "URGENT" not in outcome.card.summary
+
+
+@pytest.mark.asyncio
+async def test_completion_approval_is_blocked_for_member_role() -> None:
+    """완료 승인은 팀장 전용이다. 멤버에게는 카드를 만들지 않는다.
+
+    최종 방어선은 Spring의 @PreAuthorize지만, 누르면 반드시 403이 될 버튼을 보여주지
+    않기 위해 여기서 먼저 막는다.
+    """
+    from llm_rag_assistant.app.graph.assistant_graph import start_command
+
+    plan = [Action(tool="approve_completion", task_ref="결제 모듈", args={})]
+    with patch(
+        "llm_rag_assistant.app.graph.assistant_graph.plan_actions", new=AsyncMock(return_value=plan)
+    ), patch(
+        "llm_rag_assistant.app.graph.assistant_graph.resolve_task_ref",
+        new=AsyncMock(return_value=TaskMatch(task_id=91, title="결제 모듈 구현")),
+    ):
+        blocked = await start_command(
+            object(), _state("결제 모듈 완료 승인해줘", role="MEMBER")
+        )
+        allowed = await start_command(
+            object(), _state("결제 모듈 완료 승인해줘", role="LEADER")
+        )
+
+    assert blocked.card is None
+    # 거부만 확인하면 "무조건 거부"하는 구현도 통과한다. 팀장은 통과해야 한다.
+    assert allowed.type == "confirm"
+    assert allowed.card is not None
+    assert allowed.card.tool == "approve_completion"

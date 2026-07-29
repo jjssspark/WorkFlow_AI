@@ -49,9 +49,11 @@ public class SecurityConfig {
                 .requestMatchers("/api/v1/auth/**").permitAll()
                 .requestMatchers("/api/v1/health", "/api/v1/health/**").permitAll()
                 .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()
-                // 컨트롤러에서 예외가 나면 서블릿 컨테이너가 인증 헤더 없이 /error로 내부 forward한다.
-                // /error가 permitAll이 아니면 이 forward 자체가 인증 필요 요청으로 막혀 진짜 에러(예:
-                // 500) 대신 401만 나가서 원인이 완전히 가려진다.
+                // 컨트롤러에서 처리되지 않은 예외는 Spring Boot의 ErrorPageFilter가 /error로
+                // 내부 forward한다. /error가 permitAll이 아니면 이 재요청이 인증 필요로 걸려,
+                // 원래 500이어야 할 응답이 401/403으로 둔갑한다(permitAll 경로에서 예외가 나도
+                // 마찬가지다 - 애초에 토큰이 없었으므로). 실제 상태 코드는 GlobalExceptionHandler
+                // 등 각 핸들러가 이미 결정했으므로 여기는 인증 검사만 건너뛰면 된다.
                 .requestMatchers("/error").permitAll()
                 .anyRequest().authenticated()
             )

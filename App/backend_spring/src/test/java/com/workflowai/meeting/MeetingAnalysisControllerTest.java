@@ -7,6 +7,7 @@ import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -19,6 +20,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
@@ -41,6 +43,61 @@ class MeetingAnalysisControllerTest {
             .andExpect(jsonPath("$.data[0].meetingId").value("11"));
 
         verify(meetingAnalysisService).findByProject("project-a");
+    }
+
+    @Test
+    void analyzeReturnsOkWithMeetingIdAndProcessingStatus() throws Exception {
+        when(meetingAnalysisService.analyze(
+            eq("demo-project"), any(), eq("주간회의"), any(), any(), any(), any(), any()
+        )).thenReturn(new MeetingAnalysisResponse(
+            "demo-project-1", "demo-project", "PROCESSING", "document", "meeting.pdf",
+            null, null, null, List.of(), null
+        ));
+        MeetingAnalysisController controller = new MeetingAnalysisController(meetingAnalysisService);
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
+
+        MockMultipartFile file = new MockMultipartFile(
+            "file", "meeting.pdf", "application/pdf", "회의 내용".getBytes()
+        );
+
+        mockMvc.perform(multipart("/api/v1/projects/demo-project/meetings/analyze")
+                .file(file)
+                .param("title", "주간회의"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.meetingId").value("demo-project-1"))
+            .andExpect(jsonPath("$.data.status").value("PROCESSING"));
+    }
+
+    @Test
+    void analyzeReturns422WithEmptyFileCodeWhenFileIsEmpty() throws Exception {
+        when(meetingAnalysisService.analyze(
+            eq("demo-project"), any(), any(), any(), any(), any(), any(), any()
+        )).thenThrow(new EmptyFileException("빈 파일은 업로드할 수 없습니다."));
+        MeetingAnalysisController controller = new MeetingAnalysisController(meetingAnalysisService);
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
+
+        MockMultipartFile file = new MockMultipartFile("file", "empty.pdf", "application/pdf", new byte[0]);
+
+        mockMvc.perform(multipart("/api/v1/projects/demo-project/meetings/analyze").file(file))
+            .andExpect(status().is(422))
+            .andExpect(jsonPath("$.error.code").value("EMPTY_FILE"));
+    }
+
+    @Test
+    void analyzeReturns422WithInvalidFileTypeCodeWhenExtensionIsUnsupported() throws Exception {
+        when(meetingAnalysisService.analyze(
+            eq("demo-project"), any(), any(), any(), any(), any(), any(), any()
+        )).thenThrow(new UnsupportedFileTypeException("지원하지 않는 파일 형식입니다: malware.exe"));
+        MeetingAnalysisController controller = new MeetingAnalysisController(meetingAnalysisService);
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
+
+        MockMultipartFile file = new MockMultipartFile(
+            "file", "malware.exe", "application/octet-stream", "x".getBytes()
+        );
+
+        mockMvc.perform(multipart("/api/v1/projects/demo-project/meetings/analyze").file(file))
+            .andExpect(status().is(422))
+            .andExpect(jsonPath("$.error.code").value("INVALID_FILE_TYPE"));
     }
 
     @Test

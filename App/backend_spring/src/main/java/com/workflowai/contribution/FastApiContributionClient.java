@@ -17,7 +17,10 @@ public class FastApiContributionClient {
 
     private final RestClient restClient;
 
-    public FastApiContributionClient(@Value("${workflow.ai.base-url}") String baseUrl) {
+    public FastApiContributionClient(
+        @Value("${workflow.ai.base-url}") String baseUrl,
+        @Value("${workflow.ai.internal-key}") String internalKey
+    ) {
         HttpClient httpClient = HttpClient.newBuilder()
             .version(HttpClient.Version.HTTP_1_1)
             .connectTimeout(CONNECT_TIMEOUT)
@@ -27,6 +30,7 @@ public class FastApiContributionClient {
         this.restClient = RestClient.builder()
             .baseUrl(baseUrl)
             .requestFactory(requestFactory)
+            .defaultHeader("X-Internal-Api-Key", internalKey)
             .build();
     }
 

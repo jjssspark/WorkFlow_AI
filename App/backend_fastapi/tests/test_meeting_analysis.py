@@ -20,6 +20,14 @@ from app.main import (
     clean_todo_title,
     parse_ollama_analysis_response,
 )
+from core.security import verify_internal_api_key
+
+
+@pytest.fixture(autouse=True)
+def _bypass_internal_api_key():
+    app.dependency_overrides[verify_internal_api_key] = lambda: None
+    yield
+    app.dependency_overrides.pop(verify_internal_api_key, None)
 
 
 class FakeMeetingCache:

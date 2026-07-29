@@ -27,7 +27,10 @@ public class ProjectService {
     private static final String INVITE_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     private static final int INVITE_CODE_LENGTH = 8;
     private static final int INVITE_CODE_MAX_ATTEMPTS = 20;
-    private static final String TASK_STATUS_DONE = "완료";
+    // tasks.status에 실제로 저장되는 값은 "done"이다(ReviewerService/RoadmapService/DashboardService와
+    // TaskCreateRequest 스키마 모두 동일). 여기만 "완료"로 비교해 완료 건수가 항상 0이 되었고,
+    // 그 결과 심사자 홈의 프로젝트 진행률이 늘 0%로 표시됐다.
+    private static final String TASK_STATUS_DONE = "done";
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final ProjectRepository projectRepository;
@@ -270,6 +273,19 @@ public class ProjectService {
     public ProjectResponse finalizeEvaluation(Long projectId) {
         Project project = getProjectOrThrow(projectId);
         project.setEvalStatus(EvalStatus.PUBLISHED);
+        return toResponse(project);
+    }
+
+    /**
+     * 심사자가 "평가 확정"을 취소할 때 호출한다. eval_status를 EVALUATING으로
+     * 되돌린다. finalizeEvaluation과 마찬가지로 현재 상태를 검사하지 않고
+     * 무조건 전이시킨다 — 잠금 기능이 아닌 단순 진행 상태 표시이므로.
+     * 팀원별 점수/공개 여부(evaluation_scores)는 건드리지 않는다.
+     */
+    @Transactional
+    public ProjectResponse unfinalizeEvaluation(Long projectId) {
+        Project project = getProjectOrThrow(projectId);
+        project.setEvalStatus(EvalStatus.EVALUATING);
         return toResponse(project);
     }
 
