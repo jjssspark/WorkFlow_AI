@@ -77,19 +77,6 @@ def _run_detect_anomalies(feature_df):
     return holder["result"]
 
 
-def _summarize_workload_score_data(data: WorkloadScoreData) -> dict:
-    """LangSmith 트레이스에 팀원별 개인 데이터(WorkloadMemberResult) 전체 대신
-    프로젝트 단위 요약 통계만 기록한다."""
-    return {
-        "project_id": data.project_id,
-        "source": data.source,
-        "method": data.method,
-        "member_count": len(data.members),
-        "anomaly_count": sum(1 for m in data.members if m.is_anomaly),
-        "note": data.note,
-    }
-
-
 async def get_workload_score(project_id: int, use_synthetic_fallback: bool = False) -> WorkloadScoreData:
     """
     프로젝트의 팀원별 업무 편중(난이도 편중/업무량 편중/배정량 불균형) 점수를 계산한다.
