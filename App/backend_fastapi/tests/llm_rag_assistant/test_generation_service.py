@@ -936,10 +936,33 @@ def test_strip_markdown_keeps_hyphen_bullets_as_is() -> None:
     assert _strip_markdown(answer) == answer
 
 
-def test_strip_markdown_unwraps_code_and_links() -> None:
+def test_strip_markdown_unwraps_code_and_keeps_the_link_target() -> None:
+    """주소를 버리면 모델이 붙인 참고 링크가 답변에서 조용히 사라진다."""
     answer = "`due_date`를 확인하세요. [업무 보드](https://example.com/board)에 있습니다."
 
-    assert _strip_markdown(answer) == "due_date를 확인하세요. 업무 보드에 있습니다."
+    assert _strip_markdown(answer) == (
+        "due_date를 확인하세요. 업무 보드 (https://example.com/board)에 있습니다."
+    )
+
+
+def test_strip_markdown_keeps_a_task_number_at_the_start_of_a_line() -> None:
+    """'#485'는 제목이 아니라 업무 번호다. '#'을 지우면 다른 값처럼 보인다."""
+    answer = "#485 문서 정리\n#178 회의 분석"
+
+    assert _strip_markdown(answer) == answer
+
+
+def test_strip_markdown_keeps_a_comparison_operator_at_the_start_of_a_line() -> None:
+    answer = ">= 3건이면 재검토가 필요합니다"
+
+    assert _strip_markdown(answer) == answer
+
+
+def test_strip_markdown_does_not_pair_asterisks_across_lines() -> None:
+    """줄을 넘겨 짝을 지으면 무관한 두 줄의 짝 없는 '*'가 함께 사라진다."""
+    answer = "3 * 4 = 12\n5 * 6 = 30"
+
+    assert _strip_markdown(answer) == answer
 
 
 def test_strip_markdown_drops_code_fences_and_horizontal_rules() -> None:
@@ -1002,5 +1025,12 @@ def test_strip_markdown_keeps_a_blank_line_the_model_already_wrote() -> None:
 
 def test_strip_markdown_does_not_split_consecutive_list_items() -> None:
     answer = "- 첫 번째 업무\n- 두 번째 업무\n- 세 번째 업무"
+
+    assert _strip_markdown(answer) == answer
+
+
+def test_strip_markdown_keeps_indented_sub_items_in_the_same_block() -> None:
+    """들여쓴 하위 항목마다 빈 줄이 끼면 한 목록이 여러 묶음으로 쪼개져 보인다."""
+    answer = "- 결제 모듈\n  - 외부 API 승인 대기\n- 로그인 개선"
 
     assert _strip_markdown(answer) == answer

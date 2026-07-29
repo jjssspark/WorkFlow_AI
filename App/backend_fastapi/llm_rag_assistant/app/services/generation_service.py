@@ -220,14 +220,31 @@ def _build_context(sources: list[dict], is_personal: bool, stats: dict | None) -
 # 밑줄(_) 강조는 일부러 건드리지 않는다. 답변에는 source_type·due_date 같은 스네이크 케이스
 # 식별자가 섞여 나오는데, _..._ 를 강조로 지우면 그런 값이 망가진다.
 _MARKDOWN_FENCE_PATTERN = re.compile(r"^[ \t]*```.*$\n?", re.MULTILINE)
-_MARKDOWN_LINK_PATTERN = re.compile(r"!?\[([^\]]*)\]\([^)]*\)")
+_MARKDOWN_LINK_PATTERN = re.compile(r"!?\[([^\]]*)\]\(([^)]*)\)")
 _MARKDOWN_INLINE_CODE_PATTERN = re.compile(r"`+([^`\n]+)`+")
 _MARKDOWN_RULE_PATTERN = re.compile(r"^[ \t]{0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$\n?", re.MULTILINE)
-_MARKDOWN_HEADING_PATTERN = re.compile(r"^[ \t]{0,3}#{1,6}[ \t]*", re.MULTILINE)
-_MARKDOWN_QUOTE_PATTERN = re.compile(r"^[ \t]{0,3}>[ \t]?", re.MULTILINE)
+# '#' 뒤에 공백이나 줄 끝이 와야 제목으로 본다. 그냥 '#{1,6}'로 잡으면 답변에 흔한 업무 번호
+# ('#485 문서 정리')가 줄 앞에 오는 순간 '#'이 지워져 다른 값처럼 보인다.
+_MARKDOWN_HEADING_PATTERN = re.compile(r"^[ \t]{0,3}#{1,6}(?:[ \t]+|$)", re.MULTILINE)
+# 인용도 '>' 뒤 공백을 요구한다. 공백을 선택으로 두면 '>= 3건' 같은 비교 표현의 '>'를 먹는다.
+_MARKDOWN_QUOTE_PATTERN = re.compile(r"^[ \t]{0,3}>[ \t]+", re.MULTILINE)
 # '*'/'+' 불릿은 지우지 않고 '-'로 맞춘다. 목록 자체는 평문에서도 읽기 좋은 형태다.
 _MARKDOWN_BULLET_PATTERN = re.compile(r"^([ \t]*)[*+][ \t]+", re.MULTILINE)
-_MARKDOWN_EMPHASIS_PATTERN = re.compile(r"(\*{1,3})(\S|\S.*?\S)\1", re.DOTALL)
+# 강조는 한 줄 안에서만 찾는다(DOTALL 금지). 줄바꿈을 넘겨 짝을 지으면 서로 무관한 두 줄의
+# 짝 없는 '*'가 하나의 강조로 묶여, 두 별표가 함께 사라진다.
+_MARKDOWN_EMPHASIS_PATTERN = re.compile(r"(\*{1,3})(\S|\S[^\n]*?\S)\1")
+
+
+def _unwrap_link(match: re.Match) -> str:
+    """[본문](주소) -> '본문 (주소)'.
+
+    주소를 통째로 버리면 모델이 붙인 참고 링크가 답변에서 조용히 사라진다. 평문이라
+    클릭은 안 되지만 주소가 보이면 사용자가 직접 옮겨 갈 수 있다.
+    """
+    label, url = match.group(1).strip(), match.group(2).strip()
+    if not url:
+        return label
+    return f"{label} ({url})" if label else url
 
 
 # 프롬프트로 "주제가 바뀌면 빈 줄"을 지시해도 모델이 계속 붙여 썼다(실측). 목록 끝과 다음
@@ -236,12 +253,18 @@ _MARKDOWN_EMPHASIS_PATTERN = re.compile(r"(\*{1,3})(\S|\S.*?\S)\1", re.DOTALL)
 _LIST_ITEM_PREFIX = "- "
 
 
+def _is_list_item(line: str) -> bool:
+    # 들여쓴 하위 항목("  - ...")도 목록으로 본다. 앞 공백을 무시하지 않으면 하위 항목마다
+    # 빈 줄이 끼어들어 한 목록이 여러 묶음으로 쪼개져 보인다.
+    return line.lstrip().startswith(_LIST_ITEM_PREFIX)
+
+
 def _space_out_list_blocks(text: str) -> str:
     lines = text.split("\n")
     spaced: list[str] = []
     for line in lines:
-        ends_a_list = spaced and spaced[-1].startswith(_LIST_ITEM_PREFIX)
-        starts_new_block = line.strip() and not line.startswith(_LIST_ITEM_PREFIX)
+        ends_a_list = spaced and _is_list_item(spaced[-1])
+        starts_new_block = line.strip() and not _is_list_item(line)
         if ends_a_list and starts_new_block:
             spaced.append("")
         spaced.append(line)
@@ -250,7 +273,7 @@ def _space_out_list_blocks(text: str) -> str:
 
 def _strip_markdown(answer: str) -> str:
     text = _MARKDOWN_FENCE_PATTERN.sub("", answer)
-    text = _MARKDOWN_LINK_PATTERN.sub(r"\1", text)
+    text = _MARKDOWN_LINK_PATTERN.sub(_unwrap_link, text)
     text = _MARKDOWN_INLINE_CODE_PATTERN.sub(r"\1", text)
     text = _MARKDOWN_RULE_PATTERN.sub("", text)
     text = _MARKDOWN_HEADING_PATTERN.sub("", text)
