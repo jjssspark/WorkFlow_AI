@@ -18,6 +18,7 @@ import {
   ShieldCheck,
   Sparkles,
   Users,
+  X,
 } from "lucide-react";
 import { fetchAttendanceSummary, type MeetingAttendanceSummaryDto } from "../../meetings/libs/utils/meetingAiApi";
 import { fetchContributionReport, fetchContributionScore, type MemberContributionDto, type ContributionMemberScoreDto } from "../libs/utils/contributorsApi";
@@ -414,6 +415,9 @@ export function ContributorsView() {
       if (comment.trim()) {
         await createPersonalComment(currentProjectId, Number(memberId), comment.trim());
       }
+      // 전송 후에는 입력창을 비운다 — 이제 이 필드는 "저장된 값 편집"이 아니라 개인 코멘트
+      // 스레드로도 함께 전송되는 "새 메시지 작성"으로 쓰이므로, 보낸 내용이 계속 남아있으면 안 된다.
+      setCommentDrafts((prev) => ({ ...prev, [memberId]: "" }));
       setCommentSentMemberId(memberId);
       toast.success("코멘트를 전송했습니다.");
       setTimeout(() => {
@@ -1040,13 +1044,24 @@ export function ContributorsView() {
                     className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <BarChart3 className="w-3.5 h-3.5" />
-                    {commentSavingMemberId === selectedMember.memberId
-                      ? "전송 중"
-                      : commentSentMemberId === selectedMember.memberId
-                        ? "전송 완료"
-                        : "전송"}
+                    {commentSavingMemberId === selectedMember.memberId ? "전송 중" : "전송"}
                   </button>
                 </div>
+                {commentSentMemberId === selectedMember.memberId && (
+                  <div className="flex items-center justify-between gap-2 mt-2 px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-200">
+                    <span className="flex items-center gap-1.5 text-xs font-semibold text-emerald-700">
+                      <CheckCircle2 className="w-3.5 h-3.5" />전송 완료
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setCommentSentMemberId(null)}
+                      aria-label="전송 완료 알림 닫기"
+                      className="text-emerald-600 hover:text-emerald-800"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
               </section>
             )}
           </aside>
