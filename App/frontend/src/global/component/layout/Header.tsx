@@ -33,7 +33,7 @@ function computeDDay(deadline: string): string {
 
 const DETAIL_TITLES: Record<string, string> = {
   "all-tasks": "전체 업무 관리", "progress": "진행률 분석",
-  "blockers": "블로커 관리", "inprogress": "진행 중 업무",
+  "blockers": "검토 필요 관리", "inprogress": "진행 중 업무",
   "dash-progress": "전체 진행률", "urgent": "마감 임박 업무",
   "workload": "팀원별 업무량", "activity": "최근 활동",
 };

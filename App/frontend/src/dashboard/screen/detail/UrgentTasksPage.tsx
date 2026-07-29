@@ -32,7 +32,7 @@ const PAGE_SIZE = 15;
 
 const STATUS_CHANGE_LABEL: Record<"done" | "blocked", string> = {
   done: "완료",
-  blocked: "블로커",
+  blocked: "검토 필요",
 };
 
 function urgencyKey(daysLeft: number | null) {
@@ -320,7 +320,7 @@ export function UrgentTasksPage() {
                   onClick={() => changeStatus(selectedRow.task, "blocked")}
                   disabled={pendingTaskId === selectedRow.task.id}
                   className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium border border-border bg-card text-foreground rounded-lg hover:bg-muted transition-colors disabled:opacity-50"
-                ><AlertTriangle className="w-3.5 h-3.5 text-red-500" />블로커로 지정</button>
+                ><AlertTriangle className="w-3.5 h-3.5 text-red-500" />검토 필요로 지정</button>
               </div>
             </div>
           </div>

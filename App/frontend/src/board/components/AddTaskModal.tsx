@@ -242,7 +242,7 @@ export function AddTaskModal({ open, initialStatus, projectMembers, onClose, onC
                     <div>
                       <label className="text-xs font-semibold text-foreground block mb-1.5">초기 상태</label>
                       <select value={fStatus} onChange={(e) => setFStatus(e.target.value as TaskStatus)} className="w-full rounded-xl border border-border bg-input-background px-4 py-2.5 text-sm outline-none focus:border-blue-400">
-                        <option value="todo">할 일</option><option value="inprogress">진행 중</option><option value="blocked">보류/블로커</option><option value="done">완료</option>
+                        <option value="todo">할 일</option><option value="inprogress">진행 중</option><option value="blocked">검토 필요</option><option value="done">완료</option>
                       </select>
                     </div>
                   </div>

@@ -264,7 +264,7 @@ function MemberMyPage({ name, email, onLogout, projectId, projectContextReady, u
                   { key:"all" as const,        label:"전체", value: myTasks.length,      color:"#3B5BDB", Icon: Star },
                   { key:"done" as const,       label:"완료", value: taskCounts.done,      color:"#10B981", Icon: CheckCircle2 },
                   { key:"inprogress" as const, label:"진행 중", value: taskCounts.inprogress, color:"#3B5BDB", Icon: Clock },
-                  { key:"blocked" as const,    label:"블로커", value: taskCounts.blocked,    color:"#EF4444", Icon: AlertTriangle },
+                  { key:"blocked" as const,    label:"검토 필요", value: taskCounts.blocked,    color:"#EF4444", Icon: AlertTriangle },
                   { key:"todo" as const,       label:"대기",   value: taskCounts.todo,       color:"#8892A4", Icon: Layers },
                 ].map(s => (
                   <button
@@ -816,7 +816,7 @@ function ReviewerMyPage({ name, email, onLogout, avatarUrl }: { name: string; em
                       {[
                         { l:"전체 업무", v:"14개", color:"#3B5BDB" },
                         { l:"완료율",   v:`${team.progressPercent}%`, color:"#10B981" },
-                        { l:"블로커",   v:"2개", color:"#EF4444" },
+                        { l:"검토 필요",   v:"2개", color:"#EF4444" },
                         { l:"마감",     v:"D-18", color:"#F59E0B" },
                       ].map(s => (
                         <div key={s.l} className="bg-card rounded-xl p-3.5 border border-border text-center shadow-sm">

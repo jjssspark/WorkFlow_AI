@@ -32,7 +32,7 @@ const LEGEND = [
 
 const STATUS_CHANGE_LABEL: Record<"done" | "blocked", string> = {
   done: "완료",
-  blocked: "블로커",
+  blocked: "검토 필요",
 };
 
 export function InProgressPage() {
@@ -231,7 +231,7 @@ export function InProgressPage() {
                     disabled={pendingTaskId === task.id}
                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-border bg-card text-foreground rounded-lg hover:bg-muted transition-colors disabled:opacity-50"
                   >
-                    <AlertTriangle className="w-3.5 h-3.5 text-red-500" /> 블로커 전환
+                    <AlertTriangle className="w-3.5 h-3.5 text-red-500" /> 검토 필요로 전환
                   </button>
                   {isLeader && (
                     <button onClick={() => setDueDateTarget(task)} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-border bg-card text-foreground rounded-lg hover:bg-muted transition-colors">

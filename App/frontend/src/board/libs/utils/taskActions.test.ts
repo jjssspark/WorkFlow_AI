@@ -34,7 +34,7 @@ describe("visibleSecondaryActions", () => {
     const blockedSecondary = STATUS_ACTIONS.blocked.filter((a) => !a.primary);
 
     expect(visibleSecondaryActions(todoSecondary, true, false).map((a) => a.label)).toEqual(["담당자 변경", "시작 알림"]);
-    expect(visibleSecondaryActions(inprogressSecondary, true, false).map((a) => a.label)).toEqual(["블로커 등록", "진행상황 요청"]);
+    expect(visibleSecondaryActions(inprogressSecondary, true, false).map((a) => a.label)).toEqual(["검토 요청", "진행상황 요청"]);
     expect(visibleSecondaryActions(blockedSecondary, true, false).map((a) => a.label)).toEqual(["긴급 알림", "담당자 재배정"]);
   });
 
@@ -47,16 +47,16 @@ describe("visibleSecondaryActions", () => {
     expect(visibleSecondaryActions(blockedSecondary, false, false).map((a) => a.label)).toEqual([]);
   });
 
-  it("hides 상태 이동 보조 액션(블로커 등록)을 담당자가 아닌 팀원에게는 숨긴다", () => {
+  it("hides 상태 이동 보조 액션(검토 요청)을 담당자가 아닌 팀원에게는 숨긴다", () => {
     const inprogressSecondary = STATUS_ACTIONS.inprogress.filter((a) => !a.primary);
     expect(visibleSecondaryActions(inprogressSecondary, false, false).map((a) => a.label)).toEqual([]);
-    expect(visibleSecondaryActions(inprogressSecondary, false, true).map((a) => a.label)).toEqual(["블로커 등록"]);
+    expect(visibleSecondaryActions(inprogressSecondary, false, true).map((a) => a.label)).toEqual(["검토 요청"]);
   });
 });
 
 describe("quickMoveTargetStatus", () => {
-  it("returns blocked when label is 블로커 등록 and status is inprogress", () => {
-    expect(quickMoveTargetStatus("블로커 등록", "inprogress")).toBe("blocked");
+  it("returns blocked when label is 검토 요청 and status is inprogress", () => {
+    expect(quickMoveTargetStatus("검토 요청", "inprogress")).toBe("blocked");
   });
 
   it("returns null for other labels", () => {
@@ -64,7 +64,7 @@ describe("quickMoveTargetStatus", () => {
   });
 
   it("returns null when status doesn't match the label's expected origin", () => {
-    expect(quickMoveTargetStatus("블로커 등록", "done")).toBeNull();
+    expect(quickMoveTargetStatus("검토 요청", "done")).toBeNull();
   });
 });
 

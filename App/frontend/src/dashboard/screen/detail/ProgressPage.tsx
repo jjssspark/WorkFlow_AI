@@ -107,7 +107,7 @@ export function ProgressPage() {
             {[
               { label: "완료", count: doneTasks, color: "#3B5BDB" },
               { label: "미완료", count: openTasks, color: "#C1C9D9" },
-              { label: "블로커", count: blockedCount, color: "#EF4444" },
+              { label: "검토 필요", count: blockedCount, color: "#EF4444" },
             ].map(item => (
               <div key={item.label} className="flex items-center justify-between text-xs">
                 <div className="flex items-center gap-1.5">
