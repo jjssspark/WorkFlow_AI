@@ -136,6 +136,17 @@ public class EvaluationScoreController {
      * 쓰이는 활동 로그. actor는 CurrentUser.id()(심사자 본인) — @PreAuthorize로 이미
      * REVIEWER 역할임이 보장된다. 공개 플래그는 양방향 전이 모두 기록하고(알림은 off→on만),
      * 코멘트는 값이 요청에 포함될 때마다(변경 여부와 무관하게) 기록한다.
+     *
+     * <p>이 호출은 {@code evaluationScoreRepository.save(saved)} 다음, 컨트롤러 메서드({@code
+     * @Transactional})가 아직 커밋되기 전에 일어난다. {@link com.workflowai.activity.ActivityService#record}는
+     * {@code REQUIRES_NEW}로 별도 물리 트랜잭션에서 즉시 커밋되므로(ActivityService의 클래스
+     * 주석 참조 - #470 리뷰 지적 대응), 이론상 활동 로그가 먼저 커밋된 뒤 본 트랜잭션의 최종
+     * 커밋이 실패하면(예: 동시 요청으로 인한 유니크 제약 위반) "저장되지 않은 변경"이 활동
+     * 로그에만 남는 경우가 생길 수 있다. 이는 "활동 로그 실패가 본 작업을 막으면 안 된다"는
+     * 반대 방향 요구사항과 근본적으로 상충하는 트레이드오프이며(하나의 트랜잭션으로 묶으면
+     * 그 요구사항이 깨진다), 이 프로젝트는 후자를 우선하기로 결정했다(#470에서 확정, 사용자
+     * 재확인 완료) - 부가 표시용 데이터인 활동 로그 하나의 실패로 평가 확정/점수 저장 같은
+     * 본 작업 전체가 롤백되는 게 더 나쁘다고 판단했기 때문이다.
      */
     private void recordEvaluationActivities(
         EvaluationScore saved,
