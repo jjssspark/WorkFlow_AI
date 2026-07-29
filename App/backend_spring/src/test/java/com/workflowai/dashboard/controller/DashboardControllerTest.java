@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.workflowai.dashboard.DTO.DashboardAiJobResponse;
 import com.workflowai.dashboard.DTO.DashboardSummaryResponse;
 import com.workflowai.dashboard.DTO.DelayRiskDto;
 import com.workflowai.dashboard.DTO.ProgressDetailResponse;
@@ -97,18 +98,44 @@ class DashboardControllerTest {
     }
 
     @Test
-    void refreshDelayRiskDelegatesToServiceAndReturnsProgress() throws Exception {
-        ProgressDetailResponse response = new ProgressDetailResponse(
-            14, 4, 29, List.of(), List.of(), List.of(), true, null, null
-        );
-        when(dashboardService.refreshDelayRiskAndGetProgress(eq("demo-project"))).thenReturn(response);
+    void refreshDelayRiskEnqueuesJobAndReturnsProcessingStatus() throws Exception {
+        DashboardAiJobResponse response = new DashboardAiJobResponse("job-1", "demo-project", "DELAY_RISK", "PROCESSING");
+        when(dashboardService.enqueueDelayRiskRefresh(eq("demo-project"), eq(CURRENT_USER_ID))).thenReturn(response);
 
         DashboardController controller = new DashboardController(dashboardService);
         MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
 
         mockMvc.perform(post("/api/v1/projects/demo-project/dashboard/delay-risk/refresh"))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.hasPredictions").value(true));
+            .andExpect(jsonPath("$.data.jobId").value("job-1"))
+            .andExpect(jsonPath("$.data.status").value("PROCESSING"));
+    }
+
+    @Test
+    void getDelayRiskRefreshStatusDelegatesToService() throws Exception {
+        DashboardAiJobResponse response = new DashboardAiJobResponse("job-1", "demo-project", "DELAY_RISK", "DONE");
+        when(dashboardService.getDelayRiskRefreshStatus(eq("demo-project"), eq("job-1"))).thenReturn(response);
+
+        DashboardController controller = new DashboardController(dashboardService);
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
+
+        mockMvc.perform(get("/api/v1/projects/demo-project/dashboard/delay-risk/refresh/job-1"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.status").value("DONE"));
+    }
+
+    @Test
+    void refreshWorkloadScoreEnqueuesJobAndReturnsProcessingStatus() throws Exception {
+        DashboardAiJobResponse response = new DashboardAiJobResponse("job-2", "demo-project", "WORKLOAD_SCORE", "PROCESSING");
+        when(dashboardService.enqueueWorkloadScoreRefresh(eq("demo-project"), eq(CURRENT_USER_ID))).thenReturn(response);
+
+        DashboardController controller = new DashboardController(dashboardService);
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
+
+        mockMvc.perform(post("/api/v1/projects/demo-project/dashboard/workload-score/refresh"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.jobId").value("job-2"))
+            .andExpect(jsonPath("$.data.status").value("PROCESSING"));
     }
 
     @Test
@@ -119,7 +146,7 @@ class DashboardControllerTest {
                 "5", 12, 0.4, 88.5, true, List.of("업무량 편중 의심"),
                 90.0, 85.0, 10.0, 1.8, 1.2, 1.3, 3
             )),
-            null, 0.62
+            null, 0.62, "2026-07-29T00:00:00Z"
         );
         when(dashboardService.getWorkloadScore(eq("demo-project"))).thenReturn(response);
 

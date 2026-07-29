@@ -51,7 +51,7 @@ vi.mock("../libs/api/personalCommentApi", () => ({
   replyToPersonalComment: vi.fn(),
 }));
 
-vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
+vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 
 function makeTask(id: string, assignee: string, status: Task["status"], dueDate: string): Task {
   return { id, title: `업무 ${id}`, status, priority: "medium", assignee, dueDate, labels: [], category: "frontend", position: 0, pendingApproval: false, startDate: "", extraFields: {} };
@@ -563,8 +563,8 @@ describe("MyPage reviewer view — contribution tabs", () => {
     await waitFor(() => expect(screen.getAllByText("AI 기반 식단 추천 앱").length).toBeGreaterThan(0));
     await userEvent.click(await screen.findByRole("button", { name: "점수 입력" }));
 
-    const submitButtons = await screen.findAllByRole("button", { name: "코멘트 등록" });
-    // 등록 버튼은 내용이 비어 있으면 비활성화된다(빈 코멘트 제출 방지 가드).
+    const submitButtons = await screen.findAllByRole("button", { name: "전송" });
+    // 전송 버튼은 내용이 비어 있으면 비활성화된다(빈 코멘트 제출 방지 가드).
     expect(submitButtons[0]).toBeDisabled();
 
     const textarea = screen.getAllByPlaceholderText("개인 코멘트 (옵션)...")[0];
@@ -574,6 +574,24 @@ describe("MyPage reviewer view — contribution tabs", () => {
 
     expect(createPersonalComment).toHaveBeenCalledWith(2, 1, "잘하고 있어요");
     await waitFor(() => expect(textarea).toHaveValue(""));
+    expect(toast.success).toHaveBeenCalledWith("코멘트를 전송했습니다.");
+  });
+
+  it("점수 입력 탭에서 코멘트 전송이 실패하면 오류 토스트를 보여주고 입력값을 유지한다", async () => {
+    vi.mocked(createPersonalComment).mockRejectedValue(new Error("본인이 프로젝트 멤버가 아닙니다."));
+
+    renderMyPage();
+
+    await waitFor(() => expect(screen.getAllByText("AI 기반 식단 추천 앱").length).toBeGreaterThan(0));
+    await userEvent.click(await screen.findByRole("button", { name: "점수 입력" }));
+
+    const submitButtons = await screen.findAllByRole("button", { name: "전송" });
+    const textarea = screen.getAllByPlaceholderText("개인 코멘트 (옵션)...")[0];
+    await userEvent.type(textarea, "잘하고 있어요");
+    await userEvent.click(submitButtons[0]);
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("본인이 프로젝트 멤버가 아닙니다."));
+    expect(textarea).toHaveValue("잘하고 있어요");
   });
 
   it("does not fetch contribution data while the default 팀 요약 tab is active", async () => {

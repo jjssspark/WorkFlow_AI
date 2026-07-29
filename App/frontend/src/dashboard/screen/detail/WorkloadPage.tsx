@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { AlertTriangle, Layers, Plus, RefreshCw, Users, X } from "lucide-react";
-import { AIBox } from "../../../ai/components/AIBox";
 import { BackBtn } from "../../../global/component/BackBtn";
 import { DetailStatCard } from "../../../global/component/DetailStatCard";
 import { PriorityBadge } from "../../../board/components/PriorityBadge";
@@ -24,6 +23,15 @@ import { getProjectMembers, type MemberResponse } from "../../../global/api/proj
 import type { DashboardTaskDto } from "../../libs/types/dashboard";
 import type { Priority, Task, TaskStatus } from "../../../board/libs/types/task";
 
+// 계산 시각을 기록하기 전에 캐시된 옛 결과는 null로 온다 - 그 경우 시각을 지어내지 않고
+// 알 수 없음을 그대로 밝힌다.
+export function formatWorkloadCalculatedAt(isoString: string | null): string {
+  if (!isoString) return "알 수 없음 (재계산하면 기록됩니다)";
+  const parsed = new Date(isoString);
+  if (Number.isNaN(parsed.getTime())) return "알 수 없음 (재계산하면 기록됩니다)";
+  return parsed.toLocaleString("ko-KR", { dateStyle: "medium", timeStyle: "short" });
+}
+
 // 대시보드 업무 카드(DashboardTaskDto)를 업무 상세창의 '업무 수정' 모달이 기대하는 Task 형태로 변환한다.
 function dashboardTaskToBoardTask(task: DashboardTaskDto): Task {
   return {
@@ -32,11 +40,14 @@ function dashboardTaskToBoardTask(task: DashboardTaskDto): Task {
     status: normalizeTaskStatus(task.status) as TaskStatus,
     priority: normalizePriority(task.priority) as Priority,
     assignee: task.assigneeId ?? "",
+    startDate: "",
     dueDate: task.dueDate ?? "",
     labels: [],
     category: task.category ?? "other",
     position: task.position,
     description: task.description ?? undefined,
+    pendingApproval: false,
+    extraFields: {},
   };
 }
 
@@ -78,7 +89,7 @@ export function WorkloadPage() {
   const isLeader = currentProject?.role === "팀장";
   const { data: summary, loading: summaryLoading, error: summaryError, refetch: refetchSummary } = useDashboardSummary(currentProjectId);
   const { data: tasks, loading: tasksLoading, error: tasksError, refetch } = useDashboardTasks(currentProjectId);
-  const { data: workloadScore, loading: workloadScoreLoading, error: workloadScoreError, refetch: refetchWorkloadScore } = useWorkloadScore(currentProjectId);
+  const { data: workloadScore, loading: workloadScoreLoading, error: workloadScoreError, refreshWorkloadScore } = useWorkloadScore(currentProjectId);
   const [pageRefreshing, setPageRefreshing] = useState(false);
   const navigate = useNavigate();
   const onBack = () => navigate("/dashboard");
@@ -108,7 +119,7 @@ export function WorkloadPage() {
 
   // "과부하 위험" 판정은 ml_workload_score(FastAPI)의 실제 이상치 탐지 결과만 신뢰한다.
   // 점수를 못 불러왔을 때 휴리스틱으로 조용히 대체하면, "N명 과부하"라고 카운트/배지는 뜨는데
-  // AI 추천 액션이나 최고 위험 팀원 이름은 "데이터 없음"이라고 나오는 모순이 생긴다(실제 발생 사례).
+  // 과부하 위험 카드와 최고 위험 팀원 이름이 "데이터 없음"이라고 나오는 모순이 생긴다(실제 발생 사례).
   const workloadScoreByAssignee = new Map<string, WorkloadScoreMemberDto>(
     (workloadScore?.members ?? []).map(member => [member.assigneeId, member])
   );
@@ -153,17 +164,6 @@ export function WorkloadPage() {
     null
   );
   const topOverloadedName = topOverloadedMember ? memberNameFor(topOverloadedMember.assigneeId) : null;
-  const workloadInsightText = workloadScoreLoading
-    ? "AI가 팀원별 업무 편중도를 분석하고 있습니다..."
-    : !workloadScore || workloadScore.members.length === 0
-      ? (workloadScore?.note ?? "편중 점수를 계산할 업무 데이터가 없습니다.")
-      : workloadHeavyMembers.length === 0 && difficultyHeavyMembers.length === 0 && allocationImbalancedMembers.length === 0
-        ? "AI 분석 결과 팀원 간 뚜렷한 업무 편중은 감지되지 않았습니다."
-        : [
-            ...workloadHeavyMembers.map(member => `${memberNameFor(member.assigneeId)}님 업무량 편중 의심(${Math.round(member.overloadScore)}점)`),
-            ...difficultyHeavyMembers.map(member => `${memberNameFor(member.assigneeId)}님 난이도 편중 의심(${Math.round(member.overloadScore)}점)`),
-            ...allocationImbalancedMembers.map(member => `${memberNameFor(member.assigneeId)}님 배정량 불균형(${Math.round(member.overloadScore)}점)`),
-          ].join(", ") + " — 업무 재배분을 검토해보세요.";
   const barData = workload.map((entry, index) => ({
     id: entry.assigneeId,
     name: resolveMemberDisplay(entry.assigneeName, index, entry.assigneeId).name,
@@ -183,10 +183,17 @@ export function WorkloadPage() {
           <BackBtn onBack={onBack} />
           <h1 className="text-xl font-bold text-foreground">팀원별 업무량</h1>
           <p className="text-sm text-muted-foreground mt-0.5">팀원별 업무 분배 현황을 파악하고 과부하 위험을 확인합니다.</p>
+          {/* 편중 점수는 화면을 열 때마다 다시 계산하지 않고 마지막 계산 결과를 돌려준다(최대 30일 보관).
+              언제 기준 값인지 밝히지 않으면 묵은 점수를 방금 계산한 값으로 오해하게 된다. */}
+          <p className="text-xs text-muted-foreground mt-1">
+            업무 편중 점수 기준 시각: {workloadScoreLoading || pageRefreshing
+              ? "계산 중..."
+              : formatWorkloadCalculatedAt(workloadScore?.calculatedAt ?? null)}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={async () => { setPageRefreshing(true); await Promise.all([refetch(), refetchSummary(), refetchWorkloadScore()]); setPageRefreshing(false); }}
+            onClick={async () => { setPageRefreshing(true); await Promise.all([refetch(), refetchSummary(), refreshWorkloadScore()]); setPageRefreshing(false); }}
             disabled={pageRefreshing}
             className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-border bg-card text-foreground rounded-lg hover:bg-muted transition-colors disabled:opacity-50"
           ><RefreshCw className={`w-3.5 h-3.5 ${pageRefreshing ? "animate-spin" : ""}`} />새로고침</button>
@@ -220,9 +227,7 @@ export function WorkloadPage() {
         />
       </div>
 
-      <AIBox text={pageRefreshing ? "데이터를 불러오는 중입니다." : workloadInsightText} />
-
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-3 gap-4 items-start">
         <div className="col-span-2 bg-card rounded-xl p-5 border border-border shadow-sm">
           <div className="flex items-center justify-between mb-4">
             <div className="text-sm font-semibold text-foreground">팀원별 업무 현황 비교</div>
@@ -335,7 +340,7 @@ export function WorkloadPage() {
                     <span />
                   )}
                   <span className="text-[10px] text-muted-foreground">
-                    AI 업무 편중 점수 <span className="font-bold text-foreground">{Math.round(scoreEntry.overloadScore)}</span>/100
+                    업무 편중 점수 <span className="font-bold text-foreground">{Math.round(scoreEntry.overloadScore)}</span>/100
                   </span>
                 </div>
               )}

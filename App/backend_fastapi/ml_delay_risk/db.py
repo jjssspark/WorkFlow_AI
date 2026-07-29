@@ -22,9 +22,15 @@ from dotenv import load_dotenv
 from sqlalchemy import bindparam, create_engine, text
 from sqlalchemy.engine import Engine
 
+from core.database_url import normalize_database_url
+
 load_dotenv()
 
-DATABASE_URL = os.environ.get("DATABASE_URL")
+DATABASE_URL = normalize_database_url(
+    os.environ.get("DATABASE_URL") or "",
+    use_transaction_pooler=os.environ.get("DATABASE_USE_TRANSACTION_POOLER", "").lower()
+    in {"1", "true", "yes", "on"},
+)
 
 
 def get_engine() -> Engine:

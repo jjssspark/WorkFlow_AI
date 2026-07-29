@@ -240,6 +240,8 @@ __pycache__/
 bot.py
 actions-runner
 .claude
+# claude-code-exporter 확장이 만드는 대화 내역 (통합본은 .claude/.cc-history/ 아래)
+.cc-history/
 # CLAUDE.md 파일 깃에 안 올라가게 설정
 CLAUDE.md
 

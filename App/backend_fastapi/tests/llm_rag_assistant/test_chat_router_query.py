@@ -12,6 +12,7 @@ from core.db import get_pool
 from llm_rag_assistant.app.schema.chat_schema import RagQueryResponse, RagSource
 from core.security import verify_internal_api_key
 from llm_rag_assistant.app.services.generation_service import RagConfigurationError
+from llm_rag_assistant.app.services.rag_queue_service import RagQueueFullError, RagQueueTimeoutError
 
 
 def _override_pool():
@@ -29,7 +30,7 @@ def test_query_endpoint_returns_answer_with_sources() -> None:
         sources=[RagSource(source_type="meeting", source_id=1, content_snippet="요약", similarity=0.9)],
     )
     with patch(
-        "llm_rag_assistant.app.routers.chat_router.answer_question",
+        "llm_rag_assistant.app.routers.chat_router.enqueue_and_wait",
         new=AsyncMock(return_value=fake_result),
     ) as mock_answer:
         client = TestClient(app)
@@ -40,7 +41,7 @@ def test_query_endpoint_returns_answer_with_sources() -> None:
     assert response.json()["answer"] == "답변"
     mock_answer.assert_awaited_once()
     _, called_args, _ = mock_answer.mock_calls[0]
-    assert called_args[1] == 1
+    assert called_args[0] == 1
 
 
 def test_query_endpoint_forwards_history_to_service() -> None:
@@ -56,7 +57,7 @@ def test_query_endpoint_forwards_history_to_service() -> None:
         {"role": "assistant", "content": "로그인 API 구현 업무가 있습니다"},
     ]
     with patch(
-        "llm_rag_assistant.app.routers.chat_router.answer_question",
+        "llm_rag_assistant.app.routers.chat_router.enqueue_and_wait",
         new=AsyncMock(return_value=fake_result),
     ) as mock_answer:
         client = TestClient(app)
@@ -75,7 +76,7 @@ def test_query_endpoint_forwards_history_to_service() -> None:
 def test_query_endpoint_returns_503_when_connection_fails() -> None:
     _override_pool()
     with patch(
-        "llm_rag_assistant.app.routers.chat_router.answer_question",
+        "llm_rag_assistant.app.routers.chat_router.enqueue_and_wait",
         new=AsyncMock(side_effect=aiohttp.ClientConnectionError("connection refused")),
     ):
         client = TestClient(app)
@@ -94,13 +95,13 @@ def test_different_project_ids_are_forwarded_unmodified_to_service() -> None:
 
     for project_id in (1, 2, 999):
         with patch(
-            "llm_rag_assistant.app.routers.chat_router.answer_question",
+            "llm_rag_assistant.app.routers.chat_router.enqueue_and_wait",
             new=AsyncMock(return_value=fake_result),
         ) as mock_answer:
             client = TestClient(app)
             client.post("/ai/rag/query", json={"project_id": project_id, "question": "질문"})
             _, called_args, _ = mock_answer.mock_calls[0]
-            assert called_args[1] == project_id
+            assert called_args[0] == project_id
 
     app.dependency_overrides.clear()
 
@@ -108,7 +109,7 @@ def test_different_project_ids_are_forwarded_unmodified_to_service() -> None:
 def test_query_endpoint_returns_503_when_huggingface_returns_http_error() -> None:
     _override_pool()
     with patch(
-        "llm_rag_assistant.app.routers.chat_router.answer_question",
+        "llm_rag_assistant.app.routers.chat_router.enqueue_and_wait",
         new=AsyncMock(side_effect=requests.exceptions.HTTPError("503 Service Unavailable")),
     ):
         client = TestClient(app)
@@ -125,8 +126,32 @@ def test_query_endpoint_returns_503_when_hf_token_missing() -> None:
     클라이언트 입장에서는 동일하게 '지금은 답변 불가' 상태다."""
     _override_pool()
     with patch(
-        "llm_rag_assistant.app.routers.chat_router.answer_question",
+        "llm_rag_assistant.app.routers.chat_router.enqueue_and_wait",
         new=AsyncMock(side_effect=RagConfigurationError("HF_TOKEN is not configured.")),
+    ):
+        client = TestClient(app)
+        response = client.post("/ai/rag/query", json={"project_id": 1, "question": "질문"})
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 503
+    assert response.json()["detail"] == {"error": "llm_unavailable"}
+
+
+@pytest.mark.parametrize(
+    "exception",
+    [
+        RagQueueTimeoutError("RAG 답변 생성이 시간 내에 끝나지 않았습니다."),
+        RagQueueFullError("대기 중인 RAG 질의가 너무 많습니다."),
+    ],
+)
+def test_query_endpoint_returns_503_when_queue_cannot_deliver(exception: Exception) -> None:
+    """Redis Queue 적재 실패(가득 참)나 워커 응답 대기 시간 초과도 LLM 연결 실패와
+    동일하게 503(llm_unavailable)으로 응답해야 한다 - 클라이언트 입장에서는
+    "지금은 답변 불가"라는 점이 동일하다."""
+    _override_pool()
+    with patch(
+        "llm_rag_assistant.app.routers.chat_router.enqueue_and_wait",
+        new=AsyncMock(side_effect=exception),
     ):
         client = TestClient(app)
         response = client.post("/ai/rag/query", json={"project_id": 1, "question": "질문"})
@@ -143,7 +168,7 @@ def test_query_endpoint_does_not_mask_unrelated_runtime_errors() -> None:
     그대로 받는다(기본값이면 TestClient가 예외를 그대로 재발생시켜 테스트가 실패함)."""
     _override_pool()
     with patch(
-        "llm_rag_assistant.app.routers.chat_router.answer_question",
+        "llm_rag_assistant.app.routers.chat_router.enqueue_and_wait",
         new=AsyncMock(side_effect=RuntimeError("예상치 못한 내부 오류")),
     ):
         client = TestClient(app, raise_server_exceptions=False)

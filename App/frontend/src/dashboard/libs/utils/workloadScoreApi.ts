@@ -1,4 +1,5 @@
 import { apiFetch } from "../../../global/api/apiClient";
+import type { DashboardAiJobResponse } from "../types/dashboard";
 
 // Spring dashboard.workload-score 엔드포인트는 ml_workload_score(FastAPI) 응답을
 // 필드명 그대로 통과시키므로(dashboard.ts의 다른 camelCase DTO와 달리) snake_case로 온다.
@@ -26,6 +27,7 @@ interface RawWorkloadScoreData {
   members: RawWorkloadScoreMember[];
   note: string | null;
   team_mean_completion: number | null;
+  calculated_at: string | null;
 }
 
 export interface WorkloadScoreMemberDto {
@@ -51,6 +53,9 @@ export interface WorkloadScoreResult {
   note: string | null;
   // anomaly_types(업무량 편중/난이도 편중/배정량 불균형) 판정에 실제로 쓰인 팀 평균 완료율(0~1).
   teamMeanCompletion: number | null;
+  // 이 결과를 실제로 계산한 시각(ISO-8601). GET은 마지막 계산 결과를 캐시에서 돌려주므로
+  // 화면이 "언제 기준 값인지" 밝혀야 한다. 계산 시각을 기록하기 전의 옛 캐시면 null.
+  calculatedAt: string | null;
 }
 
 export async function fetchWorkloadScore(projectId: string | number): Promise<WorkloadScoreResult> {
@@ -75,5 +80,21 @@ export async function fetchWorkloadScore(projectId: string | number): Promise<Wo
     })),
     note: data.note,
     teamMeanCompletion: data.team_mean_completion,
+    calculatedAt: data.calculated_at,
   };
+}
+
+// 업무 편중 점수 재계산도 Redis Queue(dashboard-ai-jobs)로 처리된다 — GET /workload-score는
+// 이제 마지막으로 캐시된 값을 돌려줄 뿐이므로, 새로 계산하려면 이 재계산 요청을 먼저 적재해야 한다.
+export async function enqueueWorkloadScoreRefresh(projectId: string | number): Promise<DashboardAiJobResponse> {
+  return apiFetch<DashboardAiJobResponse>(`/projects/${projectId}/dashboard/workload-score/refresh`, {
+    method: "POST",
+  });
+}
+
+export async function fetchWorkloadScoreRefreshStatus(
+  projectId: string | number,
+  jobId: string
+): Promise<DashboardAiJobResponse> {
+  return apiFetch<DashboardAiJobResponse>(`/projects/${projectId}/dashboard/workload-score/refresh/${jobId}`);
 }

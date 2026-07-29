@@ -8,6 +8,7 @@ import { fetchAttendanceSummary, fetchAttendanceDetail } from "../../meetings/li
 import { fetchContributionScore } from "../libs/utils/contributorsApi";
 import { downloadCalculatorCsv } from "../libs/utils/calculatorCsv";
 import { finalizeEvaluation, unfinalizeEvaluation, getProject, getProjectMembers } from "../../global/api/projectsApi";
+import { createPersonalComment } from "../../mypage/libs/api/personalCommentApi";
 import {
   getEvaluationScores,
   getEvaluationSettings,
@@ -56,6 +57,12 @@ vi.mock("../../global/api/evaluationApi", () => ({
   getEvaluationSettings: vi.fn(),
   upsertEvaluationSettings: vi.fn(),
 }));
+
+vi.mock("../../mypage/libs/api/personalCommentApi", () => ({
+  createPersonalComment: vi.fn(),
+}));
+
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 function makeTask(id: string, assignee: string, status: Task["status"], title: string): Task {
   return { id, title, status, priority: "medium", assignee, dueDate: "", labels: [], category: "backend", position: 0, pendingApproval: false, startDate: "", extraFields: {} };
@@ -353,7 +360,10 @@ describe("ContributorsView 학점 계산기", () => {
     expect(await within(row).findByRole("button", { name: /^비공개$/ })).toBeInTheDocument();
   });
 
-  it("심사 코멘트 저장은 comment만 담아 호출되고, 코멘트 공개 토글은 commentPublic만 담아 호출된다", async () => {
+  it("심사 코멘트 전송은 comment만 담아 upsertEvaluationScore를 호출하고, 개인 코멘트로도 함께 보낸다", async () => {
+    vi.mocked(createPersonalComment).mockResolvedValue({
+      id: 1, authorId: 6, authorName: "심사자", parentId: null, content: "훌륭합니다", createdAt: "2026-07-25T05:32:00.000Z",
+    });
     renderView();
     const user = userEvent.setup();
 
@@ -362,10 +372,13 @@ describe("ContributorsView 학점 계산기", () => {
     const commentInput = within(commentSection).getByPlaceholderText(/에게 남길 평가 코멘트를 입력하세요\./);
     await user.type(commentInput, "훌륭합니다");
 
-    const saveButton = within(commentSection).getByRole("button", { name: "저장" });
+    const saveButton = within(commentSection).getByRole("button", { name: "전송" });
     await user.click(saveButton);
     await waitFor(() =>
       expect(upsertEvaluationScore).toHaveBeenCalledWith(1, 1, { comment: "훌륭합니다" }),
+    );
+    await waitFor(() =>
+      expect(createPersonalComment).toHaveBeenCalledWith(1, 1, "훌륭합니다"),
     );
 
     vi.mocked(upsertEvaluationScore).mockClear();

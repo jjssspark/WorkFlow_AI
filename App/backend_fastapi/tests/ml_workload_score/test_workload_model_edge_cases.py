@@ -10,8 +10,11 @@
 """
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import pandas as pd
+import pytest
 
 from ml_workload_score.app.services.workload_model import (
     ALLOCATION_AXIS_COLUMN,
@@ -75,7 +78,17 @@ def _uneven_three_member_team(today: pd.Timestamp) -> pd.DataFrame:
 
 
 def test_the_most_loaded_member_ranks_highest():
-    """UT-170의 앞부분. 업무 수와 난이도가 모두 높은 팀원이 가장 높은 점수를 받는다."""
+    """UT-170의 앞부분. 업무 수와 난이도가 모두 높은 팀원이 가장 높은 점수를 받는다.
+
+    점수는 "팀 내 최댓값 = 100점" 상대 스케일링이 아니라 이상치 임계값(3.5) 기준 절대
+    스케일링이다 - 전원이 정상 범위여도 상대적으로 가장 튀는 사람이 무조건 100점을 받던
+    예전 버그가 없다.
+
+    3축 독립 판정에서는 세 축(난이도/업무량/배정량) 각각이 이 데이터(a=10건·긴급 vs
+    b/c=2건·낮음, 10:2:2 비율)에 대해 동일한 결합 거리(1.5*sqrt(2) ≈ 2.121, MAD가 0으로
+    표준편차 폴백이 걸림)를 내므로 세 축 점수가 모두 같고, 가중평균인
+    overload_score_0_100도 같은 값이 된다: 100 * 1.5*sqrt(2) / 3.5.
+    """
     today = pd.Timestamp("2026-07-23")
     result = detect_overload_anomalies_robust(
         build_features(_uneven_three_member_team(today), today=today)
@@ -83,7 +96,7 @@ def test_the_most_loaded_member_ranks_highest():
 
     top = result.sort_values("overload_score_0_100", ascending=False).iloc[0]
     assert top["assignee_id"] == "a"
-    assert top["overload_score_0_100"] == 100.0
+    assert top["overload_score_0_100"] == pytest.approx(100 * 1.5 * math.sqrt(2) / 3.5)
 
 
 def test_three_member_team_never_reaches_the_warning_threshold():
@@ -91,8 +104,8 @@ def test_three_member_team_never_reaches_the_warning_threshold():
 
     팀원이 3명이면 피처마다 값이 두 종류뿐이라 중앙값이 다수값과 겹치고, MAD가 그 차이만큼
     작게 잡혀 modified z-score가 커지지 않는다. 실측: 배정량이 5배인 A의 결합 거리가 3.0으로
-    임계값 3.5에 못 미쳐 {@code is_anomaly}가 False다. 점수는 100점(팀 내 최고)으로 나오지만
-    경고로는 잡히지 않는다 - 화면에서는 "가장 높은데 경고는 아님" 상태로 보인다.
+    임계값 3.5에 못 미쳐 {@code is_anomaly}가 False다. 점수는 이상치 임계값 기준 약 85.7점
+    (팀 내 최고)으로 나오지만 경고로는 잡히지 않는다 - 화면에서는 "가장 높은데 경고는 아님" 상태로 보인다.
 
     이건 버그 단정이 아니라 관측이다. 이 모듈은 주석대로 5~9명 팀을 겨냥해 임계값을 잡았고,
     같은 로직이 6명 팀에서는 실제로 경고를 낸다(test_workload_model_anomaly_direction.py).
@@ -104,10 +117,10 @@ def test_three_member_team_never_reaches_the_warning_threshold():
     )
 
     top = result.sort_values("overload_score_0_100", ascending=False).iloc[0]
-    # 3축 전환 후에도 같은 관측이 성립한다: a는 세 축 모두 팀 내 최고(=100점)지만, 어느 축도
-    # modified z-score가 임계값 3.5를 넘지 못해 라벨이 하나도 붙지 않는다. 축 점수는 팀 내
-    # 상대 순위 스케일이라 "최고점 100"과 "이상치 판정"이 서로 독립이라는 게 핵심이다.
-    assert top["overload_score_0_100"] == 100.0
+    # 3축 전환 + 임계값 기준 스케일링 후에도 같은 관측이 성립한다: a는 세 축 모두 팀 내
+    # 최고 결합 거리(1.5*sqrt(2) ≈ 2.121)를 기록하지만, 임계값 3.5에는 못 미쳐 라벨이
+    # 하나도 붙지 않는다. "팀 내 최고 점수"와 "이상치 판정"이 서로 독립이라는 게 핵심이다.
+    assert top["overload_score_0_100"] == pytest.approx(100 * 1.5 * math.sqrt(2) / 3.5)
     assert not top["is_anomaly"]
     assert top["anomaly_types"] == []
 

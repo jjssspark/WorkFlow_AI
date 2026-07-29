@@ -10,7 +10,7 @@ export const NAV_ITEMS = [
   { id: "meetings", label: "회의록 AI", icon: FileAudio, group: "ai", badge: "AI" },
   { id: "deliverables", label: "산출물 생성", icon: Package, group: "ai", badge: "AI", activate: false },
   { id: "github", label: "GitHub 연동", icon: Github, group: "dev", activate: false },
-  { id: "contributors", label: "기여도 분석", icon: Shield, group: "eval", lock: true },
+  { id: "contributors", label: "기여도 분석", icon: Shield, group: "eval" },
   { id: "mypage",       label: "마이페이지",  icon: User,   group: "me" },
 ];
 

@@ -73,7 +73,7 @@ def test_query_endpoint_accepts_request_with_matching_internal_api_key() -> None
     fake_result = RagQueryResponse(answer="답변", sources=[])
 
     with patch(
-        "llm_rag_assistant.app.routers.chat_router.answer_question",
+        "llm_rag_assistant.app.routers.chat_router.enqueue_and_wait",
         new=AsyncMock(return_value=fake_result),
     ):
         client = TestClient(app)

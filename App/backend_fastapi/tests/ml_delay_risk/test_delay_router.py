@@ -13,6 +13,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from core.security import verify_internal_api_key
 from ml_delay_risk.models import delay_model
 from ml_delay_risk.routers.delay_router import router
 from ml_delay_risk.services import delay_service
@@ -41,6 +42,9 @@ def _reset_artifact_cache():
 def client() -> TestClient:
     app = FastAPI()
     app.include_router(router)
+    # 이 라우터는 Spring만 호출할 수 있도록 내부 API 키를 요구한다 - 이 테스트는 그 검증 자체가
+    # 아니라 모델 준비 상태/부재 처리를 확인하는 게 목적이므로 우회한다.
+    app.dependency_overrides[verify_internal_api_key] = lambda: None
     return TestClient(app)
 
 

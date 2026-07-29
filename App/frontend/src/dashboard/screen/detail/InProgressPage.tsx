@@ -1,8 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
-import { AlertTriangle, Calendar, CheckCircle2, Clock, MessageSquare, Plus, RefreshCw, Sparkles } from "lucide-react";
-import { AiInsightBox } from "../../../ai/components/AiInsightBox";
-import { openAIAssistant } from "../../../ai/libs/utils/openAIAssistant";
+import { AlertTriangle, Calendar, CheckCircle2, Clock, MessageSquare, Plus, RefreshCw } from "lucide-react";
 import { BackBtn } from "../../../global/component/BackBtn";
 import { DetailStatCard } from "../../../global/component/DetailStatCard";
 import { useAuth } from "../../../global/hooks/useAuth";
@@ -19,8 +17,6 @@ import {
   formatDashboardDueDate,
   formatDDay,
   formatRelativeDate,
-  isCautionDelayRisk,
-  isDangerDelayRisk,
   isDelayRisk,
   nextPositionForStatus,
   normalizeTaskStatus,
@@ -68,13 +64,9 @@ export function InProgressPage() {
   const updateNeededCount = inProgressTasks.filter(task => (daysSince(task.updatedAt) ?? 0) >= 3).length;
   // '지연 예상' 범주는 ML 예측이 '주의' 또는 '위험'인 업무를 모두 포함한다(danger만이 아님) — LEGEND/카드 라벨과 일치시킨다.
   const riskPredictions = progress?.delayRisks.filter(risk => isDelayRisk(risk.result)) ?? [];
-  const dangerTaskIds = new Set(riskPredictions.filter(risk => isDangerDelayRisk(risk.result)).map(risk => risk.taskId));
-  const cautionTaskIds = new Set(riskPredictions.filter(risk => isCautionDelayRisk(risk.result)).map(risk => risk.taskId));
   const riskTaskIds = new Set(riskPredictions.map(risk => risk.taskId));
   const riskCount = inProgressTasks.filter(task => riskTaskIds.has(task.id)).length;
   const projectDDay = formatDDay(progress?.projectDeadline);
-  const monitoringQuestion = `진행 중 업무 ${inProgressTasks.length}개를 점검해줘. 3일 이상 업데이트가 없는 업무는 ${updateNeededCount}개, 지연 예상 업무는 ${riskCount}개, 프로젝트 마감은 ${projectDDay}(이)야. 지금 확인할 업무와 권장 조치를 우선순위대로 알려줘. 출력은 3문장 이내로 해.`;
-
   const isOwnTask = (task: DashboardTaskDto) => user != null && String(user.id) === task.assigneeId;
 
   const changeStatus = async (task: DashboardTaskDto, status: "done" | "blocked") => {
@@ -150,13 +142,6 @@ export function InProgressPage() {
         <DetailStatCard label="D-Day" value={loading ? "..." : projectDDay} sub={formatDashboardDueDate(progress?.projectDeadline)} color="#7048E8" icon={Calendar} />
       </div>
 
-      <AiInsightBox
-        projectId={currentProjectId}
-        prompt={monitoringQuestion}
-        ready={!loading}
-        fallbackText="오래 업데이트되지 않았거나 지연 가능성이 높은 진행 중 업무의 점검 순서를 추천받을 수 있습니다."
-      />
-
       <div className="flex items-center gap-4 px-1">
         {LEGEND.map(item => (
           <div key={item.label} className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
@@ -171,8 +156,6 @@ export function InProgressPage() {
           const member = taskAssignee(task, index);
           const statusDays = daysSince(task.updatedAt) ?? 0;
           const isRisk = riskTaskIds.has(task.id);
-          const isDanger = dangerTaskIds.has(task.id);
-          const isCaution = cautionTaskIds.has(task.id);
           const isUpdateNeeded = statusDays >= 3;
           const borderColor = isRisk ? "#EF4444" : isUpdateNeeded ? "#F59E0B" : "#ccc";
           const bgColor = isRisk ? "rgba(239,68,68,0.03)" : isUpdateNeeded ? "rgba(245,158,11,0.03)" : "#fff";
@@ -190,7 +173,7 @@ export function InProgressPage() {
                         <span className="font-mono text-[10px] text-muted-foreground">{task.id}</span>
                         <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-blue-50 text-blue-600">{task.category ?? "미분류"}</span>
                         <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">{sourceLabel(task.sourceType)}</span>
-                        {isRisk && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-red-100 text-red-700 border border-red-200">AI 지연 예측</span>}
+                        {isRisk && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-red-100 text-red-700 border border-red-200">ML 지연 예측</span>}
                       </div>
                       <div className="text-sm font-semibold text-foreground">{task.title}</div>
                       <div className="text-xs text-muted-foreground mt-0.5">{member.name}</div>
@@ -258,11 +241,6 @@ export function InProgressPage() {
                   <button onClick={() => setCommentTarget(task)} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-border bg-card text-foreground rounded-lg hover:bg-muted transition-colors">
                     <MessageSquare className="w-3.5 h-3.5" /> 댓글
                   </button>
-                  {/* "AI에게 질문" 기능 미사용 처리 (주석 처리)
-                  <button onClick={() => openAIAssistant(`진행 중 업무 '${task.title}'을 점검해줘. 마지막 업데이트는 ${formatRelativeDate(task.updatedAt)}이고 ${statusDays}일째 현재 상태이며, 마감일은 ${formatDashboardDueDate(task.dueDate)}, 지연 위험도 예측값은 ${isDanger ? "위험" : isCaution ? "주의" : "정상"}이야. 다음 액션을 추천해줘.`)} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg ml-auto transition-opacity hover:opacity-80" style={{ background: "rgba(112,72,232,0.12)", color: "#7048E8" }}>
-                    <Sparkles className="w-3.5 h-3.5" /> AI에게 질문
-                  </button>
-                  */}
                 </div>
               </div>
             </div>

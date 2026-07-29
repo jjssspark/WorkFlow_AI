@@ -27,8 +27,6 @@ import { Button } from "../../global/component/ui/button";
 // 있다(InvitationController.accept 참고) - InviteAcceptScreen과 동일한 계약.
 const FALLBACK_ELIGIBLE_CODE = "INVITE_NOT_FOUND";
 
-const PROJECT_META: Record<number, { type: string; deadline: string; progress: number }> = {};
-
 /** ISO-8601 문자열을 "MM.DD" 형식으로 변환한다. 파싱 실패 시 원본 문자열을 그대로 반환. */
 function formatActivityDate(iso: string): string {
   const date = new Date(iso);
@@ -396,7 +394,7 @@ export function ProjectEntryScreen() {
               {projects.map((project) => {
                 const role = ROLE_META[project.role];
                 const RoleIcon = role.icon;
-                const meta = PROJECT_META[project.projectId] ?? { type: "캡스톤디자인", deadline: "진행 중", progress: 0 };
+                const meta = { type: project.type ?? "캡스톤디자인", deadline: "진행 중", progress: project.taskProgress ?? 0 };
                 return (
                   <button
                     key={project.projectId}

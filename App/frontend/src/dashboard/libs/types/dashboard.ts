@@ -7,6 +7,7 @@ export interface UpcomingTaskDto {
   title: string;
   status: string;
   dueDate: string | null;
+  assigneeId: string | null;
   assigneeName: string | null;
 }
 
@@ -102,4 +103,12 @@ export interface ProgressDetailResponse {
   hasPredictions: boolean;
   projectDeadline: string | null;
   projectCreatedAt: string | null;
+}
+
+/** Redis Queue에 적재된 대시보드 ML 재분석 작업(지연 위험도/업무 편중)의 적재·상태 조회 공용 응답. */
+export interface DashboardAiJobResponse {
+  jobId: string;
+  projectId: string;
+  jobType: "DELAY_RISK" | "WORKLOAD_SCORE";
+  status: "PROCESSING" | "DONE" | "FAILED";
 }

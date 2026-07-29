@@ -32,7 +32,10 @@ _SNIPPET_MAX_LEN = 200
 # v8: 블로커 업무 확정 목록(사유·마감·우선순위) 추가 (project_stats_service)
 # v9: 블로커 줄의 사용자 입력을 한 줄로 접고 길이 제한 (generation_service._one_line)
 # v10: 캐시 키에 생성 프로바이더 포함 - 프로바이더 전환 시 이전 백엔드 답변 혼입 방지
-_ANSWER_CACHE_SCHEMA_VERSION = "v10"
+# v11: 생성 체인에 Gemini API 폴백 단계 추가 (HF -> Gemini -> Ollama). RAG_PROVIDER 미지정
+# 시 resolve_generation_provider()가 개별 프로바이더 이름 대신 "auto"를 반환하도록 바뀌어,
+# 이 값이 들어가는 캐시 키도 이전 버전과 달라진다.
+_ANSWER_CACHE_SCHEMA_VERSION = "v11"
 _ANSWER_CACHE_TTL_SECONDS = 1800
 
 # "내 할 일 알려줘" 류 개인화 질문 판별용. 순수 벡터 유사도만으로는 "내"가 누구인지 구분할

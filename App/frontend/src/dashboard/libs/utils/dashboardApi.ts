@@ -1,4 +1,4 @@
-import type { ActivityItemDto, DashboardSummaryResponse, DashboardTaskDto, ProgressDetailResponse } from "../types/dashboard";
+import type { ActivityItemDto, DashboardAiJobResponse, DashboardSummaryResponse, DashboardTaskDto, ProgressDetailResponse } from "../types/dashboard";
 import { apiFetch } from "../../../global/api/apiClient";
 
 export async function fetchDashboardSummary(projectId: string | number): Promise<DashboardSummaryResponse> {
@@ -17,8 +17,17 @@ export async function fetchDashboardActivities(projectId: string | number): Prom
   return apiFetch<ActivityItemDto[]>(`/projects/${projectId}/dashboard/activities`);
 }
 
-export async function refreshDelayRisk(projectId: string | number): Promise<ProgressDetailResponse> {
-  return apiFetch<ProgressDetailResponse>(`/projects/${projectId}/dashboard/delay-risk/refresh`, {
+// 지연 위험도 재분석은 Redis Queue(dashboard-ai-jobs)로 처리된다 — POST는 즉시 jobId를 담아
+// 응답하고, 실제 재분석은 백그라운드에서 실행된다. 완료 여부는 아래 상태 조회로 폴링한다.
+export async function enqueueDelayRiskRefresh(projectId: string | number): Promise<DashboardAiJobResponse> {
+  return apiFetch<DashboardAiJobResponse>(`/projects/${projectId}/dashboard/delay-risk/refresh`, {
     method: "POST",
   });
+}
+
+export async function fetchDelayRiskRefreshStatus(
+  projectId: string | number,
+  jobId: string
+): Promise<DashboardAiJobResponse> {
+  return apiFetch<DashboardAiJobResponse>(`/projects/${projectId}/dashboard/delay-risk/refresh/${jobId}`);
 }
