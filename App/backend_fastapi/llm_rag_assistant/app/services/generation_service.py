@@ -20,7 +20,23 @@ _SYSTEM_PROMPT = (
     "건수를 묻는 질문에는 이 블록의 값을 그대로 쓰고, 아래 출처 목록의 개수를 세지 마세요 "
     "(출처 목록은 관련 항목 일부만 뽑은 표본입니다). "
     "집계 블록과 출처 어디에도 질문과 관련된 내용이 없으면 "
-    "반드시 '근거 없음: 관련 자료를 찾지 못했습니다'라고 답하세요."
+    "반드시 '근거 없음: 관련 자료를 찾지 못했습니다'라고 답하세요. "
+    # 프런트(AIAssistant)는 답변을 마크다운으로 렌더링하지 않고 문자열 그대로 출력한다.
+    # 모델이 마크다운을 쓰면 화면에 '**블로커**', '## 요약'처럼 기호가 그대로 보인다.
+    "답변은 마크다운 없이 일반 텍스트로만 쓰세요. "
+    "굵게(**), 제목(#), 백틱(`), 표, 링크 문법을 쓰지 마세요. "
+    # "'- '로 시작하는 줄로 적으세요"라는 서술만으로는 모델이 항목 앞 기호를 통째로 빼고
+    # 줄바꿈만으로 나열했다(실측). 원하는 출력 형태를 예시로 보여줘야 지켜진다.
+    "항목을 둘 이상 나열할 때는 각 항목을 한 줄씩, 반드시 '- '로 시작해서 적으세요. "
+    # 목록이 여러 묶음이면 사이에 빈 줄이 없을 때 앞 목록 끝과 다음 제목 줄이 붙어 보인다.
+    "주제가 바뀌면 그 앞에 빈 줄을 한 줄 넣으세요. "
+    "다음 형식을 그대로 따르세요.\n"
+    "마감 임박 업무는 다음과 같습니다\n"
+    "- 2026-07-29 로그인 API 구현 (홍길동)\n"
+    "- 2026-07-31 대시보드 개편 (김철수)\n"
+    "\n"
+    "블로커 업무는 다음과 같습니다\n"
+    "- 결제 모듈 연동 (이영희) 마감 2026-08-05 우선순위 high 사유: 외부 API 승인 대기"
 )
 
 
@@ -198,6 +214,52 @@ def _build_context(sources: list[dict], is_personal: bool, stats: dict | None) -
     return f"{stats_block}\n\n{body}" if stats_block else body
 
 
+# 시스템 프롬프트로 "마크다운 쓰지 말라"고 지시해도 모델·백엔드에 따라 새어 나온다(특히 목록과
+# 굵게). 프런트는 답변을 그대로 텍스트로 그리므로 기호가 화면에 남는다. 마지막에 한 번 걷어낸다.
+#
+# 밑줄(_) 강조는 일부러 건드리지 않는다. 답변에는 source_type·due_date 같은 스네이크 케이스
+# 식별자가 섞여 나오는데, _..._ 를 강조로 지우면 그런 값이 망가진다.
+_MARKDOWN_FENCE_PATTERN = re.compile(r"^[ \t]*```.*$\n?", re.MULTILINE)
+_MARKDOWN_LINK_PATTERN = re.compile(r"!?\[([^\]]*)\]\([^)]*\)")
+_MARKDOWN_INLINE_CODE_PATTERN = re.compile(r"`+([^`\n]+)`+")
+_MARKDOWN_RULE_PATTERN = re.compile(r"^[ \t]{0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$\n?", re.MULTILINE)
+_MARKDOWN_HEADING_PATTERN = re.compile(r"^[ \t]{0,3}#{1,6}[ \t]*", re.MULTILINE)
+_MARKDOWN_QUOTE_PATTERN = re.compile(r"^[ \t]{0,3}>[ \t]?", re.MULTILINE)
+# '*'/'+' 불릿은 지우지 않고 '-'로 맞춘다. 목록 자체는 평문에서도 읽기 좋은 형태다.
+_MARKDOWN_BULLET_PATTERN = re.compile(r"^([ \t]*)[*+][ \t]+", re.MULTILINE)
+_MARKDOWN_EMPHASIS_PATTERN = re.compile(r"(\*{1,3})(\S|\S.*?\S)\1", re.DOTALL)
+
+
+# 프롬프트로 "주제가 바뀌면 빈 줄"을 지시해도 모델이 계속 붙여 썼다(실측). 목록 끝과 다음
+# 문장이 붙으면 화면에서 어디까지가 한 묶음인지 안 보인다. 내용은 건드리지 않는 서식 보정이라
+# 모델에 맡기지 않고 여기서 확정한다.
+_LIST_ITEM_PREFIX = "- "
+
+
+def _space_out_list_blocks(text: str) -> str:
+    lines = text.split("\n")
+    spaced: list[str] = []
+    for line in lines:
+        ends_a_list = spaced and spaced[-1].startswith(_LIST_ITEM_PREFIX)
+        starts_new_block = line.strip() and not line.startswith(_LIST_ITEM_PREFIX)
+        if ends_a_list and starts_new_block:
+            spaced.append("")
+        spaced.append(line)
+    return "\n".join(spaced)
+
+
+def _strip_markdown(answer: str) -> str:
+    text = _MARKDOWN_FENCE_PATTERN.sub("", answer)
+    text = _MARKDOWN_LINK_PATTERN.sub(r"\1", text)
+    text = _MARKDOWN_INLINE_CODE_PATTERN.sub(r"\1", text)
+    text = _MARKDOWN_RULE_PATTERN.sub("", text)
+    text = _MARKDOWN_HEADING_PATTERN.sub("", text)
+    text = _MARKDOWN_QUOTE_PATTERN.sub("", text)
+    text = _MARKDOWN_BULLET_PATTERN.sub(r"\1- ", text)
+    text = _MARKDOWN_EMPHASIS_PATTERN.sub(r"\2", text)
+    return _space_out_list_blocks(text.strip())
+
+
 class RagConfigurationError(RuntimeError):
     """RAG 답변 생성에 필요한 설정(예: HF_TOKEN)이 누락된 경우.
 
@@ -368,10 +430,10 @@ async def generate_answer(
 
     explicit = _explicit_provider()
     if explicit is None:
-        return await _generate_with_fallback_chain(settings, context, question)
+        return _strip_markdown(await _generate_with_fallback_chain(settings, context, question))
 
     generator = _PROVIDER_GENERATORS.get(explicit)
     if generator is None:
         # 오타를 HF로 흘려보내면 로컬 전환이 안 된 걸 모른 채 크레딧을 계속 쓴다.
         raise RagConfigurationError(f"지원하지 않는 RAG 생성 프로바이더: {explicit}")
-    return await generator(settings, context, question)
+    return _strip_markdown(await generator(settings, context, question))

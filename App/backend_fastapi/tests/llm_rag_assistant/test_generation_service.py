@@ -12,6 +12,7 @@ from llm_rag_assistant.app.services.generation_service import (
     RagConfigurationError,
     _build_context,
     _format_stats,
+    _strip_markdown,
     generate_answer,
     resolve_generation_provider,
 )
@@ -904,3 +905,102 @@ async def test_auto_mode_prefers_huggingface_over_gemini_when_both_are_configure
 
     assert answer == "HF 답변"
     assert session.post_calls == []
+
+
+def test_system_prompt_asks_for_plain_text() -> None:
+    """프런트는 답변을 마크다운으로 렌더링하지 않는다. 지시가 빠지면 기호가 화면에 그대로 보인다."""
+    assert "마크다운" in _SYSTEM_PROMPT
+
+
+def test_system_prompt_shows_a_hyphen_bulleted_example() -> None:
+    """서술만으로는 모델이 기호 없이 줄바꿈만 했다. 원하는 형태를 예시로 보여줘야 지켜진다."""
+    assert "\n- 2026-07-29" in _SYSTEM_PROMPT
+
+
+def test_strip_markdown_removes_bold_and_headings() -> None:
+    answer = "## 요약\n**블로커** 3건이 있습니다."
+
+    assert _strip_markdown(answer) == "요약\n블로커 3건이 있습니다."
+
+
+def test_strip_markdown_normalizes_star_bullets_to_hyphens() -> None:
+    answer = "* 결제 모듈\n+ 로그인 개선"
+
+    assert _strip_markdown(answer) == "- 결제 모듈\n- 로그인 개선"
+
+
+def test_strip_markdown_keeps_hyphen_bullets_as_is() -> None:
+    """평문에서도 '- ' 목록은 읽기 좋다. 지우면 항목 경계가 사라진다."""
+    answer = "- 결제 모듈\n- 로그인 개선"
+
+    assert _strip_markdown(answer) == answer
+
+
+def test_strip_markdown_unwraps_code_and_links() -> None:
+    answer = "`due_date`를 확인하세요. [업무 보드](https://example.com/board)에 있습니다."
+
+    assert _strip_markdown(answer) == "due_date를 확인하세요. 업무 보드에 있습니다."
+
+
+def test_strip_markdown_drops_code_fences_and_horizontal_rules() -> None:
+    answer = "```text\n블로커 3건\n```\n---\n끝"
+
+    assert _strip_markdown(answer) == "블로커 3건\n끝"
+
+
+def test_strip_markdown_keeps_snake_case_identifiers_intact() -> None:
+    """밑줄 강조까지 지우면 답변에 섞여 나오는 source_type 같은 값이 망가진다."""
+    answer = "source_type과 assignee_id를 확인했습니다."
+
+    assert _strip_markdown(answer) == answer
+
+
+def test_strip_markdown_keeps_a_multiplication_star_between_numbers() -> None:
+    """짝이 맞지 않는 '*'는 강조가 아니다. 지우면 원문 의미가 바뀐다."""
+    answer = "3 * 4 = 12"
+
+    assert _strip_markdown(answer) == "3 * 4 = 12"
+
+
+@pytest.mark.asyncio
+async def test_generate_answer_strips_markdown_from_the_model_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """지시를 무시하고 마크다운을 쓰는 모델이 있어, 응답 경로에서도 한 번 걷어낸다."""
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pw@localhost:5432/workflow")
+    monkeypatch.setenv("RAG_PROVIDER", "hf")
+    monkeypatch.setenv("HF_TOKEN", "hf_test_token")
+    mock_chat_model = _mock_chat_model("## 요약\n**블로커** 3건")
+
+    with (
+        patch("llm_rag_assistant.app.services.generation_service.HuggingFaceEndpoint"),
+        patch(
+            "llm_rag_assistant.app.services.generation_service.ChatHuggingFace",
+            return_value=mock_chat_model,
+        ),
+    ):
+        answer = await generate_answer("질문", [])
+
+    assert answer == "요약\n블로커 3건"
+
+
+def test_strip_markdown_separates_a_new_block_from_the_list_above_it() -> None:
+    """목록 끝과 다음 제목 줄이 붙으면 화면에서 묶음 경계가 안 보인다."""
+    answer = "마감 임박 업무는 다음과 같습니다\n- 테스트 (미배정)\n블로커 업무는 다음과 같습니다\n- 결제 모듈 (이영희)"
+
+    assert _strip_markdown(answer) == (
+        "마감 임박 업무는 다음과 같습니다\n- 테스트 (미배정)\n\n블로커 업무는 다음과 같습니다\n- 결제 모듈 (이영희)"
+    )
+
+
+def test_strip_markdown_keeps_a_blank_line_the_model_already_wrote() -> None:
+    """이미 비어 있는 줄에 또 넣으면 문단 사이가 두 줄로 벌어진다."""
+    answer = "- 테스트 (미배정)\n\n블로커 업무는 다음과 같습니다"
+
+    assert _strip_markdown(answer) == answer
+
+
+def test_strip_markdown_does_not_split_consecutive_list_items() -> None:
+    answer = "- 첫 번째 업무\n- 두 번째 업무\n- 세 번째 업무"
+
+    assert _strip_markdown(answer) == answer
