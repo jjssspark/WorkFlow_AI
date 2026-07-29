@@ -104,8 +104,11 @@ export function UrgentTasksPage() {
       await updateTaskPosition(taskId, status, nextPositionForStatus(tasks, status), currentProjectId);
       alert("변경이 완료되었습니다.");
       setListRefreshing(true);
-      await refetch();
-      setListRefreshing(false);
+      try {
+        await refetch();
+      } finally {
+        setListRefreshing(false);
+      }
     } catch {
       setActionError("상태 변경에 실패했습니다. 잠시 후 다시 시도해주세요.");
     } finally {
@@ -128,8 +131,11 @@ export function UrgentTasksPage() {
       await requestTaskCompletion(taskId, currentProjectId);
       alert("완료 요청을 보냈습니다.");
       setListRefreshing(true);
-      await refetch();
-      setListRefreshing(false);
+      try {
+        await refetch();
+      } finally {
+        setListRefreshing(false);
+      }
     } catch {
       setActionError("완료 요청에 실패했습니다. 잠시 후 다시 시도해주세요.");
     } finally {
@@ -145,8 +151,11 @@ export function UrgentTasksPage() {
       await sendTaskNudge(taskId, "URGENT", currentProjectId);
       alert("리마인드 알림을 보냈습니다.");
       setListRefreshing(true);
-      await refetch();
-      setListRefreshing(false);
+      try {
+        await refetch();
+      } finally {
+        setListRefreshing(false);
+      }
     } catch {
       setActionError("리마인드 알림 전송에 실패했습니다. 잠시 후 다시 시도해주세요.");
     } finally {
@@ -156,8 +165,11 @@ export function UrgentTasksPage() {
 
   const manualRefresh = async () => {
     setListRefreshing(true);
-    await refetch();
-    setListRefreshing(false);
+    try {
+      await refetch();
+    } finally {
+      setListRefreshing(false);
+    }
   };
 
   const handleScroll = (event: UIEvent<HTMLDivElement>) => {
@@ -332,7 +344,7 @@ export function UrgentTasksPage() {
           task={dueDateRow.task}
           projectId={currentProjectId}
           onClose={() => setDueDateTarget(null)}
-          onChanged={async () => { setDueDateTarget(null); setListRefreshing(true); await refetch(); setListRefreshing(false); }}
+          onChanged={async () => { setDueDateTarget(null); setListRefreshing(true); try { await refetch(); } finally { setListRefreshing(false); } }}
         />
       )}
       {assigneeRow && currentProjectId != null && (
@@ -340,7 +352,7 @@ export function UrgentTasksPage() {
           task={assigneeRow.task}
           projectId={currentProjectId}
           onClose={() => setAssigneeTarget(null)}
-          onChanged={async () => { setAssigneeTarget(null); setListRefreshing(true); await refetch(); setListRefreshing(false); }}
+          onChanged={async () => { setAssigneeTarget(null); setListRefreshing(true); try { await refetch(); } finally { setListRefreshing(false); } }}
         />
       )}
     </div>

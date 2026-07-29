@@ -126,7 +126,7 @@ export function InProgressPage() {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={async () => { setPageRefreshing(true); await refetch(); setPageRefreshing(false); }}
+            onClick={async () => { setPageRefreshing(true); try { await refetch(); } finally { setPageRefreshing(false); } }}
             disabled={loading}
             className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-border bg-card text-foreground rounded-lg hover:bg-muted transition-colors disabled:opacity-50"
           >
