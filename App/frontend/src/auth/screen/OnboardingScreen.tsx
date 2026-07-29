@@ -7,6 +7,7 @@ import {
 import { StepIndicator } from "../components/StepIndicator";
 import { useAuth } from "../../global/hooks/useAuth";
 import { createInvitation, createProject, listProjects } from "../../global/api/projectsApi";
+import { Button } from "../../global/component/ui/button";
 
 const DELIVERABLE_OPTIONS = ["발표자료", "보고서", "README", "시연 영상", "서비스 배포", "기타"];
 
@@ -399,25 +400,17 @@ export function OnboardingScreen() {
           </button>
 
           {step < 3 ? (
-            <button
-              onClick={() => setStep(s => s + 1)}
-              disabled={!canGoNext}
-              className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl text-white text-sm font-semibold transition-all disabled:opacity-40 hover:opacity-90"
-              style={{ background: "linear-gradient(135deg, #3B5BDB 0%, #4F6EF7 100%)" }}>
+            <Button onClick={() => setStep(s => s + 1)} disabled={!canGoNext}>
               다음 <ArrowRight className="w-4 h-4" />
-            </button>
+            </Button>
           ) : (
-            <button
-              onClick={handleFinish}
-              disabled={submitting}
-              className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl text-white text-sm font-semibold transition-all hover:opacity-90 disabled:opacity-60"
-              style={{ background: "linear-gradient(135deg, #7048E8 0%, #4F6EF7 100%)" }}>
+            <Button onClick={handleFinish} disabled={submitting}>
               {submitting ? (
                 <><div className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" /> 생성 중...</>
               ) : (
                 <><Sparkles className="w-4 h-4" /> 시작하기</>
               )}
-            </button>
+            </Button>
           )}
         </div>
       </div>
