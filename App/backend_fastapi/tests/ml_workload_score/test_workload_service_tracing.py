@@ -80,7 +80,11 @@ async def test_get_workload_score_works_without_langsmith_api_key(monkeypatch):
     monkeypatch.delenv("LANGSMITH_API_KEY", raising=False)
     monkeypatch.delenv("LANGSMITH_TRACING", raising=False)
 
-    result = await get_workload_score(project_id=1, use_synthetic_fallback=True)
+    with patch(
+        "ml_workload_score.app.services.workload_service.db.load_tasks_from_db",
+        side_effect=RuntimeError("no db"),
+    ):
+        result = await get_workload_score(project_id=1, use_synthetic_fallback=True)
 
     assert result.source == "synthetic_fallback"
     assert len(result.members) > 0
