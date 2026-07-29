@@ -92,8 +92,11 @@ export function DashboardView() {
   const tasksLoading = tasksLoadingRaw || pageRefreshing;
   const refreshAll = async () => {
     setPageRefreshing(true);
-    await Promise.all([refetchSummary(), refetchProgress(), refetchTasks()]);
-    setPageRefreshing(false);
+    try {
+      await Promise.all([refetchSummary(), refetchProgress(), refetchTasks()]);
+    } finally {
+      setPageRefreshing(false);
+    }
   };
   const [showAddTask, setShowAddTask] = useState(false);
   const [showUploadMeeting, setShowUploadMeeting] = useState(false);

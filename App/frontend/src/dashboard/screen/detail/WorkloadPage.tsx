@@ -152,7 +152,7 @@ export function WorkloadPage() {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={async () => { setPageRefreshing(true); await Promise.all([refetch(), refetchSummary(), refreshWorkloadScore()]); setPageRefreshing(false); }}
+            onClick={async () => { setPageRefreshing(true); try { await Promise.all([refetch(), refetchSummary(), refreshWorkloadScore()]); } finally { setPageRefreshing(false); } }}
             disabled={pageRefreshing}
             className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-border bg-card text-foreground rounded-lg hover:bg-muted transition-colors disabled:opacity-50"
           ><RefreshCw className={`w-3.5 h-3.5 ${pageRefreshing ? "animate-spin" : ""}`} />{pageRefreshing ? "새로고침 중..." : "새로고침"}</button>
@@ -401,8 +401,11 @@ export function WorkloadPage() {
             alert("업무 수정이 완료되었습니다.");
             setShowAssignPicker(true);
             setTaskListRefreshing(true);
-            await refetch();
-            setTaskListRefreshing(false);
+            try {
+              await refetch();
+            } finally {
+              setTaskListRefreshing(false);
+            }
           }}
         />
       )}

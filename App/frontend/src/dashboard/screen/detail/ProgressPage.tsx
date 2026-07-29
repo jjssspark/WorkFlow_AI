@@ -44,8 +44,11 @@ export function ProgressPage() {
   const tasksLoading = tasksLoadingRaw || pageRefreshing;
   const refreshAll = async () => {
     setPageRefreshing(true);
-    await Promise.all([refetchSummary(), refetchProgress(), refetchTasks()]);
-    setPageRefreshing(false);
+    try {
+      await Promise.all([refetchSummary(), refetchProgress(), refetchTasks()]);
+    } finally {
+      setPageRefreshing(false);
+    }
   };
   const navigate = useNavigate();
   const onBack = () => navigate("/dashboard");
