@@ -1034,3 +1034,30 @@ def test_strip_markdown_keeps_indented_sub_items_in_the_same_block() -> None:
     answer = "- 결제 모듈\n  - 외부 API 승인 대기\n- 로그인 개선"
 
     assert _strip_markdown(answer) == answer
+
+
+def test_strip_markdown_flattens_a_table_into_plain_lines() -> None:
+    """표는 프롬프트로만 막고 있어 새면 파이프가 그대로 화면에 남는다."""
+    answer = "| 업무 | 담당자 |\n|------|--------|\n| 결제 모듈 | 이영희 |"
+
+    assert _strip_markdown(answer) == "업무 · 담당자\n결제 모듈 · 이영희"
+
+
+def test_strip_markdown_keeps_a_sentence_that_merely_contains_a_pipe() -> None:
+    """파이프가 든 줄을 전부 표로 보면 본문이 망가진다. 양끝이 '|'인 줄만 표로 본다."""
+    answer = "필터는 status|priority 순서로 적용됩니다"
+
+    assert _strip_markdown(answer) == answer
+
+
+def test_strip_markdown_keeps_parentheses_inside_a_link_target() -> None:
+    answer = "[문서](https://example.com/a_(b))를 참고하세요"
+
+    assert _strip_markdown(answer) == "문서 (https://example.com/a_(b))를 참고하세요"
+
+
+def test_strip_markdown_keeps_multiplication_with_several_asterisks() -> None:
+    """별표 뒤에 공백이 오면 강조가 아니다. 지우면 계산식이 달라 보인다."""
+    answer = "3 * 4 * 5 = 60"
+
+    assert _strip_markdown(answer) == answer

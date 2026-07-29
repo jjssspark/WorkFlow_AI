@@ -220,7 +220,9 @@ def _build_context(sources: list[dict], is_personal: bool, stats: dict | None) -
 # 밑줄(_) 강조는 일부러 건드리지 않는다. 답변에는 source_type·due_date 같은 스네이크 케이스
 # 식별자가 섞여 나오는데, _..._ 를 강조로 지우면 그런 값이 망가진다.
 _MARKDOWN_FENCE_PATTERN = re.compile(r"^[ \t]*```.*$\n?", re.MULTILINE)
-_MARKDOWN_LINK_PATTERN = re.compile(r"!?\[([^\]]*)\]\(([^)]*)\)")
+# 주소 안의 괄호 한 겹까지 허용한다. '[^)]*'로 잡으면 위키류 주소('.../a_(b)')가 중간에서
+# 잘려 다른 주소로 남는다.
+_MARKDOWN_LINK_PATTERN = re.compile(r"!?\[([^\]]*)\]\(((?:[^()]|\([^()]*\))*)\)")
 _MARKDOWN_INLINE_CODE_PATTERN = re.compile(r"`+([^`\n]+)`+")
 _MARKDOWN_RULE_PATTERN = re.compile(r"^[ \t]{0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$\n?", re.MULTILINE)
 # '#' 뒤에 공백이나 줄 끝이 와야 제목으로 본다. 그냥 '#{1,6}'로 잡으면 답변에 흔한 업무 번호
@@ -233,6 +235,34 @@ _MARKDOWN_BULLET_PATTERN = re.compile(r"^([ \t]*)[*+][ \t]+", re.MULTILINE)
 # 강조는 한 줄 안에서만 찾는다(DOTALL 금지). 줄바꿈을 넘겨 짝을 지으면 서로 무관한 두 줄의
 # 짝 없는 '*'가 하나의 강조로 묶여, 두 별표가 함께 사라진다.
 _MARKDOWN_EMPHASIS_PATTERN = re.compile(r"(\*{1,3})(\S|\S[^\n]*?\S)\1")
+
+
+# 표는 프롬프트로만 막고 있어 새면 파이프가 그대로 화면에 남는다. 다만 파이프가 들어간 줄을
+# 전부 표로 보면 본문을 망가뜨리므로, 양끝이 '|'인 줄(표가 아니고서는 나오지 않는 형태)만
+# 셀로 풀고 정렬 구분줄('|---|---|')은 버린다.
+_TABLE_SEPARATOR_PATTERN = re.compile(r"^\|?[ \t]*:?-{2,}:?[ \t]*(?:\|[ \t]*:?-{2,}:?[ \t]*)+\|?$")
+_TABLE_CELL_SEPARATOR = " · "
+
+
+def _flatten_table_row(line: str) -> str | None:
+    stripped = line.strip()
+    if not (stripped.startswith("|") and stripped.endswith("|") and stripped.count("|") >= 3):
+        return None
+    if _TABLE_SEPARATOR_PATTERN.match(stripped):
+        return ""
+    cells = [cell.strip() for cell in stripped.strip("|").split("|")]
+    return _TABLE_CELL_SEPARATOR.join(cell for cell in cells if cell)
+
+
+def _flatten_tables(text: str) -> str:
+    flattened = []
+    for line in text.split("\n"):
+        row = _flatten_table_row(line)
+        # 구분줄은 빈 문자열이 되는데, 줄 자체를 지워야 표 위아래가 붙지 않는다.
+        if row == "":
+            continue
+        flattened.append(line if row is None else row)
+    return "\n".join(flattened)
 
 
 def _unwrap_link(match: re.Match) -> str:
@@ -273,6 +303,7 @@ def _space_out_list_blocks(text: str) -> str:
 
 def _strip_markdown(answer: str) -> str:
     text = _MARKDOWN_FENCE_PATTERN.sub("", answer)
+    text = _flatten_tables(text)
     text = _MARKDOWN_LINK_PATTERN.sub(_unwrap_link, text)
     text = _MARKDOWN_INLINE_CODE_PATTERN.sub(r"\1", text)
     text = _MARKDOWN_RULE_PATTERN.sub("", text)
