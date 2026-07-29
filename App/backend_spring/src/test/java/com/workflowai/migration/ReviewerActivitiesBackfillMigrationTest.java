@@ -28,6 +28,12 @@ import org.testcontainers.utility.DockerImageName;
  * <p>운영 Supabase 실측(2026-07-29)에서 확인된 실제 데이터 형태(project_id=1, 다수 user_id,
  * PROJECT_ACCESS/EVALUATION_SCORE_SAVED 두 타입만 존재)를 대표해 대표 행 3건을 심어두고
  * 마이그레이션 후 activities 테이블에 예상대로 반영됐는지 확인한다.
+ *
+ * <p>동일 4-튜플(project_id/actor_id/type/created_at) 재실행 회귀는 별도 파일
+ * {@link ReviewerActivitiesBackfillDuplicateTimestampTest}에서 검증한다 - 이 프로젝트의
+ * Testcontainers 기반 마이그레이션 테스트는 static 컨테이너를 클래스 단위로 재사용하므로
+ * (다른 마이그레이션 테스트들과 동일한 관례), 한 클래스에 테스트 메서드를 두 개 이상 두면
+ * 두 번째 메서드가 이미 초기화된 스키마에 init 스크립트를 다시 실행하려다 충돌한다.
  */
 @Testcontainers(disabledWithoutDocker = true)
 class ReviewerActivitiesBackfillMigrationTest {
