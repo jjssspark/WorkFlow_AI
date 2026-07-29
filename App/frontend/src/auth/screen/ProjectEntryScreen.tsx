@@ -15,7 +15,12 @@ import {
 import { AuthBrandPanel } from "../components/AuthBrandPanel";
 import { useAuth } from "../../global/hooks/useAuth";
 import type { ProjectRoleKo, ProjectRoleSummary } from "../../global/api/authTypes";
-import { joinProjectByCode, listProjects, type ProjectResponse } from "../../global/api/projectsApi";
+import { ApiRequestError } from "../../global/api/apiClient";
+import { acceptInvitation, joinProjectByCode, listProjects, type ProjectResponse } from "../../global/api/projectsApi";
+
+// 백엔드가 이 코드로 응답할 때만 "이메일/링크 초대 토큰이 아니라 프로젝트 참여 코드였다"고 확신할 수
+// 있다(InvitationController.accept 참고) - InviteAcceptScreen과 동일한 계약.
+const FALLBACK_ELIGIBLE_CODE = "INVITE_NOT_FOUND";
 import { REVIEWER_ACTIVITIES } from "../../global/lib/mock/reviewer";
 import { EVAL_STATUS_META, resolveEvalStatus } from "../../global/lib/evalStatus";
 
@@ -90,10 +95,23 @@ export function ProjectEntryScreen() {
     const code = rawCode.split("/").filter(Boolean).pop() ?? rawCode;
     setJoining(true);
     setMessage(null);
+    const previousProjectIds = new Set(projects.map((project) => project.projectId));
     try {
-      const project = await joinProjectByCode(code);
-      await refreshMe();
-      selectProject(project.id);
+      // "링크 복사"로 받은 값은 이메일 초대와 같은 실제 토큰(UUID)이고, "코드 복사"로 받은 값은
+      // 프로젝트 고정 코드다. 토큰 수락을 먼저 시도하고, 토큰이 아닐 때만(INVITE_NOT_FOUND)
+      // 코드 참여로 폴백한다 - 그 외 실패(이미 처리된 초대 등)는 그대로 알려준다.
+      try {
+        await acceptInvitation(code);
+      } catch (tokenErr: unknown) {
+        const isUnknownToken = tokenErr instanceof ApiRequestError && tokenErr.code === FALLBACK_ELIGIBLE_CODE;
+        if (!isUnknownToken) throw tokenErr;
+        await joinProjectByCode(code);
+      }
+      const me = await refreshMe();
+      const joinedProject = me?.projectRoles.find((role) => !previousProjectIds.has(role.projectId));
+      if (joinedProject) {
+        selectProject(joinedProject.projectId);
+      }
       navigate("/dashboard");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "참여에 실패했습니다.");
