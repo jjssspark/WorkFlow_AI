@@ -20,22 +20,26 @@ mkdir -p "$migration_dir"
 echo "select 1;" > "$migration_dir/V20260726_1__rag_assignee_sync_failures.sql"
 echo "select 1;" > "$migration_dir/V20260726_2__task_done_date.sql"
 echo "select 1;" > "$migration_dir/V20260726_3__user_profile_and_agreements.sql"
+# 내용을 다르게 둔다. 4개 파일이 모두 같은 내용이면 git이 exact rename 짝을 다른
+# 조합으로 맺을 수 있어(내용이 같아 구분 불가) 승인 목록과 어긋난 쌍이 나올 수 있다.
+echo "delete from notifications where project_id is null;" > "$migration_dir/V20260728_2__notifications_delete_orphaned_null_project_id.sql"
 git add "$migration_dir"
 git commit -q -m "base: 초기 마이그레이션 파일"
 base_sha=$(git rev-parse HEAD)
 
-# 시나리오 1: 승인된 3건의 rename만 있는 커밋 -> 통과해야 한다.
+# 시나리오 1: 승인된 rename만 있는 커밋 -> 통과해야 한다.
 git mv "$migration_dir/V20260726_1__rag_assignee_sync_failures.sql" "$migration_dir/V20260727_1__rag_assignee_sync_failures.sql"
 git mv "$migration_dir/V20260726_2__task_done_date.sql" "$migration_dir/V20260727_2__task_done_date.sql"
 git mv "$migration_dir/V20260726_3__user_profile_and_agreements.sql" "$migration_dir/V20260727_3__user_profile_and_agreements.sql"
-git commit -q -am "rename: 승인된 3건"
+git mv "$migration_dir/V20260728_2__notifications_delete_orphaned_null_project_id.sql" "$migration_dir/V20260728_3__notifications_delete_orphaned_null_project_id.sql"
+git commit -q -am "rename: 승인된 4건"
 approved_head=$(git rev-parse HEAD)
 
 if ! bash "$script" "$base_sha" "$approved_head" >/dev/null 2>&1; then
-  echo "FAIL: 승인된 3건의 rename 시나리오가 차단되었습니다." >&2
+  echo "FAIL: 승인된 rename 시나리오가 차단되었습니다." >&2
   exit 1
 fi
-echo "PASS: 승인된 3건의 rename은 통과한다."
+echo "PASS: 승인된 rename은 통과한다."
 
 # 시나리오 2: 승인 목록에 없는 임의의 rename -> base에 guard workflow가 없어도 차단되어야
 # 한다 (이 임시 저장소에는 .github/workflows/migration-guard.yml 자체가 없으므로,

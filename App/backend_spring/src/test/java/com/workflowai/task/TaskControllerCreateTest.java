@@ -13,6 +13,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.workflowai.activity.ActivityService;
 import com.workflowai.common.DemoDataService;
 import com.workflowai.common.GlobalExceptionHandler;
+import com.workflowai.notification.NotificationBroadcaster;
 import com.workflowai.notification.NotificationService;
 import com.workflowai.project.Project;
 import com.workflowai.project.ProjectMemberRepository;
@@ -53,6 +54,9 @@ class TaskControllerCreateTest {
     private NotificationService notificationService;
 
     @Mock
+    private NotificationBroadcaster notificationBroadcaster;
+
+    @Mock
     private ProjectMemberRepository projectMemberRepository;
 
     @Mock
@@ -68,7 +72,7 @@ class TaskControllerCreateTest {
         mockMvc = MockMvcBuilders
             .standaloneSetup(new TaskController(
                 taskRepository, userRepository, demoDataService, activityService,
-                notificationService, projectMemberRepository, projectRepository, ragIngestService
+                notificationService, notificationBroadcaster, projectMemberRepository, projectRepository, ragIngestService
             ))
             .setControllerAdvice(new GlobalExceptionHandler())
             .build();
