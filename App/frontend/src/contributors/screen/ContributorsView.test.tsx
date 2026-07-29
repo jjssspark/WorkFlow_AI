@@ -378,6 +378,12 @@ describe("ContributorsView 학점 계산기", () => {
       expect(createPersonalComment).toHaveBeenCalledWith(1, 1, "훌륭합니다"),
     );
 
+    // 전송 후에는 방금 보낸 내용이 입력창에 계속 남아있지 않고, 닫을 수 있는 "전송 완료" 배지가 뜬다.
+    await waitFor(() => expect(commentInput).toHaveValue(""));
+    const closeButton = await within(commentSection).findByRole("button", { name: "전송 완료 알림 닫기" });
+    await user.click(closeButton);
+    expect(within(commentSection).queryByText("전송 완료")).not.toBeInTheDocument();
+
     vi.mocked(upsertEvaluationScore).mockClear();
 
     const toggleButton = within(commentSection).getByRole("button", { name: /비공개/ });
