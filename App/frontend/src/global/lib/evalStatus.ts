@@ -3,7 +3,9 @@
 // 소문자("pending"), ProjectResponse는 enum name()으로 대문자("PENDING").
 // 화면마다 다른 표기를 받으므로 resolveEvalStatus로 대문자 하나로 정규화해서 쓴다.
 
-export type EvalStatus = "PENDING" | "EVALUATING" | "DONE" | "PUBLISHED";
+// DONE("평가 완료")은 저장 경로가 없고 DB CHECK 제약도 허용하지 않아 2026-07-29에 제거했다.
+// 평가 확정은 EVALUATING에서 PUBLISHED로 바로 전이한다.
+export type EvalStatus = "PENDING" | "EVALUATING" | "PUBLISHED";
 
 export const EVAL_STATUS_META: Record<
   EvalStatus,
@@ -11,7 +13,6 @@ export const EVAL_STATUS_META: Record<
 > = {
   PENDING: { label: "평가 전", color: "#64748B", bg: "#F1F5F9", border: "#E2E8F0" },
   EVALUATING: { label: "평가 중", color: "#D97706", bg: "#FEF3C7", border: "#FDE68A" },
-  DONE: { label: "평가 완료", color: "#2563EB", bg: "#DBEAFE", border: "#BFDBFE" },
   PUBLISHED: { label: "공개 완료", color: "#059669", bg: "#D1FAE5", border: "#A7F3D0" },
 };
 

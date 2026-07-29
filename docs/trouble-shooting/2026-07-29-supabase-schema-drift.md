@@ -115,9 +115,16 @@ CHECK 제약이 갈린 이유는 `V20260723_2`/`V20260724_6`이 `IF NOT EXISTS` 
 운영을 기준으로 삼아 빈 DB 쪽을 맞춘다. 이미 적용된 V파일은 `migration-guard` CI가 수정을
 막으므로 신규 V파일로 처리했다. 운영에서는 4건 전부 no-op이다.
 
-`EvalStatus.java`에는 `DONE`이, 프론트 `MyPage.tsx` 타입에도 `"done"`이 남아 있다. 저장하는
-코드 경로가 없어 사고가 나지 않았을 뿐이며, **enum에서 빼거나 CHECK에 넣거나 한쪽으로
-정리해야 한다.** 프론트 계약을 건드려야 해서 이번 범위에서는 제외했다.
+`EvalStatus.java`와 프론트 타입에 남아 있던 `DONE`은 **enum에서 제거하는 쪽으로 정리했다.**
+
+- 저장하는 코드 경로가 없었다. `setEvalStatus()` 호출부 2곳은 `PUBLISHED`/`EVALUATING`만 쓴다.
+- 의미가 정의된 적이 없다. 라벨은 `DONE = "평가 완료"`, `PUBLISHED = "공개 완료"`인데 실제
+  흐름은 `EVALUATING → (평가 확정) → PUBLISHED`로 직행한다. 중간 단계가 제품에 없다.
+- `MyPage.tsx`의 "평가 완료" 지표가 값을 만들 경로 없이 **영원히 0**을 표시하고 있었다.
+
+제거 범위: `EvalStatus.java`, `global/lib/evalStatus.ts`, `mypage/screen/MyPage.tsx`,
+`mypage/libs/utils/reviewerApi.ts`. DB는 이미 3값이라 건드리지 않았다.
+enum 값이 다시 늘어날 때 CHECK도 함께 넓히도록 `EvalStatusTest`에 값 목록 검증을 추가했다.
 
 ## 발견 3 — legacy divergence 30건
 
@@ -219,7 +226,7 @@ IDENTITY 전환도 데이터가 있는 상태에서 확인했다. `notifications
 
 | 변경 | 바뀌는 동작 | 현재 노출 |
 |---|---|---|
-| `chk_projects_eval_status`에서 `DONE` 제거 | `EvalStatus.DONE` 저장 시 CHECK 위반 | 저장하는 코드 경로 없음. Q2로 별도 정리 필요 |
+| `chk_projects_eval_status`에서 `DONE` 제거 | `EvalStatus.DONE` 저장 시 CHECK 위반 | **해소** — enum·프론트 타입에서 `DONE` 제거 |
 | FK 4건 `ON DELETE` 제거 | 부모 행 삭제가 `RESTRICT`로 막힘 | 사용자 삭제 기능 없음. 회의 삭제는 앱이 자식 행을 먼저 정리 |
 | `uq_action_items_created_task` 추가 | 액션 아이템이 업무 하나만 만들 수 있음 | 중복 행은 마이그레이션이 해제 |
 | `serial` → `IDENTITY` | 없음 (JPA `GenerationType.IDENTITY`는 양쪽 동작) | — |

@@ -7,7 +7,7 @@ export interface ReviewerProject {
   leaderName: string | null;
   memberCount: number;
   progressPercent: number;
-  evalStatus: "pending" | "evaluating" | "done" | "published";
+  evalStatus: "pending" | "evaluating" | "published";
   deliverablesSubmitted: number;
   deliverablesTotal: number;
   githubConnected: boolean;
