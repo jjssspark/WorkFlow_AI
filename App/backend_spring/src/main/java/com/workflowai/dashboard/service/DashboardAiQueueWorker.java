@@ -153,7 +153,15 @@ public class DashboardAiQueueWorker implements ApplicationRunner {
 
     void pollOnce() {
         try {
-            doPollOnce();
+            // 레코드를 ack하지 못하고 pending으로 남긴 경우(DB 조회 실패, 리스 스케줄링 실패,
+            // 러너 예외) 다음 폴링의 PENDING 읽기가 같은 레코드를 논블로킹으로 즉시 다시 집어온다.
+            // 여기서 백오프를 태우지 않으면 원인이 해소될 때까지 스핀 루프로 CPU와 DB/FastAPI를
+            // 계속 때린다 - Redis 장애와 동일한 지수 백오프를 적용한다.
+            if (doPollOnce()) {
+                delay.accept(nextBackoffMillis);
+                nextBackoffMillis = Math.min(nextBackoffMillis * 2, MAX_BACKOFF_MILLIS);
+                return;
+            }
             nextBackoffMillis = INITIAL_BACKOFF_MILLIS;
         } catch (DataAccessException exception) {
             log.warn("Redis Stream poll failed. errorType={}", exception.getClass().getSimpleName());
@@ -220,7 +228,8 @@ public class DashboardAiQueueWorker implements ApplicationRunner {
         }
     }
 
-    private void doPollOnce() {
+    /** @return 레코드를 ack하지 못하고 pending으로 남겼는지(= 호출부가 백오프를 태워야 하는지). */
+    private boolean doPollOnce() {
         StreamOperations<String, String, String> operations = streamOperations();
         List<MapRecord<String, String, String>> records = operations.read(consumer, PENDING_READ_OPTIONS, PENDING_OFFSET);
         if (records == null || records.isEmpty()) {
@@ -230,9 +239,11 @@ public class DashboardAiQueueWorker implements ApplicationRunner {
             records = operations.read(consumer, NEW_READ_OPTIONS, NEW_OFFSET);
         }
         if (records == null || records.isEmpty()) {
-            return;
+            // 처리할 게 없는 정상 유휴 상태. NEW_READ_OPTIONS의 5초 블로킹이 이미 폴링 간격을
+            // 잡아 주므로 백오프는 필요 없다.
+            return false;
         }
-        process(records.getFirst());
+        return process(records.getFirst());
     }
 
     private List<MapRecord<String, String, String>> claimStalePending(
@@ -271,14 +282,15 @@ public class DashboardAiQueueWorker implements ApplicationRunner {
         }
     }
 
-    private void process(MapRecord<String, String, String> record) {
+    /** @return 레코드를 ack하지 못하고 pending으로 남겼는지(= 호출부가 백오프를 태워야 하는지). */
+    private boolean process(MapRecord<String, String, String> record) {
         DashboardAiJob job;
         try {
             job = deserialize(record);
         } catch (JsonProcessingException | IllegalArgumentException exception) {
             log.warn("Discarding malformed dashboard AI job record. recordId={}", record.getId().getValue());
             acknowledgeAndDelete(record.getId());
-            return;
+            return false;
         }
 
         boolean projectExists;
@@ -289,7 +301,7 @@ public class DashboardAiQueueWorker implements ApplicationRunner {
                 "Project lookup failed; record remains pending. recordId={}, jobId={}, projectId={}, errorType={}",
                 record.getId().getValue(), job.jobId(), job.projectId(), exception.getClass().getSimpleName()
             );
-            return;
+            return true;
         }
         if (!projectExists) {
             log.info(
@@ -298,26 +310,36 @@ public class DashboardAiQueueWorker implements ApplicationRunner {
             );
             acknowledgeAndDelete(record.getId());
             publisher.releaseInFlight(job.projectId(), job.jobType());
-            return;
+            return false;
         }
 
         ScheduledFuture<?> pendingLease = startPendingLeaseRefresh(record.getId());
         if (pendingLease == null) {
-            return;
+            return true;
         }
+        boolean succeeded;
         try {
-            runner.runJob(job);
+            succeeded = runner.runJob(job);
         } catch (RuntimeException exception) {
             log.warn(
                 "Dashboard AI job runner failed; record remains pending. recordId={}, jobId={}, projectId={}, jobType={}, errorType={}",
                 record.getId().getValue(), job.jobId(), job.projectId(), job.jobType(), exception.getClass().getSimpleName()
             );
-            return;
+            return true;
         } finally {
             pendingLease.cancel(false);
         }
         acknowledgeAndDelete(record.getId());
-        publisher.markDone(job.projectId(), job.jobType(), job.jobId());
+        // 러너가 FastAPI 실패를 삼키고 정상 반환하므로, 완료 마커는 실제로 성공했을 때만 남긴다.
+        // 실패 시 in-flight 마커만 풀면 상태 조회가 FAILED를 반환해 프론트가 옛 결과를 새 분석
+        // 결과로 표시하지 않는다. 재시도는 사용자가 버튼을 다시 눌러 새 작업으로 적재한다 -
+        // FastAPI 장애 중 같은 레코드를 큐에서 계속 되돌리면 워커가 그 작업에 묶여 버린다.
+        if (succeeded) {
+            publisher.markDone(job.projectId(), job.jobType(), job.jobId());
+        } else {
+            publisher.releaseInFlight(job.projectId(), job.jobType());
+        }
+        return false;
     }
 
     private ScheduledFuture<?> startPendingLeaseRefresh(RecordId recordId) {

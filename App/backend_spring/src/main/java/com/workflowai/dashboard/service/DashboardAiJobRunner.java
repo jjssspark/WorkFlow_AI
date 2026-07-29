@@ -41,15 +41,17 @@ public class DashboardAiJobRunner {
         this.notificationService = notificationService;
     }
 
-    public void runJob(DashboardAiJob job) {
+    /** @return FastAPI 위임이 실제로 성공했는지. 호출부(DashboardAiQueueWorker)는 이 값으로
+     * 완료 마커(markDone)를 남길지 in-flight 마커만 해제(releaseInFlight)할지 정한다 -
+     * 실패를 삼킨 채 항상 완료로 보고하면 프론트가 옛 결과를 새 분석 결과로 표시한다. */
+    public boolean runJob(DashboardAiJob job) {
         if (job.jobType() == DashboardAiJobType.DELAY_RISK) {
-            runDelayRisk(job);
-        } else {
-            runWorkloadScore(job);
+            return runDelayRisk(job);
         }
+        return runWorkloadScore(job);
     }
 
-    private void runDelayRisk(DashboardAiJob job) {
+    private boolean runDelayRisk(DashboardAiJob job) {
         boolean success = true;
         try {
             fastApiDashboardClient.refreshDelayRisk(job.projectId());
@@ -64,9 +66,10 @@ public class DashboardAiJobRunner {
                 ? "ML 지연 위험도 재분석이 완료되었습니다."
                 : "ML 지연 위험도 재분석에 실패했습니다. 잠시 후 다시 시도해주세요."
         );
+        return success;
     }
 
-    private void runWorkloadScore(DashboardAiJob job) {
+    private boolean runWorkloadScore(DashboardAiJob job) {
         boolean success = true;
         try {
             WorkloadScoreResponseDto result = fastApiWorkloadScoreClient.fetch(job.projectId());
@@ -82,9 +85,11 @@ public class DashboardAiJobRunner {
                 ? "팀원별 업무 편중 점수 계산이 완료되었습니다."
                 : "업무 편중 점수 계산에 실패했습니다. 잠시 후 다시 시도해주세요."
         );
+        return success;
     }
 
-    /** 작업을 요청한 본인은 화면에서 폴링으로 직접 결과를 받으므로 제외하고, 나머지 팀원에게만 알린다. */
+    /** 작업을 요청한 본인은 화면에서 폴링(PROCESSING/DONE/FAILED)으로 직접 결과를 받으므로
+     * 제외하고, 나머지 팀원에게만 알린다. */
     private void notifyMembers(DashboardAiJob job, String type, String content) {
         String title = "대시보드 ML 분석 완료";
         projectMemberRepository.findAllByProjectId(job.projectId()).stream()
