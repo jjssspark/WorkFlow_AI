@@ -1,15 +1,20 @@
 import { act, render, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
+import { useEffect } from "react";
 import { NotificationProvider, useNotifications } from "./useNotifications";
-import type { NotificationResponse } from "../api/notificationApi";
+import type { NotificationResponse, TaskMoveEvent } from "../api/notificationApi";
 
 vi.mock("sonner", () => ({ toast: { custom: vi.fn(), dismiss: vi.fn() } }));
 
 const mockUseAuth = vi.fn();
 vi.mock("./useAuth", () => ({ useAuth: () => mockUseAuth() }));
 
-type StreamHandlers = { onNotification: (n: NotificationResponse) => void };
+type StreamHandlers = {
+  onNotification: (n: NotificationResponse) => void;
+  onTaskMove?: (event: TaskMoveEvent) => void;
+  onConnectedChange?: (connected: boolean) => void;
+};
 let streamHandlers: StreamHandlers | null = null;
 const fetchUnreadNotificationCount = vi.fn();
 const fetchNotifications = vi.fn();
@@ -22,9 +27,18 @@ vi.mock("../api/notificationApi", () => ({
   subscribeNotificationStream: (...args: unknown[]) => subscribeNotificationStream(...(args as [StreamHandlers, AbortSignal])),
 }));
 
-function Probe() {
-  const { unreadCount } = useNotifications();
-  return <div data-testid="count">{unreadCount}</div>;
+function Probe({ onTaskMoveEvents }: { onTaskMoveEvents?: (event: TaskMoveEvent) => void }) {
+  const { unreadCount, subscribeTaskMove, isStreamConnected } = useNotifications();
+  useEffect(() => {
+    if (!onTaskMoveEvents) return;
+    return subscribeTaskMove(onTaskMoveEvents);
+  }, [subscribeTaskMove, onTaskMoveEvents]);
+  return (
+    <div>
+      <div data-testid="count">{unreadCount}</div>
+      <div data-testid="stream-connected">{String(isStreamConnected)}</div>
+    </div>
+  );
 }
 
 const CURRENT_PROJECT_ID = 12;
@@ -164,5 +178,90 @@ describe("NotificationProvider", () => {
     resolveFirst(99);
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(getByTestId("count").textContent).toBe("5");
+  });
+
+  it("task-move 이벤트를 구독한 컴포넌트에 재배포한다", async () => {
+    mockUseAuth.mockReturnValue(authenticatedAuth());
+    const onTaskMoveEvents = vi.fn();
+    render(<NotificationProvider><Probe onTaskMoveEvents={onTaskMoveEvents} /></NotificationProvider>);
+    await waitFor(() => expect(subscribeNotificationStream).toHaveBeenCalled());
+
+    const event: TaskMoveEvent = { taskId: "42", projectId: String(CURRENT_PROJECT_ID), status: "inprogress", position: 1, version: 100 };
+    act(() => {
+      streamHandlers!.onTaskMove?.(event);
+    });
+
+    expect(onTaskMoveEvents).toHaveBeenCalledWith(event);
+  });
+
+  it("구독을 해제하면 이후 이벤트를 더는 받지 않는다", async () => {
+    mockUseAuth.mockReturnValue(authenticatedAuth());
+    const onTaskMoveEvents = vi.fn();
+    const { unmount } = render(<NotificationProvider><Probe onTaskMoveEvents={onTaskMoveEvents} /></NotificationProvider>);
+    await waitFor(() => expect(subscribeNotificationStream).toHaveBeenCalled());
+    unmount();
+
+    const event: TaskMoveEvent = { taskId: "42", projectId: String(CURRENT_PROJECT_ID), status: "inprogress", position: 1, version: 100 };
+    streamHandlers!.onTaskMove?.(event);
+
+    expect(onTaskMoveEvents).not.toHaveBeenCalled();
+  });
+
+  it("스트림이 연결되면 isStreamConnected가 true가 된다", async () => {
+    mockUseAuth.mockReturnValue(authenticatedAuth());
+    const { getByTestId } = render(<NotificationProvider><Probe /></NotificationProvider>);
+    await waitFor(() => expect(subscribeNotificationStream).toHaveBeenCalled());
+
+    act(() => {
+      streamHandlers!.onConnectedChange?.(true);
+    });
+
+    expect(getByTestId("stream-connected").textContent).toBe("true");
+  });
+
+  it("연결된 상태에서 얼리리턴 조건(비로그인)이 되면 isStreamConnected가 다시 false가 된다", async () => {
+    mockUseAuth.mockReturnValue(authenticatedAuth());
+    const { getByTestId, rerender } = render(<NotificationProvider><Probe /></NotificationProvider>);
+    await waitFor(() => expect(subscribeNotificationStream).toHaveBeenCalled());
+
+    act(() => {
+      streamHandlers!.onConnectedChange?.(true);
+    });
+    expect(getByTestId("stream-connected").textContent).toBe("true");
+
+    // 연결되어 있던 도중 로그아웃 등으로 effect가 얼리리턴하면, 남아있던 true가 아니라
+    // 반드시 false로 리셋되어야 한다.
+    mockUseAuth.mockReturnValue({ isAuthenticated: false });
+    rerender(<NotificationProvider><Probe /></NotificationProvider>);
+
+    expect(getByTestId("stream-connected").textContent).toBe("false");
+  });
+
+  it("리스너 중 하나가 예외를 던져도 이후 등록된 다른 리스너는 정상적으로 이벤트를 받는다", async () => {
+    mockUseAuth.mockReturnValue(authenticatedAuth());
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const throwingListener = vi.fn(() => {
+      throw new Error("boom");
+    });
+    const okListener = vi.fn();
+
+    render(
+      <NotificationProvider>
+        <Probe onTaskMoveEvents={throwingListener} />
+        <Probe onTaskMoveEvents={okListener} />
+      </NotificationProvider>
+    );
+    await waitFor(() => expect(subscribeNotificationStream).toHaveBeenCalled());
+
+    const event: TaskMoveEvent = { taskId: "42", projectId: String(CURRENT_PROJECT_ID), status: "inprogress", position: 1, version: 100 };
+    act(() => {
+      streamHandlers!.onTaskMove?.(event);
+    });
+
+    expect(throwingListener).toHaveBeenCalledWith(event);
+    expect(okListener).toHaveBeenCalledWith(event);
+    expect(consoleErrorSpy).toHaveBeenCalled();
+
+    consoleErrorSpy.mockRestore();
   });
 });
