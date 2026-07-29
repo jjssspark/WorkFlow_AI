@@ -5,8 +5,6 @@ import com.workflowai.security.CurrentUser;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -45,19 +43,17 @@ public class InvitationController {
 
     @Operation(
         summary = "초대 토큰을 사용해 프로젝트 참여 수락",
-        description = "토큰이 이메일 초대(Invitation) 테이블에 없으면 404/INVITE_NOT_FOUND를 반환한다. "
-            + "프론트엔드는 이 코드일 때만 프로젝트 참여 코드(inviteCode)로의 폴백을 시도해야 한다 — "
-            + "이미 처리됐거나(409) 만료된(409) 초대는 폴백 대상이 아니라 사용자에게 그대로 알려야 한다."
+        description = "성공하면 참여한 projectId를 돌려준다. 토큰에 해당하는 초대가 없으면 "
+            + "404/INVITE_NOT_FOUND다 — 프론트엔드는 이 코드일 때만 프로젝트 참여 코드(inviteCode)로의 "
+            + "폴백을 시도해야 한다. 이미 처리된 초대(409/INVITE_ALREADY_PROCESSED)와 만료된 초대"
+            + "(409/INVITE_EXPIRED)는 폴백 대상이 아니라 사용자에게 그대로 알려야 한다. "
+            + "그 밖의 예외는 500으로 나간다 — 결함을 '초대 없음'으로 위장시키지 않기 위해서다."
     )
     @PostMapping("/api/v1/invitations/{token}/accept")
-    public ResponseEntity<ApiResponse<Void>> accept(@PathVariable String token) {
-        try {
-            invitationService.accept(token, CurrentUser.id());
-            return ResponseEntity.ok(ApiResponse.ok(null));
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.fail("INVITE_NOT_FOUND", e.getMessage()));
-        } catch (IllegalStateException e) {
-            return ResponseEntity.status(HttpStatus.CONFLICT).body(ApiResponse.fail("INVITE_ALREADY_PROCESSED", e.getMessage()));
-        }
+    public ApiResponse<AcceptInvitationResponse> accept(@PathVariable String token) {
+        // 실패 분기는 InvitationException + GlobalExceptionHandler가 맡는다. 여기서 예외를
+        // 넓게 잡으면 서비스가 의도한 실패와 그 아래에서 우연히 터진 결함을 구분할 수 없다.
+        Long projectId = invitationService.accept(token, CurrentUser.id());
+        return ApiResponse.ok(new AcceptInvitationResponse(projectId));
     }
 }

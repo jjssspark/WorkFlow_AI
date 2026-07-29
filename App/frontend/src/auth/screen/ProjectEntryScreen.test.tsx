@@ -75,8 +75,8 @@ describe("ProjectEntryScreen 초대 URL/코드 입력", () => {
     });
   }
 
-  it("링크 복사로 받은 토큰을 붙여넣으면 acceptInvitation으로 수락하고 새로 들어간 프로젝트를 선택한다", async () => {
-    vi.mocked(acceptInvitation).mockResolvedValue(undefined);
+  it("링크 복사로 받은 토큰을 붙여넣으면 acceptInvitation으로 수락하고 서버가 알려준 프로젝트를 선택한다", async () => {
+    vi.mocked(acceptInvitation).mockResolvedValue({ projectId: 26 });
     refreshMeWithJoinedProject();
 
     renderScreen();
@@ -89,6 +89,29 @@ describe("ProjectEntryScreen 초대 URL/코드 입력", () => {
     await waitFor(() => expect(acceptInvitation).toHaveBeenCalledWith("d5133a86-789f-4296-ba6e-a020638f48a6"));
     expect(joinProjectByCode).not.toHaveBeenCalled();
     expect(selectProject).toHaveBeenCalledWith(26);
+    expect(mockNavigate).toHaveBeenCalledWith("/dashboard");
+  });
+
+  /**
+   * 예전에는 갱신 전후 프로젝트 목록을 비교해 "새로 생긴 항목"을 참여한 프로젝트로 추측했다.
+   * 이미 그 프로젝트 멤버인 사람이 링크를 다시 쓰면 새 항목이 없어 아무것도 선택되지 않은 채
+   * 대시보드로 넘어갔다 - 서버가 준 id를 그대로 쓰면 이 경우도 정상 동작한다.
+   */
+  it("이미 멤버인 프로젝트에 다시 참여해도 해당 프로젝트를 선택한다", async () => {
+    vi.mocked(acceptInvitation).mockResolvedValue({ projectId: 1 });
+    refreshMe.mockResolvedValue({
+      user: { id: 1, name: "허영주" },
+      projectRoles: existingProjectRoles,
+    });
+
+    renderScreen();
+    await userEvent.type(
+      screen.getByPlaceholderText(INVITE_PLACEHOLDER),
+      "d5133a86-789f-4296-ba6e-a020638f48a6"
+    );
+    await userEvent.click(screen.getByRole("button", { name: "팀원으로 참여" }));
+
+    await waitFor(() => expect(selectProject).toHaveBeenCalledWith(1));
     expect(mockNavigate).toHaveBeenCalledWith("/dashboard");
   });
 

@@ -58,22 +58,28 @@ public class InvitationService {
         return toResponse(invitation);
     }
 
+    /**
+     * 수락한 프로젝트의 id를 돌려준다. 호출자(프론트엔드)가 "방금 어디에 들어갔는지"를 추측하지
+     * 않아도 되게 하기 위해서다 - 목록을 비교해 새 항목을 찾는 방식은 이미 그 프로젝트 멤버였던
+     * 사람이 링크를 다시 썼을 때 새 항목이 없어 아무것도 고르지 못한다.
+     */
     @Transactional
-    public void accept(String token, Long userId) {
+    public Long accept(String token, Long userId) {
         Invitation invitation = invitationRepository.findByToken(token)
-            .orElseThrow(() -> new IllegalArgumentException("초대를 찾을 수 없습니다."));
+            .orElseThrow(InvitationException::notFound);
         if (!invitation.isPending()) {
-            throw new IllegalStateException("이미 처리된 초대입니다.");
+            throw InvitationException.alreadyProcessed();
         }
         if (invitation.isExpired()) {
             invitation.setStatus(Invitation.Status.expired.name());
-            throw new IllegalStateException("만료된 초대입니다.");
+            throw InvitationException.expired();
         }
 
         if (!projectMemberRepository.existsByProjectIdAndUserId(invitation.getProjectId(), userId)) {
             projectMemberRepository.save(new ProjectMember(invitation.getProjectId(), userId, invitation.getRole()));
         }
         invitation.setStatus(Invitation.Status.accepted.name());
+        return invitation.getProjectId();
     }
 
     private InvitationResponse toResponse(Invitation invitation) {

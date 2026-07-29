@@ -32,12 +32,15 @@ import org.springframework.test.web.servlet.ResultActions;
  * <p>수락 전 403을 함께 보는 이유는 IT-011과 같다. 수락 후 200만 보면 상세 조회가 원래 누구에게나
  * 열려 있어도 통과하고, 그러면 "수락이 무엇을 바꿨는가"는 아무것도 검증되지 않는다.
  *
- * <p><strong>실패 경로는 이제 envelope으로 나온다.</strong> {@link InvitationController}가
- * {@code IllegalArgumentException}(토큰 없음)을 404/{@code INVITE_NOT_FOUND}로,
- * {@code IllegalStateException}(만료·재사용)을 409/{@code INVITE_ALREADY_PROCESSED}로 변환한다.
- * 404와 409를 가르는 것이 프론트엔드 계약의 핵심이다 - 404일 때만 "이건 이메일 초대 토큰이 아니라
- * 프로젝트 참여 코드였다"고 보고 {@code joinProjectByCode}로 폴백하고, 409는 실제 사유를 그대로
- * 사용자에게 보여준다. 이 코드가 바뀌면 폴백이 무관한 에러까지 삼키게 되므로 여기서 고정한다.
+ * <p><strong>실패 경로는 이제 envelope으로 나온다.</strong> {@code InvitationService}가
+ * {@link InvitationException}으로 사유를 구분해 던지고 {@code GlobalExceptionHandler}가 그대로
+ * 상태 코드와 에러 코드로 옮긴다: 토큰 없음은 404/{@code INVITE_NOT_FOUND}, 재사용은
+ * 409/{@code INVITE_ALREADY_PROCESSED}, 만료는 409/{@code INVITE_EXPIRED}.
+ *
+ * <p>404와 409를 가르는 것이 프론트엔드 계약의 핵심이다 - 404일 때만 "이건 이메일 초대 토큰이
+ * 아니라 프로젝트 참여 코드였다"고 보고 {@code joinProjectByCode}로 폴백하고, 409는 실제 사유를
+ * 그대로 사용자에게 보여준다. 그래서 초대 흐름이 <em>의도해서</em> 알리는 실패만 이 타입으로
+ * 던진다. 나머지 예외를 404로 뭉뚱그리면 결함이 "유효하지 않은 초대 코드"로 위장된다.
  */
 class ProjectInvitationIntegrationTest extends PostgresRedisIntegrationTest {
 
@@ -140,7 +143,7 @@ class ProjectInvitationIntegrationTest extends PostgresRedisIntegrationTest {
         // 프론트엔드가 "토큰이 아니라 참여 코드"로 오해하고 폴백해서 만료 사실이 가려진다.
         accept(token, invitee)
             .andExpect(status().isConflict())
-            .andExpect(jsonPath("$.error.code").value("INVITE_ALREADY_PROCESSED"));
+            .andExpect(jsonPath("$.error.code").value("INVITE_EXPIRED"));
 
         // 중요한 건 예외 종류가 아니라 이것이다 - 실패했는데 멤버가 만들어져 있으면
         // 화면만 실패로 보이고 접근권은 이미 넘어간 상태가 된다.

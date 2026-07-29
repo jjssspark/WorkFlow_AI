@@ -129,23 +129,22 @@ export function ProjectEntryScreen() {
     const code = rawCode.split("/").filter(Boolean).pop() ?? rawCode;
     setJoining(true);
     setMessage(null);
-    const previousProjectIds = new Set(projects.map((project) => project.projectId));
     try {
       // "링크 복사"로 받은 값은 이메일 초대와 같은 실제 토큰(UUID)이고, "코드 복사"로 받은 값은
       // 프로젝트 고정 코드다. 토큰 수락을 먼저 시도하고, 토큰이 아닐 때만(INVITE_NOT_FOUND)
       // 코드 참여로 폴백한다 - 그 외 실패(이미 처리된 초대 등)는 그대로 알려준다.
+      // 어느 경로든 서버가 참여한 프로젝트 id를 직접 알려주므로 목록 비교로 추측하지 않는다
+      // (추측하면 이미 그 프로젝트 멤버였던 사람은 새 항목이 없어 아무것도 선택되지 않는다).
+      let joinedProjectId: number;
       try {
-        await acceptInvitation(code);
+        joinedProjectId = (await acceptInvitation(code)).projectId;
       } catch (tokenErr: unknown) {
         const isUnknownToken = tokenErr instanceof ApiRequestError && tokenErr.code === FALLBACK_ELIGIBLE_CODE;
         if (!isUnknownToken) throw tokenErr;
-        await joinProjectByCode(code);
+        joinedProjectId = (await joinProjectByCode(code)).id;
       }
-      const me = await refreshMe();
-      const joinedProject = me?.projectRoles.find((role) => !previousProjectIds.has(role.projectId));
-      if (joinedProject) {
-        selectProject(joinedProject.projectId);
-      }
+      await refreshMe();
+      selectProject(joinedProjectId);
       navigate("/dashboard");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "참여에 실패했습니다.");
