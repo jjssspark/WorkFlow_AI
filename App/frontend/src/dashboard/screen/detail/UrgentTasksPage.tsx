@@ -1,8 +1,6 @@
 import { useMemo, useState, type UIEvent } from "react";
 import { useNavigate } from "react-router";
-import { AlertCircle, AlertTriangle, Bell, Calendar, CheckCircle2, Clock, RefreshCw, Search, Sparkles, UserCog } from "lucide-react";
-import { AiInsightBox } from "../../../ai/components/AiInsightBox";
-import { openAIAssistant } from "../../../ai/libs/utils/openAIAssistant";
+import { AlertCircle, AlertTriangle, Bell, Calendar, CheckCircle2, Clock, RefreshCw, Search, UserCog } from "lucide-react";
 import { BackBtn } from "../../../global/component/BackBtn";
 import { DetailStatCard } from "../../../global/component/DetailStatCard";
 import { PriorityBadge } from "../../../board/components/PriorityBadge";
@@ -88,10 +86,6 @@ export function UrgentTasksPage() {
     group.key,
     urgentTasks.filter(row => urgencyKey(row.daysLeft) === group.key).length,
   ])) as Record<(typeof GROUPS)[number]["key"], number>;
-
-  // "AI 마감 위험 분석" 기능 미사용 처리로 주석 처리(관련 코드)
-  // const urgentQuestion_button = `마감 임박 업무 ${urgentTasks.length}개를 점검해줘. 오늘 마감인 업무는 ${counts.today}개, 3일 이내에 마감하는 업무는 ${counts["3day"]}개, 7일 이내에 마감하는 업무는 ${counts.week}개, 이미 지연된 업무는 ${counts.overdue}개야. 지금 가장 확인할 업무와 권장 조치를 우선순위대로 알려줘.`;
-  const urgentQuestion_box = `마감 임박 업무 ${urgentTasks.length}개를 점검해줘. 오늘 마감인 업무는 ${counts.today}개, 3일 이내에 마감하는 업무는 ${counts["3day"]}개, 7일 이내에 마감하는 업무는 ${counts.week}개, 이미 지연된 업무는 ${counts.overdue}개야. 지금 가장 확인할 업무와 권장 조치를 우선순위대로 알려줘. 출력은 3문장 이내로 해.`;
 
   const isOwnTask = (task: DashboardTaskDto) => user != null && String(user.id) === task.assigneeId;
 
@@ -187,11 +181,6 @@ export function UrgentTasksPage() {
           <button onClick={manualRefresh} disabled={listRefreshing} className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-border bg-card text-foreground rounded-lg hover:bg-muted transition-colors disabled:opacity-50">
             <RefreshCw className={`w-3.5 h-3.5 ${listRefreshing ? "animate-spin" : ""}`} />새로고침
           </button>
-          {/* "AI 마감 위험 분석" 기능 미사용 처리 (주석 처리)
-          <button onClick={() => openAIAssistant(urgentQuestion_button)} className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-white rounded-lg" style={{ background: "linear-gradient(135deg,#7048E8,#4F6EF7)" }}>
-            <Sparkles className="w-3.5 h-3.5" /> AI 마감 위험 분석
-          </button>
-          */}
         </div>
       </div>
 
@@ -204,13 +193,6 @@ export function UrgentTasksPage() {
         <DetailStatCard label="7일 이내" value={loading ? "..." : counts.week} sub="이번 주 완료 목표" color="#F59E0B" icon={Clock} />
         <DetailStatCard label="이미 지연" value={loading ? "..." : counts.overdue} sub="즉시 담당자 확인" color="#6B7280" icon={AlertTriangle} />
       </div>
-
-      <AiInsightBox
-        projectId={currentProjectId}
-        prompt={urgentQuestion_box}
-        ready={!loading}
-        fallbackText="마감 임박·지연 업무를 바탕으로 지금 확인할 업무와 권장 조치를 추천받을 수 있습니다."
-      />
 
       <div className="flex items-center gap-2 shrink-0 flex-wrap">
         <div className="relative">

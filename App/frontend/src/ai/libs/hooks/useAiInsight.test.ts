@@ -45,6 +45,26 @@ describe("useAiInsight", () => {
     expect(apiFetch).not.toHaveBeenCalled();
   });
 
+  it("asks again with the new project context when the selected project changes", async () => {
+    vi.mocked(apiFetch)
+      .mockResolvedValueOnce({ type: "answer", message: "첫 프로젝트 답변", sources: [] })
+      .mockResolvedValueOnce({ type: "answer", message: "두 번째 프로젝트 답변", sources: [] });
+
+    const { result, rerender } = renderHook(
+      ({ projectId, prompt }: { projectId: number; prompt: string }) => useAiInsight(projectId, prompt, true),
+      { initialProps: { projectId: 1, prompt: "첫 프로젝트 질문" } }
+    );
+
+    await waitFor(() => expect(result.current.text).toBe("첫 프로젝트 답변"));
+    rerender({ projectId: 2, prompt: "두 번째 프로젝트 질문" });
+
+    await waitFor(() => expect(result.current.text).toBe("두 번째 프로젝트 답변"));
+    expect(apiFetch).toHaveBeenCalledTimes(2);
+    expect(apiFetch).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({
+      body: expect.stringContaining("두 번째 프로젝트 질문"),
+    }));
+  });
+
   it("surfaces an error message when the query fails", async () => {
     vi.mocked(apiFetch).mockRejectedValue(new Error("일시적으로 답변을 생성할 수 없습니다"));
 

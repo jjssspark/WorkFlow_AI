@@ -22,6 +22,22 @@ def test_settings_loads_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.generation_model == "gemma4:e2b"
 
 
+def test_settings_normalizes_database_url_and_transaction_pooler(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql://user:pa/ss%word@aws-1-region.pooler.supabase.com:5432/postgres",
+    )
+    monkeypatch.setenv("DATABASE_USE_TRANSACTION_POOLER", "true")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.database_url == (
+        "postgresql://user:pa%2Fss%25word@aws-1-region.pooler.supabase.com:6543/postgres"
+    )
+
+
 def test_settings_defaults_redis_connection(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DATABASE_URL", "postgresql://user:pw@localhost:5432/workflow")
     monkeypatch.delenv("REDIS_URL", raising=False)

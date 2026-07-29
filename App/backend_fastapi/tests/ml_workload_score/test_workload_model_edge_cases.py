@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from ml_workload_score.app.services.workload_model import (
     FEATURE_COLUMNS,
@@ -66,7 +67,12 @@ def _uneven_three_member_team(today: pd.Timestamp) -> pd.DataFrame:
 
 
 def test_the_most_loaded_member_ranks_highest():
-    """UT-170의 앞부분. 업무 수와 난이도가 모두 높은 팀원이 가장 높은 점수를 받는다."""
+    """UT-170의 앞부분. 업무 수와 난이도가 모두 높은 팀원이 가장 높은 점수를 받는다.
+
+    점수는 더 이상 "팀 내 최댓값 = 100점" 상대 스케일링이 아니라 이상치 임계값(3.5) 기준
+    절대 스케일링이다 - 결합 거리 3.0을 임계값 3.5로 나눈 100분율(3.0/3.5*100)이 정확한 값이고,
+    전원이 정상 범위여도 상대적으로 가장 튀는 사람이 무조건 100점을 받던 예전 버그가 없다.
+    """
     today = pd.Timestamp("2026-07-23")
     result = detect_overload_anomalies_robust(
         build_features(_uneven_three_member_team(today), today=today)
@@ -74,7 +80,7 @@ def test_the_most_loaded_member_ranks_highest():
 
     top = result.sort_values("overload_score_0_100", ascending=False).iloc[0]
     assert top["assignee_id"] == "a"
-    assert top["overload_score_0_100"] == 100.0
+    assert top["overload_score_0_100"] == pytest.approx(3.0 / 3.5 * 100)
 
 
 def test_three_member_team_never_reaches_the_warning_threshold():
@@ -82,8 +88,8 @@ def test_three_member_team_never_reaches_the_warning_threshold():
 
     팀원이 3명이면 피처마다 값이 두 종류뿐이라 중앙값이 다수값과 겹치고, MAD가 그 차이만큼
     작게 잡혀 modified z-score가 커지지 않는다. 실측: 배정량이 5배인 A의 결합 거리가 3.0으로
-    임계값 3.5에 못 미쳐 {@code is_anomaly}가 False다. 점수는 100점(팀 내 최고)으로 나오지만
-    경고로는 잡히지 않는다 - 화면에서는 "가장 높은데 경고는 아님" 상태로 보인다.
+    임계값 3.5에 못 미쳐 {@code is_anomaly}가 False다. 점수는 이상치 임계값 기준 약 85.7점
+    (팀 내 최고)으로 나오지만 경고로는 잡히지 않는다 - 화면에서는 "가장 높은데 경고는 아님" 상태로 보인다.
 
     이건 버그 단정이 아니라 관측이다. 이 모듈은 주석대로 5~9명 팀을 겨냥해 임계값을 잡았고,
     같은 로직이 6명 팀에서는 실제로 경고를 낸다(test_workload_model_anomaly_direction.py).

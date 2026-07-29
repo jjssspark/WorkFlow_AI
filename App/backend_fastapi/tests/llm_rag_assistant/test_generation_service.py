@@ -7,6 +7,8 @@ import pytest
 
 from core.config import get_settings
 from llm_rag_assistant.app.services.generation_service import (
+    _GENERATION_TEMPERATURE,
+    _SYSTEM_PROMPT,
     RagConfigurationError,
     _build_context,
     _format_stats,
@@ -238,14 +240,27 @@ async def test_generate_answer_works_when_facts_key_absent(monkeypatch: pytest.M
 
 
 @pytest.mark.asyncio
-async def test_generate_answer_raises_when_hf_token_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_generate_answer_raises_when_no_provider_in_the_chain_is_available(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """자동 모드(RAG_PROVIDER 미지정)에서 HF/Gemini가 둘 다 미설정이고 Ollama 호출마저
+    실패하면, 체인 전체가 소진됐다는 명확한 설정 오류로 응답해야 한다(500 대신 503 매핑)."""
     monkeypatch.setenv("DATABASE_URL", "postgresql://user:pw@localhost:5432/workflow")
+    monkeypatch.delenv("RAG_PROVIDER", raising=False)
     monkeypatch.delenv("HF_TOKEN", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     get_settings.cache_clear()
 
+    mock_ollama_client = MagicMock()
+    mock_ollama_client.chat = AsyncMock(side_effect=RuntimeError("연결 실패"))
+
     try:
-        with pytest.raises(RagConfigurationError, match="HF_TOKEN"):
-            await generate_answer("질문", [])
+        with patch(
+            "llm_rag_assistant.app.services.generation_service.ollama.AsyncClient",
+            return_value=mock_ollama_client,
+        ):
+            with pytest.raises(RagConfigurationError, match="사용 가능한 RAG 생성 프로바이더가 없습니다"):
+                await generate_answer("질문", [])
     finally:
         get_settings.cache_clear()
 
@@ -644,13 +659,30 @@ def test_resolved_provider_follows_the_env_and_needs_no_app_settings(
         get_settings.cache_clear()
 
 
+def test_resolved_provider_is_auto_when_nothing_is_explicitly_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """강제 지정이 없으면 자동 폴백 체인 모드다. 실제 응답 백엔드는 매 호출 장애 상황에
+    따라 달라질 수 있어, 개별 프로바이더 이름 대신 모드 이름("auto") 자체를 캐시 키로 쓴다."""
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("RAG_PROVIDER", raising=False)
+    monkeypatch.delenv("MEETING_ANALYSIS_PROVIDER", raising=False)
+    get_settings.cache_clear()
+
+    try:
+        assert resolve_generation_provider() == "auto"
+    finally:
+        get_settings.cache_clear()
+
+
 @pytest.mark.asyncio
-async def test_unknown_app_wide_provider_stays_on_huggingface(
+async def test_unknown_app_wide_provider_falls_through_to_the_auto_chain(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """MEETING_ANALYSIS_PROVIDER는 회의록 분석용 값이라 RAG가 모르는 값이 들어온다
-    (docker-compose 기본값은 "auto"). 빌려 쓰는 값이므로 기존 동작인 HF로 남아야 한다 -
-    엄격하게 막으면 .env 없이 띄운 환경에서 RAG가 통째로 죽는다."""
+    (docker-compose 기본값은 "auto"). 빌려 쓰는 값이므로 강제 지정으로 보지 않고 자동
+    폴백 체인으로 남아야 한다 - 이 테스트는 HF_TOKEN이 있어 체인의 1순위(HF)가 그대로
+    성공하는 경로만 검증한다."""
     monkeypatch.setenv("DATABASE_URL", "postgresql://user:pw@localhost:5432/workflow")
     monkeypatch.setenv("HF_TOKEN", "hf_test_token")
     monkeypatch.delenv("RAG_PROVIDER", raising=False)
@@ -669,3 +701,206 @@ async def test_unknown_app_wide_provider_stays_on_huggingface(
             assert await generate_answer("질문", []) == "답변입니다"
     finally:
         get_settings.cache_clear()
+
+
+# --- Gemini API 폴백 단계 (HF -> Gemini -> Ollama 자동 체인) ---
+
+
+class _FakeGeminiResponse:
+    """aiohttp의 `async with session.post(...) as response:` 응답 객체를 흉내낸다."""
+
+    def __init__(self, payload: dict | None = None, error: Exception | None = None) -> None:
+        self._payload = payload
+        self._error = error
+
+    def raise_for_status(self) -> None:
+        if self._error is not None:
+            raise self._error
+
+    async def json(self) -> dict:
+        return self._payload or {}
+
+    async def __aenter__(self) -> "_FakeGeminiResponse":
+        return self
+
+    async def __aexit__(self, *_exc_info: object) -> bool:
+        return False
+
+
+class _FakeGeminiSession:
+    """aiohttp.ClientSession()을 흉내낸다. post() 호출 인자를 기록해 페이로드를 검증한다."""
+
+    def __init__(self, response: _FakeGeminiResponse) -> None:
+        self._response = response
+        self.post_calls: list[tuple] = []
+
+    def post(self, url: str, json: dict | None = None, headers: dict | None = None) -> _FakeGeminiResponse:
+        self.post_calls.append((url, json, headers))
+        return self._response
+
+    async def __aenter__(self) -> "_FakeGeminiSession":
+        return self
+
+    async def __aexit__(self, *_exc_info: object) -> bool:
+        return False
+
+
+def _mock_gemini_session(text: str | None = None, error: Exception | None = None) -> _FakeGeminiSession:
+    payload = {"candidates": [{"content": {"parts": [{"text": text}]}}]} if text is not None else None
+    return _FakeGeminiSession(_FakeGeminiResponse(payload=payload, error=error))
+
+
+def _patch_gemini_session(session: _FakeGeminiSession):
+    return patch(
+        "llm_rag_assistant.app.services.generation_service.aiohttp.ClientSession",
+        return_value=session,
+    )
+
+
+@pytest.mark.asyncio
+async def test_generate_answer_uses_gemini_when_explicitly_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pw@localhost:5432/workflow")
+    monkeypatch.setenv("RAG_PROVIDER", "gemini")
+    monkeypatch.setenv("GEMINI_API_KEY", "gemini_test_key")
+    get_settings.cache_clear()
+    session = _mock_gemini_session("제미니 답변")
+
+    try:
+        with _patch_gemini_session(session):
+            answer = await generate_answer("질문입니다", [], stats=_stats())
+    finally:
+        get_settings.cache_clear()
+
+    assert answer == "제미니 답변"
+    url, payload, headers = session.post_calls[0]
+    assert url.endswith(":generateContent")
+    assert headers["x-goog-api-key"] == "gemini_test_key"
+    assert payload["systemInstruction"]["parts"][0]["text"] == _SYSTEM_PROMPT
+    assert "블로커 12건" in payload["contents"][0]["parts"][0]["text"]
+    assert payload["generationConfig"]["temperature"] == _GENERATION_TEMPERATURE
+
+
+@pytest.mark.asyncio
+async def test_gemini_raises_configuration_error_when_key_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pw@localhost:5432/workflow")
+    monkeypatch.setenv("RAG_PROVIDER", "gemini")
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    get_settings.cache_clear()
+
+    try:
+        with pytest.raises(RagConfigurationError, match="GEMINI_API_KEY"):
+            await generate_answer("질문", [])
+    finally:
+        get_settings.cache_clear()
+
+
+@pytest.mark.asyncio
+async def test_auto_mode_falls_back_to_gemini_when_hf_token_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """슬라이드 스펙: "HF 미설정/실패 시" Gemini로 넘어간다. HF_TOKEN이 없으면 자동 체인
+    1순위(HF)가 설정 오류로 즉시 넘어가고, 2순위 Gemini가 대신 응답해야 한다."""
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pw@localhost:5432/workflow")
+    monkeypatch.delenv("RAG_PROVIDER", raising=False)
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    monkeypatch.setenv("GEMINI_API_KEY", "gemini_test_key")
+    get_settings.cache_clear()
+    session = _mock_gemini_session("제미니 폴백 답변")
+
+    try:
+        with _patch_gemini_session(session):
+            answer = await generate_answer("질문", [])
+    finally:
+        get_settings.cache_clear()
+
+    assert answer == "제미니 폴백 답변"
+
+
+@pytest.mark.asyncio
+async def test_auto_mode_falls_back_to_gemini_when_huggingface_call_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """미설정뿐 아니라 "실패"도 폴백 조건이다. HF_TOKEN은 있지만 실제 호출이 죽는 경우
+    (크레딧 소진, 레이트리밋 등)도 Gemini로 넘어가야 한다."""
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pw@localhost:5432/workflow")
+    monkeypatch.delenv("RAG_PROVIDER", raising=False)
+    monkeypatch.setenv("HF_TOKEN", "hf_test_token")
+    monkeypatch.setenv("GEMINI_API_KEY", "gemini_test_key")
+    get_settings.cache_clear()
+
+    failing_chat_model = MagicMock()
+    failing_chat_model.ainvoke = AsyncMock(side_effect=RuntimeError("HF 호출 실패"))
+    session = _mock_gemini_session("제미니 폴백 답변")
+
+    try:
+        with (
+            patch("llm_rag_assistant.app.services.generation_service.HuggingFaceEndpoint"),
+            patch(
+                "llm_rag_assistant.app.services.generation_service.ChatHuggingFace",
+                return_value=failing_chat_model,
+            ),
+            _patch_gemini_session(session),
+        ):
+            answer = await generate_answer("질문", [])
+    finally:
+        get_settings.cache_clear()
+
+    assert answer == "제미니 폴백 답변"
+
+
+@pytest.mark.asyncio
+async def test_auto_mode_falls_back_to_ollama_when_huggingface_and_gemini_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """1, 2순위가 모두 미설정이면 로컬 Ollama가 최종 보루로 응답해야 한다."""
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pw@localhost:5432/workflow")
+    monkeypatch.delenv("RAG_PROVIDER", raising=False)
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    get_settings.cache_clear()
+    mock_ollama_client = _mock_ollama_client("올라마 최종 답변")
+
+    try:
+        with patch(
+            "llm_rag_assistant.app.services.generation_service.ollama.AsyncClient",
+            return_value=mock_ollama_client,
+        ):
+            answer = await generate_answer("질문", [])
+    finally:
+        get_settings.cache_clear()
+
+    assert answer == "올라마 최종 답변"
+
+
+@pytest.mark.asyncio
+async def test_auto_mode_prefers_huggingface_over_gemini_when_both_are_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Qwen(HF)이 1순위다. 둘 다 설정돼 있으면 Gemini는 아예 호출되지 않아야 한다."""
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pw@localhost:5432/workflow")
+    monkeypatch.delenv("RAG_PROVIDER", raising=False)
+    monkeypatch.setenv("HF_TOKEN", "hf_test_token")
+    monkeypatch.setenv("GEMINI_API_KEY", "gemini_test_key")
+    get_settings.cache_clear()
+    mock_chat_model = _mock_chat_model("HF 답변")
+    session = _mock_gemini_session("호출되면 안 되는 답변")
+
+    try:
+        with (
+            patch("llm_rag_assistant.app.services.generation_service.HuggingFaceEndpoint"),
+            patch(
+                "llm_rag_assistant.app.services.generation_service.ChatHuggingFace",
+                return_value=mock_chat_model,
+            ),
+            _patch_gemini_session(session),
+        ):
+            answer = await generate_answer("질문", [])
+    finally:
+        get_settings.cache_clear()
+
+    assert answer == "HF 답변"
+    assert session.post_calls == []

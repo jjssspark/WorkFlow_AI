@@ -1,102 +1,93 @@
-import { render } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AiInsightBox } from "./AiInsightBox";
 
-// "AI 추천 액션" 기능 미사용 처리로, 컴포넌트가 아무것도 렌더링하지 않는지만 확인한다.
-// 원래 동작을 검증하던 테스트들은 AiInsightBox.tsx와 함께 주석 처리해서 보존한다.
+const { mockUseAiInsight, mockOpenAIAssistant } = vi.hoisted(() => ({
+  mockUseAiInsight: vi.fn(),
+  mockOpenAIAssistant: vi.fn(),
+}));
+
+vi.mock("../libs/hooks/useAiInsight", () => ({
+  useAiInsight: mockUseAiInsight,
+}));
+
+vi.mock("../libs/utils/openAIAssistant", () => ({
+  openAIAssistant: mockOpenAIAssistant,
+}));
+
 describe("AiInsightBox", () => {
-  it("renders nothing while the feature is disabled", () => {
-    const { container } = render(<AiInsightBox projectId={1} prompt="질문" ready fallbackText="폴백 문구" />);
-    expect(container).toBeEmptyDOMElement();
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockUseAiInsight.mockReturnValue({ text: null, loading: false, error: null });
+  });
+
+  it("shows the LLM loading state and passes the current project prompt to the hook", () => {
+    mockUseAiInsight.mockReturnValue({ text: null, loading: true, error: null });
+
+    render(<AiInsightBox projectId={7} prompt="지연 업무를 분석해줘" ready />);
+
+    expect(screen.getByText("AI가 답변을 준비하고 있습니다...")).toBeInTheDocument();
+    expect(mockUseAiInsight).toHaveBeenCalledWith(7, "지연 업무를 분석해줘", true);
+  });
+
+  it("formats and displays a successful LLM answer", () => {
+    mockUseAiInsight.mockReturnValue({ text: "코드 리뷰를 먼저 진행하세요", loading: false, error: null });
+
+    render(
+      <AiInsightBox
+        projectId={1}
+        prompt="질문"
+        ready
+        formatAnswer={answer => `김민준님, ${answer}`}
+      />
+    );
+
+    expect(screen.getByText("김민준님, 코드 리뷰를 먼저 진행하세요")).toBeInTheDocument();
+  });
+
+  it("shows the fallback text when the LLM query fails", () => {
+    mockUseAiInsight.mockReturnValue({ text: null, loading: false, error: "일시적인 오류" });
+
+    render(<AiInsightBox projectId={1} prompt="질문" ready errorText="분석 결과를 불러오지 못했습니다." />);
+
+    expect(screen.getByText("분석 결과를 불러오지 못했습니다.")).toBeInTheDocument();
+  });
+
+  it("opens the assistant with the original prompt before an answer is available", async () => {
+    mockUseAiInsight.mockReturnValue({ text: null, loading: true, error: null });
+    render(<AiInsightBox projectId={1} prompt="블로커를 점검해줘" ready actionLabel="자세히" />);
+
+    await userEvent.click(screen.getByRole("button", { name: "자세히" }));
+
+    expect(mockOpenAIAssistant).toHaveBeenCalledWith("블로커를 점검해줘");
+  });
+
+  it("opens a follow-up question with the displayed answer and custom title", async () => {
+    mockUseAiInsight.mockReturnValue({ text: "배포 일정을 먼저 확인하세요", loading: false, error: null });
+    render(
+      <AiInsightBox
+        projectId={1}
+        prompt="최근 활동을 분석해줘"
+        ready
+        title="AI 주간 활동 요약"
+        actionLabel="자세히 보기"
+      />
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "자세히 보기" }));
+
+    expect(mockOpenAIAssistant).toHaveBeenCalledWith(
+      '방금 "AI 주간 활동 요약"에서 보여준 다음 내용을 더 자세히 설명해줘: "배포 일정을 먼저 확인하세요"'
+    );
+  });
+
+  it("renders the banner variant", () => {
+    mockUseAiInsight.mockReturnValue({ text: "답변", loading: false, error: null });
+
+    render(<AiInsightBox projectId={1} prompt="질문" ready variant="banner" actionLabel="자세히" />);
+
+    expect(screen.getByText("AI 추천 액션")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "자세히" })).toBeInTheDocument();
   });
 });
-
-// import { screen, waitFor } from "@testing-library/react";
-// import userEvent from "@testing-library/user-event";
-// import { vi, beforeEach } from "vitest";
-// import { apiFetch } from "../../global/api/apiClient";
-// import { OPEN_AI_ASSISTANT_EVENT } from "../libs/utils/openAIAssistant";
-//
-// vi.mock("../../global/api/apiClient", () => ({
-//   apiFetch: vi.fn(),
-// }));
-//
-// describe("AiInsightBox (기존 동작)", () => {
-//   beforeEach(() => {
-//     vi.restoreAllMocks();
-//   });
-//
-//   it("shows the fallback text while the AI answer is loading, then the answer once it resolves", async () => {
-//     vi.mocked(apiFetch).mockResolvedValue({ type: "answer", message: "블로커부터 처리하세요", sources: [] });
-//
-//     render(<AiInsightBox projectId={1} prompt="질문" ready fallbackText="폴백 문구" />);
-//
-//     await waitFor(() => expect(screen.getByText("블로커부터 처리하세요")).toBeInTheDocument());
-//   });
-//
-//   it("shows the fallback text when the AI query fails", async () => {
-//     vi.mocked(apiFetch).mockRejectedValue(new Error("실패"));
-//
-//     render(<AiInsightBox projectId={1} prompt="질문" ready fallbackText="폴백 문구" />);
-//
-//     await waitFor(() => expect(screen.getByText("폴백 문구")).toBeInTheDocument());
-//   });
-//
-//   it("applies formatAnswer to wrap the raw LLM answer", async () => {
-//     vi.mocked(apiFetch).mockResolvedValue({ type: "answer", message: "코드 리뷰를 먼저 진행하세요", sources: [] });
-//
-//     render(
-//       <AiInsightBox
-//         projectId={1}
-//         prompt="질문"
-//         ready
-//         fallbackText="폴백 문구"
-//         formatAnswer={answer => `김민준님, ${answer}`}
-//       />
-//     );
-//
-//     await waitFor(() => expect(screen.getByText("김민준님, 코드 리뷰를 먼저 진행하세요")).toBeInTheDocument());
-//   });
-//
-//   it("dispatches the open-AI-assistant event asking to elaborate on the answer already shown", async () => {
-//     vi.mocked(apiFetch).mockResolvedValue({ type: "answer", message: "답변", sources: [] });
-//     const handler = vi.fn();
-//     window.addEventListener(OPEN_AI_ASSISTANT_EVENT, handler);
-//
-//     render(<AiInsightBox projectId={1} prompt="블로커를 점검해줘" ready fallbackText="폴백" actionLabel="자세히" />);
-//     await waitFor(() => expect(screen.getByText("답변")).toBeInTheDocument());
-//
-//     await userEvent.click(screen.getByRole("button", { name: "자세히" }));
-//
-//     expect(handler).toHaveBeenCalledTimes(1);
-//     const event = handler.mock.calls[0][0] as CustomEvent<{ question?: string }>;
-//     expect(event.detail.question).toBe('방금 "AI 추천 액션"에서 보여준 다음 내용을 더 자세히 설명해줘: "답변"');
-//
-//     window.removeEventListener(OPEN_AI_ASSISTANT_EVENT, handler);
-//   });
-//
-//   it("dispatches the open-AI-assistant event with the original prompt when clicked before an answer loads", async () => {
-//     vi.mocked(apiFetch).mockImplementation(() => new Promise(() => {}));
-//     const handler = vi.fn();
-//     window.addEventListener(OPEN_AI_ASSISTANT_EVENT, handler);
-//
-//     render(<AiInsightBox projectId={1} prompt="블로커를 점검해줘" ready fallbackText="폴백" actionLabel="자세히" />);
-//
-//     await userEvent.click(screen.getByRole("button", { name: "자세히" }));
-//
-//     expect(handler).toHaveBeenCalledTimes(1);
-//     const event = handler.mock.calls[0][0] as CustomEvent<{ question?: string }>;
-//     expect(event.detail.question).toBe("블로커를 점검해줘");
-//
-//     window.removeEventListener(OPEN_AI_ASSISTANT_EVENT, handler);
-//   });
-//
-//   it("renders the banner variant with the given action label", async () => {
-//     vi.mocked(apiFetch).mockResolvedValue({ type: "answer", message: "답변", sources: [] });
-//
-//     render(<AiInsightBox projectId={1} prompt="질문" ready fallbackText="폴백" variant="banner" actionLabel="자세히" />);
-//
-//     expect(screen.getByRole("button", { name: "자세히" })).toBeInTheDocument();
-//     await waitFor(() => expect(screen.getByText("답변")).toBeInTheDocument());
-//   });
-// });
