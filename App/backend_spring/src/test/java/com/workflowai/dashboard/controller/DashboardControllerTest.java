@@ -143,7 +143,7 @@ class DashboardControllerTest {
         WorkloadScoreResponseDto response = new WorkloadScoreResponseDto(
             "1.0", 1L, "db", "MAD (소규모 팀)",
             List.of(new WorkloadScoreMemberDto("5", 12, 0.4, 88.5, true, "과부하 의심", 1.8, 1.2, 3)),
-            null, 0.62
+            null, 0.62, "2026-07-29T00:00:00Z"
         );
         when(dashboardService.getWorkloadScore(eq("demo-project"))).thenReturn(response);
 

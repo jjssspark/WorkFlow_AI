@@ -48,6 +48,29 @@ class RagQueueFullError(RuntimeError):
     """대기 중인 작업이 너무 많아 더 받을 수 없을 때."""
 
 
+QUEUE_FULL_SENTINEL = "QUEUE_FULL"
+# 용량 검사와 적재를 한 번의 원자적 실행으로 묶는다. XLEN을 읽고 XADD를 따로 보내면 그 사이에
+# 들어온 다른 요청들이 전부 같은 "여유 있음" 판정을 받아 상한을 넘겨 적재한다.
+# XADD에 MAXLEN을 걸지 않는 것도 중요하다 - 근사 트리밍은 아직 처리되지 않은 작업을 조용히
+# 잘라내고, 그 요청은 아무 응답도 못 받은 채 WAIT_TIMEOUT_SECONDS까지 기다리게 된다.
+# 여기서 상한을 원자적으로 지키므로 트리밍 없이도 스트림 길이가 상한을 넘지 않는다
+# (처리 끝난 레코드는 워커가 XACK 직후 XDEL로 지운다).
+# Spring 쪽 dashboard-ai-enqueue.lua와 같은 구조다.
+_ENQUEUE_IF_CAPACITY_SCRIPT = """
+if not redis.acl_check_cmd('XLEN', KEYS[1]) then
+    return redis.error_reply('XLEN permission denied')
+end
+if not redis.acl_check_cmd('XADD', KEYS[1], '*', ARGV[3], ARGV[2]) then
+    return redis.error_reply('XADD permission denied')
+end
+local outstanding = redis.call('XLEN', KEYS[1])
+if outstanding >= tonumber(ARGV[1]) then
+    return 'QUEUE_FULL'
+end
+return redis.call('XADD', KEYS[1], '*', ARGV[3], ARGV[2])
+"""
+
+
 async def enqueue_and_wait(
     project_id: int,
     question: str,
@@ -79,10 +102,11 @@ async def enqueue_and_wait(
     # 워커가 이 요청보다 먼저 처리를 끝내는 경우 메시지를 영영 못 받는다.
     await pubsub.subscribe(channel)
     try:
-        outstanding = await client.xlen(STREAM_KEY)
-        if outstanding >= MAX_OUTSTANDING_JOBS:
+        record_id = await client.eval(
+            _ENQUEUE_IF_CAPACITY_SCRIPT, 1, STREAM_KEY, str(MAX_OUTSTANDING_JOBS), payload, PAYLOAD_FIELD
+        )
+        if record_id is None or record_id == QUEUE_FULL_SENTINEL:
             raise RagQueueFullError("대기 중인 RAG 질의가 너무 많습니다. 잠시 후 다시 시도해주세요.")
-        await client.xadd(STREAM_KEY, {PAYLOAD_FIELD: payload}, maxlen=MAX_OUTSTANDING_JOBS, approximate=True)
         result = await _wait_for_result(pubsub, timeout)
     finally:
         await pubsub.unsubscribe(channel)
