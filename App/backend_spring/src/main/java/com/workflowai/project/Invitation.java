@@ -24,7 +24,7 @@ public class Invitation {
     @Column(name = "project_id", nullable = false)
     private Long projectId;
 
-    @Column(nullable = false, length = 255)
+    @Column(length = 255)
     private String email;
 
     @Enumerated(EnumType.STRING)

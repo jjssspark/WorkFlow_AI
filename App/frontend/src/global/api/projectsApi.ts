@@ -96,7 +96,7 @@ export function getProjectMembers(projectId: number) {
 
 export interface InvitationResponse {
   projectId: number;
-  email: string;
+  email: string | null;
   role: ProjectRoleKo;
   token: string;
   status: string;
@@ -110,8 +110,20 @@ export function createInvitation(projectId: number, email: string, role: Project
   });
 }
 
+// 대상 없이 팀원 역할 초대 토큰을 발급/재사용한다(사이드바 "링크 복사"용).
+export function createInvitationLink(projectId: number) {
+  return apiFetch<InvitationResponse>(`/projects/${projectId}/invitations/link`, {
+    method: "POST",
+  });
+}
+
+export interface AcceptInvitationResponse {
+  projectId: number;
+}
+
+// 참여한 projectId를 서버가 알려준다 - 호출자가 목록 비교로 추측하지 않게 하기 위해서다.
 export function acceptInvitation(token: string) {
-  return apiFetch<void>(`/invitations/${token}/accept`, {
+  return apiFetch<AcceptInvitationResponse>(`/invitations/${token}/accept`, {
     method: "POST",
   });
 }
