@@ -1,0 +1,25 @@
+-- ============================================================================
+-- assistant_messages 테이블을 제거한다.
+--
+-- 왜 지우는가
+--   초기 스키마(db/init/01_base_schema.sql)에 "AI Assistant 대화 이력"으로 정의됐으나
+--   구현이 그 경로로 가지 않았다. 어시스턴트는 체크포인터(InMemorySaver + Redis)로
+--   대화 상태를 관리하고 이 테이블에는 쓰지 않는다.
+--
+-- 지워도 되는 근거 (2026-07-29 운영 실측)
+--   - 행 0건, 누적 INSERT 0건 (pg_stat_user_tables, 통계 리셋 2026-06-30 이후)
+--   - JPA @Entity 매핑 없음 → ddl-auto=validate에 걸리지 않는다
+--   - 백엔드(Java)·FastAPI(Python)·프론트 어디에도 참조 없음. 정의는 db/init에만 있다
+--   - 이 테이블을 참조하는 FK·뷰 없음. 자신이 가진 FK 2개는 자식 쪽이라 함께 사라진다
+--
+-- db/init/01_base_schema.sql은 건드리지 않는다. 그 파일은 운영 baseline(20260721.1)
+-- 시점의 상태를 나타내고, 빈 DB는 init으로 만든 뒤 이 마이그레이션이 지워 같은 결과에
+-- 도달한다. init을 고치면 baseline이 표현하는 과거와 어긋난다.
+--
+-- 되돌리는 법: db/init/01_base_schema.sql의 assistant_messages 정의를 새 V파일로 옮겨
+-- 다시 생성한다. 데이터는 원래 0건이라 복구할 것이 없다.
+--
+-- 근거: docs/trouble-shooting/2026-07-29-supabase-schema-drift.md
+-- ============================================================================
+
+DROP TABLE IF EXISTS assistant_messages;
