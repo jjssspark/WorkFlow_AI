@@ -184,8 +184,26 @@ END $$;
 -- ----------------------------------------------------------------------------
 
 DO $$
+DECLARE
+    cleared INT;
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_action_items_created_task') THEN
+        -- 같은 업무를 가리키는 액션 아이템이 둘 이상이면 제약을 걸 수 없다. 운영에는 이미
+        -- 제약이 있어 그런 행이 없지만, 정합화 전에 만들어진 로컬·스테이징 DB에는 있을 수
+        -- 있다. 가장 오래된 행만 연결을 유지하고 나머지는 해제한다(업무 자체는 지우지 않음).
+        WITH dup AS (
+            SELECT id, row_number() OVER (PARTITION BY created_task_id ORDER BY id) AS rn
+            FROM meeting_action_items
+            WHERE created_task_id IS NOT NULL
+        )
+        UPDATE meeting_action_items m SET created_task_id = NULL
+        FROM dup WHERE dup.id = m.id AND dup.rn > 1;
+
+        GET DIAGNOSTICS cleared = ROW_COUNT;
+        IF cleared > 0 THEN
+            RAISE NOTICE 'uq_action_items_created_task 적용을 위해 중복 연결 %건을 해제했다(가장 오래된 행만 유지)', cleared;
+        END IF;
+
         ALTER TABLE meeting_action_items ADD CONSTRAINT uq_action_items_created_task
             UNIQUE (created_task_id);
     END IF;
@@ -197,3 +215,40 @@ CREATE INDEX IF NOT EXISTS idx_meetings_project_id            ON meetings (proje
 CREATE INDEX IF NOT EXISTS idx_notifications_user_id          ON notifications (user_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_project_id               ON tasks (project_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_source_meeting_id        ON tasks (source_meeting_id);
+
+
+-- ----------------------------------------------------------------------------
+-- 7. 최종 상태 검증.
+--    위 블록들은 `IF NOT EXISTS` / 상태 확인 가드를 쓴다. 가드는 "없으면 만든다"만
+--    보장하고 "있으면 최신으로 맞춘다"를 보장하지 않는다(이번 divergence의 원인이
+--    바로 그 성질이었다). 조용히 건너뛴 채 성공으로 끝나지 않도록 결과를 확인한다.
+-- ----------------------------------------------------------------------------
+
+DO $$
+DECLARE
+    missing TEXT;
+BEGIN
+    SELECT string_agg(x, ', ') INTO missing FROM (
+        SELECT 'workload_scores.' || c AS x
+        FROM unnest(ARRAY['id','project_id','user_id','overload_score','anomaly_type','computed_at']) c
+        WHERE NOT EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = 'workload_scores' AND column_name = c)
+        UNION ALL
+        SELECT 'constraint ' || c
+        FROM unnest(ARRAY['workload_scores_pkey','fk_workload_scores_project','fk_workload_scores_user',
+                          'uq_action_items_created_task','document_chunks_assignee_id_fkey',
+                          'task_result_links_task_id_fkey','task_results_task_id_fkey',
+                          'fk_action_items_final_assignee','fk_action_items_recommended_assignee']) c
+        WHERE NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = c)
+        UNION ALL
+        SELECT 'index ' || c
+        FROM unnest(ARRAY['idx_comments_target','idx_meeting_action_items_meeting_id','idx_meetings_project_id',
+                          'idx_notifications_user_id','idx_tasks_project_id','idx_tasks_source_meeting_id']) c
+        WHERE NOT EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname = 'public' AND indexname = c)
+    ) t;
+
+    IF missing IS NOT NULL THEN
+        RAISE EXCEPTION '정합화 후에도 누락된 객체가 있다: %', missing;
+    END IF;
+END $$;
