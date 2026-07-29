@@ -431,7 +431,7 @@ function MemberMyPage({ name, email, onLogout, projectId, projectContextReady, u
                   {myEvaluation?.commentRevealed && myEvaluation.comment && (
                     <button
                       type="button"
-                      onClick={() => setDetailModal({ title: "심사자 코멘트", author: "심사자 코멘트", content: myEvaluation.comment as string })}
+                      onClick={() => setDetailModal({ title: "심사자 코멘트", author: "심사자", content: myEvaluation.comment as string })}
                       className="w-full text-left rounded-xl p-3.5 border border-emerald-200 bg-emerald-50/40"
                     >
                       <div className="flex items-center gap-2 mb-1.5">

@@ -42,6 +42,8 @@ import {
 import { MemberDrilldownPanel } from "../components/MemberDrilldownPanel";
 import { useAuth } from "../../global/hooks/useAuth";
 import { EVAL_STATUS_META, resolveEvalStatus } from "../../global/lib/evalStatus";
+import { createPersonalComment } from "../../mypage/libs/api/personalCommentApi";
+import { toast } from "sonner";
 
 type CategoryKey = "workload" | "task" | "meeting";
 
@@ -109,6 +111,7 @@ export function ContributorsView() {
   // evaluation_scores.comment에 영속화된다(공개 여부는 commentPublicFlags로 독립 관리).
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
   const [commentSavingMemberId, setCommentSavingMemberId] = useState<string | null>(null);
+  const [commentSentMemberId, setCommentSentMemberId] = useState<string | null>(null);
   const [commentSaveErrorByMemberId, setCommentSaveErrorByMemberId] = useState<Record<string, string | null>>({});
   // 프로젝트 상세(제목, eval_status 등) — 실제 API 응답. 실패하면 null 유지(제목/배지 미표시).
   const [project, setProject] = useState<ProjectResponse | null>(null);
@@ -406,8 +409,21 @@ export function ContributorsView() {
       // contributionPublic/finalPublic/commentPublic은 보내지 않는다(undefined) — 코멘트
       // 내용 저장은 공개 여부를 바꾸지 않는다(별도의 "공개 중" 토글로만 바뀐다).
       await upsertEvaluationScore(currentProjectId, Number(memberId), { comment });
-    } catch {
-      setCommentSaveErrorByMemberId((prev) => ({ ...prev, [memberId]: "저장하지 못했습니다." }));
+      // 평가 공개 흐름(evaluation_scores.comment)은 그대로 유지하되, 같은 내용을 개인 코멘트로도
+      // 보내 알림·마이페이지 코멘트 스레드에도 남긴다(두 기능을 병존시키기로 한 결정).
+      if (comment.trim()) {
+        await createPersonalComment(currentProjectId, Number(memberId), comment.trim());
+      }
+      setCommentSentMemberId(memberId);
+      toast.success("코멘트를 전송했습니다.");
+      setTimeout(() => {
+        setCommentSentMemberId((prev) => (prev === memberId ? null : prev));
+      }, 1500);
+    } catch (error) {
+      setCommentSaveErrorByMemberId((prev) => ({
+        ...prev,
+        [memberId]: error instanceof Error ? error.message : "전송하지 못했습니다.",
+      }));
     } finally {
       setCommentSavingMemberId(null);
     }
@@ -1024,7 +1040,11 @@ export function ContributorsView() {
                     className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <BarChart3 className="w-3.5 h-3.5" />
-                    {commentSavingMemberId === selectedMember.memberId ? "저장 중" : "저장"}
+                    {commentSavingMemberId === selectedMember.memberId
+                      ? "전송 중"
+                      : commentSentMemberId === selectedMember.memberId
+                        ? "전송 완료"
+                        : "전송"}
                   </button>
                 </div>
               </section>
