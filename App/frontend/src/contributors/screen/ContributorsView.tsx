@@ -335,9 +335,14 @@ export function ContributorsView() {
     }
   };
 
-  const toggleContributionPublic = (memberId: string) =>
+  // 기여 점수 공개 토글은 contributionPublic과 함께 현재 화면에 표시 중인 AI 기여 점수(score)도
+  // 스냅샷으로 함께 보낸다 — 그렇지 않으면 evaluation_scores.score가 기본값(0.00)이나 과거에
+  // 저장된 값에 머물러, 마이페이지의 "공개된 평가 결과"가 학점 계산기에 보이는 실제 기여 점수와
+  // 어긋나는 회귀가 생긴다(fetchContributionScore는 화면 표시용일 뿐 DB에 영속화되지 않는다).
+  const toggleContributionPublic = (memberId: string, currentScore: number) =>
     toggleFlag(memberId, contributionPublicFlags, setContributionPublicFlags, (nextValue) => ({
       contributionPublic: nextValue,
+      score: currentScore,
     }));
   const toggleFinalPublic = (memberId: string) =>
     toggleFlag(memberId, finalPublicFlags, setFinalPublicFlags, (nextValue) => ({ finalPublic: nextValue }));
@@ -770,7 +775,7 @@ export function ContributorsView() {
                               type="button"
                               onClick={(event) => {
                                 event.stopPropagation();
-                                toggleContributionPublic(report.memberId);
+                                toggleContributionPublic(report.memberId, report.score);
                               }}
                               className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-full cursor-pointer transition-colors ${
                                 contributionPublicFlags[report.memberId]
