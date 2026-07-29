@@ -329,16 +329,21 @@ public class DashboardAiQueueWorker implements ApplicationRunner {
         } finally {
             pendingLease.cancel(false);
         }
-        acknowledgeAndDelete(record.getId());
         // 러너가 FastAPI 실패를 삼키고 정상 반환하므로, 완료 마커는 실제로 성공했을 때만 남긴다.
         // 실패 시 in-flight 마커만 풀면 상태 조회가 FAILED를 반환해 프론트가 옛 결과를 새 분석
         // 결과로 표시하지 않는다. 재시도는 사용자가 버튼을 다시 눌러 새 작업으로 적재한다 -
         // FastAPI 장애 중 같은 레코드를 큐에서 계속 되돌리면 워커가 그 작업에 묶여 버린다.
+        //
+        // 마커 기록을 ACK/삭제보다 먼저 한다. 순서가 반대면 그 사이 Redis 오류가 났을 때
+        // 레코드는 이미 사라졌는데 완료 마커는 없어, 실제로 성공한 재분석이 영구히 FAILED로
+        // 보고된다(레코드가 없으니 재시도도 안 된다). 이 순서라면 ACK 실패 시 레코드가 pending에
+        // 남아 STALE_PENDING_IDLE 뒤 회수되며, 재실행은 예측을 다시 계산할 뿐이라 안전하다.
         if (succeeded) {
             publisher.markDone(job.projectId(), job.jobType(), job.jobId());
         } else {
             publisher.releaseInFlight(job.projectId(), job.jobType(), job.jobId());
         }
+        acknowledgeAndDelete(record.getId());
         return false;
     }
 

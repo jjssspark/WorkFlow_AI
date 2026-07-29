@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -23,6 +24,7 @@ import java.util.concurrent.ScheduledFuture;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataAccessResourceFailureException;
@@ -85,6 +87,36 @@ class DashboardAiQueueWorkerTest {
         // 레코드는 ack됐으므로 같은 작업이 큐에서 되돌아오지 않는다 - 재시도는 사용자가 다시 요청한다.
         verify(redisTemplate).execute(any(RedisScript.class), anyList(), any(Object[].class));
         assertThat(delays).isEmpty();
+    }
+
+    @Test
+    void writesDoneMarkerBeforeAcknowledgingTheRecord() throws Exception {
+        // 순서가 반대면, ACK/삭제 직후 마커 기록이 Redis 오류로 실패했을 때 레코드는 이미
+        // 사라졌는데 완료 마커는 없어 실제로 성공한 재분석이 영구히 FAILED로 보고된다.
+        givenSingleRecord("6-0");
+        givenProjectExistsAndLeaseScheduled();
+        when(runner.runJob(any(DashboardAiJob.class))).thenReturn(true);
+
+        newWorker().pollOnce();
+
+        InOrder inOrder = inOrder(publisher, redisTemplate);
+        inOrder.verify(publisher).markDone(eq(PROJECT_ID), eq(DashboardAiJobType.DELAY_RISK), anyString());
+        inOrder.verify(redisTemplate).execute(any(RedisScript.class), anyList(), any(Object[].class));
+    }
+
+    @Test
+    void doesNotAcknowledgeWhenTheDoneMarkerCannotBeWritten() throws Exception {
+        // 마커를 못 남겼는데 레코드를 지우면 그 작업은 되살릴 방법이 없다. pending으로 남겨
+        // STALE_PENDING_IDLE 뒤 회수되게 한다.
+        givenSingleRecord("7-0");
+        givenProjectExistsAndLeaseScheduled();
+        when(runner.runJob(any(DashboardAiJob.class))).thenReturn(true);
+        org.mockito.Mockito.doThrow(new DataAccessResourceFailureException("redis down"))
+            .when(publisher).markDone(anyLong(), any(DashboardAiJobType.class), anyString());
+
+        newWorker().pollOnce();
+
+        verify(redisTemplate, never()).execute(any(RedisScript.class), anyList(), any(Object[].class));
     }
 
     @Test
