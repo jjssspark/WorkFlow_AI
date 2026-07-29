@@ -12,6 +12,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.workflowai.activity.ActivityService;
 import com.workflowai.common.DemoDataService;
+import com.workflowai.notification.NotificationBroadcaster;
 import com.workflowai.notification.NotificationService;
 import com.workflowai.project.ProjectMember;
 import com.workflowai.project.ProjectMemberRepository;
@@ -55,6 +56,9 @@ class TaskControllerPositionTest {
     private NotificationService notificationService;
 
     @Mock
+    private NotificationBroadcaster notificationBroadcaster;
+
+    @Mock
     private ProjectMemberRepository projectMemberRepository;
 
     @Mock
@@ -70,7 +74,7 @@ class TaskControllerPositionTest {
         mockMvc = MockMvcBuilders
             .standaloneSetup(new TaskController(
                 taskRepository, userRepository, demoDataService, activityService,
-                notificationService, projectMemberRepository, projectRepository, ragIngestService
+                notificationService, notificationBroadcaster, projectMemberRepository, projectRepository, ragIngestService
             ))
             .build();
     }
@@ -260,6 +264,10 @@ class TaskControllerPositionTest {
         when(projectMemberRepository.findByProjectIdAndUserId(1L, 3L))
             .thenReturn(Optional.of(new ProjectMember(1L, 3L, ProjectRole.MEMBER)));
         when(taskRepository.save(any(Task.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(projectMemberRepository.findAllByProjectId(1L)).thenReturn(List.of(
+            new ProjectMember(1L, 3L, ProjectRole.MEMBER),
+            new ProjectMember(1L, 1L, ProjectRole.LEADER)
+        ));
 
         mockMvc.perform(patch("/api/v1/projects/demo-project/tasks/42/position")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -268,5 +276,9 @@ class TaskControllerPositionTest {
 
         verify(notificationService, org.mockito.Mockito.never())
             .notifyAfterCommit(any(), any(), any(), any(), any(), any(), any());
+
+        // 상태 변경이 없어도 SSE task-move 브로드캐스트는 다른 프로젝트 멤버에게 항상 전송되어야 한다.
+        verify(notificationBroadcaster).broadcast(eq(1L), eq("task-move"), any());
+        verify(notificationBroadcaster, org.mockito.Mockito.never()).broadcast(eq(3L), any(), any());
     }
 }

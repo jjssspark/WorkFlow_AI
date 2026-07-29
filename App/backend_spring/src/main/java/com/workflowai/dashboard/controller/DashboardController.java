@@ -42,6 +42,7 @@ public class DashboardController {
 
     @Operation(summary = "메인 대시보드 요약", description = "전체 업무 통계, 마감 임박 업무, 팀원별 업무량, 최근 활동을 반환한다.")
     @GetMapping("/summary")
+    @PreAuthorize("@projectAccess.isMember(#projectId)")
     public ApiResponse<DashboardSummaryResponse> getSummary(
         @Parameter(description = "프로젝트 ID", example = "demo-project") @PathVariable String projectId
     ) {
@@ -50,6 +51,7 @@ public class DashboardController {
 
     @Operation(summary = "대시보드 업무 목록", description = "대시보드 상세 화면에서 사용하는 실제 업무 목록을 반환한다.")
     @GetMapping("/tasks")
+    @PreAuthorize("@projectAccess.isMember(#projectId)")
     public ApiResponse<List<DashboardTaskDto>> getTasks(
         @Parameter(description = "프로젝트 ID", example = "demo-project") @PathVariable String projectId
     ) {
@@ -58,6 +60,7 @@ public class DashboardController {
 
     @Operation(summary = "대시보드 최근 활동", description = "프로젝트 최근 활동을 최신순으로 최대 50건 반환한다.")
     @GetMapping("/activities")
+    @PreAuthorize("@projectAccess.isMember(#projectId)")
     public ApiResponse<List<ActivityItemDto>> getActivities(
         @Parameter(description = "프로젝트 ID", example = "demo-project") @PathVariable String projectId
     ) {
@@ -66,6 +69,7 @@ public class DashboardController {
 
     @Operation(summary = "전체 진행률 상세", description = "마일스톤/카테고리별 진행률과 ML 지연 위험도(ml_predictions)를 반환한다.")
     @GetMapping("/progress")
+    @PreAuthorize("@projectAccess.isMember(#projectId)")
     public ApiResponse<ProgressDetailResponse> getProgress(
         @Parameter(description = "프로젝트 ID", example = "demo-project") @PathVariable String projectId
     ) {

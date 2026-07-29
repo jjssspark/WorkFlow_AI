@@ -74,9 +74,10 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     except Exception:
         logger.exception("Whisper STT 모델 사전 로드 실패 - 첫 요청 시 재시도됩니다.")
     # RAG 채팅(/ai/rag/query)이 rag-jobs 스트림에 적재하는 작업을 처리할 백그라운드 워커.
-    # Redis 연결 실패 시 여기서 예외가 나면 lifespan 전체가 실패해 RAG와 무관한 다른
-    # 라우터(지연 위험도, 업무 편중, 회의록 등)까지 전부 기동하지 못하게 된다 - 위의
-    # 임베딩/Whisper 사전로드와 같은 방식으로 로그만 남기고 계속 진행한다.
+    # start()는 루프만 띄우고 Redis에 접속하지 않는다 - 컨슈머 그룹 생성과 폴링은 루프 안에서
+    # 백오프를 두고 재시도하므로, 기동 시점에 Redis가 죽어 있어도 복구되면 워커가 알아서 붙는다.
+    # 그래도 lifespan 전체가 실패해 RAG와 무관한 다른 라우터(지연 위험도, 업무 편중, 회의록 등)까지
+    # 못 뜨는 일이 없도록, 위의 임베딩/Whisper 사전로드와 같은 방식으로 예외는 삼키고 진행한다.
     try:
         await rag_queue_worker.start()
     except Exception:

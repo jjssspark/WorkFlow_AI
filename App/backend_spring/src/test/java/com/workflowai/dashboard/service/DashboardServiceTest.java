@@ -241,15 +241,19 @@ class DashboardServiceTest {
         WorkloadScoreResponseDto response = new WorkloadScoreResponseDto(
             "1.0", 1L, "db", "MAD (소규모 팀)",
             List.of(new WorkloadScoreMemberDto("5", 12, 0.4, 88.5, true, "과부하 의심", 1.8, 1.2, 3)),
-            null, 0.62
+            null, 0.62, null
         );
+        WorkloadScoreResponseDto stamped = response.withCalculatedAt("2026-07-29T00:00:00Z");
         when(fastApiWorkloadScoreClient.fetch(1L)).thenReturn(response);
+        when(workloadScoreCache.put(1L, response)).thenReturn(stamped);
 
         WorkloadScoreResponseDto result = newService().getWorkloadScore("demo-project");
 
         assertThat(result.members()).hasSize(1);
         assertThat(result.members().get(0).anomaly_type()).isEqualTo("과부하 의심");
         assertThat(result.team_mean_completion()).isEqualTo(0.62);
+        // 라이브 계산 결과도 캐시에 넣으면서 찍힌 계산 시각을 그대로 응답에 실어야 한다.
+        assertThat(result.calculated_at()).isEqualTo("2026-07-29T00:00:00Z");
         verify(workloadScoreCache).put(1L, response);
     }
 
@@ -257,13 +261,14 @@ class DashboardServiceTest {
     void getWorkloadScoreReturnsCachedValueWithoutCallingFastApi() {
         when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
         WorkloadScoreResponseDto cached = new WorkloadScoreResponseDto(
-            "1.0", 1L, "db", "MAD (소규모 팀)", List.of(), null, 0.5
+            "1.0", 1L, "db", "MAD (소규모 팀)", List.of(), null, 0.5, "2026-07-01T09:00:00Z"
         );
         when(workloadScoreCache.get(1L)).thenReturn(Optional.of(cached));
 
         WorkloadScoreResponseDto result = newService().getWorkloadScore("demo-project");
 
         assertThat(result).isSameAs(cached);
+        assertThat(result.calculated_at()).isEqualTo("2026-07-01T09:00:00Z");
         verify(fastApiWorkloadScoreClient, never()).fetch(any());
     }
 
@@ -284,7 +289,7 @@ class DashboardServiceTest {
     void getDelayRiskRefreshStatusReturnsDoneWhenJobFinishedSuccessfully() {
         when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
         when(dashboardAiJobPublisher.isJobActive(1L, DashboardAiJobType.DELAY_RISK, "job-1")).thenReturn(false);
-        when(dashboardAiJobPublisher.isJobDone("job-1")).thenReturn(true);
+        when(dashboardAiJobPublisher.isJobDone(1L, DashboardAiJobType.DELAY_RISK, "job-1")).thenReturn(true);
 
         DashboardAiJobResponse result = newService().getDelayRiskRefreshStatus("demo-project", "job-1");
 
@@ -297,7 +302,7 @@ class DashboardServiceTest {
         // 예전에는 이 상태를 DONE으로 잘못 보고했다.
         when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
         when(dashboardAiJobPublisher.isJobActive(1L, DashboardAiJobType.DELAY_RISK, "job-1")).thenReturn(false);
-        when(dashboardAiJobPublisher.isJobDone("job-1")).thenReturn(false);
+        when(dashboardAiJobPublisher.isJobDone(1L, DashboardAiJobType.DELAY_RISK, "job-1")).thenReturn(false);
 
         DashboardAiJobResponse result = newService().getDelayRiskRefreshStatus("demo-project", "job-1");
 

@@ -329,7 +329,7 @@ public class DashboardService {
         if (dashboardAiJobPublisher.isJobActive(projectId, jobType, jobId)) {
             return new DashboardAiJobResponse(jobId, projectIdParam, jobType.name(), "PROCESSING");
         }
-        if (dashboardAiJobPublisher.isJobDone(jobId)) {
+        if (dashboardAiJobPublisher.isJobDone(projectId, jobType, jobId)) {
             return new DashboardAiJobResponse(jobId, projectIdParam, jobType.name(), "DONE");
         }
         return new DashboardAiJobResponse(jobId, projectIdParam, jobType.name(), "FAILED");
@@ -341,11 +341,8 @@ public class DashboardService {
      * 라이브로 계산해 캐시를 채운다. */
     public WorkloadScoreResponseDto getWorkloadScore(String projectIdParam) {
         Long projectId = demoDataService.resolveProjectId(projectIdParam);
-        return workloadScoreCache.get(projectId).orElseGet(() -> {
-            WorkloadScoreResponseDto live = fastApiWorkloadScoreClient.fetch(projectId);
-            workloadScoreCache.put(projectId, live);
-            return live;
-        });
+        return workloadScoreCache.get(projectId)
+            .orElseGet(() -> workloadScoreCache.put(projectId, fastApiWorkloadScoreClient.fetch(projectId)));
     }
 
     private List<WorkloadEntryDto> buildWorkload(List<ProjectMember> members, List<Task> tasks, Map<Long, String> userNames) {

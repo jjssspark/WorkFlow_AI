@@ -12,6 +12,8 @@ import type { ReviewerProject } from "../libs/utils/reviewerApi";
 import { getProjectMembers } from "../../global/api/projectsApi";
 import { fetchContributionReport, fetchContributionScore } from "../../contributors/libs/utils/contributorsApi";
 import { fetchAttendanceSummary } from "../../meetings/libs/utils/meetingAiApi";
+import { createPersonalComment, fetchMyPersonalComments, replyToPersonalComment } from "../libs/api/personalCommentApi";
+import { toast } from "sonner";
 
 vi.mock("../../global/hooks/useAuth", () => ({
   useAuth: vi.fn(),
@@ -43,6 +45,14 @@ vi.mock("../../meetings/libs/utils/meetingAiApi", () => ({
   fetchAttendanceSummary: vi.fn(),
 }));
 
+vi.mock("../libs/api/personalCommentApi", () => ({
+  fetchMyPersonalComments: vi.fn(),
+  createPersonalComment: vi.fn(),
+  replyToPersonalComment: vi.fn(),
+}));
+
+vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
+
 function makeTask(id: string, assignee: string, status: Task["status"], dueDate: string): Task {
   return { id, title: `업무 ${id}`, status, priority: "medium", assignee, dueDate, labels: [], category: "frontend", position: 0, pendingApproval: false, startDate: "", extraFields: {} };
 }
@@ -54,9 +64,9 @@ function makeReviewerProject(projectId: number, title: string, evalStatus: Revie
   };
 }
 
-function renderMyPage() {
+function renderMyPage(initialEntry: string = "/mypage") {
   return render(
-    <MemoryRouter initialEntries={["/mypage"]}>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <MyPage />
     </MemoryRouter>
   );
@@ -69,9 +79,11 @@ describe("MyPage member view", () => {
       contributionRevealed: false, score: null, finalRevealed: false, totalScore: null,
       reviewerScore: null, grade: null, commentRevealed: false, comment: null,
     });
+    vi.mocked(fetchMyPersonalComments).mockResolvedValue([]);
     vi.mocked(useAuth).mockReturnValue({
       isAuthenticated: true,
       loading: false,
+      projectContextReady: true,
       user: { id: 1, email: "seo.yeon@university.ac.kr", name: "이서연" },
       projectRoles: [{ projectId: 1, projectTitle: "스마트 주차 관리 시스템", role: "팀원" }],
       currentProjectId: 1,
@@ -226,6 +238,165 @@ describe("MyPage member view", () => {
     // 코멘트만 공개된 상태이므로 "공개된 평가 결과" 카드는 아직 뜨지 않는다.
     expect(screen.queryByText("공개된 평가 결과")).not.toBeInTheDocument();
   });
+
+  it("심사자 코멘트/답글 목록이 실제 API에서 렌더링된다", async () => {
+    vi.mocked(fetchTasks).mockResolvedValue([]);
+    vi.mocked(fetchMyPersonalComments).mockResolvedValue([
+      { id: 1, authorId: 20, authorName: "심사자", parentId: null, content: "UI가 깔끔하네요", createdAt: "2026-07-25T05:32:00.000Z" },
+    ]);
+
+    renderMyPage();
+
+    await waitFor(() => expect(screen.getByText("UI가 깔끔하네요")).toBeInTheDocument());
+    expect(screen.getByText("심사자")).toBeInTheDocument();
+  });
+
+  it("답글이 있으면 답글 작성 UI 대신 답글 내용을 보여준다", async () => {
+    vi.mocked(fetchTasks).mockResolvedValue([]);
+    vi.mocked(fetchMyPersonalComments).mockResolvedValue([
+      { id: 1, authorId: 20, authorName: "심사자", parentId: null, content: "UI가 깔끔하네요", createdAt: "2026-07-25T05:32:00.000Z" },
+      { id: 2, authorId: 1, authorName: "이서연", parentId: 1, content: "감사합니다!", createdAt: "2026-07-25T06:01:00.000Z" },
+    ]);
+
+    renderMyPage();
+
+    await waitFor(() => expect(screen.getByText("감사합니다!")).toBeInTheDocument());
+    expect(screen.queryByPlaceholderText("답글 작성...")).not.toBeInTheDocument();
+  });
+
+  it("답글이 없는 코멘트에 답글을 작성하면 replyToPersonalComment가 호출되고 목록이 갱신된다", async () => {
+    vi.mocked(fetchTasks).mockResolvedValue([]);
+    vi.mocked(fetchMyPersonalComments)
+      .mockResolvedValueOnce([
+        { id: 1, authorId: 20, authorName: "심사자", parentId: null, content: "UI가 깔끔하네요", createdAt: "2026-07-25T05:32:00.000Z" },
+      ])
+      .mockResolvedValueOnce([
+        { id: 1, authorId: 20, authorName: "심사자", parentId: null, content: "UI가 깔끔하네요", createdAt: "2026-07-25T05:32:00.000Z" },
+        { id: 2, authorId: 1, authorName: "이서연", parentId: 1, content: "감사합니다!", createdAt: "2026-07-25T06:01:00.000Z" },
+      ]);
+    vi.mocked(replyToPersonalComment).mockResolvedValue({
+      id: 2, authorId: 1, authorName: "이서연", parentId: 1, content: "감사합니다!", createdAt: "2026-07-25T06:01:00.000Z",
+    });
+
+    renderMyPage();
+
+    await waitFor(() => expect(screen.getByText("UI가 깔끔하네요")).toBeInTheDocument());
+    await userEvent.type(screen.getByPlaceholderText("답글 작성..."), "감사합니다!");
+    await userEvent.click(screen.getByRole("button", { name: "답글" }));
+
+    expect(replyToPersonalComment).toHaveBeenCalledWith(1, 1, "감사합니다!");
+    await waitFor(() => expect(screen.getByText("감사합니다!")).toBeInTheDocument());
+  });
+
+  it("코멘트 카드를 클릭하면 상세 팝업이 뜬다", async () => {
+    vi.mocked(fetchTasks).mockResolvedValue([]);
+    vi.mocked(fetchMyPersonalComments).mockResolvedValue([
+      { id: 1, authorId: 20, authorName: "심사자", parentId: null, content: "UI가 깔끔하네요", createdAt: "2026-07-25T05:32:00.000Z" },
+    ]);
+
+    renderMyPage();
+
+    await waitFor(() => expect(screen.getByText("UI가 깔끔하네요")).toBeInTheDocument());
+    await userEvent.click(screen.getByText("UI가 깔끔하네요"));
+
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("?commentId=<원 코멘트 id>로 진입하면 해당 원 코멘트 팝업이 자동으로 열린다", async () => {
+    vi.mocked(fetchTasks).mockResolvedValue([]);
+    vi.mocked(fetchMyPersonalComments).mockResolvedValue([
+      { id: 1, authorId: 20, authorName: "심사자", parentId: null, content: "UI가 깔끔하네요", createdAt: "2026-07-25T05:32:00.000Z" },
+    ]);
+
+    renderMyPage("/mypage?commentId=1");
+
+    await waitFor(() => expect(screen.getByRole("dialog")).toBeInTheDocument());
+    expect(within(screen.getByRole("dialog")).getByText("UI가 깔끔하네요")).toBeInTheDocument();
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it("?commentId=<답글 id>로 진입하면 그 답글의 부모 스레드(원 코멘트+답글) 팝업이 열린다", async () => {
+    vi.mocked(fetchTasks).mockResolvedValue([]);
+    vi.mocked(fetchMyPersonalComments).mockResolvedValue([
+      { id: 1, authorId: 20, authorName: "심사자", parentId: null, content: "UI가 깔끔하네요", createdAt: "2026-07-25T05:32:00.000Z" },
+      { id: 2, authorId: 1, authorName: "이서연", parentId: 1, content: "감사합니다!", createdAt: "2026-07-25T06:01:00.000Z" },
+    ]);
+
+    renderMyPage("/mypage?commentId=2");
+
+    await waitFor(() => expect(screen.getByRole("dialog")).toBeInTheDocument());
+    const dialog = within(screen.getByRole("dialog"));
+    expect(dialog.getByText("UI가 깔끔하네요")).toBeInTheDocument();
+    expect(dialog.getByText("감사합니다!")).toBeInTheDocument();
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it("?commentId=<목록에 없는 id>로 진입하면 팝업 없이 삭제/다른 프로젝트 안내 토스트가 뜬다", async () => {
+    vi.mocked(fetchTasks).mockResolvedValue([]);
+    vi.mocked(fetchMyPersonalComments).mockResolvedValue([
+      { id: 1, authorId: 20, authorName: "심사자", parentId: null, content: "UI가 깔끔하네요", createdAt: "2026-07-25T05:32:00.000Z" },
+    ]);
+
+    renderMyPage("/mypage?commentId=999");
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("삭제되었거나 다른 프로젝트의 코멘트입니다."));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("콜드 로드 중(useAuth의 projectContextReady가 아직 false)에는 목록이 비어 있어도 거짓 not-found 토스트를 띄우지 않고, projectContextReady가 true로 바뀌며 실제 데이터가 로드되면 그제서야 팝업을 연다", async () => {
+    vi.mocked(fetchTasks).mockResolvedValue([]);
+    vi.mocked(fetchMyPersonalComments).mockResolvedValue([
+      { id: 1, authorId: 20, authorName: "심사자", parentId: null, content: "UI가 깔끔하네요", createdAt: "2026-07-25T05:32:00.000Z" },
+    ]);
+
+    // useAuth()가 아직 currentProjectId를 확정하지 못한 콜드 로드 첫 렌더 상태를 흉내낸다.
+    const authState = {
+      isAuthenticated: false,
+      loading: true,
+      projectContextReady: false,
+      user: null,
+      projectRoles: [],
+      currentProjectId: null,
+      currentProject: null,
+      selectProject: vi.fn(),
+      addLocalProjectRole: vi.fn(),
+      loginWithGoogle: vi.fn(),
+      logout: vi.fn(),
+      refreshMe: vi.fn(),
+    };
+    vi.mocked(useAuth).mockImplementation(() => authState);
+
+    const { rerender } = render(
+      <MemoryRouter initialEntries={["/mypage?commentId=1"]}>
+        <MyPage />
+      </MemoryRouter>
+    );
+
+    // 아직 projectContextReady가 false인 동안에는 목록이 비어 있어도 "찾을 수 없음" 토스트를 띄우면 안 된다.
+    expect(toast.error).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    // useAuth가 실제 프로젝트로 resolve된 상태를 흉내낸다.
+    Object.assign(authState, {
+      isAuthenticated: true,
+      loading: false,
+      projectContextReady: true,
+      user: { id: 1, email: "seo.yeon@university.ac.kr", name: "이서연" },
+      projectRoles: [{ projectId: 1, projectTitle: "스마트 주차 관리 시스템", role: "팀원" }],
+      currentProjectId: 1,
+      currentProject: { projectId: 1, projectTitle: "스마트 주차 관리 시스템", role: "팀원" },
+    });
+
+    rerender(
+      <MemoryRouter initialEntries={["/mypage?commentId=1"]}>
+        <MyPage />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(screen.getByRole("dialog")).toBeInTheDocument());
+    expect(within(screen.getByRole("dialog")).getByText("UI가 깔끔하네요")).toBeInTheDocument();
+    expect(toast.error).not.toHaveBeenCalled();
+  });
 });
 
 describe("MyPage reviewer view", () => {
@@ -234,6 +405,7 @@ describe("MyPage reviewer view", () => {
     vi.mocked(useAuth).mockReturnValue({
       isAuthenticated: true,
       loading: false,
+      projectContextReady: true,
       user: { id: 6, email: "reviewer@university.ac.kr", name: "고무서" },
       projectRoles: [
         { projectId: 1, projectTitle: "스마트 주차 관리 시스템", role: "팀원" },
@@ -305,6 +477,7 @@ describe("MyPage reviewer view — contribution tabs", () => {
     vi.mocked(useAuth).mockReturnValue({
       isAuthenticated: true,
       loading: false,
+      projectContextReady: true,
       user: { id: 6, email: "reviewer@university.ac.kr", name: "고무서" },
       projectRoles: [{ projectId: 2, projectTitle: "AI 기반 식단 추천 앱", role: "심사자" }],
       currentProjectId: 2,
@@ -378,6 +551,29 @@ describe("MyPage reviewer view — contribution tabs", () => {
     await waitFor(() => expect(screen.getByText("기여도 리포트를 불러오지 못했습니다.")).toBeInTheDocument());
     await userEvent.click(screen.getByRole("button", { name: /다시 시도/ }));
     await waitFor(() => expect(screen.getByText("김민준")).toBeInTheDocument());
+  });
+
+  it("점수 입력 탭에서 개인 코멘트를 등록하면 createPersonalComment가 호출되고 입력창이 비워진다", async () => {
+    vi.mocked(createPersonalComment).mockResolvedValue({
+      id: 1, authorId: 6, authorName: "고무서", parentId: null, content: "잘하고 있어요", createdAt: "2026-07-25T05:32:00.000Z",
+    });
+
+    renderMyPage();
+
+    await waitFor(() => expect(screen.getAllByText("AI 기반 식단 추천 앱").length).toBeGreaterThan(0));
+    await userEvent.click(await screen.findByRole("button", { name: "점수 입력" }));
+
+    const submitButtons = await screen.findAllByRole("button", { name: "코멘트 등록" });
+    // 등록 버튼은 내용이 비어 있으면 비활성화된다(빈 코멘트 제출 방지 가드).
+    expect(submitButtons[0]).toBeDisabled();
+
+    const textarea = screen.getAllByPlaceholderText("개인 코멘트 (옵션)...")[0];
+    await userEvent.type(textarea, "잘하고 있어요");
+    expect(submitButtons[0]).toBeEnabled();
+    await userEvent.click(submitButtons[0]);
+
+    expect(createPersonalComment).toHaveBeenCalledWith(2, 1, "잘하고 있어요");
+    await waitFor(() => expect(textarea).toHaveValue(""));
   });
 
   it("does not fetch contribution data while the default 팀 요약 tab is active", async () => {

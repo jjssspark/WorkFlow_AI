@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workflowai.dashboard.DTO.WorkloadScoreResponseDto;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,12 +45,17 @@ public class DashboardWorkloadScoreCache {
         }
     }
 
-    public void put(Long projectId, WorkloadScoreResponseDto value) {
+    /** 계산 시각을 값 안에 함께 박아 저장한다. TTL이 30일이라 화면이 "언제 기준 값인지" 알지
+     * 못하면 한 달 가까이 묵은 점수를 방금 계산한 값처럼 보여주게 된다.
+     * @return 계산 시각이 채워진 DTO. 호출부는 캐시에 넣은 것과 같은 값을 그대로 응답에 쓴다. */
+    public WorkloadScoreResponseDto put(Long projectId, WorkloadScoreResponseDto value) {
+        WorkloadScoreResponseDto stamped = value.withCalculatedAt(Instant.now().toString());
         try {
-            redisTemplate.opsForValue().set(key(projectId), objectMapper.writeValueAsString(value), TTL);
+            redisTemplate.opsForValue().set(key(projectId), objectMapper.writeValueAsString(stamped), TTL);
         } catch (JsonProcessingException exception) {
             log.warn("업무 편중 점수 캐시 저장 실패. projectId={}", projectId, exception);
         }
+        return stamped;
     }
 
     private static String key(Long projectId) {
