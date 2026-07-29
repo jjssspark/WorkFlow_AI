@@ -104,7 +104,7 @@ public class MeController {
     public ApiResponse<MeResponse> me() {
         User user = currentUserOrThrow();
 
-        List<ProjectMember> memberships = projectMemberRepository.findAllByUserId(user.getId());
+        List<ProjectMember> memberships = projectMemberRepository.findAllByUserIdOrderByRecency(user.getId());
         Map<Long, Project> projectsById = projectRepository
             .findAllById(memberships.stream().map(ProjectMember::getProjectId).toList())
             .stream()

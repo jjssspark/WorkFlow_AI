@@ -5,6 +5,7 @@ export interface ProjectResponse {
   id: number;
   title: string;
   type: string | null;
+  year: number | null;
   deadline: string | null;
   description: string | null;
   startDate: string | null;
@@ -25,6 +26,7 @@ export interface ProjectResponse {
 export interface CreateProjectRequest {
   title: string;
   type?: string;
+  year?: number;
   description?: string;
   startDate?: string;
   deadline?: string;
@@ -96,7 +98,7 @@ export function getProjectMembers(projectId: number) {
 
 export interface InvitationResponse {
   projectId: number;
-  email: string;
+  email: string | null;
   role: ProjectRoleKo;
   token: string;
   status: string;
@@ -110,8 +112,24 @@ export function createInvitation(projectId: number, email: string, role: Project
   });
 }
 
-export function acceptInvitation(token: string) {
-  return apiFetch<void>(`/invitations/${token}/accept`, {
+// 대상 없이 팀원 역할 초대 토큰을 발급/재사용한다(사이드바 "링크 복사"용).
+export function createInvitationLink(projectId: number) {
+  return apiFetch<InvitationResponse>(`/projects/${projectId}/invitations/link`, {
     method: "POST",
   });
+}
+
+export interface AcceptInvitationResponse {
+  projectId: number;
+}
+
+// 참여한 projectId를 서버가 알려준다 - 호출자가 목록 비교로 추측하지 않게 하기 위해서다.
+export function acceptInvitation(token: string) {
+  return apiFetch<AcceptInvitationResponse>(`/invitations/${token}/accept`, {
+    method: "POST",
+  });
+}
+
+export function touchProjectAccess(projectId: number) {
+  return apiFetch<void>(`/projects/${projectId}/access`, { method: "POST" });
 }

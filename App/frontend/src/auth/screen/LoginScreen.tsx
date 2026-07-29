@@ -7,6 +7,7 @@ import { useAuth } from "../../global/hooks/useAuth";
 import { apiFetch, ApiRequestError } from "../../global/api/apiClient";
 import type { AuthTokenResponse, SignupResponse } from "../../global/api/authTypes";
 import { tokenStore } from "../../global/api/tokenStore";
+import { Button } from "../../global/component/ui/button";
 
 const TEST_ACCOUNTS = [
   { username: "leader", name: "허영주", role: "팀장" },
@@ -178,14 +179,13 @@ export function LoginScreen() {
                   </div>
                 )}
 
-                <button
+                <Button
                   onClick={() => void handleReapply()}
                   disabled={reapplying || !reapplyAffiliation.trim() || !reapplyFacultyId.trim()}
-                  className="w-full mt-5 py-3 rounded-xl text-white text-sm font-semibold transition-opacity hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2"
-                  style={{ background: "linear-gradient(135deg, #7048E8 0%, #4F6EF7 100%)" }}
+                  className="w-full mt-5"
                 >
                   {reapplying ? "재신청 처리 중..." : "재신청"}
-                </button>
+                </Button>
                 <button onClick={cancelReapply} className="w-full mt-3 text-sm font-semibold text-muted-foreground hover:text-foreground">
                   취소
                 </button>
@@ -231,18 +231,13 @@ export function LoginScreen() {
               </div>
             )}
 
-            <button
-              type="submit"
-              disabled={loggingIn}
-              className="w-full py-3 rounded-xl text-white text-sm font-semibold transition-all disabled:opacity-70 hover:opacity-90 flex items-center justify-center gap-2"
-              style={{ background: "linear-gradient(135deg, #3B5BDB 0%, #4F6EF7 100%)" }}
-            >
+            <Button type="submit" disabled={loggingIn} className="w-full">
               {loggingIn ? (
                 <><div className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" /> 로그인 중...</>
               ) : (
                 <><ArrowRight className="w-4 h-4" /> 로그인</>
               )}
-            </button>
+            </Button>
           </form>
 
           <div className="flex items-center gap-3 my-5">

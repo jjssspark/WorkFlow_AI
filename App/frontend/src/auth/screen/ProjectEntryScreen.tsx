@@ -15,11 +15,17 @@ import {
 import { AuthBrandPanel } from "../components/AuthBrandPanel";
 import { useAuth } from "../../global/hooks/useAuth";
 import type { ProjectRoleKo, ProjectRoleSummary } from "../../global/api/authTypes";
-import { joinProjectByCode, listProjects, type ProjectResponse } from "../../global/api/projectsApi";
+import { ApiRequestError } from "../../global/api/apiClient";
+import { acceptInvitation, joinProjectByCode, listProjects, type ProjectResponse } from "../../global/api/projectsApi";
 import {
   fetchReviewerActivities, fetchReviewerLastAccess, recordReviewerAccess, type ReviewerActivityDto,
 } from "../../global/api/reviewerActivityApi";
 import { EVAL_STATUS_META, resolveEvalStatus } from "../../global/lib/evalStatus";
+import { Button } from "../../global/component/ui/button";
+
+// 백엔드가 이 코드로 응답할 때만 "이메일/링크 초대 토큰이 아니라 프로젝트 참여 코드였다"고 확신할 수
+// 있다(InvitationController.accept 참고) - InviteAcceptScreen과 동일한 계약.
+const FALLBACK_ELIGIBLE_CODE = "INVITE_NOT_FOUND";
 
 const PROJECT_META: Record<number, { type: string; deadline: string; progress: number }> = {};
 
@@ -131,9 +137,21 @@ export function ProjectEntryScreen() {
     setJoining(true);
     setMessage(null);
     try {
-      const project = await joinProjectByCode(code);
+      // "링크 복사"로 받은 값은 이메일 초대와 같은 실제 토큰(UUID)이고, "코드 복사"로 받은 값은
+      // 프로젝트 고정 코드다. 토큰 수락을 먼저 시도하고, 토큰이 아닐 때만(INVITE_NOT_FOUND)
+      // 코드 참여로 폴백한다 - 그 외 실패(이미 처리된 초대 등)는 그대로 알려준다.
+      // 어느 경로든 서버가 참여한 프로젝트 id를 직접 알려주므로 목록 비교로 추측하지 않는다
+      // (추측하면 이미 그 프로젝트 멤버였던 사람은 새 항목이 없어 아무것도 선택되지 않는다).
+      let joinedProjectId: number;
+      try {
+        joinedProjectId = (await acceptInvitation(code)).projectId;
+      } catch (tokenErr: unknown) {
+        const isUnknownToken = tokenErr instanceof ApiRequestError && tokenErr.code === FALLBACK_ELIGIBLE_CODE;
+        if (!isUnknownToken) throw tokenErr;
+        joinedProjectId = (await joinProjectByCode(code)).id;
+      }
       await refreshMe();
-      selectProject(project.id);
+      selectProject(joinedProjectId);
       navigate("/dashboard");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "참여에 실패했습니다.");
@@ -309,14 +327,10 @@ export function ProjectEntryScreen() {
                     className="w-full rounded-xl border border-border bg-input-background px-3 py-2.5 text-sm outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
                   />
                   {judgeMessage && <div className="mt-2 text-xs text-violet-600 leading-relaxed">{judgeMessage}</div>}
-                  <button
-                    type="button"
-                    onClick={handleAddJudgeProject}
-                    className="mt-3 w-full py-2.5 rounded-xl text-white text-sm font-semibold flex items-center justify-center gap-2 bg-violet-600 hover:bg-violet-700 transition-colors"
-                  >
+                  <Button type="button" onClick={handleAddJudgeProject} className="mt-3 w-full">
                     <ShieldCheck className="w-4 h-4" />
                     프로젝트 추가
-                  </button>
+                  </Button>
                 </section>
 
                 <section className="bg-card border border-border rounded-xl p-5 shadow-sm">
@@ -433,14 +447,10 @@ export function ProjectEntryScreen() {
                     <p className="text-xs text-muted-foreground">생성 즉시 팀장 권한으로 시작합니다.</p>
                   </div>
                 </div>
-                <button
-                  onClick={() => navigate("/onboarding")}
-                  className="w-full py-2.5 rounded-xl text-white text-sm font-semibold flex items-center justify-center gap-2 hover:opacity-90 transition-opacity"
-                  style={{ background: "linear-gradient(135deg, #3B5BDB 0%, #4F6EF7 100%)" }}
-                >
+                <Button onClick={() => navigate("/onboarding")} className="w-full">
                   <Crown className="w-4 h-4" />
                   프로젝트 정보 입력하고 시작하기
-                </button>
+                </Button>
               </div>
 
               <div className="bg-card border border-border rounded-xl p-4 shadow-sm">

@@ -1,7 +1,6 @@
 package com.workflowai.project;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -33,12 +32,15 @@ import org.springframework.test.web.servlet.ResultActions;
  * <p>수락 전 403을 함께 보는 이유는 IT-011과 같다. 수락 후 200만 보면 상세 조회가 원래 누구에게나
  * 열려 있어도 통과하고, 그러면 "수락이 무엇을 바꿨는가"는 아무것도 검증되지 않는다.
  *
- * <p><strong>실패 경로가 envelope으로 나오지 않는 것을 현재 상태로 기록한다.</strong>
- * {@code InvitationService}는 만료·재사용을 {@code IllegalStateException}으로 알리는데
- * {@link InvitationController}에도 {@code GlobalExceptionHandler}에도 이를 받는 핸들러가 없다.
- * 클라이언트는 {@code error.code} 없는 500을 받으므로 "만료됐다"와 "서버가 죽었다"를 구분할 수
- * 없다. 바람직한 동작을 고정하는 것이 아니라 지금 그렇다는 사실을 못 박는 것이고, 핸들러가
- * 생기면 이 테스트가 실패하면서 그때 갱신하면 된다(IT-002의 500 경로와 같은 방식).
+ * <p><strong>실패 경로는 이제 envelope으로 나온다.</strong> {@code InvitationService}가
+ * {@link InvitationException}으로 사유를 구분해 던지고 {@code GlobalExceptionHandler}가 그대로
+ * 상태 코드와 에러 코드로 옮긴다: 토큰 없음은 404/{@code INVITE_NOT_FOUND}, 재사용은
+ * 409/{@code INVITE_ALREADY_PROCESSED}, 만료는 409/{@code INVITE_EXPIRED}.
+ *
+ * <p>404와 409를 가르는 것이 프론트엔드 계약의 핵심이다 - 404일 때만 "이건 이메일 초대 토큰이
+ * 아니라 프로젝트 참여 코드였다"고 보고 {@code joinProjectByCode}로 폴백하고, 409는 실제 사유를
+ * 그대로 사용자에게 보여준다. 그래서 초대 흐름이 <em>의도해서</em> 알리는 실패만 이 타입으로
+ * 던진다. 나머지 예외를 404로 뭉뚱그리면 결함이 "유효하지 않은 초대 코드"로 위장된다.
  */
 class ProjectInvitationIntegrationTest extends PostgresRedisIntegrationTest {
 
@@ -137,9 +139,11 @@ class ProjectInvitationIntegrationTest extends PostgresRedisIntegrationTest {
         String token = createInvitation("팀원").get("token").asText();
         jdbcTemplate.update("UPDATE invitations SET expires_at = now() - interval '1 day' WHERE token = ?", token);
 
-        // 처리되지 않은 예외라 MockMvc가 그대로 되던진다. envelope이 없다는 사실 자체의 증거다.
-        assertThatThrownBy(() -> accept(token, invitee))
-            .hasRootCauseInstanceOf(IllegalStateException.class);
+        // 만료는 409 envelope으로 나온다. 404(INVITE_NOT_FOUND)가 아니어야 한다 - 404면
+        // 프론트엔드가 "토큰이 아니라 참여 코드"로 오해하고 폴백해서 만료 사실이 가려진다.
+        accept(token, invitee)
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.error.code").value("INVITE_EXPIRED"));
 
         // 중요한 건 예외 종류가 아니라 이것이다 - 실패했는데 멤버가 만들어져 있으면
         // 화면만 실패로 보이고 접근권은 이미 넘어간 상태가 된다.

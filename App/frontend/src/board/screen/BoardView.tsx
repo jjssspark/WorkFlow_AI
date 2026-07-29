@@ -20,6 +20,7 @@ import { useAuth } from "../../global/hooks/useAuth";
 import { useNotifications } from "../../global/hooks/useNotifications";
 import { getProjectMembers, type MemberResponse } from "../../global/api/projectsApi";
 import type { Task, TaskStatus } from "../libs/types/task";
+import { Button } from "../../global/component/ui/button";
 
 const FILTER_PARAMS = ["assignee", "priority", "category"] as const;
 
@@ -454,13 +455,9 @@ export function BoardView() {
                   >
                     취소
                   </button>
-                  <button
-                    onClick={confirmCompletionRequest}
-                    className="px-4 py-2 text-xs font-semibold text-white rounded-xl hover:opacity-90 transition-opacity"
-                    style={{ background: "linear-gradient(135deg,#3B5BDB,#4F6EF7)" }}
-                  >
+                  <Button onClick={confirmCompletionRequest} size="sm">
                     승인 신청
-                  </button>
+                  </Button>
                 </div>
               </div>
             </div>

@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { API_BASE_URL, apiFetch, AUTH_LOGOUT_EVENT } from "../api/apiClient";
 import { tokenStore } from "../api/tokenStore";
+import { touchProjectAccess } from "../api/projectsApi";
 import type { MeResponse, ProjectRoleSummary, UserSummary } from "../api/authTypes";
 
 const SELECTED_PROJECT_KEY = "workflow-ai:selected-project-id";
@@ -49,6 +50,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const selectProject = (projectId: number) => {
     setCurrentProjectId(projectId);
     localStorage.setItem(SELECTED_PROJECT_KEY, String(projectId));
+    if (projectId > 0) {
+      void touchProjectAccess(projectId).catch(() => {
+        // 정렬 갱신은 부가 기능이므로 실패해도 화면 흐름을 막지 않는다.
+      });
+    }
   };
 
   const addLocalProjectRole = (projectTitle: string, role: ProjectRoleSummary["role"]) => {

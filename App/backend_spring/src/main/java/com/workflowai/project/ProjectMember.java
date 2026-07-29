@@ -30,6 +30,9 @@ public class ProjectMember {
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
+    @Column(name = "last_accessed_at")
+    private LocalDateTime lastAccessedAt;
+
     protected ProjectMember() {
     }
 
@@ -66,5 +69,13 @@ public class ProjectMember {
 
     public LocalDateTime getCreatedAt() {
         return createdAt;
+    }
+
+    public LocalDateTime getLastAccessedAt() {
+        return lastAccessedAt;
+    }
+
+    public void touchLastAccessed() {
+        this.lastAccessedAt = LocalDateTime.now();
     }
 }

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import {
   GraduationCap, Users, Trophy, Cpu, Zap, PenLine, Check, User,
@@ -6,7 +6,8 @@ import {
 } from "lucide-react";
 import { StepIndicator } from "../components/StepIndicator";
 import { useAuth } from "../../global/hooks/useAuth";
-import { createInvitation, createProject } from "../../global/api/projectsApi";
+import { createInvitation, createProject, listProjects } from "../../global/api/projectsApi";
+import { Button } from "../../global/component/ui/button";
 
 const DELIVERABLE_OPTIONS = ["발표자료", "보고서", "README", "시연 영상", "서비스 배포", "기타"];
 
@@ -26,6 +27,7 @@ export function OnboardingScreen() {
 
   const [step, setStep] = useState(0); // 0-3
   const [projectType, setProjectType] = useState("");
+  const [year, setYear] = useState(new Date().getFullYear());
   const [customType, setCustomType] = useState("");
   const [projectTitle, setProjectTitle] = useState("");
   const [teamSize, setTeamSize] = useState(4);
@@ -40,6 +42,22 @@ export function OnboardingScreen() {
   const [reviewerEmails, setReviewerEmails] = useState<string[]>([""]);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+
+  useEffect(() => {
+    listProjects()
+      .then((projects) => {
+        if (projects.length === 0) return;
+        // listProjects()는 이제 최근 접근 순으로 정렬되어 오므로 첫 항목이 가장 최근 프로젝트다.
+        const mostRecent = projects[0];
+        const matchedType = PROJECT_TYPES.find((t) => t.label === mostRecent.type);
+        // 함수형 업데이트로 적용 시점의 최신 값을 확인 — 사용자가 이미 유형 카드를
+        // 직접 선택했다면(projectType이 비어있지 않다면) 프리셋으로 덮어쓰지 않는다.
+        if (matchedType) setProjectType((prev) => (prev ? prev : matchedType.id));
+      })
+      .catch(() => {
+        // 프리셋은 부가 기능이므로 실패해도 빈 선택 상태로 둔다.
+      });
+  }, []);
 
   const toggleDeliverable = (item: string) => {
     setDeliverables(prev => prev.includes(item) ? prev.filter(d => d !== item) : [...prev, item]);
@@ -72,6 +90,7 @@ export function OnboardingScreen() {
       const project = await createProject({
         title: projectTitle.trim(),
         type: resolvedType || undefined,
+        year,
         deadline: endDate,
         startDate: startDate || undefined,
         midCheckDate: midCheckDate || undefined,
@@ -154,6 +173,15 @@ export function OnboardingScreen() {
                   placeholder="예: WorkFlow AI"
                   className="w-full rounded-xl border border-border bg-input-background px-4 py-3 text-sm text-foreground placeholder-muted-foreground outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition-all"
                 />
+                <div className="mt-4">
+                  <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">진행 연도</label>
+                  <input
+                    type="number"
+                    value={year}
+                    onChange={(e) => setYear(Number(e.target.value) || new Date().getFullYear())}
+                    className="w-full rounded-xl border border-border bg-input-background px-3 py-2.5 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                  />
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -375,25 +403,17 @@ export function OnboardingScreen() {
           </button>
 
           {step < 3 ? (
-            <button
-              onClick={() => setStep(s => s + 1)}
-              disabled={!canGoNext}
-              className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl text-white text-sm font-semibold transition-all disabled:opacity-40 hover:opacity-90"
-              style={{ background: "linear-gradient(135deg, #3B5BDB 0%, #4F6EF7 100%)" }}>
+            <Button onClick={() => setStep(s => s + 1)} disabled={!canGoNext}>
               다음 <ArrowRight className="w-4 h-4" />
-            </button>
+            </Button>
           ) : (
-            <button
-              onClick={handleFinish}
-              disabled={submitting}
-              className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl text-white text-sm font-semibold transition-all hover:opacity-90 disabled:opacity-60"
-              style={{ background: "linear-gradient(135deg, #7048E8 0%, #4F6EF7 100%)" }}>
+            <Button onClick={handleFinish} disabled={submitting}>
               {submitting ? (
                 <><div className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" /> 생성 중...</>
               ) : (
                 <><Sparkles className="w-4 h-4" /> 시작하기</>
               )}
-            </button>
+            </Button>
           )}
         </div>
       </div>

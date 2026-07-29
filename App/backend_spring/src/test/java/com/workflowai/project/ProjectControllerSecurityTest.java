@@ -75,14 +75,14 @@ class ProjectControllerSecurityTest {
         );
 
         ProjectResponse serviceResponse = new ProjectResponse(
-            10L, "WorkFlow AI", "팀프로젝트", LocalDate.of(2026, 8, 31), null, null, null,
+            10L, "WorkFlow AI", "팀프로젝트", null, LocalDate.of(2026, 8, 31), null, null, null,
             null, null, null, null, "ABCD1234", 1L, 1, 0, "PENDING"
         );
         when(projectService.create(eq(1L), any(CreateProjectRequest.class))).thenReturn(serviceResponse);
 
         String body = objectMapper.writeValueAsString(
             new CreateProjectRequest(
-                "WorkFlow AI", "팀프로젝트", null, null, LocalDate.of(2026, 8, 31), null, null, null, null, null
+                "WorkFlow AI", "팀프로젝트", null, null, null, LocalDate.of(2026, 8, 31), null, null, null, null, null
             )
         );
 
@@ -104,7 +104,7 @@ class ProjectControllerSecurityTest {
         );
 
         String body = objectMapper.writeValueAsString(
-            new CreateProjectRequest(null, "팀프로젝트", null, null, null, null, null, null, null, null)
+            new CreateProjectRequest(null, "팀프로젝트", null, null, null, null, null, null, null, null, null)
         );
 
         mockMvc.perform(
@@ -125,7 +125,7 @@ class ProjectControllerSecurityTest {
         when(projectAccess.isMember(1L)).thenReturn(true);
 
         ProjectResponse serviceResponse = new ProjectResponse(
-            1L, "WorkFlow AI", "팀프로젝트", LocalDate.of(2026, 8, 31), "설명", null, null,
+            1L, "WorkFlow AI", "팀프로젝트", null, LocalDate.of(2026, 8, 31), "설명", null, null,
             null, null, null, null, "ABCD1234", 1L, 1, 0, "PENDING"
         );
         when(projectService.find(1L)).thenReturn(serviceResponse);
@@ -176,7 +176,7 @@ class ProjectControllerSecurityTest {
         when(projectAccess.hasRole(1L, "LEADER")).thenReturn(true);
 
         ProjectResponse updated = new ProjectResponse(
-            1L, "변경제목", "팀프로젝트", LocalDate.of(2026, 9, 15), null, null, null,
+            1L, "변경제목", "팀프로젝트", null, LocalDate.of(2026, 9, 15), null, null, null,
             null, null, null, null, "ABCD1234", 1L, 1, 0, "PENDING"
         );
         when(projectService.update(eq(1L), any(UpdateProjectRequest.class))).thenReturn(updated);
