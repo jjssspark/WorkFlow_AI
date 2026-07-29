@@ -6,7 +6,9 @@
 # 이 기본값이 그대로 쓰이지 않게 할 것.
 services:
   db:
-    image: postgres:17
+    # 공식 postgres:17에는 pgvector가 없다. V20260701_1__document_chunks_vector.sql이
+    # CREATE EXTENSION vector를 쓰므로 확장이 포함된 이미지가 필요하다 (docker-compose.prod.yml과 동일).
+    image: pgvector/pgvector:pg17
     container_name: workflow-db
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-workflow}
