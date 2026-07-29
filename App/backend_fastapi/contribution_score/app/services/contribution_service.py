@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from langchain_core.runnables import chain
+
 from contribution_score.app.schema.contribution_schema import ContributionMemberResult
 from ml_workload_score.app.schema.workload_schema import WorkloadMemberResult
 
@@ -30,18 +32,13 @@ def meeting_component_of(attended: int, total: int) -> float:
     return round(attended / total * 100, 1)
 
 
-def compute_contribution_scores(
+def _compute_members(
     workload_members: list[WorkloadMemberResult],
     attendance: dict[str, int],
     total_meetings: int,
 ) -> list[ContributionMemberResult]:
-    """
-    workload_members: get_workload_score()가 반환한 팀원 목록(workload+task 피처의 원천).
-    attendance: {assignee_id(str): 참석 횟수} — load_meeting_attendance()의 첫 번째 반환값.
-    총 회의 수는 total_meetings로 별도 전달(모든 팀원에게 공통값).
-    workload_members에는 있지만 attendance에 없는 팀원은 참석 0회로 처리한다
-    (결측이 아니라 "회의에 한 번도 참석하지 않음"이 맞는 해석).
-    """
+    """실제 팀원별 기여도 점수 계산 로직 - LangChain 트레이싱 스텝(_run_contribution_scores)이
+    이 함수를 호출한다. 기존 compute_contribution_scores()와 동일한 로직."""
     results: list[ContributionMemberResult] = []
     for member in workload_members:
         workload_comp = workload_component_of(member)
@@ -69,3 +66,44 @@ def compute_contribution_scores(
             )
         )
     return results
+
+
+def compute_contribution_scores(
+    workload_members: list[WorkloadMemberResult],
+    attendance: dict[str, int],
+    total_meetings: int,
+) -> list[ContributionMemberResult]:
+    """
+    workload_members: get_workload_score()가 반환한 팀원 목록(workload+task 피처의 원천).
+    attendance: {assignee_id(str): 참석 횟수} — load_meeting_attendance()의 첫 번째 반환값.
+    총 회의 수는 total_meetings로 별도 전달(모든 팀원에게 공통값).
+    workload_members에는 있지만 attendance에 없는 팀원은 참석 0회로 처리한다
+    (결측이 아니라 "회의에 한 번도 참석하지 않음"이 맞는 해석).
+
+    실제 계산은 LangChain @chain으로 감싼 내부 스텝(_run_contribution_scores)을 거쳐
+    LangSmith에 trace로 남는다. 트레이스에는 팀원 개인 데이터 전체 대신 집계 요약만 기록한다
+    (@chain은 이 함수가 호출될 때마다 새로 만든다 - patch()로 갈아끼운 원본 함수 심볼을
+    최신 상태로 참조하기 위함).
+    """
+    holder: dict = {}
+
+    @chain
+    def _run_contribution_scores(trace_input: dict) -> dict:
+        holder["results"] = _compute_members(workload_members, attendance, total_meetings)
+        results = holder["results"]
+        return {
+            "member_count": len(results),
+            "avg_contribution_score": (
+                round(sum(r.contribution_score for r in results) / len(results), 1)
+                if results else None
+            ),
+            "weight_workload": WEIGHT_WORKLOAD,
+            "weight_task": WEIGHT_TASK,
+            "weight_meeting": WEIGHT_MEETING,
+        }
+
+    _run_contribution_scores.invoke({
+        "member_count": len(workload_members),
+        "total_meetings": total_meetings,
+    })
+    return holder["results"]
