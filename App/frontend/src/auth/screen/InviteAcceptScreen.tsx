@@ -1,8 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
-import { acceptInvitation } from "../../global/api/projectsApi";
+import { ApiRequestError } from "../../global/api/apiClient";
+import { acceptInvitation, joinProjectByCode } from "../../global/api/projectsApi";
 
 type Status = "loading" | "success" | "error";
+
+// 백엔드가 이 코드로 응답할 때만 "이메일 초대 토큰이 아니라 프로젝트 참여 코드였다"고 확신할 수 있다
+// (InvitationController.accept 참고). 네트워크 오류/5xx/권한 없음/이미 처리된 초대까지 폴백하면
+// 원래 실패 사유(예: "이미 처리된 초대입니다")가 무관한 "유효하지 않은 초대 코드"로 덮여버린다.
+const FALLBACK_ELIGIBLE_CODE = "INVITE_NOT_FOUND";
 
 export function InviteAcceptScreen() {
   const { token } = useParams<{ token: string }>();
@@ -25,9 +31,23 @@ export function InviteAcceptScreen() {
 
     acceptInvitation(token)
       .then(() => setStatus("success"))
-      .catch((err: unknown) => {
-        setStatus("error");
-        setMessage(err instanceof Error ? err.message : "초대 수락에 실패했습니다.");
+      .catch((emailInviteErr: unknown) => {
+        const isUnknownToken = emailInviteErr instanceof ApiRequestError && emailInviteErr.code === FALLBACK_ELIGIBLE_CODE;
+        if (!isUnknownToken) {
+          // 네트워크 오류, 5xx, 권한 없음, 이미 처리/만료된 초대 등은 폴백 대상이 아니다 — 실제 원인을 그대로 보여준다.
+          setStatus("error");
+          setMessage(emailInviteErr instanceof Error ? emailInviteErr.message : "초대 수락에 실패했습니다.");
+          return;
+        }
+
+        // 이메일 초대 토큰이 아니라 사이드바에서 복사한 프로젝트 참여 코드일 수 있으니 재시도한다.
+        joinProjectByCode(token)
+          .then(() => setStatus("success"))
+          .catch((joinErr: unknown) => {
+            console.error("초대 코드 참여 폴백 실패", joinErr);
+            setStatus("error");
+            setMessage(joinErr instanceof Error ? joinErr.message : "초대 수락에 실패했습니다.");
+          });
       });
   }, [token]);
 

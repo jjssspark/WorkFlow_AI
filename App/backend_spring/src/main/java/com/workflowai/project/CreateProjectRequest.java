@@ -9,6 +9,7 @@ import java.util.List;
 public record CreateProjectRequest(
     @Schema(example = "스마트 주차 관리 시스템") @NotBlank String title,
     @Schema(example = "캡스톤디자인", description = "캡스톤디자인/팀프로젝트/공모전/해커톤/기타") String type,
+    @Schema(example = "2026", description = "프로젝트 진행 연도") Integer year,
     @Schema(example = "주차 공간 실시간 탐지 및 예약 서비스") String description,
     @Schema(example = "2026-03-01") LocalDate startDate,
     @Schema(description = "최종 마감일", example = "2026-07-18") LocalDate deadline,

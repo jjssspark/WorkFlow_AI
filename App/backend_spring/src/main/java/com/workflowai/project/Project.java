@@ -27,6 +27,10 @@ public class Project {
     @Column(length = 50)
     private String type;
 
+    /** "year"는 H2 등 일부 DB에서 예약어라 항상 quoted identifier로 매핑한다. */
+    @Column(name = "`year`", length = 4)
+    private Integer year;
+
     /** 최종 마감일. */
     private LocalDate deadline;
 
@@ -88,6 +92,7 @@ public class Project {
     public Project(
         String title,
         String type,
+        Integer year,
         String description,
         LocalDate startDate,
         LocalDate deadline,
@@ -101,6 +106,7 @@ public class Project {
     ) {
         this.title = title;
         this.type = type;
+        this.year = year;
         this.description = description;
         this.startDate = startDate;
         this.deadline = deadline;
@@ -143,6 +149,14 @@ public class Project {
 
     public void setType(String type) {
         this.type = type;
+    }
+
+    public Integer getYear() {
+        return year;
+    }
+
+    public void setYear(Integer year) {
+        this.year = year;
     }
 
     public LocalDate getStartDate() {

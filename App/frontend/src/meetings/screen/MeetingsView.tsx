@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
+import { toast } from "sonner";
 import { CatTag } from "../../board/components/CatTag";
 import { PriorityBadge } from "../../board/components/PriorityBadge";
 import { getCat } from "../../board/libs/utils/taskService";
@@ -448,7 +449,6 @@ export function MeetingsView() {
   const [registerMessage, setRegisterMessage] = useState<string | null>(null);
   const [isRegisteringTasks, setIsRegisteringTasks] = useState(false);
   const [meetingListError, setMeetingListError] = useState<string | null>(null);
-  const [deleteMessage, setDeleteMessage] = useState<string | null>(null);
   const [deletingMeetingId, setDeletingMeetingId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Meeting | null>(null);
   const [deleteMode, setDeleteMode] = useState<"analysis" | "original" | null>(null);
@@ -1229,7 +1229,6 @@ export function MeetingsView() {
     setDeleteMode(null);
     setDeletingMeetingId(target.id);
     setMeetingListError(null);
-    setDeleteMessage(null);
 
     // 서버 DELETE 응답(최대 10초)을 기다린 뒤에 목록을 갱신하면 그동안 삭제한 항목이 그대로 남아
     // "삭제가 안 된다, 새로고침해야 사라진다"로 보인다. 먼저 화면에서 지우고, 서버 삭제가
@@ -1237,8 +1236,7 @@ export function MeetingsView() {
     const meetingsSnapshot = meetings;
     const savedSnapshot = getSavedMeetings(projectId);
     removeMeetingFromLocalState(target.id);
-    setDeleteMessage(deleteLinkedTasks ? "회의록과 연동 업무가 삭제되었습니다." : "회의록이 삭제되었습니다.");
-    setTimeout(() => setDeleteMessage(null), 2500);
+    toast.success(deleteLinkedTasks ? "회의록과 연동 업무가 삭제되었습니다." : "회의록이 삭제되었습니다.");
 
     try {
       if (isServerMeetingId(target.id)) {
@@ -1264,7 +1262,6 @@ export function MeetingsView() {
         // 다시 조회해 실제로 삭제되지 않았다면 목록이 스스로 복구되게 한다.
         void refreshMeetingsFromServer();
       } else {
-        setDeleteMessage(null);
         unmarkDeletedMeeting(target.id, projectId);
         restoreMeetingToLocalState(meetingsSnapshot, savedSnapshot);
         const statusCode = error instanceof ApiRequestError ? error.status : null;
@@ -1305,7 +1302,6 @@ export function MeetingsView() {
     setDeleteMode(null);
     setDeletingMeetingId(target.id);
     setMeetingListError(null);
-    setDeleteMessage(null);
     try {
       if (isServerMeetingId(target.id)) {
         await deleteMeetingAnalysis(projectId, target.id, deleteLinkedTasks);
@@ -1314,8 +1310,7 @@ export function MeetingsView() {
         await removeLinkedLocalTasks(target);
       }
       updateMeetingAfterAnalysisDelete(target.id);
-      setDeleteMessage(deleteLinkedTasks ? "분석 결과와 연동 업무가 삭제되었습니다." : "분석 결과가 삭제되었습니다.");
-      setTimeout(() => setDeleteMessage(null), 2500);
+      toast.success(deleteLinkedTasks ? "분석 결과와 연동 업무가 삭제되었습니다." : "분석 결과가 삭제되었습니다.");
     } catch (error) {
       const message = error instanceof Error ? error.message : "";
       const statusCode = error instanceof ApiRequestError ? error.status : null;
@@ -2449,7 +2444,6 @@ export function MeetingsView() {
         </div>
         <div className="flex-1 overflow-y-auto p-3 space-y-2">
           {meetingListError && <div className="text-[11px] text-amber-600 px-1">{meetingListError}</div>}
-          {deleteMessage && <div className="text-[11px] text-emerald-600 px-1">{deleteMessage}</div>}
           {meetings.length === 0 ? (
             <div className="h-full min-h-[360px] flex flex-col items-center justify-center text-center px-4 text-muted-foreground">
               <div className="w-14 h-14 rounded-2xl bg-muted flex items-center justify-center mb-4">

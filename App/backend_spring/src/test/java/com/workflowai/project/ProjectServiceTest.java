@@ -61,7 +61,7 @@ class ProjectServiceTest {
 
     private CreateProjectRequest validRequest() {
         return new CreateProjectRequest(
-            "스마트 주차 관리 시스템", "캡스톤디자인", "설명",
+            "스마트 주차 관리 시스템", "캡스톤디자인", 2026, "설명",
             LocalDate.of(2026, 3, 1), LocalDate.of(2026, 7, 18), null,
             6, List.of("발표자료", "보고서"), List.of("Spring Boot", "React"), "MVP 목표"
         );
@@ -84,9 +84,23 @@ class ProjectServiceTest {
     }
 
     @Test
+    void create_yearIsSavedAndReturnedInResponse() {
+        when(projectRepository.saveAndFlush(any(Project.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(taskRepository.findByProjectIdOrderByCreatedAtDesc(any())).thenReturn(List.of());
+        when(projectMemberRepository.countByProjectIdAndRoleNot(any(), any())).thenReturn(0L);
+
+        ProjectResponse response = projectService.create(1L, validRequest());
+
+        ArgumentCaptor<Project> projectCaptor = ArgumentCaptor.forClass(Project.class);
+        verify(projectRepository).saveAndFlush(projectCaptor.capture());
+        assertThat(projectCaptor.getValue().getYear()).isEqualTo(2026);
+        assertThat(response.year()).isEqualTo(2026);
+    }
+
+    @Test
     void create_missingDeadline_isAllowedForBackwardCompatibility() {
         CreateProjectRequest request = new CreateProjectRequest(
-            "제목", "캡스톤디자인", null, null, null, null, null, null, null, null
+            "제목", "캡스톤디자인", null, null, null, null, null, null, null, null, null
         );
         when(projectRepository.saveAndFlush(any(Project.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(taskRepository.findByProjectIdOrderByCreatedAtDesc(any())).thenReturn(List.of());
@@ -100,7 +114,7 @@ class ProjectServiceTest {
     @Test
     void create_startDateAfterDeadline_throws() {
         CreateProjectRequest request = new CreateProjectRequest(
-            "제목", "캡스톤디자인", null,
+            "제목", "캡스톤디자인", null, null,
             LocalDate.of(2026, 8, 1), LocalDate.of(2026, 7, 1), null,
             null, null, null, null
         );
@@ -112,7 +126,7 @@ class ProjectServiceTest {
     @Test
     void create_memberLimitLessThanOne_throws() {
         CreateProjectRequest request = new CreateProjectRequest(
-            "제목", "캡스톤디자인", null, null, LocalDate.of(2026, 7, 1), null,
+            "제목", "캡스톤디자인", null, null, null, LocalDate.of(2026, 7, 1), null,
             0, null, null, null
         );
 

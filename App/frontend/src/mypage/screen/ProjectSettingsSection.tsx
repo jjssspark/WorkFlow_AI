@@ -6,6 +6,21 @@ import { updateProject, type ProjectResponse } from "../../global/api/projectsAp
 
 const PROJECT_TYPES = ["캡스톤디자인", "팀프로젝트", "공모전", "해커톤", "기타"];
 
+/** 시작일 ≤ 중간 점검일 ≤ 최종 마감일 순서를 강제한다. 값이 없는 필드는 검사에서 제외한다. */
+function validateDates(form: ProjectResponse): string | null {
+  const { startDate, deadline, midCheckDate } = form;
+  if (startDate && deadline && startDate > deadline) {
+    return "시작일은 최종 마감일보다 이후일 수 없습니다.";
+  }
+  if (startDate && midCheckDate && startDate > midCheckDate) {
+    return "시작일은 중간 점검일보다 이후일 수 없습니다.";
+  }
+  if (midCheckDate && deadline && midCheckDate > deadline) {
+    return "중간 점검일은 최종 마감일보다 이후일 수 없습니다.";
+  }
+  return null;
+}
+
 /** 팀장만 프로젝트 정보를 수정할 수 있고, 팀원/심사자는 읽기 전용으로 본다. */
 export function ProjectSettingsSection() {
   const { currentProject, currentProjectId, refreshMe } = useAuth();
@@ -32,8 +47,9 @@ export function ProjectSettingsSection() {
       setError("프로젝트명은 비워둘 수 없습니다.");
       return;
     }
-    if (form.startDate && form.deadline && form.startDate > form.deadline) {
-      setError("시작일은 종료일보다 이전이어야 합니다.");
+    const dateError = validateDates(form);
+    if (dateError) {
+      setError(dateError);
       return;
     }
     setSaving(true);
@@ -88,16 +104,16 @@ export function ProjectSettingsSection() {
 
       {!editing ? (
         <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-sm">
-          <Field label="프로젝트명" value={project.title} />
-          <Field label="유형" value={project.type ?? "미설정"} />
-          <Field label="시작일" value={project.startDate ?? "미설정"} />
-          <Field label="최종 마감일" value={project.deadline ?? "미설정"} />
-          <Field label="중간 점검일" value={project.midCheckDate ?? "미설정"} />
-          <Field label="예상 인원" value={`${project.memberLimit ?? 0}명 (현재 ${project.memberCount ?? 0}명)`} />
-          <Field label="목표 산출물" value={project.deliverables?.join(", ") || "미설정"} />
-          <Field label="기술 스택" value={project.techStack?.join(", ") || "미설정"} />
-          <Field label="설명" value={project.description ?? "미설정"} full />
-          <Field label="진행 목표/메모" value={project.goals ?? "미설정"} full />
+          <Field label="프로젝트명" value={form.title} />
+          <Field label="유형" value={form.type ?? "미설정"} />
+          <Field label="시작일" value={form.startDate ?? "미설정"} />
+          <Field label="최종 마감일" value={form.deadline ?? "미설정"} />
+          <Field label="중간 점검일" value={form.midCheckDate ?? "미설정"} />
+          <Field label="예상 인원" value={`${form.memberLimit ?? 0}명 (현재 ${form.memberCount ?? 0}명)`} />
+          <Field label="목표 산출물" value={form.deliverables?.join(", ") || "미설정"} />
+          <Field label="기술 스택" value={form.techStack?.join(", ") || "미설정"} />
+          <Field label="설명" value={form.description ?? "미설정"} full />
+          <Field label="진행 목표/메모" value={form.goals ?? "미설정"} full />
         </dl>
       ) : (
         <div className="space-y-3">

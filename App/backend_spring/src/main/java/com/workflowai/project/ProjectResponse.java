@@ -9,6 +9,7 @@ public record ProjectResponse(
     Long id,
     String title,
     String type,
+    Integer year,
     LocalDate deadline,
     String description,
     LocalDate startDate,
