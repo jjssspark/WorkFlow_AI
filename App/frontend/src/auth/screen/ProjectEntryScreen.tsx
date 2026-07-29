@@ -34,7 +34,6 @@ function formatActivityDate(isoDateTime: string): string {
   return `${date.getMonth() + 1}.${String(date.getDate()).padStart(2, "0")}`;
 }
 
-const PROJECT_META: Record<number, { type: string; deadline: string; progress: number }> = {};
 
 const ROLE_META: Record<ProjectRoleKo, { label: string; color: string; bg: string; icon: typeof Crown }> = {
   "팀장": { label: "팀장", color: "#3B5BDB", bg: "rgba(59,91,219,0.1)", icon: Crown },
@@ -389,7 +388,7 @@ export function ProjectEntryScreen() {
               {projects.map((project) => {
                 const role = ROLE_META[project.role];
                 const RoleIcon = role.icon;
-                const meta = PROJECT_META[project.projectId] ?? { type: "캡스톤디자인", deadline: "진행 중", progress: 0 };
+                const meta = { type: project.type ?? "캡스톤디자인", deadline: "진행 중", progress: project.taskProgress ?? 0 };
                 return (
                   <button
                     key={project.projectId}

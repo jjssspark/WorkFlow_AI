@@ -8,6 +8,8 @@ import com.workflowai.project.Project;
 import com.workflowai.project.ProjectMember;
 import com.workflowai.project.ProjectMemberRepository;
 import com.workflowai.project.ProjectRepository;
+import com.workflowai.project.ProjectResponse;
+import com.workflowai.project.ProjectService;
 import com.workflowai.security.CurrentUser;
 import com.workflowai.task.S3StorageClient;
 import com.workflowai.user.User;
@@ -57,6 +59,7 @@ public class MeController {
     private final UserRepository userRepository;
     private final ProjectMemberRepository projectMemberRepository;
     private final ProjectRepository projectRepository;
+    private final ProjectService projectService;
     private final S3StorageClient storageClient;
     private final PersonalCommentRepository personalCommentRepository;
 
@@ -64,12 +67,14 @@ public class MeController {
         UserRepository userRepository,
         ProjectMemberRepository projectMemberRepository,
         ProjectRepository projectRepository,
+        ProjectService projectService,
         S3StorageClient storageClient,
         PersonalCommentRepository personalCommentRepository
     ) {
         this.userRepository = userRepository;
         this.projectMemberRepository = projectMemberRepository;
         this.projectRepository = projectRepository;
+        this.projectService = projectService;
         this.storageClient = storageClient;
         this.personalCommentRepository = personalCommentRepository;
     }
@@ -109,12 +114,24 @@ public class MeController {
             .findAllById(memberships.stream().map(ProjectMember::getProjectId).toList())
             .stream()
             .collect(Collectors.toMap(Project::getId, project -> project));
+        // 유형/연도/진행률은 ProjectService.findAllForUser의 계산 로직(진행률 등)을 그대로 재사용해
+        // /projects 목록·대시보드와 항상 같은 값을 보장한다(따로 계산 로직을 중복 구현하지 않음).
+        Map<Long, ProjectResponse> fullProjectsById = projectService.findAllForUser(user.getId()).stream()
+            .collect(Collectors.toMap(ProjectResponse::id, project -> project));
 
         List<ProjectRoleSummary> projectRoles = memberships.stream()
             .map(pm -> {
                 Project project = projectsById.get(pm.getProjectId());
                 String title = project != null ? project.getTitle() : null;
-                return new ProjectRoleSummary(pm.getProjectId(), title, pm.getRole().toKorean());
+                ProjectResponse full = fullProjectsById.get(pm.getProjectId());
+                return new ProjectRoleSummary(
+                    pm.getProjectId(),
+                    title,
+                    pm.getRole().toKorean(),
+                    full != null ? full.type() : null,
+                    full != null ? full.year() : null,
+                    full != null ? full.taskProgress() : 0
+                );
             })
             .toList();
 

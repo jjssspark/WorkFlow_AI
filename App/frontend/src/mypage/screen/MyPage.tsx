@@ -17,7 +17,6 @@ import { ProjectSettingsSection } from "./ProjectSettingsSection";
 import {
   MEMBER_USER, MY_FEEDBACKS,
 } from "../libs/mock/mypage";
-import { CONTRIB_REPORTS } from "../../global/lib/mock/reviewer";
 import { useMyTasks } from "../libs/hooks/useMyTasks";
 import { useReviewerProjects } from "../libs/hooks/useReviewerProjects";
 import { useReviewerContribution } from "../libs/hooks/useReviewerContribution";
@@ -157,8 +156,9 @@ function MemberMyPage({ name, email, onLogout, projectId, projectContextReady, u
         return next;
       });
       reloadPersonalComments();
-    } catch {
+    } catch (error) {
       // 실패 시 입력값은 유지해 사용자가 다시 시도할 수 있게 한다.
+      toast.error(error instanceof Error ? error.message : "답글 전송에 실패했습니다.");
     }
   };
 
@@ -426,11 +426,11 @@ function MemberMyPage({ name, email, onLogout, projectId, projectContextReady, u
                   모든 카드는 클릭하면 상세 팝업이 뜬다. */}
               <div className="bg-card rounded-xl border border-border shadow-sm overflow-hidden">
                 <div className="px-5 py-3.5 border-b border-border"><SectionTitle>개인 코멘트 / 피드백</SectionTitle></div>
-                <div className="p-4 space-y-3">
+                <div className="p-4 space-y-3 max-h-[420px] overflow-y-auto">
                   {myEvaluation?.commentRevealed && myEvaluation.comment && (
                     <button
                       type="button"
-                      onClick={() => setDetailModal({ title: "심사자 코멘트", author: "심사자 코멘트", content: myEvaluation.comment as string })}
+                      onClick={() => setDetailModal({ title: "심사자 코멘트", author: "심사자", content: myEvaluation.comment as string })}
                       className="w-full text-left rounded-xl p-3.5 border border-emerald-200 bg-emerald-50/40"
                     >
                       <div className="flex items-center gap-2 mb-1.5">
@@ -593,10 +593,11 @@ function ReviewerMyPage({ name, email, onLogout, avatarUrl }: { name: string; em
   const { projects, loadState, reload } = useReviewerProjects();
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
   const [panelTab, setPanelTab] = useState<ReviewerPanelTab>("summary");
-  const [scores, setScores] = useState<Record<string,string>>({ "1":"92","2":"88","3":"85","4":"72" });
-  const [publicFlags, setPublicFlags] = useState<Record<string,boolean>>({ "1":true,"2":false,"3":false,"4":false });
+  const [scores, setScores] = useState<Record<string,string>>({});
+  const [publicFlags, setPublicFlags] = useState<Record<string,boolean>>({});
   const [printReport, setPrintReport] = useState<PrintReport | null>(null);
   const [personalCommentDrafts, setPersonalCommentDrafts] = useState<Record<string,string>>({});
+  const [personalCommentStatus, setPersonalCommentStatus] = useState<Record<string, "sending" | "sent">>({});
 
   useEffect(() => {
     if (selectedProjectId === null && projects.length > 0) {
@@ -608,6 +609,7 @@ function ReviewerMyPage({ name, email, onLogout, avatarUrl }: { name: string; em
   const handleSubmitPersonalComment = async (memberId: string) => {
     const draft = (personalCommentDrafts[memberId] ?? "").trim();
     if (!draft || team === null) return;
+    setPersonalCommentStatus((prev) => ({ ...prev, [memberId]: "sending" }));
     try {
       await createPersonalComment(team.projectId, Number(memberId), draft);
       setPersonalCommentDrafts((prev) => {
@@ -615,11 +617,26 @@ function ReviewerMyPage({ name, email, onLogout, avatarUrl }: { name: string; em
         delete next[memberId];
         return next;
       });
-    } catch {
+      setPersonalCommentStatus((prev) => ({ ...prev, [memberId]: "sent" }));
+      toast.success("코멘트를 전송했습니다.");
+      setTimeout(() => {
+        setPersonalCommentStatus((prev) => {
+          const next = { ...prev };
+          delete next[memberId];
+          return next;
+        });
+      }, 1500);
+    } catch (error) {
       // 실패 시 입력값은 유지해 사용자가 다시 시도할 수 있게 한다.
+      setPersonalCommentStatus((prev) => {
+        const next = { ...prev };
+        delete next[memberId];
+        return next;
+      });
+      toast.error(error instanceof Error ? error.message : "코멘트 전송에 실패했습니다.");
     }
   };
-  const contribProjectId = panelTab === "contrib" || panelTab === "ai-evidence" ? (team?.projectId ?? null) : null;
+  const contribProjectId = panelTab === "contrib" || panelTab === "ai-evidence" || panelTab === "score" ? (team?.projectId ?? null) : null;
   const { rows: contribRows, loadState: contribLoadState, reload: reloadContrib } = useReviewerContribution(contribProjectId);
   const evalCounts = {
     pending: projects.filter(p => p.evalStatus === "pending").length,
@@ -648,7 +665,7 @@ function ReviewerMyPage({ name, email, onLogout, avatarUrl }: { name: string; em
     setPrintReport({
       title: `${team.title} 평가 리포트`,
       headers: ["이름", "역할", "점수", "공개 여부"],
-      rows: CONTRIB_REPORTS.map(r => [r.name, r.role, `${scores[r.memberId] ?? "-"} / 100`, publicFlags[r.memberId] ? "공개" : "비공개"]),
+      rows: contribRows.map(r => [r.name, r.role, `${scores[String(r.userId)] ?? "-"} / 100`, publicFlags[String(r.userId)] ? "공개" : "비공개"]),
     });
   };
 
@@ -944,14 +961,33 @@ function ReviewerMyPage({ name, email, onLogout, avatarUrl }: { name: string; em
                   <Shield className="w-3.5 h-3.5 text-blue-500 shrink-0" />
                   <span className="text-xs text-blue-700 font-medium">최종 평가 점수 입력 — 심사자 전용. 공개 설정 후 팀원에게 노출됩니다.</span>
                 </div>
+                {contribLoadState === "loading" && (
+                  <div className="px-4 py-6 text-center text-xs text-muted-foreground">불러오는 중...</div>
+                )}
+                {contribLoadState === "error" && (
+                  <div className="px-4 py-6 flex flex-col items-center gap-2 text-center text-xs text-muted-foreground">
+                    <span>팀원 목록을 불러오지 못했습니다.</span>
+                    <button onClick={reloadContrib} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white rounded-lg hover:opacity-90 transition-opacity" style={{ background: "var(--primary)" }}>
+                      <RefreshCw className="w-3.5 h-3.5" />다시 시도
+                    </button>
+                  </div>
+                )}
+                {contribLoadState === "ready" && contribRows.length === 0 && (
+                  <div className="px-4 py-6 text-center text-xs text-muted-foreground">팀원이 없습니다.</div>
+                )}
+                {contribLoadState === "ready" && contribRows.length > 0 && (
                 <div className="space-y-3">
-                  {CONTRIB_REPORTS.map(r => (
-                    <div key={r.memberId} className="bg-card rounded-xl border border-border shadow-sm p-4">
+                  {contribRows.map((r, i) => {
+                    const memberId = String(r.userId);
+                    const color = resolveMemberDisplay(r.name, i, memberId).color;
+                    const status = personalCommentStatus[memberId];
+                    return (
+                    <div key={memberId} className="bg-card rounded-xl border border-border shadow-sm p-4">
                       <div className="flex items-center gap-3 mb-3">
-                        <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold" style={{ background: r.color }}>{r.name[0]}</div>
+                        <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold" style={{ background: color }}>{r.name[0]}</div>
                         <div className="flex-1"><div className="text-sm font-bold text-foreground">{r.name}</div><div className="text-[10px] text-muted-foreground">{r.role}</div></div>
                         <div className="flex items-center gap-2">
-                          <input type="number" min="0" max="100" value={scores[r.memberId]??""} onChange={e => setScores(p=>({...p,[r.memberId]:e.target.value}))}
+                          <input type="number" min="0" max="100" value={scores[memberId]??""} onChange={e => setScores(p=>({...p,[memberId]:e.target.value}))}
                             className="w-16 text-center text-sm font-bold rounded-lg border border-border bg-input-background px-2 py-2 outline-none focus:border-blue-400" />
                           <span className="text-sm text-muted-foreground">/ 100</span>
                         </div>
@@ -960,29 +996,31 @@ function ReviewerMyPage({ name, email, onLogout, avatarUrl }: { name: string; em
                         <textarea
                           rows={1}
                           placeholder="개인 코멘트 (옵션)..."
-                          value={personalCommentDrafts[r.memberId] ?? ""}
-                          onChange={(e) => setPersonalCommentDrafts(p => ({ ...p, [r.memberId]: e.target.value }))}
+                          value={personalCommentDrafts[memberId] ?? ""}
+                          onChange={(e) => setPersonalCommentDrafts(p => ({ ...p, [memberId]: e.target.value }))}
                           className="flex-1 text-xs rounded-lg border border-border bg-input-background px-3 py-2 outline-none focus:border-blue-400 resize-none mr-3"
                         />
                         <button
                           type="button"
-                          onClick={() => handleSubmitPersonalComment(r.memberId)}
-                          disabled={!(personalCommentDrafts[r.memberId] ?? "").trim()}
+                          onClick={() => handleSubmitPersonalComment(memberId)}
+                          disabled={status === "sending" || !(personalCommentDrafts[memberId] ?? "").trim()}
                           className="shrink-0 mr-3 px-2.5 py-1.5 text-[10px] font-semibold text-white rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-40"
                         >
-                          코멘트 등록
+                          {status === "sending" ? "전송 중..." : status === "sent" ? "전송 완료" : "전송"}
                         </button>
                         <div className="flex items-center gap-2 shrink-0">
-                          <span className="text-xs text-muted-foreground">{publicFlags[r.memberId]?"공개":"비공개"}</span>
-                          <div onClick={() => setPublicFlags(p=>({...p,[r.memberId]:!p[r.memberId]}))}
-                            className={`w-10 h-5.5 h-[22px] rounded-full flex items-center px-0.5 cursor-pointer transition-colors ${publicFlags[r.memberId]?"bg-blue-500":"bg-muted"}`}>
-                            <div className={`w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${publicFlags[r.memberId]?"translate-x-4.5 translate-x-[18px]":"translate-x-0"}`} />
+                          <span className="text-xs text-muted-foreground">{publicFlags[memberId]?"공개":"비공개"}</span>
+                          <div onClick={() => setPublicFlags(p=>({...p,[memberId]:!p[memberId]}))}
+                            className={`w-10 h-5.5 h-[22px] rounded-full flex items-center px-0.5 cursor-pointer transition-colors ${publicFlags[memberId]?"bg-blue-500":"bg-muted"}`}>
+                            <div className={`w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${publicFlags[memberId]?"translate-x-4.5 translate-x-[18px]":"translate-x-0"}`} />
                           </div>
                         </div>
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
+                )}
                 <div className="flex items-center gap-3 pt-2">
                   <button className="flex-1 py-2.5 text-sm font-bold text-white rounded-xl hover:opacity-90 transition-opacity" style={{ background:"linear-gradient(135deg,#3B5BDB,#4F6EF7)" }}>
                     평가 완료 처리

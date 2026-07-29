@@ -2,6 +2,7 @@ import { createBrowserRouter, Navigate, Outlet, type RouteObject } from "react-r
 import { Toaster } from "../global/component/ui/sonner";
 import { RequireAuth, RequireRole, RequireAdmin } from "../global/hooks/useAuthGuard";
 import { AppShell } from "../global/component/layout/AppShell";
+import { NotificationProvider } from "../global/hooks/useNotifications";
 import { LoginScreen } from "../auth/screen/LoginScreen";
 import { SignupScreen } from "../auth/screen/SignupScreen";
 import { TermsScreen } from "../auth/screen/TermsScreen";
@@ -62,7 +63,7 @@ const appRoutes: RouteObject[] = [
         ],
       },
       {
-        element: <AppShell />,
+        element: <NotificationProvider><AppShell /></NotificationProvider>,
         children: [
           { index: true, element: <Navigate to="/dashboard" replace /> },
           { path: "dashboard", element: <DashboardView /> },
