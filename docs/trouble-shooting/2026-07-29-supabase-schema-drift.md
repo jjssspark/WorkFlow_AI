@@ -46,10 +46,13 @@
 
 체크섬 불일치는 없었다. 적용된 V파일을 나중에 고친 흔적은 없다.
 
-### 조치 — 장부에 4행 등록
+### 조치 — 장부에 4행 등록 (2026-07-29 실행 완료)
 
 `flyway repair`로는 해결되지 않는다. repair는 체크섬 재정렬과 실패행 정리만 하고,
 실행된 적 없는 마이그레이션을 "적용됨"으로 만들지 않는다. 수동 INSERT가 필요하다.
+
+실행 전 `pg_stat_activity`에서 활성 세션 0건, `flyway_schema_history` 락 0건을 확인했다.
+실행 후 장부는 baseline 1행 + SQL 28행이며, 체크섬 불일치 0건이다.
 
 ```sql
 BEGIN;
@@ -116,18 +119,41 @@ CHECK 제약이 갈린 이유는 `V20260723_2`/`V20260724_6`이 `IF NOT EXISTS` 
 코드 경로가 없어 사고가 나지 않았을 뿐이며, **enum에서 빼거나 CHECK에 넣거나 한쪽으로
 정리해야 한다.** 프론트 계약을 건드려야 해서 이번 범위에서는 제외했다.
 
-## 발견 3 — 결정 문서가 이미 아는 legacy divergence (현재도 유효)
+## 발견 3 — legacy divergence 30건
 
-2026-07-26에 기록된 30건이 그대로 남아 있다. 이번 대조로 재확인만 했다.
+2026-07-26에 기록된 30건이 그대로 남아 있었다.
 
 - `workload_scores` 테이블 + 컬럼 6개, `uq_action_items_created_task`, 성능 인덱스 6개 —
   운영에만 존재하고 `docs/db/workflow_ai_schema.sql` 스냅샷에만 정의됨 (`workload_scores`는 0행)
 - FK 이름 5개 불일치 (`fk_chunks_assignee` ↔ `document_chunks_assignee_id_fkey` 등)
 - FK 4개가 운영에서 `ON DELETE` 절 누락 (`fk_notifications_user`에 CASCADE 없음 등)
 - `varchar` 10개가 운영에서 길이 제한 없음 (`notifications.title`, `meetings.meeting_type` 등)
-- `meeting_action_items.id`/`notifications.id`가 운영은 IDENTITY, 레포는 serial (기능 동등)
+- `meeting_action_items.id`/`notifications.id`가 운영은 IDENTITY, 레포는 serial
 
-정리 시점은 결정 문서대로 **OCI 자체호스팅 Postgres 이관 시 baseline 재설계와 함께**다.
+### 조치 — `V20260729_4__align_legacy_divergence_with_production.sql`
+
+결정 문서는 이 정리를 OCI 이관 시점으로 미뤄뒀으나, 대조 시점에 운영 기준으로 전부 맞췄다.
+빈 DB만 바뀌고 운영에서는 no-op이다.
+
+**한 가지 주의**: FK 4건의 `ON DELETE` 절 제거는 빈 DB를 운영과 "같게" 만들지만 "더 낫게"
+만들지는 않는다. 운영에서 부모 행 삭제가 `RESTRICT`(기본값)로 막히는 동작을 새 환경에도
+그대로 옮기는 것이다. 어느 쪽이 옳은지는 별도 판단이 필요하다.
+
+### 검증
+
+`pgvector:pg17` 컨테이너에 `db/init` + V파일 30개를 적용한 레퍼런스 DB와 운영을 비교했다.
+
+| | 운영 | 레퍼런스 | 차이 |
+|---|---|---|---|
+| 테이블 | 30 | 30 | 0 |
+| 컬럼 | 258 | 258 | 0 |
+| 제약 | 92 | 92 | 0 |
+| 인덱스 | 58 | 58 | 0 |
+
+레퍼런스 DB(=운영과 동일 상태)에 `V20260729_3`·`V20260729_4`를 **재적용**한 뒤에도 차이 0이다.
+운영에서 no-op이라는 근거다.
+
+**비교 대상에 포함되지 않은 것**: 테이블·컬럼 COMMENT, 권한(GRANT), RLS 정책, `public` 외 스키마.
 
 ## 재현 절차
 
