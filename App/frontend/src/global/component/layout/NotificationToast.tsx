@@ -19,7 +19,8 @@ export function NotificationToast({ notification, toastId }: Props) {
   const hasTarget =
     (notification.targetType === "task" ||
       notification.targetType === "meeting" ||
-      notification.targetType === "evaluation") &&
+      notification.targetType === "evaluation" ||
+      notification.targetType === "personal_comment") &&
     !!notification.targetId;
 
   const handleActivate = () => {
@@ -35,6 +36,8 @@ export function NotificationToast({ notification, toastId }: Props) {
       navigate(`/meetings?meetingId=${notification.targetId}${meetingNotificationPanelQuery(notification.type)}`);
     } else if (notification.targetType === "evaluation" && notification.targetId) {
       navigate("/mypage");
+    } else if (notification.targetType === "personal_comment" && notification.targetId) {
+      navigate(`/mypage?commentId=${encodeURIComponent(notification.targetId)}`);
     }
     toast.dismiss(toastId);
   };
