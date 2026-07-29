@@ -109,6 +109,7 @@ describe("NotificationToast", () => {
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 
+
   it("평가 공개 알림(evaluation)에도 바로가기 버튼이 보이고 클릭 시 마이페이지로 이동한다", async () => {
     renderToast({ type: "CONTRIBUTION_SCORE_PUBLISHED", targetType: "evaluation", targetId: "5" });
 
@@ -116,5 +117,14 @@ describe("NotificationToast", () => {
 
     expect(markNotificationsRead).toHaveBeenCalledWith(["1"]);
     expect(mockNavigate).toHaveBeenCalledWith("/mypage");
+  });
+
+  it("개인 코멘트 알림(personal_comment)에도 바로가기 버튼이 보이고 클릭 시 마이페이지의 해당 코멘트로 이동한다", async () => {
+    renderToast({ type: "PERSONAL_COMMENT", targetType: "personal_comment", targetId: "9" });
+
+    await userEvent.click(screen.getByRole("button", { name: "바로가기" }));
+
+    expect(markNotificationsRead).toHaveBeenCalledWith(["1"]);
+    expect(mockNavigate).toHaveBeenCalledWith("/mypage?commentId=9");
   });
 });

@@ -277,6 +277,20 @@ describe("Header 알림", () => {
     expect(mockNavigate).toHaveBeenCalledWith("/mypage");
   });
 
+  it("개인 코멘트 알림(personal_comment)에도 바로가기 버튼이 보이고 클릭 시 마이페이지의 해당 코멘트로 이동한다", async () => {
+    vi.mocked(fetchNotifications).mockResolvedValue([
+      { id: "1", projectId: "1", type: "PERSONAL_COMMENT", title: "새 코멘트가 도착했습니다", content: "UI가 깔끔하네요", targetType: "personal_comment", targetId: "9", read: false, createdAt: new Date().toISOString() },
+    ]);
+    vi.mocked(markNotificationsRead).mockResolvedValue(undefined);
+
+    renderHeader();
+    await openBell();
+
+    const shortcutButton = await screen.findByRole("button", { name: "바로가기" });
+    await userEvent.click(shortcutButton);
+
+    expect(mockNavigate).toHaveBeenCalledWith("/mypage?commentId=9");
+  });
   // 삭제 알림은 "할 일"도 아니고, 눌러도 열어볼 대상이 이미 없어 바로가기도 붙이지 않는다.
   // 분석 결과만 지운 경우 회의록 자체는 남지만 사용자가 확인하려던 분석 내용은 없으므로 마찬가지다.
   it("분석 결과 삭제 알림에는 바로가기도 할 일 배지도 없다", async () => {

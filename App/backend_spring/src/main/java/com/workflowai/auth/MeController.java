@@ -1,5 +1,8 @@
 package com.workflowai.auth;
 
+import com.workflowai.comment.PersonalComment;
+import com.workflowai.comment.PersonalCommentDto;
+import com.workflowai.comment.PersonalCommentRepository;
 import com.workflowai.common.ApiResponse;
 import com.workflowai.project.Project;
 import com.workflowai.project.ProjectMember;
@@ -24,6 +27,7 @@ import javax.imageio.stream.ImageInputStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -45,6 +49,7 @@ public class MeController {
     private static final int MAX_AFFILIATION_LENGTH = 100;
     private static final int MAX_FIELD_TAGS = 10;
     private static final int MAX_FIELD_TAG_LENGTH = 30;
+    private static final String TARGET_TYPE_PERSONAL = "personal";
     // GitHub 아이디 규칙: 영숫자로 시작, 하이픈은 연속/끝에 올 수 없음, 최대 39자.
     private static final java.util.regex.Pattern GITHUB_USERNAME_PATTERN =
         java.util.regex.Pattern.compile("^[a-zA-Z0-9](?:[a-zA-Z0-9]|-(?=[a-zA-Z0-9])){0,38}$");
@@ -53,17 +58,20 @@ public class MeController {
     private final ProjectMemberRepository projectMemberRepository;
     private final ProjectRepository projectRepository;
     private final S3StorageClient storageClient;
+    private final PersonalCommentRepository personalCommentRepository;
 
     public MeController(
         UserRepository userRepository,
         ProjectMemberRepository projectMemberRepository,
         ProjectRepository projectRepository,
-        S3StorageClient storageClient
+        S3StorageClient storageClient,
+        PersonalCommentRepository personalCommentRepository
     ) {
         this.userRepository = userRepository;
         this.projectMemberRepository = projectMemberRepository;
         this.projectRepository = projectRepository;
         this.storageClient = storageClient;
+        this.personalCommentRepository = personalCommentRepository;
     }
 
     private User currentUserOrThrow() {
@@ -331,10 +339,22 @@ public class MeController {
 
     @Operation(
         summary = "내가 받은/작성한 개인 코멘트",
-        description = "코멘트 데이터 연동은 별도 기능 담당에서 채워진다. 현재는 빈 목록을 반환하는 스텁이다."
+        description = "심사자가 남긴 코멘트와 그에 대한 답글을 시간순으로 최대 10건 반환한다."
     )
     @GetMapping("/comments")
-    public ApiResponse<List<Object>> myComments() {
-        return ApiResponse.ok(List.of());
+    @PreAuthorize("@projectAccess.isMember(#projectId)")
+    public ApiResponse<List<PersonalCommentDto>> myComments(@RequestParam Long projectId) {
+        Long userId = CurrentUser.id();
+        List<PersonalComment> items = personalCommentRepository
+            .findByProjectIdAndTargetTypeAndTargetUserIdOrderByCreatedAtAsc(projectId, TARGET_TYPE_PERSONAL, userId);
+        Map<Long, User> userCache = userRepository.findAllById(
+            items.stream().map(PersonalComment::getAuthorId).distinct().toList()
+        ).stream().collect(Collectors.toMap(User::getId, u -> u));
+        List<PersonalCommentDto> dtos = items.stream()
+            .map(c -> PersonalCommentDto.from(
+                c, userCache.containsKey(c.getAuthorId()) ? userCache.get(c.getAuthorId()).getName() : "알 수 없음"
+            ))
+            .toList();
+        return ApiResponse.ok(dtos);
     }
 }
