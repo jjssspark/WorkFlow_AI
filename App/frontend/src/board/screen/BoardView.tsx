@@ -15,8 +15,9 @@ import {
   fetchTasks, updateTaskPosition, deleteTask, requestTaskCompletion, cancelTaskCompletion, DEMO_PROJECT_ID,
 } from "../libs/utils/taskApi";
 import { NEXT_STATUS, quickMoveTargetStatus, runTaskMoveOnce, type TaskMoveQueue } from "../libs/utils/taskActions";
-import { reorderTasks } from "../libs/utils/taskService";
+import { applyRemoteTaskMove, isTaskStatus, reorderTasks } from "../libs/utils/taskService";
 import { useAuth } from "../../global/hooks/useAuth";
+import { useNotifications } from "../../global/hooks/useNotifications";
 import { getProjectMembers, type MemberResponse } from "../../global/api/projectsApi";
 import type { Task, TaskStatus } from "../libs/types/task";
 
@@ -49,6 +50,28 @@ export function BoardView() {
     tasksRef.current = tasks;
   }, [tasks]);
 
+  const { subscribeTaskMove, isStreamConnected } = useNotifications();
+  // 업무별로 마지막으로 반영한 이벤트의 version(브로드캐스트 시점 타임스탬프)을 기억한다.
+  // 두 사용자가 같은 업무를 거의 동시에 옮기면 커밋은 잠금으로 순서가 보장돼도 브로드캐스트
+  // 도착 순서는 스레드 스케줄링에 달려 있어 뒤바뀔 수 있다 - 이 맵으로 역전된(더 오래된)
+  // 이벤트를 걸러내 최신 상태가 오래된 상태로 덮어써지지 않게 한다.
+  const remoteMoveVersionsRef = useRef<Map<string, number>>(new Map());
+
+  useEffect(() => {
+    return subscribeTaskMove((event) => {
+      if (event.projectId !== String(projectId)) return;
+      if (!isTaskStatus(event.status)) return;
+      const lastVersion = remoteMoveVersionsRef.current.get(event.taskId);
+      // version은 System.currentTimeMillis() 기반이라 두 커밋이 같은 밀리초에 캡처될 수 있다
+      // (OS 타이머 해상도, 특히 Windows에서 흔함). "<="로 동률까지 버리면 실제로 더 최신인
+      // 이벤트가 같은 값을 가졌다는 이유만으로 조용히 폐기돼 보드가 오래된 상태에 머무른다.
+      // "더 오래된 것만" 걸러내도록 엄격한 "<"만 쓴다 - 동률은 적용한다.
+      if (lastVersion !== undefined && event.version < lastVersion) return;
+      remoteMoveVersionsRef.current.set(event.taskId, event.version);
+      setTasks((current) => applyRemoteTaskMove(current, event.taskId, event.status, event.position));
+    });
+  }, [subscribeTaskMove, projectId]);
+
   const selTask = selId ? tasks.find((t) => t.id === selId) ?? null : null;
 
   const assigneeFilter = useMemo(() => parseFilterParam(searchParams, "assignee"), [searchParams]);
@@ -77,8 +100,10 @@ export function BoardView() {
     setSearchParams(nextParams, { replace: true });
   };
 
-  const loadTasks = useCallback(() => {
-    setLoadState("loading");
+  const loadTasks = useCallback((options?: { silent?: boolean }) => {
+    if (!options?.silent) {
+      setLoadState("loading");
+    }
     fetchTasks(projectId)
       .then((result) => {
         setTasks(result);
@@ -96,6 +121,28 @@ export function BoardView() {
     if (!projectContextReady) return;
     loadTasks();
   }, [loadTasks, projectContextReady]);
+
+  // isStreamConnected의 "직전 값"을 렌더마다 추적해, 실제 false→true 전이가 일어난 순간에만
+  // 재연결 여부를 판단한다. loadTasks는 projectId가 바뀔 때마다 identity가 바뀌므로(useCallback),
+  // 그것만으로도 이 effect가 재실행될 수 있다 - 이때 isStreamConnected 자체는 계속 true였다면
+  // (연결이 유지된 채로 프로젝트만 전환한 경우) 실제 전이가 아니므로 재조회하면 안 된다. 그래서
+  // "한 번이라도 연결된 적 있는가" 같은 단순 플래그만으로는 판단하지 않고, 매 실행마다 갱신되는
+  // 직전 값(previousIsStreamConnectedRef)을 기준으로 "지금 이 렌더에서 진짜로 전이가 일어났는가"를 먼저 확인한다.
+  // 다만 마운트 후 최초로 연결되는 것은 재연결이 아니다(loadTasks가 이미 마운트 시 한 번 불렸다) -
+  // 그래서 "이미 한 번이라도 연결된 적이 있었는가"(hasConnectedOnceRef)도 함께 확인해, 두 번째
+  // 이후의 false→true 전이(=진짜 재연결)에서만 다시 불러온다.
+  const previousIsStreamConnectedRef = useRef(isStreamConnected);
+  const hasConnectedOnceRef = useRef(isStreamConnected);
+  useEffect(() => {
+    const wasConnected = previousIsStreamConnectedRef.current;
+    previousIsStreamConnectedRef.current = isStreamConnected;
+    if (isStreamConnected && !wasConnected) {
+      if (hasConnectedOnceRef.current) {
+        loadTasks({ silent: true });
+      }
+      hasConnectedOnceRef.current = true;
+    }
+  }, [isStreamConnected, loadTasks]);
 
   // 담당자 배정 UI(카드 아바타, 상세 패널, 드롭다운, 필터)는 현재 프로젝트의 실제 멤버만 보여준다.
   useEffect(() => {
@@ -323,7 +370,7 @@ export function BoardView() {
             <div className="h-full flex flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
               <span>업무를 불러오지 못했습니다.</span>
               <button
-                onClick={loadTasks}
+                onClick={() => loadTasks()}
                 className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white rounded-xl hover:opacity-90 transition-opacity"
                 style={{ background: "var(--primary)" }}
               >

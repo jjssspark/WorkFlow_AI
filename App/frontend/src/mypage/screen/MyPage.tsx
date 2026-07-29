@@ -1,6 +1,6 @@
-import { useNavigate } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 import { useAuth } from "../../global/hooks/useAuth";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   User, Shield, Settings, Bell, LogOut, Github, ChevronRight,
   FileText, CheckCircle2, Clock, AlertTriangle, Star, Download,
@@ -24,6 +24,9 @@ import { resolveMemberDisplay } from "../../dashboard/libs/utils/memberDisplay";
 import { getDueToday, getDueThisWeek } from "../libs/utils/taskWidgets";
 import { getDoneCount, getInProgressCount, getBlockedCount, getTasksByStatus, formatDueDate } from "../../board/libs/utils/taskService";
 import { getMyEvaluation, type MyEvaluationDto } from "../../global/api/evaluationApi";
+import { createPersonalComment, fetchMyPersonalComments, replyToPersonalComment, type PersonalCommentDto } from "../libs/api/personalCommentApi";
+import { CommentDetailModal, type CommentDetailModalData } from "../components/CommentDetailModal";
+import { toast } from "sonner";
 
 // ─── local types ──────────────────────────────────────────────────────────────
 export type MyPageRole = "member" | "reviewer";
@@ -36,9 +39,16 @@ const EVAL_STATUS_META: Record<EvalStatus, { label: string; cls: string }> = {
   published: { label: "공개 완료", cls: "bg-emerald-100 text-emerald-600" },
 };
 
+/** ISO-8601 → "YYYY-MM-DD HH:mm" (개인 코멘트/답글 표시용, 브라우저 로컬 타임존 기준). */
+function formatPersonalCommentDate(iso: string): string {
+  const date = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
 // ─── Member My Page ───────────────────────────────────────────────────────────
-function MemberMyPage({ name, email, onLogout, projectId, userId, avatarUrl, affiliation, field, githubUsername }: {
-  name: string; email: string; onLogout: () => void; projectId: number | null; userId: number | null;
+function MemberMyPage({ name, email, onLogout, projectId, projectContextReady, userId, avatarUrl, affiliation, field, githubUsername }: {
+  name: string; email: string; onLogout: () => void; projectId: number | null; projectContextReady: boolean; userId: number | null;
   avatarUrl: string | null; affiliation: string | null; field: string[] | null; githubUsername: string | null;
 }) {
   const navigate = useNavigate();
@@ -56,6 +66,92 @@ function MemberMyPage({ name, email, onLogout, projectId, userId, avatarUrl, aff
     }
     getMyEvaluation(projectId).then(setMyEvaluation).catch(() => setMyEvaluation(null));
   }, [projectId]);
+
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [personalComments, setPersonalComments] = useState<PersonalCommentDto[]>([]);
+  const [personalCommentsLoaded, setPersonalCommentsLoaded] = useState(false);
+  const [replyDrafts, setReplyDrafts] = useState<Record<number, string>>({});
+  const [detailModal, setDetailModal] = useState<CommentDetailModalData | null>(null);
+
+  const reloadPersonalComments = useCallback(() => {
+    // useAuth()가 currentProjectId를 아직 확정하지 못한 콜드 로드 구간에서는 projectId가 일시적으로
+    // null로 보인다. 이때 "프로젝트 없음"으로 오판해 목록을 로드 완료 처리하면, 딥링크 effect가
+    // 아직 못 찾은 것으로 착각해 거짓 not-found 토스트를 띄운다. projectContextReady가 true가 될
+    // 때까지는 로드 완료로 취급하지 않는다.
+    if (!projectContextReady) return;
+    if (projectId == null) {
+      setPersonalComments([]);
+      setPersonalCommentsLoaded(true);
+      return;
+    }
+    fetchMyPersonalComments(projectId)
+      .then((list) => { setPersonalComments(list); setPersonalCommentsLoaded(true); })
+      .catch(() => { setPersonalComments([]); setPersonalCommentsLoaded(true); });
+  }, [projectId, projectContextReady]);
+
+  useEffect(() => {
+    reloadPersonalComments();
+  }, [reloadPersonalComments]);
+
+  const { personalCommentRoots, personalCommentReplyByParentId } = useMemo(() => {
+    const roots = personalComments.filter((c) => c.parentId === null);
+    const repliesByParent = new Map<number, PersonalCommentDto>();
+    personalComments.forEach((c) => {
+      if (c.parentId !== null) {
+        repliesByParent.set(c.parentId, c);
+      }
+    });
+    return { personalCommentRoots: roots, personalCommentReplyByParentId: repliesByParent };
+  }, [personalComments]);
+
+  // 알림 "바로가기"로 들어온 ?commentId=를 소비해 해당 코멘트 스레드 팝업을 자동으로 연다.
+  // 목록 로드가 끝나기 전엔 아직 없다고 단정할 수 없으므로 personalCommentsLoaded를 기다린다.
+  useEffect(() => {
+    const commentIdParam = searchParams.get("commentId");
+    if (!commentIdParam || !personalCommentsLoaded) return;
+    const commentId = Number(commentIdParam);
+    const match = personalComments.find((c) => c.id === commentId);
+    if (match) {
+      const rootId = match.parentId ?? match.id;
+      const root = personalComments.find((c) => c.id === rootId);
+      if (root) {
+        const reply = personalCommentReplyByParentId.get(root.id);
+        setDetailModal({
+          title: "심사자 코멘트",
+          author: root.authorName,
+          dateLabel: formatPersonalCommentDate(root.createdAt),
+          content: root.content,
+          reply: reply
+            ? { author: reply.authorName, dateLabel: formatPersonalCommentDate(reply.createdAt), content: reply.content }
+            : undefined,
+        });
+      }
+    } else {
+      // 목록 로드가 끝났는데도 못 찾았다 — 삭제됐거나(정리 정책으로 밀려남) 현재 활성 프로젝트가
+      // 알림이 가리키는 프로젝트와 달라 조회 대상이 아니다. 파라미터만 조용히 지우면 사용자는
+      // 아무 반응도 못 보고 재시도할 방법도 없으므로 토스트로 알린다.
+      toast.error("삭제되었거나 다른 프로젝트의 코멘트입니다.");
+    }
+    const next = new URLSearchParams(searchParams);
+    next.delete("commentId");
+    setSearchParams(next, { replace: true });
+  }, [personalComments, personalCommentsLoaded, personalCommentReplyByParentId, searchParams, setSearchParams]);
+
+  const handleSubmitReply = async (rootId: number) => {
+    const draft = (replyDrafts[rootId] ?? "").trim();
+    if (!draft || projectId == null) return;
+    try {
+      await replyToPersonalComment(projectId, rootId, draft);
+      setReplyDrafts((prev) => {
+        const next = { ...prev };
+        delete next[rootId];
+        return next;
+      });
+      reloadPersonalComments();
+    } catch {
+      // 실패 시 입력값은 유지해 사용자가 다시 시도할 수 있게 한다.
+    }
+  };
 
   const { tasks: myTasks, loadState, reload } = useMyTasks(projectId, userId);
   const dueToday = getDueToday(myTasks);
@@ -331,21 +427,86 @@ function MemberMyPage({ name, email, onLogout, projectId, userId, avatarUrl, aff
               )}
 
               {/* 개인 코멘트/피드백 — 공개된 평가 결과 바로 아래, 세로로 긴 목록 형태로 배치.
-                  심사자가 공개한 심사 코멘트는 목록 맨 앞에 별도 항목으로 추가된다. */}
+                  심사자가 공개한 심사 코멘트/팀장·AI 피드백은 기존 카드 그대로 유지하고,
+                  심사자가 남긴 개인 코멘트+답글(실 데이터, 최대 10건)을 그 사이에 추가한다.
+                  모든 카드는 클릭하면 상세 팝업이 뜬다. */}
               <div className="bg-card rounded-xl border border-border shadow-sm overflow-hidden">
                 <div className="px-5 py-3.5 border-b border-border"><SectionTitle>개인 코멘트 / 피드백</SectionTitle></div>
                 <div className="p-4 space-y-3">
                   {myEvaluation?.commentRevealed && myEvaluation.comment && (
-                    <div className="rounded-xl p-3.5 border border-emerald-200 bg-emerald-50/40">
+                    <button
+                      type="button"
+                      onClick={() => setDetailModal({ title: "심사자 코멘트", author: "심사자 코멘트", content: myEvaluation.comment as string })}
+                      className="w-full text-left rounded-xl p-3.5 border border-emerald-200 bg-emerald-50/40"
+                    >
                       <div className="flex items-center gap-2 mb-1.5">
                         <div className="w-5 h-5 rounded-full flex items-center justify-center text-white text-[9px] font-bold bg-emerald-600">심</div>
                         <span className="text-[11px] font-semibold text-foreground">심사자 코멘트</span>
                       </div>
                       <p className="text-xs text-muted-foreground leading-relaxed">{myEvaluation.comment}</p>
-                    </div>
+                    </button>
                   )}
+                  {personalCommentRoots.map((root) => {
+                    const reply = personalCommentReplyByParentId.get(root.id);
+                    return (
+                      <div key={root.id} className="rounded-xl p-3.5 border border-blue-200 bg-blue-50/40">
+                        <button
+                          type="button"
+                          onClick={() => setDetailModal({
+                            title: "심사자 코멘트",
+                            author: root.authorName,
+                            dateLabel: formatPersonalCommentDate(root.createdAt),
+                            content: root.content,
+                            reply: reply
+                              ? { author: reply.authorName, dateLabel: formatPersonalCommentDate(reply.createdAt), content: reply.content }
+                              : undefined,
+                          })}
+                          className="w-full text-left"
+                        >
+                          <div className="flex items-center gap-2 mb-1.5">
+                            <div className="w-5 h-5 rounded-full flex items-center justify-center text-white text-[9px] font-bold bg-blue-600">심</div>
+                            <span className="text-[11px] font-semibold text-foreground">{root.authorName}</span>
+                            <span className="text-[10px] text-muted-foreground ml-auto">{formatPersonalCommentDate(root.createdAt)}</span>
+                          </div>
+                          <p className="text-xs text-muted-foreground leading-relaxed">{root.content}</p>
+                        </button>
+                        {reply ? (
+                          <div className="mt-2 ml-4 pl-3 border-l-2 border-blue-200">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-[10px] font-semibold text-foreground">답글 · {reply.authorName}</span>
+                              <span className="text-[10px] text-muted-foreground ml-auto">{formatPersonalCommentDate(reply.createdAt)}</span>
+                            </div>
+                            <p className="text-xs text-muted-foreground leading-relaxed">{reply.content}</p>
+                          </div>
+                        ) : (
+                          <div className="mt-2 flex items-center gap-2">
+                            <input
+                              type="text"
+                              value={replyDrafts[root.id] ?? ""}
+                              onChange={(e) => setReplyDrafts((prev) => ({ ...prev, [root.id]: e.target.value }))}
+                              placeholder="답글 작성..."
+                              className="flex-1 text-xs rounded-lg border border-border bg-input-background px-3 py-1.5 outline-none focus:border-blue-400"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleSubmitReply(root.id)}
+                              disabled={!(replyDrafts[root.id] ?? "").trim()}
+                              className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-semibold text-white rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-40"
+                            >
+                              <MessageSquare className="w-3 h-3" />답글
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                   {MY_FEEDBACKS.map((f, i) => (
-                    <div key={i} className={`rounded-xl p-3.5 border ${f.type==="ai"?"border-purple-200 bg-purple-50/40":"border-border bg-muted/30"}`}>
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => setDetailModal({ title: f.type === "ai" ? "AI 활동 분석" : "팀장 피드백", author: f.from, dateLabel: f.date, content: f.content })}
+                      className={`w-full text-left rounded-xl p-3.5 border ${f.type==="ai"?"border-purple-200 bg-purple-50/40":"border-border bg-muted/30"}`}
+                    >
                       <div className="flex items-center gap-2 mb-1.5">
                         <div className="w-5 h-5 rounded-full flex items-center justify-center text-white text-[9px] font-bold" style={{ background: f.type==="ai"?"#7048E8":"#3B5BDB" }}>
                           {f.type==="ai"?"AI":f.from[0]}
@@ -354,11 +515,8 @@ function MemberMyPage({ name, email, onLogout, projectId, userId, avatarUrl, aff
                         <span className="text-[10px] text-muted-foreground ml-auto">{f.date}</span>
                       </div>
                       <p className="text-xs text-muted-foreground leading-relaxed">{f.content}</p>
-                    </div>
+                    </button>
                   ))}
-                  <button className="w-full py-2 text-xs font-medium text-blue-600 border border-dashed border-blue-300 rounded-xl hover:bg-blue-50 transition-colors flex items-center justify-center gap-1.5">
-                    <MessageSquare className="w-3.5 h-3.5" />답글 작성
-                  </button>
                 </div>
               </div>
             </div>
@@ -366,6 +524,7 @@ function MemberMyPage({ name, email, onLogout, projectId, userId, avatarUrl, aff
         )}
       </div>
 
+      {detailModal && <CommentDetailModal data={detailModal} onClose={() => setDetailModal(null)} />}
     </div>
   );
 }
@@ -383,6 +542,7 @@ function ReviewerMyPage({ name, email, onLogout, avatarUrl }: { name: string; em
   const [panelTab, setPanelTab] = useState<ReviewerPanelTab>("summary");
   const [scores, setScores] = useState<Record<string,string>>({ "1":"92","2":"88","3":"85","4":"72" });
   const [publicFlags, setPublicFlags] = useState<Record<string,boolean>>({ "1":true,"2":false,"3":false,"4":false });
+  const [personalCommentDrafts, setPersonalCommentDrafts] = useState<Record<string,string>>({});
 
   useEffect(() => {
     if (selectedProjectId === null && projects.length > 0) {
@@ -391,6 +551,20 @@ function ReviewerMyPage({ name, email, onLogout, avatarUrl }: { name: string; em
   }, [projects, selectedProjectId]);
 
   const team = projects.find(p => p.projectId === selectedProjectId) ?? null;
+  const handleSubmitPersonalComment = async (memberId: string) => {
+    const draft = (personalCommentDrafts[memberId] ?? "").trim();
+    if (!draft || team === null) return;
+    try {
+      await createPersonalComment(team.projectId, Number(memberId), draft);
+      setPersonalCommentDrafts((prev) => {
+        const next = { ...prev };
+        delete next[memberId];
+        return next;
+      });
+    } catch {
+      // 실패 시 입력값은 유지해 사용자가 다시 시도할 수 있게 한다.
+    }
+  };
   const contribProjectId = panelTab === "contrib" || panelTab === "ai-evidence" ? (team?.projectId ?? null) : null;
   const { rows: contribRows, loadState: contribLoadState, reload: reloadContrib } = useReviewerContribution(contribProjectId);
   const evalCounts = {
@@ -705,7 +879,21 @@ function ReviewerMyPage({ name, email, onLogout, avatarUrl }: { name: string; em
                         </div>
                       </div>
                       <div className="flex items-center justify-between">
-                        <textarea rows={1} placeholder="개인 코멘트 (옵션)..." className="flex-1 text-xs rounded-lg border border-border bg-input-background px-3 py-2 outline-none focus:border-blue-400 resize-none mr-3" />
+                        <textarea
+                          rows={1}
+                          placeholder="개인 코멘트 (옵션)..."
+                          value={personalCommentDrafts[r.memberId] ?? ""}
+                          onChange={(e) => setPersonalCommentDrafts(p => ({ ...p, [r.memberId]: e.target.value }))}
+                          className="flex-1 text-xs rounded-lg border border-border bg-input-background px-3 py-2 outline-none focus:border-blue-400 resize-none mr-3"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleSubmitPersonalComment(r.memberId)}
+                          disabled={!(personalCommentDrafts[r.memberId] ?? "").trim()}
+                          className="shrink-0 mr-3 px-2.5 py-1.5 text-[10px] font-semibold text-white rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-40"
+                        >
+                          코멘트 등록
+                        </button>
                         <div className="flex items-center gap-2 shrink-0">
                           <span className="text-xs text-muted-foreground">{publicFlags[r.memberId]?"공개":"비공개"}</span>
                           <div onClick={() => setPublicFlags(p=>({...p,[r.memberId]:!p[r.memberId]}))}
@@ -740,7 +928,7 @@ function ReviewerMyPage({ name, email, onLogout, avatarUrl }: { name: string; em
 // ─── Main MyPage export ───────────────────────────────────────────────────────
 export function MyPage() {
   const navigate = useNavigate();
-  const { user, currentProject, currentProjectId, logout } = useAuth();
+  const { user, currentProject, currentProjectId, projectContextReady, logout } = useAuth();
 
   const role: MyPageRole = currentProject?.role === "심사자" ? "reviewer" : "member";
   const name = user?.name ?? "";
@@ -752,7 +940,7 @@ export function MyPage() {
 
   return role === "member"
     ? <MemberMyPage
-        name={name} email={email} onLogout={handleLogout} projectId={currentProjectId} userId={user?.id ?? null}
+        name={name} email={email} onLogout={handleLogout} projectId={currentProjectId} projectContextReady={projectContextReady} userId={user?.id ?? null}
         avatarUrl={user?.avatarUrl ?? null} affiliation={user?.affiliation ?? null} field={user?.field ?? null} githubUsername={user?.githubUsername ?? null}
       />
     : <ReviewerMyPage name={name} email={email} onLogout={handleLogout} avatarUrl={user?.avatarUrl ?? null} />;

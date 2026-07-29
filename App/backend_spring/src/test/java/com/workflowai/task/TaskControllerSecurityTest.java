@@ -13,6 +13,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.workflowai.activity.ActivityService;
 import com.workflowai.common.DemoDataService;
+import com.workflowai.notification.NotificationBroadcaster;
 import com.workflowai.notification.NotificationService;
 import com.workflowai.project.ProjectMemberRepository;
 import com.workflowai.project.ProjectRepository;
@@ -65,6 +66,9 @@ class TaskControllerSecurityTest {
 
     @MockitoBean
     private NotificationService notificationService;
+
+    @MockitoBean
+    private NotificationBroadcaster notificationBroadcaster;
 
     @MockitoBean
     private ProjectMemberRepository projectMemberRepository;

@@ -13,6 +13,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.workflowai.activity.ActivityService;
 import com.workflowai.common.DemoDataService;
+import com.workflowai.notification.NotificationBroadcaster;
 import com.workflowai.notification.NotificationService;
 import com.workflowai.project.ProjectMember;
 import com.workflowai.project.ProjectMemberRepository;
@@ -55,6 +56,9 @@ class TaskControllerCompletionApprovalTest {
     private NotificationService notificationService;
 
     @Mock
+    private NotificationBroadcaster notificationBroadcaster;
+
+    @Mock
     private ProjectMemberRepository projectMemberRepository;
 
     @Mock
@@ -70,7 +74,7 @@ class TaskControllerCompletionApprovalTest {
         mockMvc = MockMvcBuilders
             .standaloneSetup(new TaskController(
                 taskRepository, userRepository, demoDataService, activityService,
-                notificationService, projectMemberRepository, projectRepository, ragIngestService
+                notificationService, notificationBroadcaster, projectMemberRepository, projectRepository, ragIngestService
             ))
             .build();
     }
