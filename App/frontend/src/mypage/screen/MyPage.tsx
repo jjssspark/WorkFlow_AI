@@ -40,11 +40,10 @@ const ROLE_COLORS: Record<ProjectRoleKo, string> = {
   "심사자": "#7048E8",
 };
 
-type EvalStatus = "pending" | "evaluating" | "done" | "published";
+type EvalStatus = "pending" | "evaluating" | "published";
 const EVAL_STATUS_META: Record<EvalStatus, { label: string; cls: string }> = {
   pending: { label: "평가 전", cls: "bg-slate-100 text-slate-500" },
   evaluating: { label: "평가 중", cls: "bg-amber-100 text-amber-600" },
-  done: { label: "평가 완료", cls: "bg-blue-100 text-blue-600" },
   published: { label: "공개 완료", cls: "bg-emerald-100 text-emerald-600" },
 };
 
@@ -625,7 +624,6 @@ function ReviewerMyPage({ name, email, onLogout, avatarUrl }: { name: string; em
   const evalCounts = {
     pending: projects.filter(p => p.evalStatus === "pending").length,
     evaluating: projects.filter(p => p.evalStatus === "evaluating").length,
-    done: projects.filter(p => p.evalStatus === "done").length,
     published: projects.filter(p => p.evalStatus === "published").length,
   };
 
@@ -694,7 +692,6 @@ function ReviewerMyPage({ name, email, onLogout, avatarUrl }: { name: string; em
           {[
             { label:"평가 전",   count: evalCounts.pending,    color:"#8892A4" },
             { label:"평가 중",   count: evalCounts.evaluating, color:"#F59E0B" },
-            { label:"평가 완료", count: evalCounts.done,       color:"#3B5BDB" },
             { label:"공개 완료", count: evalCounts.published,  color:"#10B981" },
           ].map(s => (
             <div key={s.label} className="flex items-center gap-2 px-3 py-2 rounded-xl border border-border bg-card">

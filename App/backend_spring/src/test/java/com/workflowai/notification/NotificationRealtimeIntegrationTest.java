@@ -105,9 +105,11 @@ class NotificationRealtimeIntegrationTest extends PostgresRedisIntegrationTest {
         jdbcTemplate.update("INSERT INTO project_members (project_id, user_id, role) VALUES (?, ?, 'MEMBER')",
             projectId, assignee.id());
 
+        // position은 명시해야 한다. 운영 DB의 tasks.position에는 DEFAULT가 없고
+        // (V20260729_3으로 빈 DB도 같게 맞췄다) JPA는 primitive double이라 항상 값을 쓴다.
         taskId = insert(
-            "INSERT INTO tasks (project_id, title, category, status, assignee_id, priority, created_by) "
-                + "VALUES (?, ?, 'backend', 'inprogress', ?, 'medium', ?) RETURNING id",
+            "INSERT INTO tasks (project_id, title, category, status, assignee_id, priority, created_by, position) "
+                + "VALUES (?, ?, 'backend', 'inprogress', ?, 'medium', ?, 0) RETURNING id",
             projectId, TASK_TITLE, assignee.id(), leader.id());
     }
 
