@@ -88,7 +88,7 @@ export function TaskCard({ task, catId, projectMembers, compact, selected, onSel
           {task.pendingApproval ? (
             <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-amber-100 text-amber-700 shrink-0">승인 대기중</span>
           ) : task.status === "blocked" && (
-            <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-red-100 text-red-600 shrink-0">블로커</span>
+            <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-red-100 text-red-600 shrink-0">검토 필요</span>
           )}
         </div>
         <div className={`font-semibold text-foreground mb-2 leading-snug ${compact ? "text-[11px] line-clamp-2" : "text-xs"}`}>

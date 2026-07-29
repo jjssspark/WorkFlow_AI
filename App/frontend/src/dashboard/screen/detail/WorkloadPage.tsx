@@ -56,7 +56,7 @@ const WORKLOAD_LABEL_TEXT_COLOR: Record<string, string> = {
   완료: "#10B981",
   진행중: "#3B5BDB",
   대기: "#475569",
-  블로커: "#EF4444",
+  "검토 필요": "#EF4444",
 };
 
 function WorkloadTooltip({ active, payload, label }: { active?: boolean; payload?: { dataKey: string; value: number }[]; label?: string }) {
@@ -149,7 +149,7 @@ export function WorkloadPage() {
     완료: entry.done,
     진행중: entry.inProgress,
     대기: entry.todo,
-    블로커: entry.blocked,
+    "검토 필요": entry.blocked,
   }));
 
   const selectedTasks = selectedMember ? tasks.filter(task => task.assigneeId === selectedMember) : [];
@@ -211,7 +211,7 @@ export function WorkloadPage() {
           <div className="flex items-center justify-between mb-4">
             <div className="text-sm font-semibold text-foreground">팀원별 업무 현황 비교</div>
             <div className="flex items-center gap-3 text-xs text-muted-foreground">
-              {[{ color: "#10B981", label: "완료" }, { color: "#3B5BDB", label: "진행중" }, { color: "#C1C9D9", label: "대기", textColor: "#475569" }, { color: "#EF4444", label: "블로커" }].map(item => (
+              {[{ color: "#10B981", label: "완료" }, { color: "#3B5BDB", label: "진행중" }, { color: "#C1C9D9", label: "대기", textColor: "#475569" }, { color: "#EF4444", label: "검토 필요" }].map(item => (
                 <span key={item.label} className="flex items-center gap-1" style={item.textColor ? { color: item.textColor } : undefined}><div className="w-2 h-2 rounded-full" style={{ background: item.color }} />{item.label}</span>
               ))}
             </div>
@@ -229,7 +229,7 @@ export function WorkloadPage() {
                   <Bar dataKey="완료" stackId="a" fill="#10B981" radius={[0, 0, 0, 0]} />
                   <Bar dataKey="진행중" stackId="a" fill="#3B5BDB" radius={[0, 0, 0, 0]} />
                   <Bar dataKey="대기" stackId="a" fill="#C1C9D9" radius={[0, 0, 0, 0]} />
-                  <Bar dataKey="블로커" stackId="a" fill="#EF4444" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="검토 필요" stackId="a" fill="#EF4444" radius={[3, 3, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
@@ -263,7 +263,7 @@ export function WorkloadPage() {
                     <span className="font-semibold" style={{ color: categoryColorFor(entry) }}>{pct}%</span>
                   </div>
                   <div className="w-full h-1.5 bg-muted rounded-full"><div className="h-1.5 rounded-full" style={{ width: `${pct}%`, background: categoryColorFor(entry) }} /></div>
-                  <div className="text-[10px] text-muted-foreground mt-0.5">{entry.done}/{entry.total}개 · 블로커 {entry.blocked}개</div>
+                  <div className="text-[10px] text-muted-foreground mt-0.5">{entry.done}/{entry.total}개 · 검토 필요 {entry.blocked}개</div>
                 </div>
               );
             })}
@@ -311,7 +311,7 @@ export function WorkloadPage() {
                 </div>
               )}
               <div className="grid grid-cols-4 gap-2 mb-3">
-                {[{ label: "전체", value: entry.total, color: "#64748B" }, { label: "완료", value: entry.done, color: "#10B981" }, { label: "진행", value: entry.inProgress, color: "#3B5BDB" }, { label: "블로커", value: entry.blocked, color: "#EF4444" }].map(item => (
+                {[{ label: "전체", value: entry.total, color: "#64748B" }, { label: "완료", value: entry.done, color: "#10B981" }, { label: "진행", value: entry.inProgress, color: "#3B5BDB" }, { label: "검토 필요", value: entry.blocked, color: "#EF4444" }].map(item => (
                   <div key={item.label} className="text-center p-1.5 rounded-lg bg-muted">
                     <div className="text-sm font-bold" style={{ color: item.color }}>{item.value}</div>
                     <div className="text-[9px] text-muted-foreground">{item.label}</div>

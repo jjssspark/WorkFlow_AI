@@ -74,6 +74,6 @@ export const CATEGORIES: CategoryDef[] = [
 export const BOARD_COLS = [
   { id:"todo"       as TaskStatus, label:"할 일",       color:"#8892A4", bg:"#F4F6FA" },
   { id:"inprogress" as TaskStatus, label:"진행 중",     color:"#3B5BDB", bg:"#EEF1FB" },
-  { id:"blocked"    as TaskStatus, label:"보류/블로커", color:"#EF4444", bg:"#FEF2F2" },
+  { id:"blocked"    as TaskStatus, label:"검토 필요",   color:"#EF4444", bg:"#FEF2F2" },
   { id:"done"       as TaskStatus, label:"완료",        color:"#10B981", bg:"#ECFDF5" },
 ];

@@ -85,7 +85,7 @@ export function BlockersPage() {
 
   const resolveBlocker = async (taskId: string, taskTitle: string) => {
     if (currentProjectId == null) return;
-    if (!window.confirm(`'${taskTitle}' 블로커를 해결 완료로 처리할까요?`)) return;
+    if (!window.confirm(`'${taskTitle}' 검토를 완료로 처리할까요?`)) return;
     setActionError(null);
     setResolvingTaskId(taskId);
     try {
@@ -93,7 +93,7 @@ export function BlockersPage() {
       alert("변경이 완료되었습니다.");
       refetch();
     } catch {
-      setActionError("블로커 해결 처리에 실패했습니다. 잠시 후 다시 시도해주세요.");
+      setActionError("검토 완료 처리에 실패했습니다. 잠시 후 다시 시도해주세요.");
     } finally {
       setResolvingTaskId(null);
     }
@@ -104,7 +104,7 @@ export function BlockersPage() {
       <div className="flex items-start justify-between">
         <div>
           <BackBtn onBack={onBack} />
-          <h1 className="text-xl font-bold text-foreground">블로커 관리</h1>
+          <h1 className="text-xl font-bold text-foreground">검토 필요 관리</h1>
           <p className="text-sm text-muted-foreground mt-0.5">막힌 업무를 파악하고 해결 담당자와 기한을 지정해 위험을 제거합니다.</p>
         </div>
         <div className="flex items-center gap-2">
@@ -123,7 +123,7 @@ export function BlockersPage() {
       {actionError && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700">{actionError}</div>}
 
       <div className="grid grid-cols-3 gap-3">
-        <DetailStatCard label="현재 블로커" value={loading ? "..." : blockedTasks.length} sub="해결 대기" color="#EF4444" icon={AlertTriangle} />
+        <DetailStatCard label="현재 검토 필요" value={loading ? "..." : blockedTasks.length} sub="해결 대기" color="#EF4444" icon={AlertTriangle} />
         <DetailStatCard label="심각도 높음" value={loading ? "..." : highPriorityCount} sub="즉시 조치 필요" color="#EF4444" icon={AlertCircle} />
         <DetailStatCard label="평균 지연" value={loading ? "..." : `${averageDelayDays}일`} sub={overdueRiskDelayDays.length === 0 ? "지연 대상 없음" : `주의·위험 ${overdueRiskDelayDays.length}건 기준`} color="#F59E0B" icon={Clock} />
       </div>
@@ -171,7 +171,7 @@ export function BlockersPage() {
 
               <div className="px-5 py-4 space-y-4">
                 <div>
-                  <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">블로커 내용</div>
+                  <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">검토 필요 사유</div>
                   <p className="text-sm text-foreground leading-relaxed">{task.description || "등록된 설명이 없습니다. 업무 보드에서 상세 내용을 추가하세요."}</p>
                 </div>
 
@@ -216,7 +216,7 @@ export function BlockersPage() {
         })}
         {(loading || blockedTasks.length === 0) && (
           <div className="h-40 flex items-center justify-center rounded-xl border border-border bg-card text-sm text-muted-foreground">
-            {loading ? "데이터를 불러오는 중입니다" : "현재 블로커 업무가 없습니다."}
+            {loading ? "데이터를 불러오는 중입니다" : "현재 검토 필요 업무가 없습니다."}
           </div>
         )}
       </div>

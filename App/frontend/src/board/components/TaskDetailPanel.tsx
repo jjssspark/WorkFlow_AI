@@ -75,7 +75,7 @@ const NUDGE_KINDS: Record<string, NudgeKind> = {
 };
 
 const IMPLEMENTED_ACTION_LABELS = new Set([
-  "팀장 피드백", "블로커 등록",
+  "팀장 피드백", "검토 요청",
   ...ASSIGNEE_ACTION_LABELS,
   ...Object.keys(NUDGE_KINDS),
 ]);

@@ -2,7 +2,7 @@
 1. 대시보드 페이지(DashboardView.tsx)
 2. 전체 업무 관리 페이지(AllTasksPage.tsx)
 3. 진행률 분석 페이지(ProgressPage.tsx)
-4. 블로커 관리 페이지(BlockersPage.tsx)
+4. 검토 필요 관리 페이지(BlockersPage.tsx)
 5. 진행 중 업무 모니터링 페이지(InProgressPage.tsx)
 6. 전체 진행률 페이지(DashProgressPage.tsx)
 7. 마감 임박 업무 페이지(UrgentTasksPage.tsx)
@@ -169,7 +169,7 @@ export function DashboardView() {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <StatCard icon={Layers} label="전체 업무" value={isSummaryPending ? "..." : totalTasks} sub={isSummaryPending ? "불러오는 중" : `완료 ${doneTasks}개`} color="#3B5BDB" onClick={() => onCardClick("all-tasks")} />
         <StatCard icon={TrendingUp} label="완료율" value={isSummaryPending ? "..." : `${progressPct}%`} sub={isSummaryPending ? "불러오는 중" : "실제 업무 기준"} color="#10B981" onClick={() => onCardClick("progress")} />
-        <StatCard icon={AlertTriangle} label="블로커" value={isSummaryPending ? "..." : blockedTasks} sub={isSummaryPending ? "불러오는 중" : "즉시 해결 필요"} color="#EF4444" onClick={() => onCardClick("blockers")} />
+        <StatCard icon={AlertTriangle} label="검토 필요" value={isSummaryPending ? "..." : blockedTasks} sub={isSummaryPending ? "불러오는 중" : "즉시 해결 필요"} color="#EF4444" onClick={() => onCardClick("blockers")} />
         <StatCard icon={Clock} label="진행 중" value={isSummaryPending ? "..." : inProgressTasks} sub={isSummaryPending ? "불러오는 중" : "활성 업무"} color="#F59E0B" onClick={() => onCardClick("inprogress")} />
       </div>
 

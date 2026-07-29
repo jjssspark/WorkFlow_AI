@@ -37,11 +37,11 @@ const STATUS_FILTERS: Array<{ label: string; value: TaskStatus | "all" }> = [
   { label: "대기", value: "todo" },
   { label: "진행중", value: "inprogress" },
   { label: "완료", value: "done" },
-  { label: "블로커", value: "blocked" },
+  { label: "검토 필요", value: "blocked" },
 ];
 
 /** 검색창이 '상태'/'우선순위' 컬럼에 표시되는 라벨 텍스트로도 매칭되도록 쓰는 맵. */
-const STATUS_SEARCH_LABEL: Record<TaskStatus, string> = { done: "완료", inprogress: "진행중", todo: "대기", blocked: "블로커" };
+const STATUS_SEARCH_LABEL: Record<TaskStatus, string> = { done: "완료", inprogress: "진행중", todo: "대기", blocked: "검토 필요" };
 const STATUS_SORT_ORDER: Record<TaskStatus, number> = { todo: 0, inprogress: 1, blocked: 2, done: 3 };
 
 /** 이 페이지(전체 업무 관리)의 마감일 컬럼만 "yy.mm.dd" 형식으로 표시한다. */
@@ -216,7 +216,7 @@ export function AllTasksPage() {
         <DetailStatCard label="전체 업무" value={loading ? "..." : counts.total} sub="프로젝트 전체" color="#3B5BDB" icon={Layers} />
         <DetailStatCard label="완료" value={loading ? "..." : counts.done} sub={loading ? "불러오는 중" : `완료율 ${donePct}%`} color="#10B981" icon={CheckCircle2} />
         <DetailStatCard label="진행중" value={loading ? "..." : counts.inProgress} sub="활성 업무" color="#3B5BDB" icon={Clock} />
-        <DetailStatCard label="블로커" value={loading ? "..." : counts.blocked} sub="즉시 해결 필요" color="#EF4444" icon={AlertTriangle} />
+        <DetailStatCard label="검토 필요" value={loading ? "..." : counts.blocked} sub="즉시 해결 필요" color="#EF4444" icon={AlertTriangle} />
       </div>
 
       <div className="flex items-center gap-2 flex-wrap">
