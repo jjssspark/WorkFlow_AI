@@ -32,7 +32,6 @@ import {
   taskAssignee,
 } from "../../libs/utils/dashboardTaskUtils";
 import { resolveMemberDisplay, stableColorForId } from "../../libs/utils/memberDisplay";
-import { getProjectMembers, type MemberResponse } from "../../../global/api/projectsApi";
 import type { DashboardTaskDto, MilestoneProgressDto } from "../../libs/types/dashboard";
 
 const MILESTONE_STATUS_MAP: Record<TaskStatus, { cls: string; label: string }> = {
@@ -172,17 +171,11 @@ export function DashProgressPage() {
   const navigate = useNavigate();
   const onBack = () => navigate("/dashboard");
   const onGoUrgent = () => navigate("/dashboard/urgent");
-  const { data: progress, loading: progressLoadingRaw, refreshing: delayRiskRefreshing, error, refetch, runDelayRiskAnalysis } = useDashboardProgress(currentProjectId);
-  const { data: tasks, loading: tasksLoadingRaw, refetch: refetchTasks } = useDashboardTasks(currentProjectId);
+  const { data: progress, loading, refreshing: delayRiskRefreshing, error, refetch, runDelayRiskAnalysis } = useDashboardProgress(currentProjectId);
+  const { data: tasks, loading: tasksLoading } = useDashboardTasks(currentProjectId);
   const [showMilestonePopup, setShowMilestonePopup] = useState(false);
   const [detailTarget, setDetailTarget] = useState<DashboardTaskDto | null>(null);
   const [milestoneTasksTarget, setMilestoneTasksTarget] = useState<MilestoneProgressDto | null>(null);
-  const [projectMembers, setProjectMembers] = useState<MemberResponse[]>([]);
-  const [pageRefreshing, setPageRefreshing] = useState(false);
-  // 새로고침 버튼을 누른 동안은 각 데이터 영역이 "데이터를 불러오는 중입니다"로 보이도록,
-  // 개별 훅의 loading 상태에 pageRefreshing을 합쳐서 쓴다.
-  const loading = progressLoadingRaw || pageRefreshing;
-  const tasksLoading = tasksLoadingRaw || pageRefreshing;
   const [bulkEditMode, setBulkEditMode] = useState(false);
   const [bulkSelectedIds, setBulkSelectedIds] = useState<Set<string>>(new Set());
   const [bulkEdits, setBulkEdits] = useState<Record<string, { title: string; startDate: string; dueDate: string }>>({});
@@ -191,18 +184,6 @@ export function DashProgressPage() {
   // 추가/수정/삭제 직후 refetch()가 끝날 때까지, 기존 목록 대신 "불러오는 중" 문구만 보여준다
   // (그대로 두면 새 데이터가 도착하기 전까지 옛 데이터가 계속 보여서 반영 안 된 것처럼 보였다).
   const [milestoneRefreshing, setMilestoneRefreshing] = useState(false);
-
-  useEffect(() => {
-    if (currentProjectId == null) {
-      setProjectMembers([]);
-      return;
-    }
-    let cancelled = false;
-    getProjectMembers(currentProjectId)
-      .then(result => { if (!cancelled) setProjectMembers(result); })
-      .catch(() => { if (!cancelled) setProjectMembers([]); });
-    return () => { cancelled = true; };
-  }, [currentProjectId]);
 
   const totalTasks = progress?.totalTasks ?? 0;
   const doneTasks = progress?.doneTasks ?? 0;
@@ -374,11 +355,6 @@ export function DashProgressPage() {
           <p className="text-sm text-muted-foreground mt-0.5">프로젝트 일정 대비 진행 현황을 분석하고 지연 위험을 파악합니다.</p>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={async () => { setPageRefreshing(true); await Promise.all([refetch(), refetchTasks()]); setPageRefreshing(false); }}
-            disabled={pageRefreshing}
-            className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-border bg-card text-foreground rounded-lg hover:bg-muted transition-colors disabled:opacity-50"
-          ><RefreshCw className={`w-3.5 h-3.5 ${pageRefreshing ? "animate-spin" : ""}`} />{pageRefreshing ? "새로고침 중..." : "새로고침"}</button>
           <button
             onClick={() => { void runDelayRiskAnalysis(); }}
             disabled={delayRiskRefreshing}
@@ -634,7 +610,7 @@ export function DashProgressPage() {
                     </td>
                   )}
                   <td className="px-4 py-3 font-mono text-[10px] text-muted-foreground">{item.id}</td>
-                  <td onClick={() => setMilestoneTasksTarget(item)} className="px-4 py-3 text-xs font-medium text-foreground hover:text-blue-700" >
+                  <td className="px-4 py-3 text-xs font-medium text-foreground">
                     {bulkEditMode ? (
                       <input
                         value={edit?.title ?? ""}
@@ -728,9 +704,6 @@ export function DashProgressPage() {
           task={detailTarget}
           projectId={currentProjectId}
           onClose={() => setDetailTarget(null)}
-          isLeader={isLeader}
-          projectMembers={projectMembers}
-          onUpdated={() => { refetch(); refetchTasks(); }}
         />
       )}
       {milestoneTasksTarget && (() => {

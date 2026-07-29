@@ -38,12 +38,8 @@ const STATUS_CHANGE_LABEL: Record<"done" | "blocked", string> = {
 export function InProgressPage() {
   const { user, currentProjectId, currentProject } = useAuth();
   const isLeader = currentProject?.role === "팀장";
-  const { data: tasks, loading: tasksLoadingRaw, error, refetch } = useDashboardTasks(currentProjectId);
+  const { data: tasks, loading, error, refetch } = useDashboardTasks(currentProjectId);
   const { data: progress } = useDashboardProgress(currentProjectId);
-  const [pageRefreshing, setPageRefreshing] = useState(false);
-  // useDashboardTasks의 loading은 최초 로드 이후 refetch에서는 true로 안 바뀌므로,
-  // 새로고침 버튼을 눌렀을 때 스피너/문구가 뜨려면 별도의 pageRefreshing으로 합쳐서 써야 한다.
-  const loading = tasksLoadingRaw || pageRefreshing;
   const navigate = useNavigate();
   const onBack = () => navigate("/dashboard");
   const [dueDateTarget, setDueDateTarget] = useState<DashboardTaskDto | null>(null);
@@ -125,12 +121,8 @@ export function InProgressPage() {
           <p className="text-sm text-muted-foreground mt-0.5">현재 진행 중인 업무 상태를 파악하고 지연 가능성을 조기에 감지합니다.</p>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={async () => { setPageRefreshing(true); await refetch(); setPageRefreshing(false); }}
-            disabled={loading}
-            className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-border bg-card text-foreground rounded-lg hover:bg-muted transition-colors disabled:opacity-50"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} /> {loading ? "새로고침 중..." : "새로고침"}
+          <button onClick={() => refetch()} className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-border bg-card text-foreground rounded-lg hover:bg-muted transition-colors">
+            <RefreshCw className="w-3.5 h-3.5" /> 새로고침
           </button>
           {isLeader && (
             <button onClick={() => setShowAddTask(true)} className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-white rounded-lg" style={{ background: "var(--primary)" }}>
@@ -183,7 +175,7 @@ export function InProgressPage() {
                         <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">{sourceLabel(task.sourceType)}</span>
                         {isRisk && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-red-100 text-red-700 border border-red-200">ML 지연 예측</span>}
                       </div>
-                      <div onClick={() => setCommentTarget(task)} className="text-sm font-semibold text-foreground cursor-pointer hover:text-blue-700">{task.title}</div>
+                      <div className="text-sm font-semibold text-foreground">{task.title}</div>
                       <div className="text-xs text-muted-foreground mt-0.5">{member.name}</div>
                     </div>
                   </div>
@@ -275,9 +267,6 @@ export function InProgressPage() {
           projectId={currentProjectId}
           focusComments
           onClose={() => setCommentTarget(null)}
-          isLeader={isLeader}
-          projectMembers={projectMembers}
-          onUpdated={() => refetch()}
         />
       )}
       <AddTaskModal

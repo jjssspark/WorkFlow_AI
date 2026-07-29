@@ -1,4 +1,4 @@
-import type { Priority, Task, TaskStatus } from "../../../board/libs/types/task";
+import type { Priority, TaskStatus } from "../../../board/libs/types/task";
 import type { DashboardTaskDto } from "../types/dashboard";
 import { resolveMemberDisplay } from "./memberDisplay";
 
@@ -136,25 +136,6 @@ export function sourceLabel(sourceType: string | null | undefined): string {
 
 export function taskAssignee(task: DashboardTaskDto, index: number) {
   return resolveMemberDisplay(task.assigneeName, index, task.assigneeId);
-}
-
-// 대시보드 업무 카드(DashboardTaskDto)를 업무 상세창의 '업무 수정' 모달이 기대하는 Task 형태로 변환한다.
-export function dashboardTaskToBoardTask(task: DashboardTaskDto): Task {
-  return {
-    id: task.id,
-    title: task.title,
-    status: normalizeTaskStatus(task.status) as TaskStatus,
-    priority: normalizePriority(task.priority) as Priority,
-    assignee: task.assigneeId ?? "",
-    startDate: task.startDate ?? "",
-    dueDate: task.dueDate ?? "",
-    labels: [],
-    category: task.category ?? "other",
-    position: task.position,
-    description: task.description ?? undefined,
-    pendingApproval: false,
-    extraFields: task.extraFields ?? {},
-  };
 }
 
 export function isOpenTask(task: DashboardTaskDto): boolean {

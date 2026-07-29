@@ -38,7 +38,6 @@ export interface DashboardTaskDto {
   status: string;
   assigneeId: string | null;
   assigneeName: string | null;
-  startDate: string | null;
   dueDate: string | null;
   /** status가 done으로 바뀐 날짜(YYYY-MM-DD). done이 아니면 null — '완료 업무' 관련 날짜는 이 필드를 기준으로 삼는다. */
   doneDate: string | null;
@@ -48,7 +47,6 @@ export interface DashboardTaskDto {
   position: number;
   createdAt: string | null;
   updatedAt: string | null;
-  extraFields: Record<string, string> | null;
 }
 
 export interface DashboardSummaryResponse {

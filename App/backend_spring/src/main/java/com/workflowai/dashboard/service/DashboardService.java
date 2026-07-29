@@ -498,7 +498,6 @@ public class DashboardService {
             task.getStatus(),
             task.getAssigneeId() == null ? null : String.valueOf(task.getAssigneeId()),
             userNames.get(task.getAssigneeId()),
-            task.getStartDate() == null ? null : task.getStartDate().toString(),
             task.getDueDate() == null ? null : task.getDueDate().toString(),
             task.getDoneDate() == null ? null : task.getDoneDate().toString(),
             task.getPriority(),
@@ -506,8 +505,7 @@ public class DashboardService {
             task.getSourceType(),
             task.getPosition(),
             task.getCreatedAt() == null ? null : UtcTimeFormat.toIsoUtc(task.getCreatedAt()),
-            task.getUpdatedAt() == null ? null : UtcTimeFormat.toIsoUtc(task.getUpdatedAt()),
-            task.getExtraFields()
+            task.getUpdatedAt() == null ? null : UtcTimeFormat.toIsoUtc(task.getUpdatedAt())
         );
     }
 

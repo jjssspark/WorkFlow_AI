@@ -1,24 +1,18 @@
-import { useEffect, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useState, type MouseEvent as ReactMouseEvent } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router";
-import { Calendar, CheckCircle2, CheckSquare, RefreshCw, TrendingUp, X } from "lucide-react";
+import { Calendar, CheckCircle2, CheckSquare, TrendingUp } from "lucide-react";
 import { BackBtn } from "../../../global/component/BackBtn";
 import { CircleProgress } from "../../../global/component/CircleProgress";
 import { DetailStatCard } from "../../../global/component/DetailStatCard";
-import { PriorityBadge } from "../../../board/components/PriorityBadge";
-import { TaskStatusPill } from "../../../board/components/TaskStatusPill";
 import { useAuth } from "../../../global/hooks/useAuth";
 import { useDashboardProgress } from "../../libs/hooks/useDashboardProgress";
 import { useDashboardSummary } from "../../libs/hooks/useDashboardSummary";
 import { useDashboardTasks } from "../../libs/hooks/useDashboardTasks";
-import { TaskDetailPopup } from "../../components/TaskDetailPopup";
-import { getProjectMembers, type MemberResponse } from "../../../global/api/projectsApi";
-import type { DashboardTaskDto, MilestoneProgressDto } from "../../libs/types/dashboard";
 import {
   daysSince,
   formatDDay,
   formatDashboardDueDate,
-  normalizePriority,
   normalizeTaskStatus,
   parseKstDateTime,
   taskAssignee,
@@ -28,48 +22,14 @@ import { resolveMemberDisplay, stableColorForId } from "../../libs/utils/memberD
 const CATEGORY_COLORS = ["#3B5BDB", "#7048E8", "#10B981", "#F59E0B", "#EF4444", "#06B6D4"];
 
 export function ProgressPage() {
-  const { currentProjectId, currentProject } = useAuth();
-  const isLeader = currentProject?.role === "팀장";
-  const { data: summary, loading: summaryLoadingRaw, error: summaryError, refetch: refetchSummary } = useDashboardSummary(currentProjectId);
-  const { data: progress, loading: progressLoadingRaw, error: progressError, refetch: refetchProgress } = useDashboardProgress(currentProjectId);
-  const { data: tasks, loading: tasksLoadingRaw, refetch: refetchTasks } = useDashboardTasks(currentProjectId);
+  const { currentProjectId } = useAuth();
+  const { data: summary, loading: summaryLoading, error: summaryError } = useDashboardSummary(currentProjectId);
+  const { data: progress, loading, error: progressError } = useDashboardProgress(currentProjectId);
+  const { data: tasks, loading: tasksLoading } = useDashboardTasks(currentProjectId);
   const [hoveredMilestoneId, setHoveredMilestoneId] = useState<string | null>(null);
   const [milestoneHoverPos, setMilestoneHoverPos] = useState<{ x: number; y: number } | null>(null);
-  const [projectMembers, setProjectMembers] = useState<MemberResponse[]>([]);
-  const [pageRefreshing, setPageRefreshing] = useState(false);
-  // 새로고침 버튼을 누른 동안은 각 데이터 영역이 "데이터를 불러오는 중입니다"로 보이도록,
-  // 개별 훅의 loading 상태에 pageRefreshing을 합쳐서 쓴다.
-  const loading = progressLoadingRaw || pageRefreshing;
-  const summaryLoading = summaryLoadingRaw || pageRefreshing;
-  const tasksLoading = tasksLoadingRaw || pageRefreshing;
-  const refreshAll = async () => {
-    setPageRefreshing(true);
-    await Promise.all([refetchSummary(), refetchProgress(), refetchTasks()]);
-    setPageRefreshing(false);
-  };
   const navigate = useNavigate();
   const onBack = () => navigate("/dashboard");
-  // 업무 제목 클릭시, 업무 상세창 팝업
-  const [detailTarget, setDetailTarget] = useState<{ task: DashboardTaskDto; focusComments: boolean } | null>(null);
-  // 마일스톤 제목 클릭시, 해당 마일스톤의 업무 목록 팝업
-  const [milestoneTasksTarget, setMilestoneTasksTarget] = useState<MilestoneProgressDto | null>(null);
-  // 담당자 이름 클릭시, 그 담당자의 업무 목록 팝업
-  const [assigneeTasksTarget, setAssigneeTasksTarget] = useState<{ assigneeId: string; name: string } | null>(null);
-  // 카테고리 이름 클릭시, 그 카테고리의 업무 목록 팝업
-  const [categoryTasksTarget, setCategoryTasksTarget] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (currentProjectId == null) {
-      setProjectMembers([]);
-      return;
-    }
-    let cancelled = false;
-    getProjectMembers(currentProjectId)
-      .then(result => { if (!cancelled) setProjectMembers(result); })
-      .catch(() => { if (!cancelled) setProjectMembers([]); });
-    return () => { cancelled = true; };
-  }, [currentProjectId]);
-
 
   const totalTasks = progress?.totalTasks ?? summary?.totalTasks ?? 0;
   const doneTasks = progress?.doneTasks ?? summary?.doneTasks ?? 0;
@@ -115,13 +75,6 @@ export function ProgressPage() {
           <h1 className="text-xl font-bold text-foreground">진행률 분석</h1>
           <p className="text-sm text-muted-foreground mt-0.5">업무와 마일스톤 기준으로 완료 현황을 분석합니다.</p>
         </div>
-        <button
-          onClick={refreshAll}
-          disabled={pageRefreshing}
-          className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-border bg-card text-foreground rounded-lg hover:bg-muted transition-colors disabled:opacity-50"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${pageRefreshing ? "animate-spin" : ""}`} />{pageRefreshing ? "새로고침 중..." : "새로고침"}
-        </button>
       </div>
 
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700">{error}</div>}
@@ -169,14 +122,14 @@ export function ProgressPage() {
 
         <div className="flex flex-col gap-3">
           <div className="bg-card rounded-xl p-4 border border-border shadow-sm flex-1 flex flex-col">
-            <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2 cursor-pointer">이번 주 완료된 업무</div>
+            <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">이번 주 완료된 업무</div>
             <div className="flex-1">
               {doneThisWeekRows.map((task, index) => {
                 const member = taskAssignee(task, index);
                 return (
                   <div key={task.id} className="flex items-center gap-2 py-1.5">
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                    <span onClick={() => setDetailTarget({ task, focusComments: false })} className="text-xs text-foreground truncate flex-1 hover:text-blue-700 cursor-pointer">{task.title}</span>
+                    <span className="text-xs text-foreground truncate flex-1">{task.title}</span>
                     <div className="w-5 h-5 rounded-full flex items-center justify-center text-white text-[9px] font-bold shrink-0" style={{ background: member.color }}>{member.initials}</div>
                   </div>
                 );
@@ -204,12 +157,7 @@ export function ProgressPage() {
                   <div className="flex items-center justify-between text-xs mb-1.5">
                     <div className="flex items-center gap-2">
                       <div className="w-5 h-5 rounded-full flex items-center justify-center text-white text-[9px] font-bold" style={{ background: member.color }}>{member.initials}</div>
-                      <span
-                        onClick={() => setAssigneeTasksTarget({ assigneeId: entry.assigneeId, name: member.name })}
-                        className="font-medium text-foreground cursor-pointer hover:text-blue-700"
-                      >
-                        {member.name}
-                      </span>
+                      <span className="font-medium text-foreground">{member.name}</span>
                     </div>
                     <div className="flex items-center gap-1.5">
                       <span className="text-muted-foreground font-mono">{entry.done}/{entry.total}</span>
@@ -232,7 +180,7 @@ export function ProgressPage() {
       <div className="grid grid-cols-2 gap-4">
         <div className="bg-card rounded-xl border border-border shadow-sm overflow-hidden">
           <div className="px-5 py-3 border-b border-border flex items-center justify-between">
-            <div className="text-sm font-semibold text-foreground">업무 카테고리별 완료율</div>
+            <div className="text-sm font-semibold text-foreground">업무 유형별 완료율</div>
             <button onClick={() => navigate("/dashboard/all-tasks")} className="text-[11px] font-medium text-blue-600">업무 보기</button>
           </div>
           <div className="divide-y divide-border">
@@ -241,12 +189,7 @@ export function ProgressPage() {
               const color = CATEGORY_COLORS[index % CATEGORY_COLORS.length];
               return (
                 <div key={item.category} className="flex items-center gap-3 px-5 py-2.5">
-                  <div
-                    onClick={() => setCategoryTasksTarget(item.category)}
-                    className="w-20 text-xs font-medium text-foreground shrink-0 truncate cursor-pointer hover:text-blue-700"
-                  >
-                    {item.category}
-                  </div>
+                  <div className="w-20 text-xs font-medium text-foreground shrink-0 truncate">{item.category}</div>
                   <div className="flex-1 h-1.5 bg-muted rounded-full"><div className="h-1.5 rounded-full" style={{ width: `${pct}%`, background: color }} /></div>
                   <span className="text-[10px] text-muted-foreground font-mono w-10 text-right">{item.done}/{item.total}</span>
                   <span className={`text-[10px] font-bold w-8 text-right ${pct === 100 ? "text-emerald-600" : pct === 0 ? "text-red-500" : "text-amber-600"}`}>{pct}%</span>
@@ -318,10 +261,7 @@ export function ProgressPage() {
                         }}
                         onMouseLeave={() => { setHoveredMilestoneId(null); setMilestoneHoverPos(null); }}
                       >
-                        <div
-                          onClick={() => setMilestoneTasksTarget(item)}
-                          className="w-32 shrink-0 pr-2 text-[10px] font-medium text-foreground truncate flex items-center gap-1.5 cursor-pointer hover:text-blue-700"
-                        >
+                        <div className="w-32 shrink-0 pr-2 text-[10px] font-medium text-foreground truncate flex items-center gap-1.5">
                           <span className="w-2 h-2 rounded-full shrink-0" style={{ background: color }} />
                           {item.title}
                         </div>
@@ -369,159 +309,6 @@ export function ProgressPage() {
           </div>
         </div>
       </div>
-
-      {detailTarget && currentProjectId != null && (
-        <TaskDetailPopup
-          task={detailTarget.task}
-          projectId={currentProjectId}
-          focusComments={detailTarget.focusComments}
-          onClose={() => setDetailTarget(null)}
-          isLeader={isLeader}
-          projectMembers={projectMembers}
-          onUpdated={() => refetchTasks()}
-        />
-      )}
-
-      {milestoneTasksTarget && (() => {
-        const milestoneTasks = tasks.filter(t => milestoneTasksTarget.taskIds.includes(t.id));
-        return (
-          <>
-            <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50" onClick={() => setMilestoneTasksTarget(null)} />
-            <div className="fixed inset-0 flex items-center justify-center z-50 p-4" onClick={e => e.stopPropagation()}>
-              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col" style={{ fontFamily: "'Inter','Noto Sans KR',sans-serif" }}>
-                <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
-                  <div>
-                    <h2 className="text-base font-bold text-foreground">{milestoneTasksTarget.title}의 업무 목록</h2>
-                    <p className="text-xs text-muted-foreground mt-0.5">{tasksLoading ? "불러오는 중" : `${milestoneTasks.length}개 업무`}</p>
-                  </div>
-                  <button onClick={() => setMilestoneTasksTarget(null)} className="p-1.5 hover:bg-muted rounded-lg transition-colors"><X className="w-4 h-4 text-muted-foreground" /></button>
-                </div>
-                <div className="flex items-center gap-3 px-6 py-2 border-b border-border bg-muted/40 shrink-0">
-                  <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide w-10 shrink-0">ID</span>
-                  <span className="flex-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">업무명</span>
-                  <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide w-16 text-center shrink-0">상태</span>
-                  <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide w-14 text-center shrink-0">우선순위</span>
-                  <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide w-14 text-right shrink-0">담당자</span>
-                </div>
-                <div className="flex-1 overflow-y-auto divide-y divide-border">
-                  {!tasksLoading && milestoneTasks.map((task, index) => (
-                    <button
-                      key={task.id}
-                      onClick={() => { setDetailTarget({ task, focusComments: false }); setMilestoneTasksTarget(null); }}
-                      className="w-full flex items-center gap-3 px-6 py-3 hover:bg-muted/30 transition-colors text-left"
-                    >
-                      <span className="font-mono text-[10px] text-muted-foreground w-10 shrink-0">{task.id}</span>
-                      <span className="flex-1 text-xs font-medium text-foreground truncate cursor-pointer">{task.title}</span>
-                      <TaskStatusPill status={normalizeTaskStatus(task.status)} />
-                      <PriorityBadge priority={normalizePriority(task.priority)} />
-                      <span className="text-[10px] text-muted-foreground w-14 text-right shrink-0">{taskAssignee(task, index).name}</span>
-                    </button>
-                  ))}
-                  {(tasksLoading || milestoneTasks.length === 0) && (
-                    <div className="px-6 py-10 text-center text-sm text-muted-foreground">
-                      {tasksLoading ? "데이터를 불러오는 중입니다." : "연결된 업무가 없습니다."}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </>
-        );
-      })()}
-
-      {assigneeTasksTarget && (() => {
-        const assigneeTasks = tasks.filter(t => t.assigneeId === assigneeTasksTarget.assigneeId);
-        return (
-          <>
-            <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50" onClick={() => setAssigneeTasksTarget(null)} />
-            <div className="fixed inset-0 flex items-center justify-center z-50 p-4" onClick={e => e.stopPropagation()}>
-              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col" style={{ fontFamily: "'Inter','Noto Sans KR',sans-serif" }}>
-                <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
-                  <div>
-                    <h2 className="text-base font-bold text-foreground">{assigneeTasksTarget.name}의 업무 목록</h2>
-                    <p className="text-xs text-muted-foreground mt-0.5">{tasksLoading ? "불러오는 중" : `${assigneeTasks.length}개 업무`}</p>
-                  </div>
-                  <button onClick={() => setAssigneeTasksTarget(null)} className="p-1.5 hover:bg-muted rounded-lg transition-colors"><X className="w-4 h-4 text-muted-foreground" /></button>
-                </div>
-                <div className="flex items-center gap-3 px-6 py-2 border-b border-border bg-muted/40 shrink-0">
-                  <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide w-10 shrink-0">ID</span>
-                  <span className="flex-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">업무명</span>
-                  <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide w-16 text-center shrink-0">상태</span>
-                  <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide w-14 text-center shrink-0">우선순위</span>
-                  <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide w-12 text-right shrink-0">마감일</span>
-                </div>
-                <div className="flex-1 overflow-y-auto divide-y divide-border">
-                  {!tasksLoading && assigneeTasks.map(task => (
-                    <button
-                      key={task.id}
-                      onClick={() => { setDetailTarget({ task, focusComments: false }); setAssigneeTasksTarget(null); }}
-                      className="w-full flex items-center gap-3 px-6 py-3 hover:bg-muted/30 transition-colors text-left"
-                    >
-                      <span className="font-mono text-[10px] text-muted-foreground w-10 shrink-0">{task.id}</span>
-                      <span className="flex-1 text-xs font-medium text-foreground truncate cursor-pointer">{task.title}</span>
-                      <TaskStatusPill status={normalizeTaskStatus(task.status)} />
-                      <PriorityBadge priority={normalizePriority(task.priority)} />
-                      <span className="text-[10px] text-muted-foreground w-12 text-right shrink-0">{formatDashboardDueDate(task.dueDate)}</span>
-                    </button>
-                  ))}
-                  {(tasksLoading || assigneeTasks.length === 0) && (
-                    <div className="px-6 py-10 text-center text-sm text-muted-foreground">
-                      {tasksLoading ? "데이터를 불러오는 중입니다." : "배정된 업무가 없습니다."}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </>
-        );
-      })()}
-
-      {categoryTasksTarget && (() => {
-        const categoryTasks = tasks.filter(t => (t.category ?? "미분류") === categoryTasksTarget);
-        return (
-          <>
-            <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50" onClick={() => setCategoryTasksTarget(null)} />
-            <div className="fixed inset-0 flex items-center justify-center z-50 p-4" onClick={e => e.stopPropagation()}>
-              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col" style={{ fontFamily: "'Inter','Noto Sans KR',sans-serif" }}>
-                <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
-                  <div>
-                    <h2 className="text-base font-bold text-foreground">{categoryTasksTarget}의 업무 목록</h2>
-                    <p className="text-xs text-muted-foreground mt-0.5">{tasksLoading ? "불러오는 중" : `${categoryTasks.length}개 업무`}</p>
-                  </div>
-                  <button onClick={() => setCategoryTasksTarget(null)} className="p-1.5 hover:bg-muted rounded-lg transition-colors"><X className="w-4 h-4 text-muted-foreground" /></button>
-                </div>
-                <div className="flex items-center gap-3 px-6 py-2 border-b border-border bg-muted/40 shrink-0">
-                  <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide w-10 shrink-0">ID</span>
-                  <span className="flex-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">업무명</span>
-                  <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide w-16 text-center shrink-0">상태</span>
-                  <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide w-14 text-center shrink-0">우선순위</span>
-                  <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide w-14 text-right shrink-0">담당자</span>
-                </div>
-                <div className="flex-1 overflow-y-auto divide-y divide-border">
-                  {!tasksLoading && categoryTasks.map((task, index) => (
-                    <button
-                      key={task.id}
-                      onClick={() => { setDetailTarget({ task, focusComments: false }); setCategoryTasksTarget(null); }}
-                      className="w-full flex items-center gap-3 px-6 py-3 hover:bg-muted/30 transition-colors text-left"
-                    >
-                      <span className="font-mono text-[10px] text-muted-foreground w-10 shrink-0">{task.id}</span>
-                      <span className="flex-1 text-xs font-medium text-foreground truncate cursor-pointer">{task.title}</span>
-                      <TaskStatusPill status={normalizeTaskStatus(task.status)} />
-                      <PriorityBadge priority={normalizePriority(task.priority)} />
-                      <span className="text-[10px] text-muted-foreground w-14 text-right shrink-0">{taskAssignee(task, index).name}</span>
-                    </button>
-                  ))}
-                  {(tasksLoading || categoryTasks.length === 0) && (
-                    <div className="px-6 py-10 text-center text-sm text-muted-foreground">
-                      {tasksLoading ? "데이터를 불러오는 중입니다." : "해당 카테고리 업무가 없습니다."}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </>
-        );
-      })()}
     </div>
   );
 }
