@@ -35,7 +35,11 @@ _SNIPPET_MAX_LEN = 200
 # v11: 생성 체인에 Gemini API 폴백 단계 추가 (HF -> Gemini -> Ollama). RAG_PROVIDER 미지정
 # 시 resolve_generation_provider()가 개별 프로바이더 이름 대신 "auto"를 반환하도록 바뀌어,
 # 이 값이 들어가는 캐시 키도 이전 버전과 달라진다.
-_ANSWER_CACHE_SCHEMA_VERSION = "v11"
+# v12: 답변을 마크다운 없이 평문으로 생성하도록 지시 + 출력에서 마크다운 기호 제거
+# (generation_service._strip_markdown). 올리지 않으면 마크다운이 섞인 옛 답변이 계속 나간다.
+# v13: 나열 항목 앞에 '- '를 붙이도록 프롬프트에 출력 예시 추가(기호 없이 줄바꿈만 하던 문제) +
+# 목록 다음 문단 앞 빈 줄 보정 (generation_service._space_out_list_blocks)
+_ANSWER_CACHE_SCHEMA_VERSION = "v13"
 _ANSWER_CACHE_TTL_SECONDS = 1800
 
 # "내 할 일 알려줘" 류 개인화 질문 판별용. 순수 벡터 유사도만으로는 "내"가 누구인지 구분할
