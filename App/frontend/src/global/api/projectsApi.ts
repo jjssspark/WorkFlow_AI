@@ -115,3 +115,7 @@ export function acceptInvitation(token: string) {
     method: "POST",
   });
 }
+
+export function touchProjectAccess(projectId: number) {
+  return apiFetch<void>(`/projects/${projectId}/access`, { method: "POST" });
+}

@@ -15,6 +15,14 @@ public interface ProjectMemberRepository extends JpaRepository<ProjectMember, Lo
 
     List<ProjectMember> findAllByUserId(Long userId);
 
+    /** 로그인 직후 "최근 작업한 프로젝트 우선" 정렬용. 접근 이력이 없는 멤버는 가입일 순으로 뒤에 온다. */
+    @Query("""
+        select pm from ProjectMember pm
+        where pm.userId = :userId
+        order by pm.lastAccessedAt desc nulls last, pm.createdAt desc
+        """)
+    List<ProjectMember> findAllByUserIdOrderByRecency(@Param("userId") Long userId);
+
     long countByProjectId(Long projectId);
 
     /** 팀 규모(예상 인원 대비 현재 인원 등) 표시용 인원 수 — 심사자는 팀원이 아니므로 제외한다. */

@@ -125,6 +125,16 @@ public class ProjectService {
         return toResponse(project);
     }
 
+    /** 사용자가 프로젝트에 진입(선택)할 때마다 호출되어 "최근 접근" 순서의 기준이 된다. */
+    @Transactional
+    public void touchAccess(Long projectId, Long userId) {
+        projectMemberRepository.findByProjectIdAndUserId(projectId, userId)
+            .ifPresent(pm -> {
+                pm.touchLastAccessed();
+                projectMemberRepository.save(pm);
+            });
+    }
+
     public List<ProjectResponse> findAllForUser(Long userId) {
         List<Project> projects = projectRepository.findAllByMemberUserId(userId);
         if (projects.isEmpty()) {

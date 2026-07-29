@@ -72,6 +72,14 @@ public class ProjectController {
         return ApiResponse.ok(projectService.find(projectId));
     }
 
+    @Operation(summary = "프로젝트 접근 기록", description = "사용자가 이 프로젝트를 선택/진입할 때마다 호출되어 로그인 시 프로젝트 정렬 기준(최근 접근순)을 갱신한다.")
+    @PostMapping("/{projectId}/access")
+    @PreAuthorize("@projectAccess.isMember(#projectId)")
+    public ResponseEntity<ApiResponse<Void>> touchAccess(@PathVariable Long projectId) {
+        projectService.touchAccess(projectId, CurrentUser.id());
+        return ResponseEntity.ok(ApiResponse.ok(null));
+    }
+
     @Operation(summary = "프로젝트 수정", description = "팀장만 가능하다. 팀원/심사자가 호출하면 403을 반환한다.")
     @PatchMapping("/{projectId}")
     @PreAuthorize("@projectAccess.hasRole(#projectId, 'LEADER')")
