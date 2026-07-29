@@ -309,7 +309,7 @@ public class DashboardAiQueueWorker implements ApplicationRunner {
                 record.getId().getValue(), job.jobId(), job.projectId()
             );
             acknowledgeAndDelete(record.getId());
-            publisher.releaseInFlight(job.projectId(), job.jobType());
+            publisher.releaseInFlight(job.projectId(), job.jobType(), job.jobId());
             return false;
         }
 
@@ -337,7 +337,7 @@ public class DashboardAiQueueWorker implements ApplicationRunner {
         if (succeeded) {
             publisher.markDone(job.projectId(), job.jobType(), job.jobId());
         } else {
-            publisher.releaseInFlight(job.projectId(), job.jobType());
+            publisher.releaseInFlight(job.projectId(), job.jobType(), job.jobId());
         }
         return false;
     }

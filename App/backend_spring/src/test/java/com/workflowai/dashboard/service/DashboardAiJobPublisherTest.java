@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -12,8 +13,10 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Duration;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -77,25 +80,51 @@ class DashboardAiJobPublisherTest {
 
     @Test
     void isJobDoneReflectsDoneMarkerPresence() {
-        when(redisTemplate.hasKey("dashboard-ai-done:job-1")).thenReturn(true);
+        when(redisTemplate.hasKey("dashboard-ai-done:1:DELAY_RISK:job-1")).thenReturn(true);
 
-        assertThat(newPublisher().isJobDone("job-1")).isTrue();
+        assertThat(newPublisher().isJobDone(1L, DashboardAiJobType.DELAY_RISK, "job-1")).isTrue();
     }
 
     @Test
     void isJobDoneReturnsFalseWhenNoDoneMarkerExists() {
-        when(redisTemplate.hasKey("dashboard-ai-done:job-1")).thenReturn(false);
+        when(redisTemplate.hasKey("dashboard-ai-done:1:DELAY_RISK:job-1")).thenReturn(false);
 
-        assertThat(newPublisher().isJobDone("job-1")).isFalse();
+        assertThat(newPublisher().isJobDone(1L, DashboardAiJobType.DELAY_RISK, "job-1")).isFalse();
     }
 
     @Test
-    void markDoneSetsDoneMarkerAndClearsInFlightMarker() {
+    void doneMarkerIsScopedToProjectAndJobType() {
+        // 완료 마커가 jobId만으로 만들어지면 다른 프로젝트/작업 종류의 조회가 같은 키에 걸린다.
+        newPublisher().isJobDone(2L, DashboardAiJobType.WORKLOAD_SCORE, "job-1");
+
+        verify(redisTemplate).hasKey("dashboard-ai-done:2:WORKLOAD_SCORE:job-1");
+        verify(redisTemplate, never()).hasKey("dashboard-ai-done:job-1");
+    }
+
+    @Test
+    void markDoneSetsScopedDoneMarkerThenReleasesInFlightWithOwnershipCheck() {
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
 
         newPublisher().markDone(1L, DashboardAiJobType.DELAY_RISK, "job-1");
 
-        verify(valueOperations).set(eq("dashboard-ai-done:job-1"), eq("1"), any(Duration.class));
-        verify(redisTemplate).delete("dashboard-ai-inflight:1:DELAY_RISK");
+        // 완료 마커를 먼저 남기고 in-flight를 푼다. 순서가 반대면 그 틈의 상태 조회가 FAILED로 샌다.
+        InOrder inOrder = inOrder(valueOperations, redisTemplate);
+        inOrder.verify(valueOperations)
+            .set(eq("dashboard-ai-done:1:DELAY_RISK:job-1"), eq("1"), any(Duration.class));
+        inOrder.verify(redisTemplate).execute(
+            any(RedisScript.class), eq(List.of("dashboard-ai-inflight:1:DELAY_RISK")), eq("job-1")
+        );
+        // 무조건 DEL은 남의 마커를 지운다 - 반드시 소유권 확인 스크립트를 거쳐야 한다.
+        verify(redisTemplate, never()).delete(anyString());
+    }
+
+    @Test
+    void releaseInFlightGoesThroughOwnershipCheckedScript() {
+        newPublisher().releaseInFlight(1L, DashboardAiJobType.WORKLOAD_SCORE, "job-9");
+
+        verify(redisTemplate).execute(
+            any(RedisScript.class), eq(List.of("dashboard-ai-inflight:1:WORKLOAD_SCORE")), eq("job-9")
+        );
+        verify(redisTemplate, never()).delete(anyString());
     }
 }

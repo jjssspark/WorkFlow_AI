@@ -284,7 +284,7 @@ class DashboardServiceTest {
     void getDelayRiskRefreshStatusReturnsDoneWhenJobFinishedSuccessfully() {
         when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
         when(dashboardAiJobPublisher.isJobActive(1L, DashboardAiJobType.DELAY_RISK, "job-1")).thenReturn(false);
-        when(dashboardAiJobPublisher.isJobDone("job-1")).thenReturn(true);
+        when(dashboardAiJobPublisher.isJobDone(1L, DashboardAiJobType.DELAY_RISK, "job-1")).thenReturn(true);
 
         DashboardAiJobResponse result = newService().getDelayRiskRefreshStatus("demo-project", "job-1");
 
@@ -297,7 +297,7 @@ class DashboardServiceTest {
         // 예전에는 이 상태를 DONE으로 잘못 보고했다.
         when(demoDataService.resolveProjectId("demo-project")).thenReturn(1L);
         when(dashboardAiJobPublisher.isJobActive(1L, DashboardAiJobType.DELAY_RISK, "job-1")).thenReturn(false);
-        when(dashboardAiJobPublisher.isJobDone("job-1")).thenReturn(false);
+        when(dashboardAiJobPublisher.isJobDone(1L, DashboardAiJobType.DELAY_RISK, "job-1")).thenReturn(false);
 
         DashboardAiJobResponse result = newService().getDelayRiskRefreshStatus("demo-project", "job-1");
 

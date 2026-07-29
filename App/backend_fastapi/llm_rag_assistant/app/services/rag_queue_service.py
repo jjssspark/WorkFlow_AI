@@ -32,6 +32,9 @@ _RESULT_CHANNEL_PREFIX = "rag-result:"
 # claimStalePending()과 동일한 목적으로, 이 시간 이상 idle 상태인 pending 메시지를 회수한다.
 STALE_PENDING_IDLE_MS = 10 * 60 * 1000
 PENDING_SCAN_COUNT = 100
+# Redis가 내려가 있는 동안 폴링 실패가 초당 수십 회씩 로그를 채우지 않도록 지수 백오프를 건다.
+INITIAL_BACKOFF_SECONDS = 1.0
+MAX_BACKOFF_SECONDS = 30.0
 
 _ERROR_LLM_UNAVAILABLE = "llm_unavailable"
 _ERROR_INTERNAL = "internal"
@@ -120,17 +123,17 @@ class RagQueueWorker:
         self._consumer_name = f"rag-worker-{uuid.uuid4().hex}"
         self._task: asyncio.Task | None = None
         self._running = False
+        self._group_ready = False
 
     async def start(self) -> None:
+        """루프만 띄우고 Redis는 건드리지 않는다. 기동 시점에 Redis가 죽어 있으면 예외가 나는데,
+        여기서 컨슈머 그룹을 만들다 실패하면 워커가 영영 뜨지 못한 채(main.py는 로그만 남기고
+        진행) RAG 요청이 전부 WAIT_TIMEOUT_SECONDS까지 대기하다 503으로 떨어진다.
+        그룹 생성은 루프 안에서 재시도한다(Spring DashboardAiQueueWorker와 같은 방식)."""
         if self._running:
             return
-        client = get_async_redis_queue_client()
-        try:
-            await client.xgroup_create(STREAM_KEY, GROUP_NAME, id="0", mkstream=True)
-        except ResponseError as exc:
-            if "BUSYGROUP" not in str(exc):
-                raise
         self._running = True
+        self._group_ready = False
         self._task = asyncio.create_task(self._run_loop(), name="rag-queue-worker")
 
     async def stop(self) -> None:
@@ -142,16 +145,36 @@ class RagQueueWorker:
         with contextlib.suppress(asyncio.CancelledError):
             await task
 
+    def is_ready(self) -> bool:
+        """컨슈머 그룹까지 준비돼 실제로 작업을 꺼낼 수 있는 상태인지."""
+        return self._running and self._group_ready and self._task is not None and not self._task.done()
+
+    async def _ensure_group(self, client: Any) -> None:
+        try:
+            await client.xgroup_create(STREAM_KEY, GROUP_NAME, id="0", mkstream=True)
+        except ResponseError as exc:
+            if "BUSYGROUP" not in str(exc):
+                raise
+        self._group_ready = True
+
     async def _run_loop(self) -> None:
         client = get_async_redis_queue_client()
+        backoff = INITIAL_BACKOFF_SECONDS
         while self._running:
             try:
+                if not self._group_ready:
+                    await self._ensure_group(client)
                 await self._poll_once(client)
             except asyncio.CancelledError:
                 raise
             except Exception:
-                logger.exception("RAG 큐 폴링 실패, 잠시 후 재시도합니다.")
-                await asyncio.sleep(1.0)
+                # Redis가 끊긴 동안 그룹이 사라졌을 수도 있으므로 다음 회차에 다시 만든다.
+                self._group_ready = False
+                logger.exception("RAG 큐 폴링 실패, %.1f초 후 재시도합니다.", backoff)
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, MAX_BACKOFF_SECONDS)
+            else:
+                backoff = INITIAL_BACKOFF_SECONDS
 
     async def _poll_once(self, client: Any) -> None:
         records = await self._claim_stale_pending(client)

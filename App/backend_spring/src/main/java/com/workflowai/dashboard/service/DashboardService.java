@@ -329,7 +329,7 @@ public class DashboardService {
         if (dashboardAiJobPublisher.isJobActive(projectId, jobType, jobId)) {
             return new DashboardAiJobResponse(jobId, projectIdParam, jobType.name(), "PROCESSING");
         }
-        if (dashboardAiJobPublisher.isJobDone(jobId)) {
+        if (dashboardAiJobPublisher.isJobDone(projectId, jobType, jobId)) {
             return new DashboardAiJobResponse(jobId, projectIdParam, jobType.name(), "DONE");
         }
         return new DashboardAiJobResponse(jobId, projectIdParam, jobType.name(), "FAILED");

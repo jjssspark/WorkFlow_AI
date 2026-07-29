@@ -66,7 +66,7 @@ class DashboardAiQueueWorkerTest {
         newWorker().pollOnce();
 
         verify(publisher).markDone(eq(PROJECT_ID), eq(DashboardAiJobType.DELAY_RISK), anyString());
-        verify(publisher, never()).releaseInFlight(anyLong(), any(DashboardAiJobType.class));
+        verify(publisher, never()).releaseInFlight(anyLong(), any(DashboardAiJobType.class), anyString());
         assertThat(delays).isEmpty();
     }
 
@@ -80,7 +80,7 @@ class DashboardAiQueueWorkerTest {
 
         newWorker().pollOnce();
 
-        verify(publisher).releaseInFlight(PROJECT_ID, DashboardAiJobType.DELAY_RISK);
+        verify(publisher).releaseInFlight(eq(PROJECT_ID), eq(DashboardAiJobType.DELAY_RISK), anyString());
         verify(publisher, never()).markDone(anyLong(), any(DashboardAiJobType.class), anyString());
         // 레코드는 ack됐으므로 같은 작업이 큐에서 되돌아오지 않는다 - 재시도는 사용자가 다시 요청한다.
         verify(redisTemplate).execute(any(RedisScript.class), anyList(), any(Object[].class));

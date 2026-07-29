@@ -67,6 +67,10 @@ class _FakeQueueRedis:
 
     async def xreadgroup(self, group: str, consumer: str, streams: dict[str, str], count: int = 1, block: int = 0):
         if self._delivered >= len(self.stream):
+            # 실제 XREADGROUP은 BLOCK 동안 소켓에서 대기하며 이벤트 루프에 제어를 넘긴다.
+            # 여기서 그냥 반환하면 await 지점이 없어 워커 루프가 다른 태스크를 굶기는
+            # busy-loop이 된다(테스트 더블 한정 문제).
+            await asyncio.sleep(0)
             return []
         record_id, fields = self.stream[self._delivered]
         self._delivered += 1
@@ -162,3 +166,50 @@ async def test_enqueue_and_wait_raises_queue_full_without_adding(fake_client: _F
     with pytest.raises(RagQueueFullError):
         await enqueue_and_wait(project_id=1, question="질문", user_id=None, history=[], timeout=1)
     assert len(fake_client.stream) == 200  # 새 작업이 추가되지 않았어야 한다
+
+
+@pytest.mark.asyncio
+async def test_start_does_not_raise_when_redis_is_down(fake_client: _FakeQueueRedis) -> None:
+    """기동 시점에 Redis가 죽어 있어도 start()가 예외를 던지면 안 된다.
+
+    예전에는 start()가 xgroup_create를 직접 호출해, Redis가 내려가 있으면 main.py의
+    lifespan이 예외를 로그만 남기고 넘어간 뒤 워커가 영영 뜨지 못했다 - 그 상태에서
+    들어온 RAG 요청은 전부 WAIT_TIMEOUT_SECONDS까지 대기하다 503으로 떨어진다.
+    """
+    fake_client.xgroup_create = AsyncMock(side_effect=ConnectionError("redis down"))
+
+    worker = RagQueueWorker()
+    await worker.start()  # 예외가 나면 이 지점에서 실패한다
+    try:
+        await asyncio.sleep(0.05)
+        assert worker.is_ready() is False  # 그룹을 못 만들었으니 아직 준비 안 됨
+    finally:
+        await worker.stop()
+
+
+@pytest.mark.asyncio
+async def test_worker_becomes_ready_once_redis_recovers(fake_client: _FakeQueueRedis) -> None:
+    """Redis가 복구되면 프로세스 재시작 없이 워커가 스스로 컨슈머 그룹을 만들고 붙는다."""
+    calls = {"count": 0}
+
+    async def flaky_xgroup_create(*args, **kwargs):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise ConnectionError("redis down")
+        return None
+
+    fake_client.xgroup_create = flaky_xgroup_create
+
+    worker = RagQueueWorker()
+    # 첫 회차 실패 후 백오프를 짧게 잡아 테스트가 오래 걸리지 않게 한다.
+    with patch("llm_rag_assistant.app.services.rag_queue_service.INITIAL_BACKOFF_SECONDS", 0.01):
+        await worker.start()
+        try:
+            for _ in range(100):
+                if worker.is_ready():
+                    break
+                await asyncio.sleep(0.01)
+            assert worker.is_ready() is True
+            assert calls["count"] >= 2
+        finally:
+            await worker.stop()
