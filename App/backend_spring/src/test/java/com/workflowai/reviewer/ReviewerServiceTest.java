@@ -147,7 +147,7 @@ class ReviewerServiceTest {
         Activity activity = new Activity(3L, 9L, "GRADE_PUBLISHED", 20L, "김민준님의 학점을 공개했습니다.");
         ReflectionTestUtils.setField(activity, "id", 100L);
         ReflectionTestUtils.setField(activity, "createdAt", LocalDateTime.of(2026, 7, 28, 10, 0));
-        when(activityRepository.findTop10ByActorIdAndTypeInOrderByCreatedAtDesc(eq(9L), any()))
+        when(activityRepository.findTop10ByActorIdAndTypeInOrderByCreatedAtDescIdDesc(eq(9L), any()))
             .thenReturn(List.of(activity));
         when(projectRepository.findAllById(List.of(3L)))
             .thenReturn(List.of(projectWithId(3L, "실시간 버스 도착 알리미", "캡스톤디자인", EvalStatus.PUBLISHED)));
@@ -162,7 +162,7 @@ class ReviewerServiceTest {
 
     @Test
     void getMyRecentActivities_returnsEmptyListWhenNoActivities() {
-        when(activityRepository.findTop10ByActorIdAndTypeInOrderByCreatedAtDesc(eq(9L), any()))
+        when(activityRepository.findTop10ByActorIdAndTypeInOrderByCreatedAtDescIdDesc(eq(9L), any()))
             .thenReturn(List.of());
 
         List<ReviewerActivityDto> result = reviewerService.getMyRecentActivities(9L);

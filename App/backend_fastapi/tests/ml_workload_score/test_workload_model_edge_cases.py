@@ -14,10 +14,19 @@ import numpy as np
 import pandas as pd
 
 from ml_workload_score.app.services.workload_model import (
-    FEATURE_COLUMNS,
+    ALLOCATION_AXIS_COLUMN,
+    DIFFICULTY_AXIS_COLUMNS,
+    WORKLOAD_AXIS_COLUMNS,
     build_features,
     detect_overload_anomalies_robust,
 )
+
+# 3축 판정이 실제로 읽는 피처 전체. 구 FEATURE_COLUMNS(단일 통합 피처 집합)를 대체한다.
+AXIS_FEATURE_COLUMNS = DIFFICULTY_AXIS_COLUMNS + WORKLOAD_AXIS_COLUMNS + [ALLOCATION_AXIS_COLUMN]
+
+# 축별 원시 점수. 통합 overload_score_0_100은 축 점수의 가중합이라, 어느 한 축이 NaN이어도
+# 가중합 과정에서 가려질 수 있다. NaN 누출을 보려면 축 점수를 직접 봐야 한다.
+AXIS_SCORE_COLUMNS = ["difficulty_score", "workload_score", "allocation_score"]
 
 
 def _tasks_df(plan: list[tuple[str, int, int]], today: pd.Timestamp) -> pd.DataFrame:
@@ -95,9 +104,12 @@ def test_three_member_team_never_reaches_the_warning_threshold():
     )
 
     top = result.sort_values("overload_score_0_100", ascending=False).iloc[0]
-    assert top["anomaly_score_raw"] == 3.0
+    # 3축 전환 후에도 같은 관측이 성립한다: a는 세 축 모두 팀 내 최고(=100점)지만, 어느 축도
+    # modified z-score가 임계값 3.5를 넘지 못해 라벨이 하나도 붙지 않는다. 축 점수는 팀 내
+    # 상대 순위 스케일이라 "최고점 100"과 "이상치 판정"이 서로 독립이라는 게 핵심이다.
+    assert top["overload_score_0_100"] == 100.0
     assert not top["is_anomaly"]
-    assert top["anomaly_type"] == "정상"
+    assert top["anomaly_types"] == []
 
 
 def test_single_member_team_produces_defined_scores_without_dividing_by_zero():
@@ -109,9 +121,9 @@ def test_single_member_team_produces_defined_scores_without_dividing_by_zero():
     )
 
     assert len(result) == 1
-    # anomaly_score_raw까지 봐야 한다. overload_score_0_100은 최대값이 0 이하면 0.0으로
-    # 덮어쓰는 분기가 있어서, 거리 계산이 NaN이 되어도 0점으로 가려진다(변이로 확인).
-    assert np.isfinite(result["anomaly_score_raw"]).all()
+    # 축 점수까지 봐야 한다. 각 축은 최대값이 0 이하면 0.0으로 덮어쓰는 분기가 있어서,
+    # 거리 계산이 NaN이 되어도 0점으로 가려진다(변이로 확인).
+    assert np.isfinite(result[AXIS_SCORE_COLUMNS]).all().all()
     assert np.isfinite(result["overload_score_0_100"]).all()
     assert not result["is_anomaly"].any()
 
@@ -123,10 +135,10 @@ def test_scores_stay_finite_when_the_team_average_is_zero():
     today = pd.Timestamp("2026-07-23")
     features = build_features(_tasks_df([("a", 2, 0), ("b", 2, 0), ("c", 2, 0)], today), today=today)
 
-    assert features[FEATURE_COLUMNS].notna().all().all()
+    assert features[AXIS_FEATURE_COLUMNS].notna().all().all()
 
     result = detect_overload_anomalies_robust(features)
 
-    assert np.isfinite(result["anomaly_score_raw"]).all()
+    assert np.isfinite(result[AXIS_SCORE_COLUMNS]).all().all()
     assert np.isfinite(result["overload_score_0_100"]).all()
     assert not result["overload_score_0_100"].isna().any()

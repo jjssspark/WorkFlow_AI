@@ -2,6 +2,7 @@ package com.workflowai.reviewer;
 
 import com.workflowai.activity.Activity;
 import com.workflowai.activity.ActivityRepository;
+import com.workflowai.activity.ActivityTypes;
 import com.workflowai.common.UtcTimeFormat;
 import com.workflowai.deliverable.DeliverableRepository;
 import com.workflowai.github.GithubRecordRepository;
@@ -26,12 +27,11 @@ import org.springframework.stereotype.Service;
 public class ReviewerService {
     private static final String TASK_STATUS_DONE = "done";
     private static final String DELIVERABLE_STATUS_FINAL = "final";
-    private static final List<String> REVIEWER_ACTIVITY_TYPES = List.of(
-        "CONTRIBUTION_SCORE_PUBLISHED", "CONTRIBUTION_SCORE_UNPUBLISHED",
-        "GRADE_PUBLISHED", "GRADE_UNPUBLISHED",
-        "REVIEW_COMMENT_SAVED",
-        "EVALUATION_FINALIZED", "EVALUATION_UNFINALIZED"
-    );
+    /**
+     * 업무 활동 로그 조회의 제외 목록과 같은 출처를 쓴다 — 새 평가 활동 타입을 한쪽에만
+     * 추가하면 업무 상세에 그 활동이 새어 나오므로 목록이 갈라지지 않게 한곳에서 관리한다.
+     */
+    private static final List<String> REVIEWER_ACTIVITY_TYPES = ActivityTypes.REVIEWER_EVALUATION;
 
     private final ProjectMemberRepository projectMemberRepository;
     private final ProjectRepository projectRepository;
@@ -150,7 +150,7 @@ public class ReviewerService {
     /** 심사자 홈 "최근 심사 활동" 위젯 — 로그인한 심사자 본인이 남긴 활동만 최신순 10건. */
     public List<ReviewerActivityDto> getMyRecentActivities(Long actorId) {
         List<Activity> activities = activityRepository
-            .findTop10ByActorIdAndTypeInOrderByCreatedAtDesc(actorId, REVIEWER_ACTIVITY_TYPES);
+            .findTop10ByActorIdAndTypeInOrderByCreatedAtDescIdDesc(actorId, REVIEWER_ACTIVITY_TYPES);
         if (activities.isEmpty()) {
             return List.of();
         }
