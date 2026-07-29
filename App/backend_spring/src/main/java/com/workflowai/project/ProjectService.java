@@ -82,6 +82,7 @@ public class ProjectService {
                     Project project = projectRepository.saveAndFlush(new Project(
                         request.title(),
                         request.type(),
+                        request.year(),
                         request.description(),
                         request.startDate(),
                         request.deadline(),
@@ -350,6 +351,7 @@ public class ProjectService {
             project.getId(),
             project.getTitle(),
             project.getType(),
+            project.getYear(),
             project.getDeadline(),
             project.getDescription(),
             project.getStartDate(),

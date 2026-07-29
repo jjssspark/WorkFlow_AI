@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import {
   GraduationCap, Users, Trophy, Cpu, Zap, PenLine, Check, User,
@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import { StepIndicator } from "../components/StepIndicator";
 import { useAuth } from "../../global/hooks/useAuth";
-import { createInvitation, createProject } from "../../global/api/projectsApi";
+import { createInvitation, createProject, listProjects } from "../../global/api/projectsApi";
 
 const DELIVERABLE_OPTIONS = ["발표자료", "보고서", "README", "시연 영상", "서비스 배포", "기타"];
 
@@ -26,6 +26,7 @@ export function OnboardingScreen() {
 
   const [step, setStep] = useState(0); // 0-3
   const [projectType, setProjectType] = useState("");
+  const [year, setYear] = useState(new Date().getFullYear());
   const [customType, setCustomType] = useState("");
   const [projectTitle, setProjectTitle] = useState("");
   const [teamSize, setTeamSize] = useState(4);
@@ -40,6 +41,19 @@ export function OnboardingScreen() {
   const [reviewerEmails, setReviewerEmails] = useState<string[]>([""]);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+
+  useEffect(() => {
+    listProjects()
+      .then((projects) => {
+        if (projects.length === 0) return;
+        const mostRecent = projects[projects.length - 1];
+        const matchedType = PROJECT_TYPES.find((t) => t.label === mostRecent.type);
+        if (matchedType) setProjectType(matchedType.id);
+      })
+      .catch(() => {
+        // 프리셋은 부가 기능이므로 실패해도 빈 선택 상태로 둔다.
+      });
+  }, []);
 
   const toggleDeliverable = (item: string) => {
     setDeliverables(prev => prev.includes(item) ? prev.filter(d => d !== item) : [...prev, item]);
@@ -72,6 +86,7 @@ export function OnboardingScreen() {
       const project = await createProject({
         title: projectTitle.trim(),
         type: resolvedType || undefined,
+        year,
         deadline: endDate,
         startDate: startDate || undefined,
         midCheckDate: midCheckDate || undefined,
@@ -154,6 +169,15 @@ export function OnboardingScreen() {
                   placeholder="예: WorkFlow AI"
                   className="w-full rounded-xl border border-border bg-input-background px-4 py-3 text-sm text-foreground placeholder-muted-foreground outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition-all"
                 />
+                <div className="mt-4">
+                  <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">진행 연도</label>
+                  <input
+                    type="number"
+                    value={year}
+                    onChange={(e) => setYear(Number(e.target.value) || new Date().getFullYear())}
+                    className="w-full rounded-xl border border-border bg-input-background px-3 py-2.5 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                  />
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
