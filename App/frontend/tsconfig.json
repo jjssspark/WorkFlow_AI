@@ -1,0 +1,38 @@
+{
+  // vite/vitest는 타입을 검사하지 않고 트랜스파일만 한다. 그래서 tsconfig가 없던 동안
+  // 타입 오류가 그대로 통과해 왔다(도입 시점 실측 60건 = 운영 11 + 테스트 49).
+  // 0건이 되기 전에는 CI에 연결하지 않는다 — 지금 연결하면 모든 PR이 즉시 막힌다.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    // target이 ES2022면 기본값이 true가 되어 클래스 필드 방출 방식이 바뀐다. 실제로
+    // ApiRequestError(파라미터 프로퍼티 사용)의 빌드 결과가 11바이트 달라졌다. 이 설정의
+    // 목적은 타입 검사 추가지 배포 산출물 변경이 아니므로 종전 동작(false)에 고정한다.
+    // true로 올리는 건 별도 검증 후 결정할 일이다.
+    "useDefineForClassFields": false,
+    // import.meta.env 타입은 vite/client가 제공한다.
+    "types": ["vite/client"],
+
+    "noEmit": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+
+    // vite.config.ts의 resolve.alias와 같은 값을 유지해야 한다.
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    },
+
+    // strict:false로 두면 판별 유니온 좁히기가 깨져 actionExecutor.ts에 없는 오류를
+    // 만들어내고(허위 경보), 반대로 진짜 null 결함은 놓친다. 실측 결과 full strict가
+    // strictNullChecks만 켠 것과 오류 집합이 완전히 동일해(60건) 추가 비용이 없었다.
+    "strict": true
+  },
+  // vite.config.ts는 제외한다. Node 전역을 쓰는데 @types/node가 설치돼 있지 않다.
+  "include": ["src"]
+}

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
-import { Check, ChevronDown, Hash, Plus, Sparkles, Settings, Shield, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { Check, ChevronDown, Hash, Plus, Sparkles, Settings, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { NAV_ITEMS } from "../../lib/constants/nav";
 import type { Tab } from "../../../board/libs/types/task";
 import { useAuth } from "../../hooks/useAuth";
@@ -163,7 +163,6 @@ export function Sidebar({ active, onSelect, onAI, collapsed, onToggleCollapsed, 
               style={{
                 background: isActive ? "var(--sidebar-primary)" : "transparent",
                 color: isActive ? "white" : "var(--sidebar-foreground)",
-                opacity: item.lock ? 0.6 : 1,
               }}
             >
               <item.icon className="w-4 h-4 shrink-0" />
@@ -173,7 +172,6 @@ export function Sidebar({ active, onSelect, onAI, collapsed, onToggleCollapsed, 
                   {badgeText}
                 </span>
               )}
-              {!collapsed && item.lock && <Shield className="w-3 h-3 opacity-60" />}
             </button>
           );
 

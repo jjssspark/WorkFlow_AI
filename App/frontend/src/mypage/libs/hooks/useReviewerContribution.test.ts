@@ -32,7 +32,7 @@ function makeMember(userId: number, name: string, role: MemberResponse["role"]):
 }
 
 function makeTask(id: string, assignee: string, status: Task["status"]): Task {
-  return { id, title: `업무 ${id}`, status, priority: "medium", assignee, dueDate: "", labels: [], category: "frontend", position: 0 };
+  return { id, title: `업무 ${id}`, status, priority: "medium", assignee, startDate: "", dueDate: "", labels: [], category: "frontend", position: 0, pendingApproval: false, extraFields: {} };
 }
 
 function makeAttendance(userId: number, meetingsAttended: number, totalMeetings: number): MeetingAttendanceSummaryDto {

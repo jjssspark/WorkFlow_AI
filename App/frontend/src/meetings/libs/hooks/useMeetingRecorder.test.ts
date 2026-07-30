@@ -106,7 +106,9 @@ describe("useMeetingRecorder", () => {
       await result.current.start();
     });
 
-    let recorded: Awaited<ReturnType<typeof result.current.stop>> = null;
+    // act 콜백 안에서 대입되므로 TS 흐름 분석이 따라가지 못해 null로 좁혀진다.
+    // 단언으로 선언 타입을 유지한다.
+    let recorded = null as Awaited<ReturnType<typeof result.current.stop>>;
     await act(async () => {
       recorded = await result.current.stop();
     });

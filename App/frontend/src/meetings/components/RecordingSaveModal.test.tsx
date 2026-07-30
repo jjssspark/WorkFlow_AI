@@ -24,7 +24,7 @@ describe("RecordingSaveModal", () => {
     vi.clearAllMocks();
     mockedUseAuth.mockReturnValue({ currentProjectId: 1 } as ReturnType<typeof useAuth>);
     mockedGetProjectMembers.mockResolvedValue([
-      { userId: 10, name: "김민준", role: "MEMBER" } as Awaited<ReturnType<typeof getProjectMembers>>[number],
+      { userId: 10, name: "김민준", email: "kim@test.com", role: "팀원" },
     ]);
   });
 

@@ -1389,11 +1389,16 @@ export function MeetingsView() {
             status: "todo",
             priority: todo.priority,
             assignee: getAssignee(todo),
+            // 회의록 AI는 시작일을 만들지 않는다. Task.startDate는 빈 문자열이 "미정"이다.
+            startDate: "",
             dueDate: getDueDate(todo),
             category: todo.category,
             position: index,
             labels: [sourceLabel, cat.label],
             sourceMeetingTitle: meetingIdentifier,
+            // 방금 만든 카드라 완료 승인 대기일 수 없고, 카테고리 추가 정보도 아직 없다.
+            pendingApproval: false,
+            extraFields: {},
           };
         });
 

@@ -19,13 +19,16 @@ function taskFixture(overrides: Partial<DashboardTaskDto>): DashboardTaskDto {
     status: "todo",
     assigneeId: null,
     assigneeName: null,
+    startDate: null,
     dueDate: null,
+    doneDate: null,
     priority: null,
     description: null,
     sourceType: null,
     position: 0,
     createdAt: null,
     updatedAt: null,
+    extraFields: null,
     ...overrides,
   };
 }
