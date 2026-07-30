@@ -295,7 +295,7 @@ describe("Header 알림", () => {
   // 분석 결과만 지운 경우 회의록 자체는 남지만 사용자가 확인하려던 분석 내용은 없으므로 마찬가지다.
   it("분석 결과 삭제 알림에는 바로가기도 할 일 배지도 없다", async () => {
     vi.mocked(fetchNotifications).mockResolvedValue([
-      { id: "1", type: "MEETING_ANALYSIS_DELETED", title: "회의록 분석 결과가 삭제되었습니다", content: "김민준님이 '정기회의' 회의록의 분석 결과를 삭제했습니다. (등록된 업무는 유지됨)", targetType: "meeting", targetId: "7", read: false, createdAt: new Date().toISOString() },
+      { id: "1", type: "MEETING_ANALYSIS_DELETED", projectId: "1", title: "회의록 분석 결과가 삭제되었습니다", content: "김민준님이 '정기회의' 회의록의 분석 결과를 삭제했습니다. (등록된 업무는 유지됨)", targetType: "meeting", targetId: "7", read: false, createdAt: new Date().toISOString() },
     ]);
     vi.mocked(markNotificationsRead).mockResolvedValue(undefined);
 
@@ -309,7 +309,7 @@ describe("Header 알림", () => {
 
   it("회의록 삭제 알림에도 바로가기 버튼이 없다", async () => {
     vi.mocked(fetchNotifications).mockResolvedValue([
-      { id: "1", type: "MEETING_DELETED", title: "회의록이 삭제되었습니다", content: "김민준님이 '정기회의' 회의록을 삭제했습니다. (등록된 업무는 유지됨)", targetType: "meeting", targetId: "7", read: false, createdAt: new Date().toISOString() },
+      { id: "1", type: "MEETING_DELETED", projectId: "1", title: "회의록이 삭제되었습니다", content: "김민준님이 '정기회의' 회의록을 삭제했습니다. (등록된 업무는 유지됨)", targetType: "meeting", targetId: "7", read: false, createdAt: new Date().toISOString() },
     ]);
     vi.mocked(markNotificationsRead).mockResolvedValue(undefined);
 

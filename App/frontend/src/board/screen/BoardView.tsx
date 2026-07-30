@@ -62,6 +62,8 @@ export function BoardView() {
     return subscribeTaskMove((event) => {
       if (event.projectId !== String(projectId)) return;
       if (!isTaskStatus(event.status)) return;
+      // 좁혀진 타입은 중첩 콜백(setTasks) 안까지 따라가지 않는다 - const로 붙잡아 둔다.
+      const status = event.status;
       const lastVersion = remoteMoveVersionsRef.current.get(event.taskId);
       // version은 System.currentTimeMillis() 기반이라 두 커밋이 같은 밀리초에 캡처될 수 있다
       // (OS 타이머 해상도, 특히 Windows에서 흔함). "<="로 동률까지 버리면 실제로 더 최신인
@@ -69,7 +71,7 @@ export function BoardView() {
       // "더 오래된 것만" 걸러내도록 엄격한 "<"만 쓴다 - 동률은 적용한다.
       if (lastVersion !== undefined && event.version < lastVersion) return;
       remoteMoveVersionsRef.current.set(event.taskId, event.version);
-      setTasks((current) => applyRemoteTaskMove(current, event.taskId, event.status, event.position));
+      setTasks((current) => applyRemoteTaskMove(current, event.taskId, status, event.position));
     });
   }, [subscribeTaskMove, projectId]);
 

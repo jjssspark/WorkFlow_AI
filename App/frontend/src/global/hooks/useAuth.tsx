@@ -60,7 +60,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const addLocalProjectRole = (projectTitle: string, role: ProjectRoleSummary["role"]) => {
     const projectId = -Date.now();
     setLocalProjectRoles((prev) => [
-      { projectId, projectTitle, role },
+      // 서버가 아직 모르는 임시 프로젝트라 type/year는 알 수 없고 진행률은 0이다.
+      // 빠뜨리면 이 값을 읽는 화면에서 undefined가 흘러다닌다.
+      { projectId, projectTitle, role, type: null, year: null, taskProgress: 0 },
       ...prev.filter((project) => project.projectTitle !== projectTitle),
     ]);
     selectProject(projectId);

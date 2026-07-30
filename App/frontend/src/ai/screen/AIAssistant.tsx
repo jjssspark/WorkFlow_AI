@@ -208,7 +208,7 @@ export function AIAssistant({
 
   useEffect(() => {
     const question = pendingQuestion?.question?.trim();
-    if (!question || loading || handledRequestIdRef.current === pendingQuestion.requestId) return;
+    if (!pendingQuestion || !question || loading || handledRequestIdRef.current === pendingQuestion.requestId) return;
     handledRequestIdRef.current = pendingQuestion.requestId;
     send(question);
   }, [loading, pendingQuestion, send]);

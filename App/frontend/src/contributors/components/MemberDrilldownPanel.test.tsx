@@ -175,7 +175,7 @@ describe("MemberDrilldownPanel", () => {
     ]);
     vi.mocked(fetchMeeting).mockResolvedValue({
       meetingId: "12", projectId: "1", status: "COMPLETED", sourceType: "document",
-      fileName: null, analysisSource: "FASTAPI", errorMessage: null, attendees: [],
+      fileName: null, analysisSource: "FASTAPI", errorMessage: null, attendees: [], transcript: null,
       analysis: {
         summary: "이번 주 스프린트 진행 상황을 공유했다.",
         decisions: ["API 스펙을 v2로 확정한다"],
@@ -206,7 +206,7 @@ describe("MemberDrilldownPanel", () => {
     ]);
     vi.mocked(fetchMeeting).mockResolvedValue({
       meetingId: "12", projectId: "1", status: "PROCESSING", sourceType: "document",
-      fileName: null, analysisSource: null, errorMessage: null, attendees: [], analysis: null,
+      fileName: null, analysisSource: null, errorMessage: null, attendees: [], transcript: null, analysis: null,
     });
     const user = userEvent.setup();
 

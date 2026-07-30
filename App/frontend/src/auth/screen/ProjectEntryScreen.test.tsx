@@ -4,7 +4,7 @@ import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ProjectEntryScreen } from "./ProjectEntryScreen";
 import { ApiRequestError } from "../../global/api/apiClient";
-import { acceptInvitation, joinProjectByCode, listProjects } from "../../global/api/projectsApi";
+import { acceptInvitation, joinProjectByCode, listProjects, type ProjectResponse } from "../../global/api/projectsApi";
 import {
   fetchReviewerActivities, fetchReviewerLastAccess, recordReviewerAccess,
 } from "../../global/api/reviewerActivityApi";
@@ -32,9 +32,11 @@ vi.mock("../../global/api/reviewerActivityApi", () => ({
   recordReviewerAccess: vi.fn(),
 }));
 
-function projectResponse(id: number, title: string) {
+// 반환 타입을 명시해야 ProjectResponse에 필드가 추가됐을 때 호출부 전체가 아니라
+// 이 팩토리 한 곳에서 잡힌다.
+function projectResponse(id: number, title: string): ProjectResponse {
   return {
-    id, title, type: null, deadline: null, description: null, startDate: null, midCheckDate: null,
+    id, title, type: null, year: null, deadline: null, description: null, startDate: null, midCheckDate: null,
     memberLimit: null, deliverables: null, techStack: null, goals: null, inviteCode: null,
     createdBy: null, memberCount: 3, taskProgress: 40, evalStatus: "EVALUATING",
   };
