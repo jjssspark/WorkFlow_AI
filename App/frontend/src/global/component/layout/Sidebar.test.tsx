@@ -38,9 +38,9 @@ vi.mock("./InviteCodeSection", () => ({
   ),
 }));
 
-const leaderProject: ProjectRoleSummary = { projectId: 1, projectTitle: "팀장 프로젝트", role: "팀장" };
-const memberProject: ProjectRoleSummary = { projectId: 2, projectTitle: "팀원 프로젝트", role: "팀원" };
-const reviewerProject: ProjectRoleSummary = { projectId: 3, projectTitle: "심사 프로젝트", role: "심사자" };
+const leaderProject: ProjectRoleSummary = { projectId: 1, projectTitle: "팀장 프로젝트", role: "팀장", type: null, year: null, taskProgress: 0 };
+const memberProject: ProjectRoleSummary = { projectId: 2, projectTitle: "팀원 프로젝트", role: "팀원", type: null, year: null, taskProgress: 0 };
+const reviewerProject: ProjectRoleSummary = { projectId: 3, projectTitle: "심사 프로젝트", role: "심사자", type: null, year: null, taskProgress: 0 };
 
 function setCurrentProject(project: ProjectRoleSummary, projectRoles: ProjectRoleSummary[] = [project]) {
   mockAuth.state.projectRoles = projectRoles;

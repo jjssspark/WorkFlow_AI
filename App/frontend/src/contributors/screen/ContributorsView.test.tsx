@@ -80,7 +80,7 @@ describe("ContributorsView drilldown panels", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.mocked(getProject).mockResolvedValue({
-      id: 1, title: "스마트 주차 관리 시스템", type: null, deadline: null, description: null,
+      id: 1, title: "스마트 주차 관리 시스템", type: null, year: null, deadline: null, description: null,
       startDate: null, midCheckDate: null, memberLimit: null, deliverables: null, techStack: null,
       goals: null, inviteCode: null, createdBy: null, memberCount: 1, taskProgress: 0,
       evalStatus: "EVALUATING",
@@ -200,7 +200,7 @@ describe("ContributorsView 학점 계산기", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.mocked(getProject).mockResolvedValue({
-      id: 1, title: "스마트 주차 관리 시스템", type: null, deadline: null, description: null,
+      id: 1, title: "스마트 주차 관리 시스템", type: null, year: null, deadline: null, description: null,
       startDate: null, midCheckDate: null, memberLimit: null, deliverables: null, techStack: null,
       goals: null, inviteCode: null, createdBy: null, memberCount: 1, taskProgress: 0,
       evalStatus: "EVALUATING",
@@ -304,10 +304,10 @@ describe("ContributorsView 학점 계산기", () => {
     expect(within(gradeSelect).getByRole("option", { name: "Pass" })).toHaveValue("P");
     expect(within(gradeSelect).getByRole("option", { name: "Fail" })).toHaveValue("F");
     // A0 계열 학교뿐 아니라 A만 쓰는 학교 표기(A/B/C/D)도 옵션에 있어야 한다.
-    expect(within(gradeSelect).getByRole("option", { name: "A", exact: true })).toHaveValue("A");
-    expect(within(gradeSelect).getByRole("option", { name: "B", exact: true })).toHaveValue("B");
-    expect(within(gradeSelect).getByRole("option", { name: "C", exact: true })).toHaveValue("C");
-    expect(within(gradeSelect).getByRole("option", { name: "D", exact: true })).toHaveValue("D");
+    expect(within(gradeSelect).getByRole("option", { name: "A" })).toHaveValue("A");
+    expect(within(gradeSelect).getByRole("option", { name: "B" })).toHaveValue("B");
+    expect(within(gradeSelect).getByRole("option", { name: "C" })).toHaveValue("C");
+    expect(within(gradeSelect).getByRole("option", { name: "D" })).toHaveValue("D");
   });
 
   it("학점 계산기로 저장한 뒤 왼쪽 테이블의 기여 점수 공개 토글을 눌러도 총점/학점 공개 상태를 덮어쓰지 않는다 (회귀 테스트)", async () => {
@@ -496,7 +496,7 @@ describe("ContributorsView 평가 확정 토글", () => {
 
   it("evalStatus가 PUBLISHED이면 '평가 확정 취소' 버튼을 보여준다", async () => {
     vi.mocked(getProject).mockResolvedValue({
-      id: 1, title: "스마트 주차 관리 시스템", type: null, deadline: null, description: null,
+      id: 1, title: "스마트 주차 관리 시스템", type: null, year: null, deadline: null, description: null,
       startDate: null, midCheckDate: null, memberLimit: null, deliverables: null, techStack: null,
       goals: null, inviteCode: null, createdBy: null, memberCount: 1, taskProgress: 0,
       evalStatus: "PUBLISHED",
@@ -509,13 +509,13 @@ describe("ContributorsView 평가 확정 토글", () => {
 
   it("'평가 확정 취소' 클릭 시 확인 다이얼로그 없이 바로 unfinalizeEvaluation을 호출해 배지를 '평가 중'으로 되돌린다 (점수 공개 여부와 무관한 진행 상태 전용 토글)", async () => {
     vi.mocked(getProject).mockResolvedValue({
-      id: 1, title: "스마트 주차 관리 시스템", type: null, deadline: null, description: null,
+      id: 1, title: "스마트 주차 관리 시스템", type: null, year: null, deadline: null, description: null,
       startDate: null, midCheckDate: null, memberLimit: null, deliverables: null, techStack: null,
       goals: null, inviteCode: null, createdBy: null, memberCount: 1, taskProgress: 0,
       evalStatus: "PUBLISHED",
     });
     vi.mocked(unfinalizeEvaluation).mockResolvedValue({
-      id: 1, title: "스마트 주차 관리 시스템", type: null, deadline: null, description: null,
+      id: 1, title: "스마트 주차 관리 시스템", type: null, year: null, deadline: null, description: null,
       startDate: null, midCheckDate: null, memberLimit: null, deliverables: null, techStack: null,
       goals: null, inviteCode: null, createdBy: null, memberCount: 1, taskProgress: 0,
       evalStatus: "EVALUATING",
@@ -534,13 +534,13 @@ describe("ContributorsView 평가 확정 토글", () => {
 
   it("evalStatus가 EVALUATING이면 '평가 확정' 버튼을 보여주고 클릭 시 finalizeEvaluation을 호출한다", async () => {
     vi.mocked(getProject).mockResolvedValue({
-      id: 1, title: "스마트 주차 관리 시스템", type: null, deadline: null, description: null,
+      id: 1, title: "스마트 주차 관리 시스템", type: null, year: null, deadline: null, description: null,
       startDate: null, midCheckDate: null, memberLimit: null, deliverables: null, techStack: null,
       goals: null, inviteCode: null, createdBy: null, memberCount: 1, taskProgress: 0,
       evalStatus: "EVALUATING",
     });
     vi.mocked(finalizeEvaluation).mockResolvedValue({
-      id: 1, title: "스마트 주차 관리 시스템", type: null, deadline: null, description: null,
+      id: 1, title: "스마트 주차 관리 시스템", type: null, year: null, deadline: null, description: null,
       startDate: null, midCheckDate: null, memberLimit: null, deliverables: null, techStack: null,
       goals: null, inviteCode: null, createdBy: null, memberCount: 1, taskProgress: 0,
       evalStatus: "PUBLISHED",

@@ -43,7 +43,7 @@ describe("apiFetch 오류 메시지", () => {
     async (status) => {
       vi.stubGlobal("fetch", vi.fn().mockResolvedValue(nginxGatewayResponse(status)));
 
-      const error = await apiFetch("/auth/test-login", { method: "POST" }).catch((e) => e);
+      const error = (await apiFetch("/auth/test-login", { method: "POST" }).catch((e) => e)) as ApiRequestError;
 
       expect(error).toBeInstanceOf(ApiRequestError);
       expect(error.status).toBe(status);
@@ -65,7 +65,7 @@ describe("apiFetch 오류 메시지", () => {
       ),
     );
 
-    const error = await apiFetch("/auth/test-login", { method: "POST" }).catch((e) => e);
+    const error = (await apiFetch("/auth/test-login", { method: "POST" }).catch((e) => e)) as ApiRequestError;
 
     expect(error.message).toBe("현재 이 계정은 다른 곳에서 로그인 중입니다.");
     expect(error.code).toBe("TEST_ACCOUNT_ALREADY_ACTIVE");
@@ -74,7 +74,7 @@ describe("apiFetch 오류 메시지", () => {
   it("500은 게이트웨이 오류와 구분해 기존 폴백을 유지한다", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(nginxGatewayResponse(500)));
 
-    const error = await apiFetch("/me").catch((e) => e);
+    const error = (await apiFetch("/me").catch((e) => e)) as ApiRequestError;
 
     expect(error.message).toBe("요청에 실패했습니다.");
   });
@@ -82,7 +82,7 @@ describe("apiFetch 오류 메시지", () => {
   it("404는 기존 문구를 유지한다", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(nginxGatewayResponse(404)));
 
-    const error = await apiFetch("/me").catch((e) => e);
+    const error = (await apiFetch("/me").catch((e) => e)) as ApiRequestError;
 
     expect(error.message).toBe("요청한 항목을 찾을 수 없습니다.");
   });
@@ -108,7 +108,7 @@ describe("apiFetch timeoutMs", () => {
       }),
     );
 
-    const error = await apiFetch("/projects/1/meetings/1", { method: "DELETE" }, true, 20).catch((e) => e);
+    const error = (await apiFetch("/projects/1/meetings/1", { method: "DELETE" }, true, 20).catch((e) => e)) as ApiRequestError;
 
     expect(error).toBeInstanceOf(ApiRequestError);
     expect(error.code).toBe("REQUEST_TIMEOUT");

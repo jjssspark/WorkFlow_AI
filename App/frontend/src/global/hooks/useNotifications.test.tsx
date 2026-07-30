@@ -18,7 +18,7 @@ type StreamHandlers = {
 let streamHandlers: StreamHandlers | null = null;
 const fetchUnreadNotificationCount = vi.fn();
 const fetchNotifications = vi.fn();
-const subscribeNotificationStream = vi.fn((handlers: StreamHandlers) => {
+const subscribeNotificationStream = vi.fn((handlers: StreamHandlers, _signal: AbortSignal) => {
   streamHandlers = handlers;
 });
 vi.mock("../api/notificationApi", () => ({
