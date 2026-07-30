@@ -38,6 +38,35 @@ acl_file="${acl_dir}/users.acl"
 acl_tmp="${acl_dir}/users.acl.tmp"
 template=/usr/local/etc/redis/users.acl.template
 
+# users.acl.template 안내
+#
+# 주의: ACL 파일은 주석(#)을 지원하지 않는다. 모든 줄이 user 키워드로 시작해야 하고,
+# 아니면 redis-server가 "Aborting Redis startup because of ACL errors"로 기동을 중단한다
+# (2026-07-30 실측). 빈 줄만 허용된다. 그래서 설명을 템플릿이 아니라 여기에 둔다.
+#
+# 원칙: 앱 계정은 자기가 실제로 쓰는 키와 명령만 갖는다. 코드에 새 키나 명령이 생기면
+# 템플릿도 함께 고쳐야 한다 - 안 고치면 런타임에 NOPERM으로 조용히 실패한다.
+#
+# 선택자 `(~키패턴 +명령 ...)`은 키 묶음별로 권한을 나눈다. 루트 권한과 선택자는 OR로
+# 평가된다. EVAL/EVALSHA는 스크립트가 선언한 KEYS에 대한 접근 권한이 필요하므로
+# 스크립트를 실행하는 선택자 안에 함께 넣는다.
+#
+#   spring   ~meeting-analysis, ~dashboard-ai-jobs   작업 큐 (enqueue·ack Lua 포함)
+#            ~dashboard-ai-inflight:*                중복 실행 방지 마커 (release/renew Lua)
+#            ~dashboard-ai-done:*                    완료 표시 (set + exists)
+#            ~assistant_thread:*                     어시스턴트 스레드 소유자
+#            ~dashboard:workload-score:*             업무량 점수 캐시
+#            Pub/Sub 미사용이므로 채널은 열지 않는다
+#
+#   fastapi  ~rag-jobs                               RAG 작업 큐 (enqueue Lua 포함)
+#            &rag-result:*                           워커 -> 요청 스레드 결과 전달 채널
+#            ~meeting_analysis:*, ~rag_answer:*      결과 캐시
+#            ~rag_epoch:*                            캐시 무효화 카운터 (get + incr)
+#
+# 2026-07-30: 코드가 쓰는 키의 절반이 빠져 있어 기능 두 개가 통째로 죽어 있던 것을 바로잡음.
+#   - dashboard-ai-jobs 누락 -> DashboardAiQueueWorker가 기동마다 그룹 생성 실패
+#   - rag-jobs / rag-result:* 누락 -> RAG 큐 xgroup|create가 NOPERM, 결과 Pub/Sub도 차단
+
 umask 077
 mkdir -p "${acl_dir}"
 chmod 700 "${acl_dir}"
