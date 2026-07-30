@@ -1,5 +1,5 @@
-// REVIEWER_TEAMS / REVIEWER_ACTIVITIES는 ReviewerMyPage(Task 5)에서는 더 이상 쓰지 않지만
-// ContributorsView.tsx / ProjectEntryScreen.tsx가 여전히 참조하므로 유지한다(범위 밖 화면).
+// REVIEWER_TEAMS는 ReviewerMyPage(Task 5)에서는 더 이상 쓰지 않지만
+// ContributorsView.tsx가 여전히 참조하므로 유지한다(범위 밖 화면).
 export const REVIEWER_TEAMS = [
   { id: "T1", name: "스마트 주차 관리 시스템", leader: "김민준", members: 4, progress: 71, evalStatus: "evaluating" as const, deliverables: 3, github: true, submitted: 2, type: "캡스톤" },
   { id: "T2", name: "AI 기반 식단 추천 앱", leader: "정민아", members: 3, progress: 54, evalStatus: "pending" as const, deliverables: 1, github: true, submitted: 0, type: "캡스톤" },

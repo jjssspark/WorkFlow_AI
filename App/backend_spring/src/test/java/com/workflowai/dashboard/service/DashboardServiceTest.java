@@ -240,7 +240,10 @@ class DashboardServiceTest {
         when(workloadScoreCache.get(1L)).thenReturn(Optional.empty());
         WorkloadScoreResponseDto response = new WorkloadScoreResponseDto(
             "1.0", 1L, "db", "MAD (소규모 팀)",
-            List.of(new WorkloadScoreMemberDto("5", 12, 0.4, 88.5, true, "과부하 의심", 1.8, 1.2, 3)),
+            List.of(new WorkloadScoreMemberDto(
+                "5", 12, 0.4, 88.5, true, List.of("업무량 편중 의심"),
+                90.0, 85.0, 10.0, 1.8, 1.2, 1.3, 3
+            )),
             null, 0.62, null
         );
         WorkloadScoreResponseDto stamped = response.withCalculatedAt("2026-07-29T00:00:00Z");
@@ -250,7 +253,7 @@ class DashboardServiceTest {
         WorkloadScoreResponseDto result = newService().getWorkloadScore("demo-project");
 
         assertThat(result.members()).hasSize(1);
-        assertThat(result.members().get(0).anomaly_type()).isEqualTo("과부하 의심");
+        assertThat(result.members().get(0).anomaly_types()).containsExactly("업무량 편중 의심");
         assertThat(result.team_mean_completion()).isEqualTo(0.62);
         // 라이브 계산 결과도 캐시에 넣으면서 찍힌 계산 시각을 그대로 응답에 실어야 한다.
         assertThat(result.calculated_at()).isEqualTo("2026-07-29T00:00:00Z");

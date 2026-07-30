@@ -54,8 +54,12 @@ function WorkloadTooltip({ active, payload, label }: { active?: boolean; payload
 }
 
 const ANOMALY_BADGE: Record<string, { label: string; color: string; bg: string }> = {
-  "과부하 의심": { label: "과부하 의심", color: "#DC2626", bg: "#FEF2F2" },
-  "저활동 의심": { label: "저활동 의심", color: "#D97706", bg: "#FFFBEB" },
+  "난이도 편중 의심": { label: "난이도 편중 의심", color: "#DC2626", bg: "#FEF2F2" },
+  "업무량 편중 의심": { label: "업무량 편중 의심", color: "#EA580C", bg: "#FFF7ED" },
+  "배정량 불균형": { label: "배정량 불균형", color: "#D97706", bg: "#FFFBEB" },
+  "난이도 이상 패턴(방향 불명확)": { label: "난이도 이상 패턴", color: "#64748B", bg: "#F1F5F9" },
+  "업무량 이상 패턴(방향 불명확)": { label: "업무량 이상 패턴", color: "#64748B", bg: "#F1F5F9" },
+  "배정 이상 패턴(방향 불명확)": { label: "배정 이상 패턴", color: "#64748B", bg: "#F1F5F9" },
 };
 
 const NORMAL_CATEGORY_COLOR = "#16A34A";
@@ -99,26 +103,43 @@ export function WorkloadPage() {
   const workloadScoreByAssignee = new Map<string, WorkloadScoreMemberDto>(
     (workloadScore?.members ?? []).map(member => [member.assigneeId, member])
   );
-  // isAnomaly는 과부하/저활동 이상치를 모두 true로 묶어서 주기 때문에, 그대로 쓰면
-  // "저활동 의심" 팀원까지 "과부하 위험"으로 잘못 표시된다 — anomalyType으로 과부하만 걸러낸다.
+  // isAnomaly는 세 축(업무량 편중/난이도 편중/배정량 불균형) 전부를 true로 묶어서 주기 때문에,
+  // 그대로 쓰면 "배정량 불균형"만 걸린 팀원까지 "과부하 위험"으로 잘못 표시된다 —
+  // anomalyTypes로 업무량 편중만 걸러낸다.
   const isMemberOverloaded = (member: (typeof workload)[number]) =>
-    workloadScoreByAssignee.get(member.assigneeId)?.anomalyType === "과부하 의심";
+    workloadScoreByAssignee.get(member.assigneeId)?.anomalyTypes.includes("업무량 편중 의심") ?? false;
   const overloaded = workload.filter(isMemberOverloaded);
   // 완료율 비교 영역에서는 팀원 프로필 색상 대신, 범례와 동일한 편중 범주 색상을 쓴다.
+  // 한 사람이 여러 축에서 동시에 이상치일 수 있으므로 우선순위(업무량 편중 > 난이도 편중 >
+  // 배정량 불균형 > 방향 불명확 세 가지)를 정해 대표색 하나를 고른다. 방향이 불명확한
+  // 세 축은 정보량이 적으므로 방향이 확정된 세 축보다 우선순위를 낮게 둔다 — 그래야
+  // 확정 축과 불명확 축을 동시에 가진 팀원은 더 유용한 확정 축 색으로 표시된다.
+  const ANOMALY_COLOR_PRIORITY = [
+    "업무량 편중 의심",
+    "난이도 편중 의심",
+    "배정량 불균형",
+    "업무량 이상 패턴(방향 불명확)",
+    "난이도 이상 패턴(방향 불명확)",
+    "배정 이상 패턴(방향 불명확)",
+  ];
   const categoryColorFor = (member: (typeof workload)[number]) => {
-    const anomalyType = workloadScoreByAssignee.get(member.assigneeId)?.anomalyType;
-    return anomalyType ? ANOMALY_BADGE[anomalyType]?.color ?? NORMAL_CATEGORY_COLOR : NORMAL_CATEGORY_COLOR;
+    const anomalyTypes = workloadScoreByAssignee.get(member.assigneeId)?.anomalyTypes ?? [];
+    const primaryType = ANOMALY_COLOR_PRIORITY.find(type => anomalyTypes.includes(type));
+    return primaryType ? ANOMALY_BADGE[primaryType]?.color ?? NORMAL_CATEGORY_COLOR : NORMAL_CATEGORY_COLOR;
   };
 
-  const overloadedByMl = (workloadScore?.members ?? []).filter(member => member.anomalyType === "과부하 의심");
+  const workloadHeavyMembers = (workloadScore?.members ?? []).filter(member => member.anomalyTypes.includes("업무량 편중 의심"));
+  const difficultyHeavyMembers = (workloadScore?.members ?? []).filter(member => member.anomalyTypes.includes("난이도 편중 의심"));
+  const allocationImbalancedMembers = (workloadScore?.members ?? []).filter(member => member.anomalyTypes.includes("배정량 불균형"));
   const memberNameFor = (assigneeId: string) => {
     const index = workload.findIndex(entry => entry.assigneeId === assigneeId);
     const assigneeName = index >= 0 ? workload[index].assigneeName : null;
     return resolveMemberDisplay(assigneeName, index >= 0 ? index : 0, assigneeId).name;
   };
-  // "과부하 위험" 카드의 서브텍스트용 - overloadScore(ML 편중 점수)는 과부하/저활동 모두 높게 나오므로,
-  // 반드시 anomalyType이 "과부하 의심"인 사람 중에서만 골라야 저활동 팀원 이름이 잘못 뜨지 않는다.
-  const topOverloadedMember = overloadedByMl.reduce<WorkloadScoreMemberDto | null>(
+  // "과부하 위험" 카드의 서브텍스트용 - overloadScore(AI 편중 점수)는 세 축 모두 높게 나올 수
+  // 있으므로, 반드시 anomalyTypes에 "업무량 편중 의심"이 포함된 사람 중에서만 골라야
+  // 다른 축으로 이상치인 팀원 이름이 잘못 뜨지 않는다.
+  const topOverloadedMember = workloadHeavyMembers.reduce<WorkloadScoreMemberDto | null>(
     (top, member) => (!top || member.overloadScore > top.overloadScore ? member : top),
     null
   );
@@ -221,24 +242,31 @@ export function WorkloadPage() {
         <div className="bg-card rounded-xl p-5 border border-border shadow-sm">
           <div className="text-sm font-semibold text-foreground mb-1.5">완료율 비교</div>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted-foreground mb-3">
-            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full shrink-0" style={{ background: ANOMALY_BADGE["과부하 의심"].color }} />과부하 의심(ML 편중 점수 상위 이상치)</span>
-            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full shrink-0" style={{ background: ANOMALY_BADGE["저활동 의심"].color }} />저활동 의심(ML 편중 점수 하위 이상치)</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full shrink-0" style={{ background: ANOMALY_BADGE["업무량 편중 의심"].color }} />업무량 편중(AI 편중 점수 상위 이상치)</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full shrink-0" style={{ background: ANOMALY_BADGE["난이도 편중 의심"].color }} />난이도 편중(어려운 업무 몰림)</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full shrink-0" style={{ background: ANOMALY_BADGE["배정량 불균형"].color }} />배정량 불균형(배정 자체가 적음)</span>
             <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full shrink-0" style={{ background: NORMAL_CATEGORY_COLOR }} />정상(이상치 아님)</span>
           </div>
           <div className="space-y-4">
             {!summaryLoading && !pageRefreshing && workload.map((entry, index) => {
               const member = resolveMemberDisplay(entry.assigneeName, index, entry.assigneeId);
               const pct = entry.total === 0 ? 0 : Math.round((entry.done / entry.total) * 100);
-              const isOverload = isMemberOverloaded(entry);
-              const isUnderload = workloadScoreByAssignee.get(entry.assigneeId)?.anomalyType === "저활동 의심";
+              const anomalyTypes = workloadScoreByAssignee.get(entry.assigneeId)?.anomalyTypes ?? [];
+              // ANOMALY_BADGE에 등록된 6개 라벨(확정 3종 + 방향 불명확 3종)을 모두 일반화된
+              // 방식으로 순회한다 — 라벨을 하드코딩해서 개별 분기하면 새 라벨이 추가될 때
+              // 이 영역만 누락되는 문제가 재발한다.
+              const inlineAnomalyBadges = anomalyTypes
+                .map(type => ANOMALY_BADGE[type])
+                .filter((badge): badge is { label: string; color: string; bg: string } => Boolean(badge));
               return (
                 <div key={entry.assigneeId}>
                   <div className="flex items-center justify-between text-xs mb-1.5">
                     <div className="flex items-center gap-1.5">
                       <div className="w-5 h-5 rounded-full flex items-center justify-center text-white text-[9px] font-bold" style={{ background: member.color }}>{member.initials}</div>
                       <span className="font-medium text-foreground">{member.name}</span>
-                      {isOverload && <span className="text-[9px] font-semibold px-1 py-0.5 rounded bg-red-100 text-red-600">과부하</span>}
-                      {isUnderload && <span className="text-[9px] font-semibold px-1 py-0.5 rounded bg-amber-100 text-amber-700">저활동</span>}
+                      {inlineAnomalyBadges.map((badge, i) => (
+                        <span key={i} className="text-[9px] font-semibold px-1 py-0.5 rounded" style={{ color: badge.color, background: badge.bg }}>{badge.label}</span>
+                      ))}
                     </div>
                     <span className="font-semibold" style={{ color: categoryColorFor(entry) }}>{pct}%</span>
                   </div>
@@ -263,7 +291,9 @@ export function WorkloadPage() {
           const isSelected = selectedMember === entry.assigneeId;
           const scoreEntry = workloadScoreByAssignee.get(entry.assigneeId);
           const isOverload = isMemberOverloaded(entry);
-          const anomalyBadge = scoreEntry ? ANOMALY_BADGE[scoreEntry.anomalyType] : undefined;
+          const anomalyBadges = (scoreEntry?.anomalyTypes ?? [])
+            .map(type => ANOMALY_BADGE[type])
+            .filter((badge): badge is { label: string; color: string; bg: string } => Boolean(badge));
           return (
             <button key={entry.assigneeId} onClick={() => setSelectedMember(isSelected ? null : entry.assigneeId)} className={`bg-card rounded-xl p-5 border-2 cursor-pointer transition-all shadow-sm hover:shadow-md text-left ${isSelected ? "border-blue-400" : isOverload ? "border-red-200" : "border-border"}`}>
               <div className="flex items-center justify-between mb-3">
@@ -278,10 +308,14 @@ export function WorkloadPage() {
               </div>
               {scoreEntry && (
                 <div className="flex items-center justify-between gap-2 mb-3 px-2.5 py-1.5 rounded-lg bg-muted/60">
-                  {anomalyBadge ? (
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ color: anomalyBadge.color, background: anomalyBadge.bg }}>
-                      {anomalyBadge.label}
-                    </span>
+                  {anomalyBadges.length > 0 ? (
+                    <div className="flex flex-wrap gap-1">
+                      {anomalyBadges.map((badge, i) => (
+                        <span key={i} className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ color: badge.color, background: badge.bg }}>
+                          {badge.label}
+                        </span>
+                      ))}
+                    </div>
                   ) : (
                     <span />
                   )}

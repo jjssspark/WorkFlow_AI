@@ -8,7 +8,11 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.LocalDateTime;
 
-/** 프로젝트 활동 로그. target_id는 폴리모픽(FK 없음) - 현재는 업무(task) id로만 쓴다. */
+/**
+ * 프로젝트 활동 로그. target_id는 폴리모픽(FK 없음) - 업무(task) id 또는
+ * 평가 대상 학생의 user id로 쓴다(EVALUATION_FINALIZED/UNFINALIZED는 특정 학생
+ * 대상이 아니므로 null).
+ */
 @Entity
 @Table(name = "activities")
 public class Activity {
@@ -49,6 +53,10 @@ public class Activity {
 
     public Long getId() {
         return id;
+    }
+
+    public Long getProjectId() {
+        return projectId;
     }
 
     public Long getActorId() {

@@ -1,8 +1,7 @@
 package com.workflowai.project;
 
+import com.workflowai.activity.ActivityService;
 import com.workflowai.common.ApiResponse;
-import com.workflowai.reviewer.ReviewerActivityService;
-import com.workflowai.reviewer.ReviewerActivityType;
 import com.workflowai.security.CurrentUser;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -25,11 +24,11 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/projects")
 public class ProjectController {
     private final ProjectService projectService;
-    private final ReviewerActivityService reviewerActivityService;
+    private final ActivityService activityService;
 
-    public ProjectController(ProjectService projectService, ReviewerActivityService reviewerActivityService) {
+    public ProjectController(ProjectService projectService, ActivityService activityService) {
         this.projectService = projectService;
-        this.reviewerActivityService = reviewerActivityService;
+        this.activityService = activityService;
     }
 
     @Operation(summary = "내가 접근 가능한 프로젝트 목록 조회")
@@ -110,9 +109,7 @@ public class ProjectController {
     @PostMapping("/{projectId}/finalize-evaluation")
     @PreAuthorize("@projectAccess.hasRole(#projectId, 'REVIEWER')")
     public ApiResponse<ProjectResponse> finalizeEvaluation(@PathVariable Long projectId) {
-        ProjectResponse response = projectService.finalizeEvaluation(projectId);
-        reviewerActivityService.record(CurrentUser.id(), projectId, ReviewerActivityType.EVALUATION_FINALIZED);
-        return ApiResponse.ok(response);
+        return ApiResponse.ok(projectService.finalizeEvaluation(projectId, CurrentUser.id()));
     }
 
     @Operation(
@@ -123,9 +120,19 @@ public class ProjectController {
     @PostMapping("/{projectId}/unfinalize-evaluation")
     @PreAuthorize("@projectAccess.hasRole(#projectId, 'REVIEWER')")
     public ApiResponse<ProjectResponse> unfinalizeEvaluation(@PathVariable Long projectId) {
-        ProjectResponse response = projectService.unfinalizeEvaluation(projectId);
-        reviewerActivityService.record(CurrentUser.id(), projectId, ReviewerActivityType.EVALUATION_UNFINALIZED);
-        return ApiResponse.ok(response);
+        return ApiResponse.ok(projectService.unfinalizeEvaluation(projectId, CurrentUser.id()));
+    }
+
+    @Operation(
+        summary = "심사 프로젝트 접속 기록",
+        description = "심사자가 홈에서 배정 프로젝트로 진입할 때 호출한다. 이 기록이 '최근 접속 날짜'와 "
+            + "프로젝트 목록 정렬의 근거가 된다. 심사자만 호출 가능하다."
+    )
+    @PostMapping("/{projectId}/reviewer-access")
+    @PreAuthorize("@projectAccess.hasRole(#projectId, 'REVIEWER')")
+    public ApiResponse<Void> recordReviewerAccess(@PathVariable Long projectId) {
+        activityService.record(projectId, CurrentUser.id(), "PROJECT_ACCESS", null, "프로젝트에 접속했습니다.");
+        return ApiResponse.ok(null);
     }
 
     @Operation(summary = "프로젝트 멤버 목록 조회")

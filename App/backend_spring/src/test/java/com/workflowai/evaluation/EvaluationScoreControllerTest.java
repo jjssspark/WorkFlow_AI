@@ -11,13 +11,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.workflowai.activity.ActivityService;
 import com.workflowai.common.GlobalExceptionHandler;
 import com.workflowai.notification.NotificationService;
 import com.workflowai.project.Project;
 import com.workflowai.project.ProjectMemberRepository;
 import com.workflowai.project.ProjectRepository;
-import com.workflowai.reviewer.ReviewerActivityService;
 import com.workflowai.security.UserPrincipal;
+import com.workflowai.user.User;
+import com.workflowai.user.UserRepository;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
@@ -51,20 +53,21 @@ class EvaluationScoreControllerTest {
     @Mock
     private NotificationService notificationService;
 
+    private static final Long CURRENT_REVIEWER_ID = 9L;
+
     @Mock
-    private ReviewerActivityService reviewerActivityService;
+    private ActivityService activityService;
+
+    @Mock
+    private UserRepository userRepository;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    // upsert는 심사자 활동을 기록하려고 CurrentUser.id()를 읽는다. 운영에서는 @PreAuthorize를
-    // 통과한 심사자만 도달하므로 인증이 항상 존재하지만, standalone MockMvc에는 필터가 없어
-    // SecurityContext를 여기서 직접 채워줘야 한다.
     @BeforeEach
-    void authenticate() {
+    void authenticateAsCurrentReviewer() {
+        UserPrincipal principal = new UserPrincipal(CURRENT_REVIEWER_ID, "reviewer@example.com", "박현수");
         SecurityContextHolder.getContext().setAuthentication(
-            new UsernamePasswordAuthenticationToken(
-                new UserPrincipal(9L, "reviewer@workflow.ai", "심사자"), null, List.of()
-            )
+            new UsernamePasswordAuthenticationToken(principal, null, List.of())
         );
     }
 
@@ -76,8 +79,8 @@ class EvaluationScoreControllerTest {
     private MockMvc mockMvc() {
         return MockMvcBuilders
             .standaloneSetup(new EvaluationScoreController(
-                evaluationScoreRepository, projectMemberRepository, projectRepository, notificationService,
-                reviewerActivityService
+                evaluationScoreRepository, projectMemberRepository, projectRepository,
+                notificationService, activityService, userRepository
             ))
             .setControllerAdvice(new GlobalExceptionHandler())
             .build();
@@ -383,6 +386,153 @@ class EvaluationScoreControllerTest {
         verify(notificationService).notifyAfterCommit(
             eq(3L), eq(1L), eq("GRADE_PUBLISHED"), any(), any(), eq("evaluation"), eq(1L)
         );
+    }
+
+    @Test
+    void upsertRecordsActivityWhenContributionPublicTogglesOffToOn() throws Exception {
+        EvaluationScore existing = new EvaluationScore(1L, 3L, new BigDecimal("60.00"), false);
+        when(projectMemberRepository.existsByProjectIdAndUserId(1L, 3L)).thenReturn(true);
+        when(evaluationScoreRepository.findByProjectIdAndUserId(1L, 3L)).thenReturn(Optional.of(existing));
+        when(evaluationScoreRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        Project project = new Project("캡스톤디자인 2024", "capstone", "설명");
+        when(projectRepository.findById(1L)).thenReturn(Optional.of(project));
+        User student = new User("kim@example.com", "김민준", "local", "kim");
+        when(userRepository.findById(3L)).thenReturn(Optional.of(student));
+
+        EvaluationScoreRequest request = new EvaluationScoreRequest(
+            1L, 3L, null, null, true, null, null, null, null, null
+        );
+
+        mockMvc().perform(post("/api/v1/projects/1/evaluations")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isOk());
+
+        verify(activityService).record(
+            eq(1L), eq(CURRENT_REVIEWER_ID), eq("CONTRIBUTION_SCORE_PUBLISHED"), eq(3L),
+            eq("김민준님의 기여 점수를 공개했습니다.")
+        );
+    }
+
+    @Test
+    void upsertRecordsActivityWhenContributionPublicTogglesOnToOff() throws Exception {
+        EvaluationScore existing = new EvaluationScore(1L, 3L, new BigDecimal("60.00"), true);
+        when(projectMemberRepository.existsByProjectIdAndUserId(1L, 3L)).thenReturn(true);
+        when(evaluationScoreRepository.findByProjectIdAndUserId(1L, 3L)).thenReturn(Optional.of(existing));
+        when(evaluationScoreRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        User student = new User("kim@example.com", "김민준", "local", "kim");
+        when(userRepository.findById(3L)).thenReturn(Optional.of(student));
+
+        EvaluationScoreRequest request = new EvaluationScoreRequest(
+            1L, 3L, null, null, false, null, null, null, null, null
+        );
+
+        mockMvc().perform(post("/api/v1/projects/1/evaluations")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isOk());
+
+        verify(activityService).record(
+            eq(1L), eq(CURRENT_REVIEWER_ID), eq("CONTRIBUTION_SCORE_UNPUBLISHED"), eq(3L),
+            eq("김민준님의 기여 점수를 비공개로 전환했습니다.")
+        );
+    }
+
+    @Test
+    void upsertRecordsActivityWhenFinalPublicTogglesOffToOn() throws Exception {
+        EvaluationScore existing = new EvaluationScore(1L, 3L, new BigDecimal("60.00"), false);
+        when(projectMemberRepository.existsByProjectIdAndUserId(1L, 3L)).thenReturn(true);
+        when(evaluationScoreRepository.findByProjectIdAndUserId(1L, 3L)).thenReturn(Optional.of(existing));
+        when(evaluationScoreRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        Project project = new Project("캡스톤디자인 2024", "capstone", "설명");
+        when(projectRepository.findById(1L)).thenReturn(Optional.of(project));
+        User student = new User("kim@example.com", "김민준", "local", "kim");
+        when(userRepository.findById(3L)).thenReturn(Optional.of(student));
+
+        EvaluationScoreRequest request = new EvaluationScoreRequest(
+            1L, 3L, null, null, null, true, null, null, null, null
+        );
+
+        mockMvc().perform(post("/api/v1/projects/1/evaluations")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isOk());
+
+        verify(activityService).record(
+            eq(1L), eq(CURRENT_REVIEWER_ID), eq("GRADE_PUBLISHED"), eq(3L),
+            eq("김민준님의 학점을 공개했습니다.")
+        );
+    }
+
+    @Test
+    void upsertRecordsActivityWhenFinalPublicTogglesOnToOff() throws Exception {
+        EvaluationScore existing = new EvaluationScore(1L, 3L, new BigDecimal("60.00"), false);
+        existing.setFinalPublic(true);
+        when(projectMemberRepository.existsByProjectIdAndUserId(1L, 3L)).thenReturn(true);
+        when(evaluationScoreRepository.findByProjectIdAndUserId(1L, 3L)).thenReturn(Optional.of(existing));
+        when(evaluationScoreRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        User student = new User("kim@example.com", "김민준", "local", "kim");
+        when(userRepository.findById(3L)).thenReturn(Optional.of(student));
+
+        EvaluationScoreRequest request = new EvaluationScoreRequest(
+            1L, 3L, null, null, null, false, null, null, null, null
+        );
+
+        mockMvc().perform(post("/api/v1/projects/1/evaluations")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isOk());
+
+        verify(activityService).record(
+            eq(1L), eq(CURRENT_REVIEWER_ID), eq("GRADE_UNPUBLISHED"), eq(3L),
+            eq("김민준님의 학점을 비공개로 전환했습니다.")
+        );
+    }
+
+    @Test
+    void upsertRecordsActivityEveryTimeCommentIsSaved() throws Exception {
+        EvaluationScore existing = new EvaluationScore(1L, 3L, new BigDecimal("60.00"), false);
+        existing.setComment("기존 코멘트");
+        when(projectMemberRepository.existsByProjectIdAndUserId(1L, 3L)).thenReturn(true);
+        when(evaluationScoreRepository.findByProjectIdAndUserId(1L, 3L)).thenReturn(Optional.of(existing));
+        when(evaluationScoreRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        User student = new User("kim@example.com", "김민준", "local", "kim");
+        when(userRepository.findById(3L)).thenReturn(Optional.of(student));
+
+        // 값이 기존과 동일해도(재저장) 저장할 때마다 기록해야 한다.
+        EvaluationScoreRequest request = new EvaluationScoreRequest(
+            1L, 3L, null, null, null, null, null, null, null, "기존 코멘트"
+        );
+
+        mockMvc().perform(post("/api/v1/projects/1/evaluations")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isOk());
+
+        verify(activityService).record(
+            eq(1L), eq(CURRENT_REVIEWER_ID), eq("REVIEW_COMMENT_SAVED"), eq(3L),
+            eq("김민준님에 대한 심사 코멘트를 작성했습니다.")
+        );
+    }
+
+    @Test
+    void upsertDoesNotRecordCommentActivityWhenCommentFieldOmitted() throws Exception {
+        EvaluationScore existing = new EvaluationScore(1L, 3L, new BigDecimal("60.00"), false);
+        when(projectMemberRepository.existsByProjectIdAndUserId(1L, 3L)).thenReturn(true);
+        when(evaluationScoreRepository.findByProjectIdAndUserId(1L, 3L)).thenReturn(Optional.of(existing));
+        when(evaluationScoreRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        // comment가 null(생략)이면 코멘트 활동을 기록하지 않는다 — 공개 토글만 바뀌는 호출.
+        EvaluationScoreRequest request = new EvaluationScoreRequest(
+            1L, 3L, null, null, null, null, true, null, null, null
+        );
+
+        mockMvc().perform(post("/api/v1/projects/1/evaluations")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isOk());
+
+        verify(activityService, never()).record(any(), any(), eq("REVIEW_COMMENT_SAVED"), any(), any());
     }
 
     @Test

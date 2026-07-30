@@ -18,7 +18,7 @@ import type { ProjectRoleKo, ProjectRoleSummary } from "../../global/api/authTyp
 import { ApiRequestError } from "../../global/api/apiClient";
 import { acceptInvitation, joinProjectByCode, listProjects, type ProjectResponse } from "../../global/api/projectsApi";
 import {
-  fetchReviewerActivities, recordReviewerAccess, type ReviewerActivity,
+  fetchReviewerActivities, fetchReviewerLastAccess, recordReviewerAccess, type ReviewerActivityDto,
 } from "../../global/api/reviewerActivityApi";
 import { EVAL_STATUS_META, resolveEvalStatus } from "../../global/lib/evalStatus";
 import { Button } from "../../global/component/ui/button";
@@ -27,13 +27,14 @@ import { Button } from "../../global/component/ui/button";
 // 있다(InvitationController.accept 참고) - InviteAcceptScreen과 동일한 계약.
 const FALLBACK_ELIGIBLE_CODE = "INVITE_NOT_FOUND";
 
-/** 카드가 이미 "12.12" 형식으로 디자인되어 있어 같은 표기를 유지한다. */
-function formatActivityDate(isoDateTime: string): string {
-  const date = new Date(isoDateTime);
-  if (Number.isNaN(date.getTime())) return "";
-  return `${date.getMonth() + 1}.${String(date.getDate()).padStart(2, "0")}`;
+/** ISO-8601 문자열을 "MM.DD" 형식으로 변환한다. 파싱 실패 시 원본 문자열을 그대로 반환. */
+function formatActivityDate(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${month}.${day}`;
 }
-
 
 const ROLE_META: Record<ProjectRoleKo, { label: string; color: string; bg: string; icon: typeof Crown }> = {
   "팀장": { label: "팀장", color: "#3B5BDB", bg: "rgba(59,91,219,0.1)", icon: Crown },
@@ -79,23 +80,27 @@ export function ProjectEntryScreen() {
       .catch(() => setAssignedProjectsError("배정된 프로젝트를 불러오지 못했습니다."));
   }, [isJudgeHome]);
 
-  // 최근 심사 활동 카드 + 배정 프로젝트 목록의 최근 접속순 정렬에 쓰는 값.
-  // 활동 기록은 부가 정보이므로 조회에 실패해도 화면 전체를 막지 않고 빈 상태로 둔다.
-  const [activities, setActivities] = useState<ReviewerActivity[]>([]);
-  const [lastAccessByProjectId, setLastAccessByProjectId] = useState<Record<number, number>>({});
+  // 심사자 홈 "최근 심사 활동" — 실패해도 조용히 빈 배열로 폴백한다(부가 정보성 위젯).
+  const [reviewerActivities, setReviewerActivities] = useState<ReviewerActivityDto[]>([]);
   useEffect(() => {
     if (!isJudgeHome) return;
     fetchReviewerActivities()
+      .then(setReviewerActivities)
+      .catch(() => setReviewerActivities([]));
+  }, [isJudgeHome]);
+
+  // 배정 프로젝트 목록의 최근 접속순 정렬에 쓰는 값. 조회 실패는 화면 전체를 막지 않고
+  // 빈 상태로 둔다(정렬만 기본 순서로 유지).
+  const [lastAccessByProjectId, setLastAccessByProjectId] = useState<Record<number, number>>({});
+  useEffect(() => {
+    if (!isJudgeHome) return;
+    fetchReviewerLastAccess()
       .then((result) => {
-        setActivities(result.activities);
         setLastAccessByProjectId(Object.fromEntries(
-          result.lastAccess.map((entry) => [entry.projectId, new Date(entry.lastAccessedAt).getTime()])
+          result.map((entry) => [entry.projectId, new Date(entry.lastAccessedAt).getTime()])
         ));
       })
-      .catch(() => {
-        setActivities([]);
-        setLastAccessByProjectId({});
-      });
+      .catch(() => setLastAccessByProjectId({}));
   }, [isJudgeHome]);
 
   // 최근 접속한 프로젝트가 맨 위로 온다. 접속 기록이 없는 프로젝트는 뒤로 보내되,
@@ -332,11 +337,12 @@ export function ProjectEntryScreen() {
                     <h2 className="text-sm font-bold text-foreground">최근 심사 활동</h2>
                   </div>
                   <div className="space-y-3">
-                    {activities.length === 0 ? (
-                      <div className="text-[11px] text-muted-foreground">아직 심사 활동 기록이 없습니다.</div>
-                    ) : activities.map((activity, index) => (
-                      <div key={`${activity.projectId}-${activity.createdAt}-${index}`} className="border-b border-border last:border-0 pb-3 last:pb-0">
-                        <div className="text-xs font-semibold text-foreground">{activity.activityLabel}</div>
+                    {reviewerActivities.length === 0 && (
+                      <div className="text-xs text-muted-foreground">아직 심사 활동이 없습니다.</div>
+                    )}
+                    {reviewerActivities.map((activity) => (
+                      <div key={activity.id} className="border-b border-border last:border-0 pb-3 last:pb-0">
+                        <div className="text-xs font-semibold text-foreground">{activity.message}</div>
                         <div className="text-[11px] text-muted-foreground mt-0.5">
                           {activity.projectTitle} · {formatActivityDate(activity.createdAt)}
                         </div>

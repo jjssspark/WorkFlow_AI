@@ -11,9 +11,12 @@ from contribution_score.app.schema.contribution_schema import (
 from contribution_score.app.services.contribution_db import load_meeting_attendance
 from contribution_score.app.services.contribution_service import compute_contribution_scores
 from core.security import verify_internal_api_key
+from core.tracing import setup_langsmith
 from ml_workload_score.app.services.workload_service import get_workload_score
 
 logger = logging.getLogger(__name__)
+
+setup_langsmith()
 
 router = APIRouter(prefix="/ai/score", tags=["contribution"], dependencies=[Depends(verify_internal_api_key)])
 

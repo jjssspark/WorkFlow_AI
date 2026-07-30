@@ -1,13 +1,14 @@
 package com.workflowai.evaluation;
 
+import com.workflowai.activity.ActivityService;
 import com.workflowai.common.ApiResponse;
 import com.workflowai.notification.NotificationService;
 import com.workflowai.project.Project;
 import com.workflowai.project.ProjectMemberRepository;
 import com.workflowai.project.ProjectRepository;
-import com.workflowai.reviewer.ReviewerActivityService;
-import com.workflowai.reviewer.ReviewerActivityType;
 import com.workflowai.security.CurrentUser;
+import com.workflowai.user.User;
+import com.workflowai.user.UserRepository;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -32,20 +33,23 @@ public class EvaluationScoreController {
     private final ProjectMemberRepository projectMemberRepository;
     private final ProjectRepository projectRepository;
     private final NotificationService notificationService;
-    private final ReviewerActivityService reviewerActivityService;
+    private final ActivityService activityService;
+    private final UserRepository userRepository;
 
     public EvaluationScoreController(
         EvaluationScoreRepository evaluationScoreRepository,
         ProjectMemberRepository projectMemberRepository,
         ProjectRepository projectRepository,
         NotificationService notificationService,
-        ReviewerActivityService reviewerActivityService
+        ActivityService activityService,
+        UserRepository userRepository
     ) {
         this.evaluationScoreRepository = evaluationScoreRepository;
         this.projectMemberRepository = projectMemberRepository;
         this.projectRepository = projectRepository;
         this.notificationService = notificationService;
-        this.reviewerActivityService = reviewerActivityService;
+        this.activityService = activityService;
+        this.userRepository = userRepository;
     }
 
     @Operation(
@@ -67,11 +71,11 @@ public class EvaluationScoreController {
         EvaluationScore entity = evaluationScoreRepository.findByProjectIdAndUserId(projectId, request.userId())
             .orElseGet(() -> new EvaluationScore(projectId, request.userId(), BigDecimal.ZERO, false));
 
-        // 공개 플래그를 덮어쓰기 전 값을 기억해뒀다가, 저장 후 값과 비교해 off→on 전이만 학생에게
-        // 알린다. on→off 전환이나, 이미 공개된 상태에서 다시 true로 저장하는 호출(다른 필드만
-        // 갱신하는 호출 포함)은 알림을 보내지 않는다.
+        // 공개 플래그를 덮어쓰기 전 값을 기억해뒀다가, 저장 후 값과 비교해 전이 방향에 따라
+        // 알림(off→on만)과 활동 기록(양방향 모두)을 각각 다르게 처리한다.
         boolean wasContributionPublic = entity.isContributionPublic();
         boolean wasFinalPublic = entity.isFinalPublic();
+        boolean commentProvided = request.comment() != null;
 
         // score/totalScore/공개 플래그 3종/reviewerScore/grade/comment는 모두 null이면
         // 기존 값을 그대로 유지한다 — 세 공개 플래그(기여 점수/총합·학점/코멘트)는 서로
@@ -111,7 +115,7 @@ public class EvaluationScoreController {
             notifyPublished(saved, "GRADE_PUBLISHED", "학점이 공개되었습니다.", "학점을");
         }
 
-        reviewerActivityService.record(CurrentUser.id(), projectId, ReviewerActivityType.EVALUATION_SCORE_SAVED);
+        recordEvaluationActivities(saved, wasContributionPublic, wasFinalPublic, commentProvided);
 
         return ResponseEntity.ok(ApiResponse.ok(EvaluationScoreResponse.from(saved)));
     }
@@ -125,6 +129,66 @@ public class EvaluationScoreController {
         notificationService.notifyAfterCommit(
             saved.getUserId(), saved.getProjectId(), type, title, content, "evaluation", saved.getProjectId()
         );
+    }
+
+    /**
+     * 심사자 홈 "최근 심사 활동" 위젯과 프로젝트 대시보드 "최근 활동" 타임라인에 공통으로
+     * 쓰이는 활동 로그. actor는 CurrentUser.id()(심사자 본인) — @PreAuthorize로 이미
+     * REVIEWER 역할임이 보장된다. 공개 플래그는 양방향 전이 모두 기록하고(알림은 off→on만),
+     * 코멘트는 값이 요청에 포함될 때마다(변경 여부와 무관하게) 기록한다.
+     *
+     * <p>이 호출은 {@code evaluationScoreRepository.save(saved)} 다음, 컨트롤러 메서드({@code
+     * @Transactional})가 아직 커밋되기 전에 일어난다. {@link com.workflowai.activity.ActivityService#record}는
+     * {@code REQUIRES_NEW}로 별도 물리 트랜잭션에서 즉시 커밋되므로(ActivityService의 클래스
+     * 주석 참조 - #470 리뷰 지적 대응), 이론상 활동 로그가 먼저 커밋된 뒤 본 트랜잭션의 최종
+     * 커밋이 실패하면(예: 동시 요청으로 인한 유니크 제약 위반) "저장되지 않은 변경"이 활동
+     * 로그에만 남는 경우가 생길 수 있다. 이는 "활동 로그 실패가 본 작업을 막으면 안 된다"는
+     * 반대 방향 요구사항과 근본적으로 상충하는 트레이드오프이며(하나의 트랜잭션으로 묶으면
+     * 그 요구사항이 깨진다), 이 프로젝트는 후자를 우선하기로 결정했다(#470에서 확정, 사용자
+     * 재확인 완료) - 부가 표시용 데이터인 활동 로그 하나의 실패로 평가 확정/점수 저장 같은
+     * 본 작업 전체가 롤백되는 게 더 나쁘다고 판단했기 때문이다.
+     */
+    private void recordEvaluationActivities(
+        EvaluationScore saved,
+        boolean wasContributionPublic,
+        boolean wasFinalPublic,
+        boolean commentProvided
+    ) {
+        boolean contributionChanged = wasContributionPublic != saved.isContributionPublic();
+        boolean finalChanged = wasFinalPublic != saved.isFinalPublic();
+        if (!contributionChanged && !finalChanged && !commentProvided) {
+            return;
+        }
+
+        Long actorId = CurrentUser.id();
+        String studentName = userRepository.findById(saved.getUserId())
+            .map(User::getName)
+            .orElse("알 수 없는 학생");
+
+        if (contributionChanged) {
+            boolean nowPublic = saved.isContributionPublic();
+            activityService.record(
+                saved.getProjectId(), actorId,
+                nowPublic ? "CONTRIBUTION_SCORE_PUBLISHED" : "CONTRIBUTION_SCORE_UNPUBLISHED",
+                saved.getUserId(),
+                studentName + "님의 기여 점수를 " + (nowPublic ? "공개했습니다." : "비공개로 전환했습니다.")
+            );
+        }
+        if (finalChanged) {
+            boolean nowPublic = saved.isFinalPublic();
+            activityService.record(
+                saved.getProjectId(), actorId,
+                nowPublic ? "GRADE_PUBLISHED" : "GRADE_UNPUBLISHED",
+                saved.getUserId(),
+                studentName + "님의 학점을 " + (nowPublic ? "공개했습니다." : "비공개로 전환했습니다.")
+            );
+        }
+        if (commentProvided) {
+            activityService.record(
+                saved.getProjectId(), actorId, "REVIEW_COMMENT_SAVED", saved.getUserId(),
+                studentName + "님에 대한 심사 코멘트를 작성했습니다."
+            );
+        }
     }
 
     @Operation(

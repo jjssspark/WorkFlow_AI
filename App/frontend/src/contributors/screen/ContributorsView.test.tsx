@@ -92,8 +92,8 @@ describe("ContributorsView drilldown panels", () => {
       members: [
         {
           assigneeId: "1", workloadComponent: 17.5, taskComponent: 80.0, meetingComponent: 80.0,
-          contributionScore: 60.0, anomalyType: "배정량 불균형", taskCountActiveRel: 0.3, taskCountTotalRel: 0.3,
-          difficultyAvgRel: 0.9, overdueCount: 0,
+          contributionScore: 60.0, anomalyTypes: ["배정량 불균형"], taskCountActiveRel: 0.3, taskCountTotalRel: 0.3,
+          difficultyTotalRel: 0.9, overdueCount: 0,
         },
       ],
       note: null,
@@ -164,7 +164,7 @@ describe("ContributorsView drilldown panels", () => {
     expect(fetchContributionScore).toHaveBeenCalledTimes(1);
   });
 
-  it("왼쪽 테이블의 공개 배지를 클릭하면 contributionPublic만 담아 upsertEvaluationScore를 호출한다 (다른 필드는 건드리지 않는다)", async () => {
+  it("왼쪽 테이블의 공개 배지를 클릭하면 contributionPublic과 함께 화면에 표시 중인 기여 점수(score)를 담아 upsertEvaluationScore를 호출한다 (다른 필드는 건드리지 않는다)", async () => {
     renderView();
     const user = userEvent.setup();
 
@@ -173,8 +173,10 @@ describe("ContributorsView drilldown panels", () => {
     const toggleButton = await within(row).findByRole("button", { name: /비공개/ });
     await user.click(toggleButton);
 
-    // contributionPublic만 보내야 학점 계산기가 저장한 총점/공개 상태를 덮어쓰지 않는다 (회귀 테스트).
-    await waitFor(() => expect(upsertEvaluationScore).toHaveBeenCalledWith(1, 1, { contributionPublic: true }));
+    // contributionPublic과 score(현재 표시 중인 AI 기여 점수 60.0 스냅샷)만 보내야 한다 — score를
+    // 빠뜨리면 마이페이지가 evaluation_scores.score의 오래된/기본값(0.00)을 그대로 보여주는
+    // 회귀가 생긴다. totalScore/reviewerScore/grade 등 학점 계산기 필드는 여전히 건드리지 않는다.
+    await waitFor(() => expect(upsertEvaluationScore).toHaveBeenCalledWith(1, 1, { contributionPublic: true, score: 60 }));
     expect(await within(row).findByRole("button", { name: /^공개$/ })).toBeInTheDocument();
   });
 
@@ -209,8 +211,8 @@ describe("ContributorsView 학점 계산기", () => {
       members: [
         {
           assigneeId: "1", workloadComponent: 17.5, taskComponent: 80.0, meetingComponent: 80.0,
-          contributionScore: 60.0, anomalyType: "배정량 불균형", taskCountActiveRel: 0.3, taskCountTotalRel: 0.3,
-          difficultyAvgRel: 0.9, overdueCount: 0,
+          contributionScore: 60.0, anomalyTypes: ["배정량 불균형"], taskCountActiveRel: 0.3, taskCountTotalRel: 0.3,
+          difficultyTotalRel: 0.9, overdueCount: 0,
         },
       ],
       note: null,
@@ -333,9 +335,10 @@ describe("ContributorsView 학점 계산기", () => {
     const toggleButton = await within(row).findByRole("button", { name: /비공개/ });
     await user.click(toggleButton);
 
-    // contributionPublic만 전달되어야 서버가 기존 총점(78.00)/finalPublic을 그대로 유지한다.
+    // contributionPublic과 score(기여 점수 스냅샷)만 전달되어야 서버가 기존 총점(78.00)/
+    // finalPublic을 그대로 유지한다 — totalScore/reviewerScore/grade는 보내지 않는다.
     await waitFor(() =>
-      expect(upsertEvaluationScore).toHaveBeenCalledWith(1, 1, { contributionPublic: true }),
+      expect(upsertEvaluationScore).toHaveBeenCalledWith(1, 1, { contributionPublic: true, score: 60 }),
     );
   });
 
@@ -418,13 +421,13 @@ describe("ContributorsView 학점 계산기", () => {
       members: [
         {
           assigneeId: "1", workloadComponent: 17.5, taskComponent: 80.0, meetingComponent: 80.0,
-          contributionScore: 30.0, anomalyType: "정상", taskCountActiveRel: 0.3, taskCountTotalRel: 0.3,
-          difficultyAvgRel: 0.9, overdueCount: 0,
+          contributionScore: 30.0, anomalyTypes: [], taskCountActiveRel: 0.3, taskCountTotalRel: 0.3,
+          difficultyTotalRel: 0.9, overdueCount: 0,
         },
         {
           assigneeId: "2", workloadComponent: 17.5, taskComponent: 80.0, meetingComponent: 80.0,
-          contributionScore: 90.0, anomalyType: "정상", taskCountActiveRel: 0.3, taskCountTotalRel: 0.3,
-          difficultyAvgRel: 0.9, overdueCount: 0,
+          contributionScore: 90.0, anomalyTypes: [], taskCountActiveRel: 0.3, taskCountTotalRel: 0.3,
+          difficultyTotalRel: 0.9, overdueCount: 0,
         },
       ],
       note: null,
@@ -472,8 +475,8 @@ describe("ContributorsView 평가 확정 토글", () => {
       members: [
         {
           assigneeId: "1", workloadComponent: 17.5, taskComponent: 80.0, meetingComponent: 80.0,
-          contributionScore: 60.0, anomalyType: "배정량 불균형", taskCountActiveRel: 0.3, taskCountTotalRel: 0.3,
-          difficultyAvgRel: 0.9, overdueCount: 0,
+          contributionScore: 60.0, anomalyTypes: ["배정량 불균형"], taskCountActiveRel: 0.3, taskCountTotalRel: 0.3,
+          difficultyTotalRel: 0.9, overdueCount: 0,
         },
       ],
       note: null,

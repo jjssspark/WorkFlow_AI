@@ -76,4 +76,44 @@ class DashboardWorkloadScoreCacheTest {
 
         assertThat(newCache().get(1L)).isEmpty();
     }
+
+    @Test
+    void getReturnsEmptyForPreThreeAxisSchemaCacheEntry() {
+        // 리뷰 지적: 3축 리팩터링 이전(anomaly_type 단일 문자열 + difficulty_avg_rel) 스키마로
+        // 캐시된 JSON이 TTL 30일 동안 Redis에 남아있다가, 새 WorkloadScoreMemberDto record로
+        // 역직렬화되면 어떻게 되는지 확인한다. anomaly_type/difficulty_avg_rel은 신 스키마의
+        // known property 목록(anomaly_types/difficulty_score/workload_score/allocation_score
+        // 등)에 없으므로 Jackson이 UnrecognizedPropertyException을 던지고, get()의 catch절이
+        // 이를 잡아 캐시 미스(Optional.empty())로 처리해야 한다. 이게 깨지면 anomaly_types가
+        // null인 DTO가 그대로 프론트로 나가 WorkloadPage.tsx의 anomalyTypes.includes() 호출이
+        // 크래시할 수 있다.
+        String legacySchemaJson = """
+            {
+              "schema_version": "0.9",
+              "project_id": 1,
+              "source": "db",
+              "method": "Isolation Forest",
+              "members": [
+                {
+                  "assignee_id": "1",
+                  "task_count_total": 5,
+                  "completion_rate": 0.5,
+                  "overload_score": 10.0,
+                  "is_anomaly": false,
+                  "anomaly_type": "정상",
+                  "difficulty_avg_rel": 1.0,
+                  "task_count_active_rel": 1.0,
+                  "overdue_count": 0
+                }
+              ],
+              "note": null,
+              "team_mean_completion": 0.5,
+              "calculated_at": "2026-07-01T00:00:00Z"
+            }
+            """;
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(valueOperations.get("dashboard:workload-score:1")).thenReturn(legacySchemaJson);
+
+        assertThat(newCache().get(1L)).isEmpty();
+    }
 }

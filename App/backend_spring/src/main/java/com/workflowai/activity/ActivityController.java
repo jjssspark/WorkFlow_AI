@@ -57,7 +57,10 @@ public class ActivityController {
             return ResponseEntity.status(404).body(ApiResponse.fail("TASK_NOT_FOUND", "업무를 찾을 수 없습니다."));
         }
 
-        List<Activity> activities = activityRepository.findByTargetIdOrderByCreatedAtDesc(taskId);
+        List<Activity> activities = activityRepository
+            .findByProjectIdAndTargetIdAndTypeNotInOrderByCreatedAtDesc(
+                projectDbId, taskId, ActivityTypes.NON_TASK_TARGET
+            );
         Map<Long, User> userCache = userRepository.findAllById(
             activities.stream().map(Activity::getActorId).distinct().toList()
         ).stream().collect(Collectors.toMap(User::getId, u -> u));

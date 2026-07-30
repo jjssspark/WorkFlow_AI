@@ -9,9 +9,13 @@ interface RawWorkloadScoreMember {
   completion_rate: number;
   overload_score: number;
   is_anomaly: boolean;
-  anomaly_type: string;
+  anomaly_types: string[];
+  difficulty_score: number;
+  workload_score: number;
+  allocation_score: number;
   task_count_active_rel: number;
-  difficulty_avg_rel: number;
+  task_count_total_rel: number;
+  difficulty_total_rel: number;
   overdue_count: number;
 }
 
@@ -32,9 +36,13 @@ export interface WorkloadScoreMemberDto {
   completionRate: number;
   overloadScore: number;
   isAnomaly: boolean;
-  anomalyType: string;
+  anomalyTypes: string[];
+  difficultyScore: number;
+  workloadScore: number;
+  allocationScore: number;
   taskCountActiveRel: number;
-  difficultyAvgRel: number;
+  taskCountTotalRel: number;
+  difficultyTotalRel: number;
   overdueCount: number;
 }
 
@@ -43,7 +51,7 @@ export interface WorkloadScoreResult {
   method: string;
   members: WorkloadScoreMemberDto[];
   note: string | null;
-  // anomaly_type(과부하/저활동 의심) 판정에 실제로 쓰인 팀 평균 완료율(0~1).
+  // anomaly_types(업무량 편중/난이도 편중/배정량 불균형) 판정에 실제로 쓰인 팀 평균 완료율(0~1).
   teamMeanCompletion: number | null;
   // 이 결과를 실제로 계산한 시각(ISO-8601). GET은 마지막 계산 결과를 캐시에서 돌려주므로
   // 화면이 "언제 기준 값인지" 밝혀야 한다. 계산 시각을 기록하기 전의 옛 캐시면 null.
@@ -61,9 +69,13 @@ export async function fetchWorkloadScore(projectId: string | number): Promise<Wo
       completionRate: m.completion_rate,
       overloadScore: m.overload_score,
       isAnomaly: m.is_anomaly,
-      anomalyType: m.anomaly_type,
+      anomalyTypes: m.anomaly_types,
+      difficultyScore: m.difficulty_score,
+      workloadScore: m.workload_score,
+      allocationScore: m.allocation_score,
       taskCountActiveRel: m.task_count_active_rel,
-      difficultyAvgRel: m.difficulty_avg_rel,
+      taskCountTotalRel: m.task_count_total_rel,
+      difficultyTotalRel: m.difficulty_total_rel,
       overdueCount: m.overdue_count,
     })),
     note: data.note,
