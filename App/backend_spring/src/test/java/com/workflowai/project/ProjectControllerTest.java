@@ -8,7 +8,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.workflowai.reviewer.ReviewerActivityService;
+import com.workflowai.activity.ActivityService;
 import com.workflowai.security.ProjectAccess;
 import com.workflowai.security.UserPrincipal;
 import java.util.List;
@@ -42,7 +42,7 @@ class ProjectControllerTest {
     private ProjectService projectService;
 
     @MockBean
-    private ReviewerActivityService reviewerActivityService;
+    private ActivityService activityService;
 
     @MockBean(name = "projectAccess")
     private ProjectAccess projectAccess;

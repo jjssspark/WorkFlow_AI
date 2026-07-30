@@ -213,7 +213,7 @@ def build_features(
         task_count_total=("task_id", "count"),
         task_count_active=("is_done", lambda s: (~s).sum()),
         task_count_done=("is_done", "sum"),
-        difficulty_avg=("difficulty", "mean"),
+        difficulty_total=("difficulty", "sum"),
         overdue_count=("is_overdue", "sum"),
         upcoming_due_count=("is_upcoming", "sum"),
     ).reset_index()
@@ -224,10 +224,11 @@ def build_features(
     # 팀 평균 대비 상대값 (정규화) - 과부하는 "팀 평균보다 얼마나 많은가"가 핵심.
     # task_count_total_rel(전체 배정량)은 "배정량 불균형" 판정 전용 근거다: task_count_active
     # (미완료 개수)만으로 판단하면, 배정된 업무를 전부 끝낸 사람도 진행중 업무가 0이 되어
-    # "애초에 배정량 자체가 적은 사람"과 "일을 다 끝낸 사람"이 구분되지 않는 문제가 있었다
-    # (실사용 중 발견: 12/12 완료한 팀원이 "저활동 의심"으로 오판됨 - 완료 여부와 무관하게
-    # 순수히 배정량만으로 판단하도록 라벨/근거를 분리했다).
-    for col in ["task_count_active", "task_count_total", "difficulty_avg"]:
+    # "애초에 배정량 자체가 적은 사람"과 "일을 다 끝낸 사람"이 구분되지 않는 문제가 있었다.
+    # difficulty_total_rel(총부담)은 "몇 건을 배정받았는지 + 얼마나 어려운지"를 함께 반영한다 -
+    # 건당 평균(difficulty_avg_rel, 구 필드)은 업무 개수 효과가 빠져서 난이도 편중 판정에
+    # 쓸 수 없었다(어려운 일 3건과 20건이 평균이 같으면 동일 취급되는 문제).
+    for col in ["task_count_active", "task_count_total", "difficulty_total"]:
         team_avg = grouped[col].mean()
         grouped[f"{col}_rel"] = grouped[col] / team_avg if team_avg > 0 else 0
 
@@ -237,67 +238,120 @@ def build_features(
 # ============================================================
 # 3. 메인: Isolation Forest 비지도 이상치 탐지
 # ============================================================
-FEATURE_COLUMNS = [
-    "task_count_active_rel",
-    "completion_rate",
-    "difficulty_avg_rel",
-    "overdue_ratio",
-]
+DIFFICULTY_AXIS_COLUMNS = ["difficulty_total_rel", "overdue_ratio"]
+WORKLOAD_AXIS_COLUMNS = ["task_count_active_rel", "completion_rate"]
+ALLOCATION_AXIS_COLUMN = "task_count_total_rel"
+
+AXIS_WEIGHTS = {"difficulty": 0.6, "workload": 0.2, "allocation": 0.2}
 
 
-def detect_overload_anomalies_robust(feature_df: pd.DataFrame, z_threshold: float = 3.5) -> pd.DataFrame:
-    """
-    MAD(Median Absolute Deviation) 기반 Modified Z-score 이상치 탐지.
-    Isolation Forest는 표본 수(팀원 수)가 적으면 트리 분할이 불안정해져서
-    극단값을 놓치는 경우가 실제로 발생함 (5명 팀 검증에서 확인됨).
-    캡스톤 팀 규모(5~9명)처럼 표본이 작을 때는 이 방식이 더 안정적.
+def _mad_anomaly(series: pd.Series, z_threshold: float = 3.5) -> tuple[np.ndarray, np.ndarray]:
+    """1개 피처 기준 MAD(Median Absolute Deviation) Modified Z-score 이상치 판정.
+    반환: (is_anomaly: bool 배열, score_0_100: 0~100 스케일 점수 배열)."""
+    x = series.fillna(0).to_numpy(dtype=float)
+    median = np.median(x)
+    mad = np.median(np.abs(x - median))
+    std = x.std()
+    denom = mad / 0.6745 if mad > 0 else (std if std > 0 else np.inf)
 
-    z_threshold: Iglewicz & Hoaglin(1993) 권장 기준값 3.5
-    """
-    X = feature_df[FEATURE_COLUMNS].fillna(0).values
-    median = np.median(X, axis=0)
-    mad = np.median(np.abs(X - median), axis=0)
-
-    # MAD가 0이면(값들이 중앙값에 몰려있으면) 아주 작은 차이도 z-score가 폭발함.
-    # → 표준편차로 폴백. 표준편차마저 0(완전히 동일한 값)이면 그 피처는 변별력이 없으므로
-    #   판단에서 제외(가중치 0) 처리.
-    std = X.std(axis=0)
-    denom = np.where(mad > 0, mad / 0.6745, np.where(std > 0, std, np.inf))
-
-    modified_z = (X - median) / denom
-    # 여러 피처의 이상치 정도를 하나의 거리값으로 합산 (Euclidean of z-scores)
-    combined_distance = np.sqrt((modified_z ** 2).sum(axis=1))
-
-    result = feature_df.copy()
-    result["anomaly_score_raw"] = combined_distance
-    result["is_anomaly"] = combined_distance > z_threshold
+    modified_z = np.abs(x - median) / denom
+    is_anomaly = modified_z > z_threshold
 
     # 점수는 "팀 내 최댓값" 기준이 아니라 이상치 임계값(z_threshold) 기준으로 스케일링한다.
     # 팀 내 최댓값 기준으로 하면, 아무도 임계값을 넘지 않아도(전원 정상) 그중 상대적으로 가장
     # 튀는 사람이 무조건 100점을 받는 모순이 생긴다(실제로 "정상"인데 100점이 뜨는 문제로 확인됨).
     # 임계값 기준으로 하면 거리==임계값일 때 100점이 되어, 실제 이상치만 100점 근처에 도달한다.
-    result["overload_score_0_100"] = np.minimum(100.0, 100 * combined_distance / z_threshold)
+    score = np.minimum(100.0, 100 * modified_z / z_threshold)
+    return is_anomaly, score
 
+
+def _mad_anomaly_multi(X: np.ndarray, z_threshold: float = 3.5) -> tuple[np.ndarray, np.ndarray]:
+    """N개 피처 기준 MAD Modified Z-score 유클리드 거리 이상치 판정(기존 통합 로직과 동일한
+    방식 - 피처 집합만 축마다 다르게 적용). 반환: (is_anomaly, score_0_100)."""
+    median = np.median(X, axis=0)
+    mad = np.median(np.abs(X - median), axis=0)
+    std = X.std(axis=0)
+    denom = np.where(mad > 0, mad / 0.6745, np.where(std > 0, std, np.inf))
+
+    modified_z = (X - median) / denom
+    combined_distance = np.sqrt((modified_z ** 2).sum(axis=1))
+    is_anomaly = combined_distance > z_threshold
+
+    # 점수는 "팀 내 최댓값" 기준이 아니라 이상치 임계값(z_threshold) 기준으로 스케일링한다.
+    # 팀 내 최댓값 기준으로 하면, 아무도 임계값을 넘지 않아도(전원 정상) 그중 상대적으로 가장
+    # 튀는 사람이 무조건 100점을 받는 모순이 생긴다(실제로 "정상"인데 100점이 뜨는 문제로 확인됨).
+    # 임계값 기준으로 하면 거리==임계값일 때 100점이 되어, 실제 이상치만 100점 근처에 도달한다.
+    score = np.minimum(100.0, 100 * combined_distance / z_threshold)
+    return is_anomaly, score
+
+
+def compute_axis_results(
+    feature_df: pd.DataFrame, team_mean_completion: float, z_threshold: float = 3.5
+) -> pd.DataFrame:
+    """세 축(난이도 편중/업무량 편중/배정량 불균형)을 각각 독립적으로 MAD 판정하고,
+    axis별 is_anomaly/score와 통합 anomaly_types/overload_score_0_100을 채운
+    DataFrame을 반환한다. 한 사람이 여러 축에서 동시에 이상치일 수 있다.
+
+    z_threshold: 세 축 모두에 공통으로 적용되는 MAD Modified Z-score 임계값. 값이 클수록
+    "이상치"로 판정되는 문턱이 높아져 더 극단적인 경우만 잡아낸다(민감도가 낮아짐)."""
+    result = feature_df.reset_index(drop=True).copy()
+
+    diff_anomaly, result["difficulty_score"] = _mad_anomaly_multi(
+        result[["difficulty_total_rel", "overdue_ratio"]].fillna(0).to_numpy(dtype=float),
+        z_threshold=z_threshold,
+    )
+    workload_anomaly, result["workload_score"] = _mad_anomaly_multi(
+        result[["task_count_active_rel", "completion_rate"]].fillna(0).to_numpy(dtype=float),
+        z_threshold=z_threshold,
+    )
+    alloc_anomaly, result["allocation_score"] = _mad_anomaly(
+        result["task_count_total_rel"], z_threshold=z_threshold
+    )
+
+    def _labels(row) -> list[str]:
+        labels: list[str] = []
+        idx = row.name
+        if diff_anomaly[idx]:
+            labels.append(
+                "난이도 편중 의심" if row["difficulty_total_rel"] > 1.0
+                else "난이도 이상 패턴(방향 불명확)"
+            )
+        if workload_anomaly[idx]:
+            if row["task_count_active_rel"] > 1.0 and row["completion_rate"] < team_mean_completion:
+                labels.append("업무량 편중 의심")
+            else:
+                labels.append("업무량 이상 패턴(방향 불명확)")
+        if alloc_anomaly[idx]:
+            if row["task_count_total_rel"] < 1.0 and row["completion_rate"] > team_mean_completion:
+                labels.append("배정량 불균형")
+            else:
+                labels.append("배정 이상 패턴(방향 불명확)")
+        return labels
+
+    result["anomaly_types"] = result.apply(_labels, axis=1)
+    result["is_anomaly"] = result["anomaly_types"].apply(lambda t: len(t) > 0)
+    result["overload_score_0_100"] = (
+        result["difficulty_score"] * AXIS_WEIGHTS["difficulty"]
+        + result["workload_score"] * AXIS_WEIGHTS["workload"]
+        + result["allocation_score"] * AXIS_WEIGHTS["allocation"]
+    )
+    return result
+
+
+def detect_overload_anomalies_robust(feature_df: pd.DataFrame, z_threshold: float = 3.5) -> pd.DataFrame:
+    """
+    MAD(Median Absolute Deviation) 기반 3축 독립 이상치 탐지(난이도 편중/업무량 편중/배정량
+    불균형). Isolation Forest는 표본 수(팀원 수)가 적으면 트리 분할이 불안정해져서 극단값을
+    놓치는 경우가 실제로 발생함(5명 팀 검증에서 확인됨). 캡스톤 팀 규모(5~9명)처럼 표본이
+    작을 때는 이 방식이 더 안정적.
+
+    z_threshold: Iglewicz & Hoaglin(1993) 권장 기준값 3.5. compute_axis_results()로 그대로
+    전달되어 세 축(난이도 편중/업무량 편중/배정량 불균형) 판정에 공통으로 적용된다.
+    """
     team_mean_completion = feature_df["completion_rate"].mean()
-
-    def tag_direction(row):
-        if not row["is_anomaly"]:
-            return "정상"
-        if row["task_count_active_rel"] > 1.0 and row["completion_rate"] < team_mean_completion:
-            return "과부하 의심"
-        # "배정량 불균형"은 "진행중 업무가 적음"(task_count_active_rel)이 아니라 "애초에
-        # 배정받은 업무 자체가 팀 평균보다 적음"(task_count_total_rel)으로 판단한다. 전자로
-        # 판단하면 배정된 일을 전부 끝낸 사람(진행중 업무=0)도 무조건 걸리는 문제가 있었다.
-        # "저활동 의심"이 아니라 이 라벨을 쓰는 이유: 배정량이 팀 평균보다 적다는 사실 자체는
-        # 참이더라도, 그 사람이 태만하다는 뜻은 아니다(완료율이 높으면 오히려 반대 신호일 수
-        # 있음) - 판단은 사람(심사자)에게 맡기고 관찰된 사실만 중립적으로 전달한다.
-        elif row["task_count_total_rel"] < 1.0 and row["completion_rate"] > team_mean_completion:
-            return "배정량 불균형"
-        return "이상 패턴(방향 불명확)"
-
-    result["anomaly_type"] = result.apply(tag_direction, axis=1)
+    result = compute_axis_results(feature_df, team_mean_completion, z_threshold=z_threshold)
     result = result.sort_values("overload_score_0_100", ascending=False)
-    # anomaly_type 판정에 실제로 쓰인 팀 평균 완료율을 함께 실어 보낸다 - 프론트가
+    # anomaly_types 판정에 실제로 쓰인 팀 평균 완료율을 함께 실어 보낸다 - 프론트가
     # 팀 평균보다 높음/낮음 문구를 이 실측값과 함께 보여줄 수 있도록.
     result.attrs["team_mean_completion"] = float(team_mean_completion)
     return result
@@ -321,21 +375,32 @@ def detect_overload_anomalies_auto(feature_df: pd.DataFrame, small_team_threshol
     return result
 
 
-def detect_overload_anomalies(feature_df: pd.DataFrame, contamination: float = None) -> pd.DataFrame:
+def detect_overload_anomalies(
+    feature_df: pd.DataFrame, contamination: float = None, z_threshold: float = 3.5
+) -> pd.DataFrame:
     """
-    Isolation Forest로 팀 내 '통계적 이상치'(과부하 또는 저활동)를 탐지.
-    contamination: 전체 팀원 중 이상치로 볼 비율. None이면 팀 규모 기반 자동 조정.
-      - sklearn은 (0, 0.5] 범위만 허용하므로 소규모 팀에서 값이 너무 작으면
-        이상치가 0명으로 잡히는 문제가 생길 수 있어 최소 1명은 잡히도록 하한을 둠.
+    팀 규모가 큰 경우(15명 이상)에도 MAD 경로(detect_overload_anomalies_robust)와 동일한
+    3축 독립 판정 구조(anomaly_types, difficulty_score/workload_score/allocation_score)를
+    유지한다. Isolation Forest(비지도 이상치 모델)는 참고용 전체 이상치 스코어만 계산하고
+    (extra_isolation_forest_score 컬럼), 실제 응답에 쓰이는 anomaly_types/overload_score_0_100은
+    compute_axis_results()의 MAD 기반 3축 결과를 그대로 사용한다 - 두 개의 서로 다른 이상치
+    개념(트리 기반 vs MAD 기반)이 동시에 노출되면 프론트/심사자가 혼란스러우므로, 응답
+    구조를 하나로 통일하는 쪽을 택했다.
+
+    contamination: 참고용 Isolation Forest 스코어 계산에만 쓰인다(응답 구조에는 영향 없음).
+    z_threshold: compute_axis_results()의 MAD 판정에 그대로 전달된다. detect_overload_anomalies_robust()와
+    동일한 파라미터를 노출해 두 경로(소규모 MAD / 대규모 Isolation Forest) 간 z_threshold
+    커스터마이징 방식을 일관되게 유지한다.
     """
     n = len(feature_df)
     if contamination is None:
         if n < 3:
-            contamination = 0.49  # 팀원 2명 이하면 사실상 이상치 탐지 의미 적음, 경고만
+            contamination = 0.49
         else:
             contamination = min(0.4, max(1.0 / n, 0.1))
 
-    X = feature_df[FEATURE_COLUMNS].fillna(0).values
+    all_axis_columns = DIFFICULTY_AXIS_COLUMNS + WORKLOAD_AXIS_COLUMNS + [ALLOCATION_AXIS_COLUMN]
+    X = feature_df[all_axis_columns].fillna(0).values
     X_scaled = StandardScaler().fit_transform(X)
 
     model = IsolationForest(
@@ -344,46 +409,19 @@ def detect_overload_anomalies(feature_df: pd.DataFrame, contamination: float = N
         random_state=RANDOM_SEED,
     )
     model.fit(X_scaled)
-
-    # decision_function: 클수록 정상, 작을수록(음수일수록) 이상치
     raw_score = model.decision_function(X_scaled)
-    is_anomaly = model.predict(X_scaled) == -1  # -1이면 이상치, 1이면 정상
 
-    result = feature_df.copy()
-    result["anomaly_score_raw"] = raw_score
-    result["is_anomaly"] = is_anomaly
-
-    # 발표/화면 표시용으로 0~100 과부하 점수로 변환 (점수 높을수록 이상치에 가까움)
-    # raw_score가 낮을수록(음수) 이상치이므로 부호 반전 후 0~100 스케일링
+    team_mean_completion = feature_df["completion_rate"].mean()
+    result = compute_axis_results(feature_df, team_mean_completion, z_threshold=z_threshold)
+    # 참고용: Isolation Forest의 원시 이상치 스코어(0~100, 클수록 이상치에 가까움).
+    # anomaly_types/overload_score_0_100 판정에는 쓰이지 않고 디버깅/관찰용으로만 남긴다.
     inverted = -raw_score
     min_v, max_v = inverted.min(), inverted.max()
-    if max_v > min_v:
-        result["overload_score_0_100"] = 100 * (inverted - min_v) / (max_v - min_v)
-    else:
-        result["overload_score_0_100"] = 50.0
-
-    # 방향성 태깅: completion_rate와 task_count로 '과부하형' vs '저활동형' 구분
-    team_mean_completion = feature_df["completion_rate"].mean()
-
-    def tag_direction(row):
-        if not row["is_anomaly"]:
-            return "정상"
-        if row["task_count_active_rel"] > 1.0 and row["completion_rate"] < team_mean_completion:
-            return "과부하 의심"
-        # "배정량 불균형"은 "진행중 업무가 적음"(task_count_active_rel)이 아니라 "애초에
-        # 배정받은 업무 자체가 팀 평균보다 적음"(task_count_total_rel)으로 판단한다. 전자로
-        # 판단하면 배정된 일을 전부 끝낸 사람(진행중 업무=0)도 무조건 걸리는 문제가 있었다.
-        # "저활동 의심"이 아니라 이 라벨을 쓰는 이유: 배정량이 팀 평균보다 적다는 사실 자체는
-        # 참이더라도, 그 사람이 태만하다는 뜻은 아니다(완료율이 높으면 오히려 반대 신호일 수
-        # 있음) - 판단은 사람(심사자)에게 맡기고 관찰된 사실만 중립적으로 전달한다.
-        elif row["task_count_total_rel"] < 1.0 and row["completion_rate"] > team_mean_completion:
-            return "배정량 불균형"
-        return "이상 패턴(방향 불명확)"
-
-    result["anomaly_type"] = result.apply(tag_direction, axis=1)
+    result["isolation_forest_reference_score"] = (
+        100 * (inverted - min_v) / (max_v - min_v) if max_v > min_v else 50.0
+    )
 
     result = result.sort_values("overload_score_0_100", ascending=False)
-    # MAD 경로와 동일하게, anomaly_type 판정에 쓰인 팀 평균 완료율을 함께 실어 보낸다.
     result.attrs["team_mean_completion"] = float(team_mean_completion)
     return result
 
@@ -392,17 +430,19 @@ def detect_overload_anomalies(feature_df: pd.DataFrame, contamination: float = N
 # 4. (옵션) Self-labeling 회귀 - 룰베이스 점수를 pseudo-label로 학습
 # ============================================================
 def rule_based_score(feature_df: pd.DataFrame,
-                      w1=0.4, w2=0.3, w3=0.2, w4=0.1) -> pd.Series:
+                      w_difficulty: float = 0.6, w_workload: float = 0.2,
+                      w_allocation: float = 0.2) -> pd.Series:
     """
-    이전에 설계한 룰베이스 공식:
-    overload = w1*(active_rel) + w2*(1-completion_rate) + w3*(difficulty_rel) + w4*(overdue_ratio)
+    3축 가중치(AXIS_WEIGHTS)와 동일한 룰베이스 공식(기존 4피처 통합 공식을 3축 체계로
+    재작성):
+    overload = w_difficulty*(difficulty_total_rel) + w_workload*(active_rel*(1-completion_rate))
+               + w_allocation*(1 - min(total_rel, 1.0))
     이 값을 회귀 모델의 pseudo-label(정답 대용)으로 사용할 수 있음.
     """
     return (
-        w1 * feature_df["task_count_active_rel"]
-        + w2 * (1 - feature_df["completion_rate"])
-        + w3 * feature_df["difficulty_avg_rel"]
-        + w4 * feature_df["overdue_ratio"]
+        w_difficulty * feature_df["difficulty_total_rel"]
+        + w_workload * feature_df["task_count_active_rel"] * (1 - feature_df["completion_rate"])
+        + w_allocation * (1 - feature_df["task_count_total_rel"].clip(upper=1.0))
     )
 
 
@@ -415,7 +455,8 @@ def optional_regression_baseline(feature_df: pd.DataFrame):
     from sklearn.metrics import r2_score
 
     y_pseudo = rule_based_score(feature_df)
-    X = feature_df[FEATURE_COLUMNS].fillna(0).values
+    axis_columns = DIFFICULTY_AXIS_COLUMNS + WORKLOAD_AXIS_COLUMNS + [ALLOCATION_AXIS_COLUMN]
+    X = feature_df[axis_columns].fillna(0).values
 
     reg = LinearRegression()
     reg.fit(X, y_pseudo)
@@ -423,7 +464,7 @@ def optional_regression_baseline(feature_df: pd.DataFrame):
 
     print("\n[옵션] Self-labeling 회귀 baseline")
     print(f"  R^2 (룰 재현도): {r2_score(y_pseudo, pred):.4f}")
-    print(f"  계수: {dict(zip(FEATURE_COLUMNS, reg.coef_.round(3)))}")
+    print(f"  계수: {dict(zip(axis_columns, reg.coef_.round(3)))}")
     return reg
 
 

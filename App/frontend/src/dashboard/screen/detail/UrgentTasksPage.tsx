@@ -32,7 +32,7 @@ const PAGE_SIZE = 15;
 
 const STATUS_CHANGE_LABEL: Record<"done" | "blocked", string> = {
   done: "완료",
-  blocked: "블로커",
+  blocked: "검토 필요",
 };
 
 function urgencyKey(daysLeft: number | null) {
@@ -104,8 +104,11 @@ export function UrgentTasksPage() {
       await updateTaskPosition(taskId, status, nextPositionForStatus(tasks, status), currentProjectId);
       alert("변경이 완료되었습니다.");
       setListRefreshing(true);
-      await refetch();
-      setListRefreshing(false);
+      try {
+        await refetch();
+      } finally {
+        setListRefreshing(false);
+      }
     } catch {
       setActionError("상태 변경에 실패했습니다. 잠시 후 다시 시도해주세요.");
     } finally {
@@ -128,8 +131,11 @@ export function UrgentTasksPage() {
       await requestTaskCompletion(taskId, currentProjectId);
       alert("완료 요청을 보냈습니다.");
       setListRefreshing(true);
-      await refetch();
-      setListRefreshing(false);
+      try {
+        await refetch();
+      } finally {
+        setListRefreshing(false);
+      }
     } catch {
       setActionError("완료 요청에 실패했습니다. 잠시 후 다시 시도해주세요.");
     } finally {
@@ -145,8 +151,11 @@ export function UrgentTasksPage() {
       await sendTaskNudge(taskId, "URGENT", currentProjectId);
       alert("리마인드 알림을 보냈습니다.");
       setListRefreshing(true);
-      await refetch();
-      setListRefreshing(false);
+      try {
+        await refetch();
+      } finally {
+        setListRefreshing(false);
+      }
     } catch {
       setActionError("리마인드 알림 전송에 실패했습니다. 잠시 후 다시 시도해주세요.");
     } finally {
@@ -156,8 +165,11 @@ export function UrgentTasksPage() {
 
   const manualRefresh = async () => {
     setListRefreshing(true);
-    await refetch();
-    setListRefreshing(false);
+    try {
+      await refetch();
+    } finally {
+      setListRefreshing(false);
+    }
   };
 
   const handleScroll = (event: UIEvent<HTMLDivElement>) => {
@@ -179,7 +191,7 @@ export function UrgentTasksPage() {
         </div>
         <div className="flex items-center gap-2">
           <button onClick={manualRefresh} disabled={listRefreshing} className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-border bg-card text-foreground rounded-lg hover:bg-muted transition-colors disabled:opacity-50">
-            <RefreshCw className={`w-3.5 h-3.5 ${listRefreshing ? "animate-spin" : ""}`} />새로고침
+            <RefreshCw className={`w-3.5 h-3.5 ${listRefreshing ? "animate-spin" : ""}`} />{listRefreshing ? "새로고침 중..." : "새로고침"}
           </button>
         </div>
       </div>
@@ -320,7 +332,7 @@ export function UrgentTasksPage() {
                   onClick={() => changeStatus(selectedRow.task, "blocked")}
                   disabled={pendingTaskId === selectedRow.task.id}
                   className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium border border-border bg-card text-foreground rounded-lg hover:bg-muted transition-colors disabled:opacity-50"
-                ><AlertTriangle className="w-3.5 h-3.5 text-red-500" />블로커로 지정</button>
+                ><AlertTriangle className="w-3.5 h-3.5 text-red-500" />검토 필요로 지정</button>
               </div>
             </div>
           </div>
@@ -332,7 +344,7 @@ export function UrgentTasksPage() {
           task={dueDateRow.task}
           projectId={currentProjectId}
           onClose={() => setDueDateTarget(null)}
-          onChanged={async () => { setDueDateTarget(null); setListRefreshing(true); await refetch(); setListRefreshing(false); }}
+          onChanged={async () => { setDueDateTarget(null); setListRefreshing(true); try { await refetch(); } finally { setListRefreshing(false); } }}
         />
       )}
       {assigneeRow && currentProjectId != null && (
@@ -340,7 +352,7 @@ export function UrgentTasksPage() {
           task={assigneeRow.task}
           projectId={currentProjectId}
           onClose={() => setAssigneeTarget(null)}
-          onChanged={async () => { setAssigneeTarget(null); setListRefreshing(true); await refetch(); setListRefreshing(false); }}
+          onChanged={async () => { setAssigneeTarget(null); setListRefreshing(true); try { await refetch(); } finally { setListRefreshing(false); } }}
         />
       )}
     </div>

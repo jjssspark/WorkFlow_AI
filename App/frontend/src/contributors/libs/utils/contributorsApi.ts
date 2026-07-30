@@ -34,10 +34,13 @@ interface RawContributionMemberScore {
   task_component: number;
   meeting_component: number;
   contribution_score: number;
-  anomaly_type: string;
+  anomaly_types: string[];
+  difficulty_score: number;
+  workload_score: number;
+  allocation_score: number;
   task_count_active_rel: number;
   task_count_total_rel: number;
-  difficulty_avg_rel: number;
+  difficulty_total_rel: number;
   overdue_count: number;
 }
 
@@ -55,17 +58,20 @@ export interface ContributionMemberScoreDto {
   taskComponent: number;
   meetingComponent: number;
   contributionScore: number;
-  anomalyType: string;
+  anomalyTypes: string[];
+  difficultyScore: number;
+  workloadScore: number;
+  allocationScore: number;
   taskCountActiveRel: number;
   taskCountTotalRel: number;
-  difficultyAvgRel: number;
+  difficultyTotalRel: number;
   overdueCount: number;
 }
 
 export interface ContributionScoreResult {
   members: ContributionMemberScoreDto[];
   note: string | null;
-  // anomaly_type(과부하/배정량 불균형) 판정에 실제로 쓰인 팀 평균 완료율(0~1).
+  // anomaly_types(업무량 편중/난이도 편중/배정량 불균형) 판정에 실제로 쓰인 팀 평균 완료율(0~1).
   // 팀원이 없어 계산 자체가 없었으면 null.
   teamMeanCompletion: number | null;
 }
@@ -83,10 +89,13 @@ export async function fetchContributionScore(projectId: number): Promise<Contrib
       taskComponent: m.task_component,
       meetingComponent: m.meeting_component,
       contributionScore: m.contribution_score,
-      anomalyType: m.anomaly_type,
+      anomalyTypes: m.anomaly_types,
+      difficultyScore: m.difficulty_score,
+      workloadScore: m.workload_score,
+      allocationScore: m.allocation_score,
       taskCountActiveRel: m.task_count_active_rel,
       taskCountTotalRel: m.task_count_total_rel,
-      difficultyAvgRel: m.difficulty_avg_rel,
+      difficultyTotalRel: m.difficulty_total_rel,
       overdueCount: m.overdue_count,
     })),
     note: data.note,

@@ -172,9 +172,13 @@ describe("BoardView - 실시간 동기화", () => {
   // KanbanColumn은 컬럼 헤더에 label(예: "할 일")과 그 옆에 카드 개수 배지(<span>)를 렌더링한다
   // (App/frontend/src/board/components/KanbanColumn.tsx:51-60). data-testid가 없으므로, 컬럼 label
   // 바로 다음에 오는 마지막 span(개수 배지)의 텍스트로 "그 컬럼에 카드가 몇 개인가"를 확인한다.
+  // "검토 필요"는 컬럼 라벨과 카드 배지(TaskCard)에 같은 문구로 뜨므로, 개수 배지(span.font-mono)를
+  // 형제로 가진 쪽만 컬럼 헤더로 인정한다.
   function countBadgeFor(columnLabel: string): string | null {
-    const label = screen.getByText(columnLabel);
-    return label.parentElement?.querySelector("span:last-of-type")?.textContent ?? null;
+    const header = screen
+      .getAllByText(columnLabel)
+      .find((el) => el.parentElement?.querySelector("span.font-mono"));
+    return header?.parentElement?.querySelector("span.font-mono")?.textContent ?? null;
   }
 
   it("같은 프로젝트의 task-move 이벤트를 받으면 보드 상태를 patch한다", async () => {
@@ -258,7 +262,7 @@ describe("BoardView - 실시간 동기화", () => {
     });
 
     await waitFor(() => {
-      expect(countBadgeFor("보류/블로커")).toBe("1");
+      expect(countBadgeFor("검토 필요")).toBe("1");
       expect(countBadgeFor("진행 중")).toBe("0");
     });
   });

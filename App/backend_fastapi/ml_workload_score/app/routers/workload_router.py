@@ -5,10 +5,13 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 
 from core.security import verify_internal_api_key
+from core.tracing import setup_langsmith
 from ml_workload_score.app.schema.workload_schema import WorkloadScoreResponse
 from ml_workload_score.app.services.workload_service import get_workload_score
 
 logger = logging.getLogger(__name__)
+
+setup_langsmith()
 
 router = APIRouter(prefix="/ai/score", tags=["workload"], dependencies=[Depends(verify_internal_api_key)])
 

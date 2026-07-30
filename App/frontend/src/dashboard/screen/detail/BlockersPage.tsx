@@ -36,7 +36,11 @@ type BlockerSortBy = "duration" | "id" | "priority" | "risk" | "dueDate" | "assi
 export function BlockersPage() {
   const { currentProjectId, currentProject } = useAuth();
   const isLeader = currentProject?.role === "팀장";
-  const { data: tasks, loading, error, refetch } = useDashboardTasks(currentProjectId);
+  const { data: tasks, loading: tasksLoadingRaw, error, refetch } = useDashboardTasks(currentProjectId);
+  const [pageRefreshing, setPageRefreshing] = useState(false);
+  // useDashboardTasks의 loading은 최초 로드 이후 refetch에서는 true로 안 바뀌므로,
+  // 새로고침 버튼을 눌렀을 때 스피너/문구가 뜨려면 별도의 pageRefreshing으로 합쳐서 써야 한다.
+  const loading = tasksLoadingRaw || pageRefreshing;
   const [actionError, setActionError] = useState<string | null>(null);
   const [resolvingTaskId, setResolvingTaskId] = useState<string | null>(null);
   const [dueDateTarget, setDueDateTarget] = useState<DashboardTaskDto | null>(null);
@@ -85,7 +89,7 @@ export function BlockersPage() {
 
   const resolveBlocker = async (taskId: string, taskTitle: string) => {
     if (currentProjectId == null) return;
-    if (!window.confirm(`'${taskTitle}' 블로커를 해결 완료로 처리할까요?`)) return;
+    if (!window.confirm(`'${taskTitle}' 검토를 완료로 처리할까요?`)) return;
     setActionError(null);
     setResolvingTaskId(taskId);
     try {
@@ -93,7 +97,7 @@ export function BlockersPage() {
       alert("변경이 완료되었습니다.");
       refetch();
     } catch {
-      setActionError("블로커 해결 처리에 실패했습니다. 잠시 후 다시 시도해주세요.");
+      setActionError("검토 완료 처리에 실패했습니다. 잠시 후 다시 시도해주세요.");
     } finally {
       setResolvingTaskId(null);
     }
@@ -104,11 +108,15 @@ export function BlockersPage() {
       <div className="flex items-start justify-between">
         <div>
           <BackBtn onBack={onBack} />
-          <h1 className="text-xl font-bold text-foreground">블로커 관리</h1>
+          <h1 className="text-xl font-bold text-foreground">검토 필요 관리</h1>
           <p className="text-sm text-muted-foreground mt-0.5">막힌 업무를 파악하고 해결 담당자와 기한을 지정해 위험을 제거합니다.</p>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={() => refetch()} disabled={loading} className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-border bg-card text-foreground rounded-lg hover:bg-muted transition-colors disabled:opacity-50">
+          <button
+            onClick={async () => { setPageRefreshing(true); try { await refetch(); } finally { setPageRefreshing(false); } }}
+            disabled={loading}
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-border bg-card text-foreground rounded-lg hover:bg-muted transition-colors disabled:opacity-50"
+          >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} /> {loading ? "새로고침 중..." : "새로고침"}
           </button>
           {isLeader && (
@@ -123,7 +131,7 @@ export function BlockersPage() {
       {actionError && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700">{actionError}</div>}
 
       <div className="grid grid-cols-3 gap-3">
-        <DetailStatCard label="현재 블로커" value={loading ? "..." : blockedTasks.length} sub="해결 대기" color="#EF4444" icon={AlertTriangle} />
+        <DetailStatCard label="현재 검토 필요" value={loading ? "..." : blockedTasks.length} sub="해결 대기" color="#EF4444" icon={AlertTriangle} />
         <DetailStatCard label="심각도 높음" value={loading ? "..." : highPriorityCount} sub="즉시 조치 필요" color="#EF4444" icon={AlertCircle} />
         <DetailStatCard label="평균 지연" value={loading ? "..." : `${averageDelayDays}일`} sub={overdueRiskDelayDays.length === 0 ? "지연 대상 없음" : `주의·위험 ${overdueRiskDelayDays.length}건 기준`} color="#F59E0B" icon={Clock} />
       </div>
@@ -161,7 +169,7 @@ export function BlockersPage() {
                       <span className="text-[10px] font-mono text-muted-foreground">{task.id}</span>
                       {isRisk && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 border border-orange-200">지연 위험</span>}
                     </div>
-                    <div className="text-sm font-semibold text-foreground">{task.title}</div>
+                    <div onClick={() => setCommentTarget(task)} className="text-sm font-semibold text-foreground cursor-pointer hover:text-blue-700">{task.title}</div>
                   </div>
                 </div>
                 <span className="text-xs font-medium px-2.5 py-1 rounded-lg bg-red-100 text-red-700 shrink-0 whitespace-nowrap">
@@ -171,7 +179,7 @@ export function BlockersPage() {
 
               <div className="px-5 py-4 space-y-4">
                 <div>
-                  <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">블로커 내용</div>
+                  <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">검토 필요 사유</div>
                   <p className="text-sm text-foreground leading-relaxed">{task.description || "등록된 설명이 없습니다. 업무 보드에서 상세 내용을 추가하세요."}</p>
                 </div>
 
@@ -216,7 +224,7 @@ export function BlockersPage() {
         })}
         {(loading || blockedTasks.length === 0) && (
           <div className="h-40 flex items-center justify-center rounded-xl border border-border bg-card text-sm text-muted-foreground">
-            {loading ? "데이터를 불러오는 중입니다" : "현재 블로커 업무가 없습니다."}
+            {loading ? "데이터를 불러오는 중입니다" : "현재 검토 필요 업무가 없습니다."}
           </div>
         )}
       </div>
@@ -235,6 +243,9 @@ export function BlockersPage() {
           projectId={currentProjectId}
           focusComments
           onClose={() => setCommentTarget(null)}
+          isLeader={isLeader}
+          projectMembers={projectMembers}
+          onUpdated={() => refetch()}
         />
       )}
       <AddTaskModal

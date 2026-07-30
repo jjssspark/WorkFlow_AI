@@ -14,7 +14,7 @@ import {
 } from "../../libs/utils/activityDisplay";
 import { resolveMemberDisplay } from "../../libs/utils/memberDisplay";
 
-const TYPE_FILTERS = ["전체", "업무 생성", "상태 변경", "담당자 변경", "업무 수정", "업무 삭제", "체크리스트"] as const;
+const TYPE_FILTERS = ["전체", "업무 생성", "상태 변경", "담당자 변경", "업무 수정", "업무 삭제", "체크리스트", "심사 활동"] as const;
 
 function matchesTypeFilter(type: string, filter: string) {
   if (filter === "전체") return true;
@@ -25,6 +25,17 @@ function matchesTypeFilter(type: string, filter: string) {
   if (filter === "업무 수정") return normalized === "TASK_UPDATED";
   if (filter === "업무 삭제") return normalized === "TASK_DELETED";
   if (filter === "체크리스트") return normalized === "CHECKLIST_CREATED" || normalized === "CHECKLIST_COMPLETED";
+  if (filter === "심사 활동") {
+    return (
+      normalized === "CONTRIBUTION_SCORE_PUBLISHED" ||
+      normalized === "CONTRIBUTION_SCORE_UNPUBLISHED" ||
+      normalized === "GRADE_PUBLISHED" ||
+      normalized === "GRADE_UNPUBLISHED" ||
+      normalized === "REVIEW_COMMENT_SAVED" ||
+      normalized === "EVALUATION_FINALIZED" ||
+      normalized === "EVALUATION_UNFINALIZED"
+    );
+  }
   return true;
 }
 
@@ -59,8 +70,11 @@ export function ActivityPage() {
 
   const manualRefresh = async () => {
     setRefreshing(true);
-    await refetch();
-    setRefreshing(false);
+    try {
+      await refetch();
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   const memberOptions = useMemo(
@@ -81,7 +95,9 @@ export function ActivityPage() {
     return activities.filter(activity => {
       const matchesType = matchesTypeFilter(activity.type, typeFilter);
       const matchesMember = memberFilter === "전체" || activity.actorName === memberFilter;
-      const matchesSearch = !query || activityMessage(activity).toLowerCase().includes(query);
+      const matchesSearch = !query
+        || activityMessage(activity).toLowerCase().includes(query)
+        || (activity.actorName?.toLowerCase().includes(query) ?? false);
       return matchesType && matchesMember && matchesSearch;
     });
   }, [activities, memberFilter, search, typeFilter]);
@@ -102,7 +118,7 @@ export function ActivityPage() {
         </div>
         <div className="flex items-center gap-2">
           <button onClick={manualRefresh} disabled={refreshing} className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-border bg-card text-foreground rounded-lg hover:bg-muted transition-colors disabled:opacity-50">
-            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} /> 새로고침
+            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} /> {refreshing ? "새로고침 중..." : "새로고침"}
           </button>
         </div>
       </div>
@@ -128,7 +144,7 @@ export function ActivityPage() {
         </select>
         <div className="relative ml-auto">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="활동 검색" className="pl-9 pr-4 py-2 text-xs rounded-lg border border-border bg-card outline-none focus:border-blue-400 w-44" />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="활동/담당자 검색" className="pl-9 pr-4 py-2 text-xs rounded-lg border border-border bg-card outline-none focus:border-blue-400 w-44" />
         </div>
       </div>
 

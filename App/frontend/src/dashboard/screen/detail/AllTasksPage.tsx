@@ -37,11 +37,11 @@ const STATUS_FILTERS: Array<{ label: string; value: TaskStatus | "all" }> = [
   { label: "대기", value: "todo" },
   { label: "진행중", value: "inprogress" },
   { label: "완료", value: "done" },
-  { label: "블로커", value: "blocked" },
+  { label: "검토 필요", value: "blocked" },
 ];
 
 /** 검색창이 '상태'/'우선순위' 컬럼에 표시되는 라벨 텍스트로도 매칭되도록 쓰는 맵. */
-const STATUS_SEARCH_LABEL: Record<TaskStatus, string> = { done: "완료", inprogress: "진행중", todo: "대기", blocked: "블로커" };
+const STATUS_SEARCH_LABEL: Record<TaskStatus, string> = { done: "완료", inprogress: "진행중", todo: "대기", blocked: "검토 필요" };
 const STATUS_SORT_ORDER: Record<TaskStatus, number> = { todo: 0, inprogress: 1, blocked: 2, done: 3 };
 
 /** 이 페이지(전체 업무 관리)의 마감일 컬럼만 "yy.mm.dd" 형식으로 표시한다. */
@@ -72,8 +72,12 @@ export function AllTasksPage() {
   const onBack = () => navigate("/dashboard");
   const { currentProjectId, currentProject } = useAuth();
   const isLeader = currentProject?.role === "팀장";
-  const { data: tasks, loading, error, refetch } = useDashboardTasks(currentProjectId);
+  const { data: tasks, loading: tasksLoadingRaw, error, refetch } = useDashboardTasks(currentProjectId);
   const { data: progress } = useDashboardProgress(currentProjectId);
+  const [pageRefreshing, setPageRefreshing] = useState(false);
+  // useDashboardTasks의 loading은 최초 로드 이후 refetch에서는 true로 안 바뀌므로,
+  // 새로고침 버튼을 눌렀을 때 스피너/문구가 뜨려면 별도의 pageRefreshing으로 합쳐서 써야 한다.
+  const loading = tasksLoadingRaw || pageRefreshing;
   const [search, setSearch] = useState("");
   const [searchDraft, setSearchDraft] = useState("");
   const [searchCategory, setSearchCategory] = useState<SearchCategory>("all");
@@ -82,6 +86,7 @@ export function AllTasksPage() {
   const [selected, setSelected] = useState<string[]>([]);
   const [showMeetingPendingOnly, setShowMeetingPendingOnly] = useState(false);
   const [meetingBannerDismissed, setMeetingBannerDismissed] = useState(false);
+  // 업무 제목 클릭시, 업무 상세창 팝업
   const [detailTarget, setDetailTarget] = useState<{ task: DashboardTaskDto; focusComments: boolean } | null>(null);
   const [statusTarget, setStatusTarget] = useState<DashboardTaskDto | null>(null);
   const [showAddTask, setShowAddTask] = useState(false);
@@ -199,7 +204,11 @@ export function AllTasksPage() {
           <p className="text-sm text-muted-foreground mt-0.5">프로젝트의 모든 To-Do를 확인하고 팀원에게 배정·관리합니다.</p>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={() => refetch()} disabled={loading} className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-border bg-card text-foreground rounded-lg hover:bg-muted transition-colors disabled:opacity-50">
+          <button
+            onClick={async () => { setPageRefreshing(true); try { await refetch(); } finally { setPageRefreshing(false); } }}
+            disabled={loading}
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-border bg-card text-foreground rounded-lg hover:bg-muted transition-colors disabled:opacity-50"
+          >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} /> {loading ? "새로고침 중..." : "새로고침"}
           </button>
           {isLeader && (
@@ -216,7 +225,7 @@ export function AllTasksPage() {
         <DetailStatCard label="전체 업무" value={loading ? "..." : counts.total} sub="프로젝트 전체" color="#3B5BDB" icon={Layers} />
         <DetailStatCard label="완료" value={loading ? "..." : counts.done} sub={loading ? "불러오는 중" : `완료율 ${donePct}%`} color="#10B981" icon={CheckCircle2} />
         <DetailStatCard label="진행중" value={loading ? "..." : counts.inProgress} sub="활성 업무" color="#3B5BDB" icon={Clock} />
-        <DetailStatCard label="블로커" value={loading ? "..." : counts.blocked} sub="즉시 해결 필요" color="#EF4444" icon={AlertTriangle} />
+        <DetailStatCard label="검토 필요" value={loading ? "..." : counts.blocked} sub="즉시 해결 필요" color="#EF4444" icon={AlertTriangle} />
       </div>
 
       <div className="flex items-center gap-2 flex-wrap">
@@ -370,6 +379,9 @@ export function AllTasksPage() {
           projectId={currentProjectId}
           focusComments={detailTarget.focusComments}
           onClose={() => setDetailTarget(null)}
+          isLeader={isLeader}
+          projectMembers={projectMembers}
+          onUpdated={() => refetch()}
         />
       )}
       {statusTarget && currentProjectId != null && (

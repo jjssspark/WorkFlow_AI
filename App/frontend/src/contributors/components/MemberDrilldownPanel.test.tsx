@@ -244,8 +244,9 @@ describe("MemberDrilldownPanel workload mode", () => {
   function makeEvidence(overrides: Partial<ContributionMemberScoreDto> = {}): ContributionMemberScoreDto {
     return {
       assigneeId: "1", workloadComponent: 17.5, taskComponent: 80.0, meetingComponent: 80.0,
-      contributionScore: 60.0, anomalyType: "배정량 불균형", taskCountActiveRel: 0.3, taskCountTotalRel: 0.3,
-      difficultyAvgRel: 0.9, overdueCount: 0, ...overrides,
+      contributionScore: 60.0, anomalyTypes: ["배정량 불균형"], difficultyScore: 10.0,
+      workloadScore: 10.0, allocationScore: 90.0, taskCountActiveRel: 0.3, taskCountTotalRel: 0.3,
+      difficultyTotalRel: 0.9, overdueCount: 0, ...overrides,
     };
   }
 
@@ -262,16 +263,34 @@ describe("MemberDrilldownPanel workload mode", () => {
     expect(fetchAttendanceDetail).not.toHaveBeenCalled();
   });
 
-  it("anomalyType이 과부하 의심이면 해당 배지를 표시한다", () => {
+  it("anomalyTypes에 업무량 편중 의심이 있으면 해당 배지를 표시한다", () => {
     render(
       <MemberDrilldownPanel
         mode="workload" memberName="김민준" memberTasks={[]} projectId={1} userId={1}
-        onClose={() => {}} workloadEvidence={makeEvidence({ anomalyType: "과부하 의심", taskCountActiveRel: 1.8 })}
+        onClose={() => {}}
+        workloadEvidence={makeEvidence({ anomalyTypes: ["업무량 편중 의심"], taskCountActiveRel: 1.8 })}
         teamMeanCompletion={0.6}
       />
     );
 
-    expect(screen.getByText("과부하 의심")).toBeInTheDocument();
+    expect(screen.getByText("업무량 편중 의심")).toBeInTheDocument();
+  });
+
+  it("anomalyTypes에 라벨이 두 개면 배지도 두 개 표시한다(배정량 불균형 + 난이도 편중 의심)", () => {
+    render(
+      <MemberDrilldownPanel
+        mode="workload" memberName="김민준" memberTasks={[]} projectId={1} userId={1}
+        onClose={() => {}}
+        workloadEvidence={makeEvidence({
+          anomalyTypes: ["배정량 불균형", "난이도 편중 의심"],
+          difficultyTotalRel: 1.6,
+        })}
+        teamMeanCompletion={0.6}
+      />
+    );
+
+    expect(screen.getByText("배정량 불균형")).toBeInTheDocument();
+    expect(screen.getByText("난이도 편중 의심")).toBeInTheDocument();
   });
 
   it("workloadEvidence가 없으면 에러 문구를 표시한다", () => {
@@ -308,15 +327,28 @@ describe("MemberDrilldownPanel workload mode", () => {
 
     expect(screen.getByText("편중도 근거 데이터가 불완전합니다. 새로고침 후 다시 시도해주세요.")).toBeInTheDocument();
   });
+
+  it("anomalyTypes가 undefined이면(구버전 FastAPI 혼합 배포) .map() 크래시 대신 안내 문구를 표시한다", () => {
+    render(
+      <MemberDrilldownPanel
+        mode="workload" memberName="김민준" memberTasks={[]} projectId={1} userId={1}
+        onClose={() => {}}
+        workloadEvidence={makeEvidence({ anomalyTypes: undefined as unknown as string[] })}
+        teamMeanCompletion={0.6}
+      />
+    );
+
+    expect(screen.getByText("편중도 근거 데이터가 불완전합니다. 새로고침 후 다시 시도해주세요.")).toBeInTheDocument();
+  });
 });
 
 describe("buildWorkloadEvidenceSentences", () => {
-  it("과부하 의심: 업무량/난이도/지연/완료율 문장을 모두 생성한다", () => {
+  it("업무량 편중 의심: 업무량/난이도/지연/완료율 문장을 모두 생성한다", () => {
     const sentences = buildWorkloadEvidenceSentences({
-      anomalyType: "과부하 의심",
+      anomalyTypes: ["업무량 편중 의심"],
       taskCountActiveRel: 1.8,
       taskCountTotalRel: 1.5,
-      difficultyAvgRel: 1.4,
+      difficultyTotalRel: 1.4,
       overdueCount: 2,
       completionRate: 0.4,
       teamMeanCompletionRate: 0.6,
@@ -324,32 +356,47 @@ describe("buildWorkloadEvidenceSentences", () => {
 
     expect(sentences).toEqual([
       "진행 중인 업무가 팀 평균 대비 1.8배 많습니다.",
-      "담당 업무의 평균 난이도가 팀 평균보다 1.4배 높습니다.",
-      "마감이 지난 업무가 2건 있습니다.",
       "업무 완료율은 40%로 팀 평균(60%)보다 낮습니다.",
     ]);
   });
 
-  it("과부하 의심이지만 업무량/난이도가 평균 이하이고 지연도 없으면 완료율 문장만 생성한다", () => {
+  it("난이도 편중 의심: 총 난이도 부담과 연체 문장을 생성한다", () => {
     const sentences = buildWorkloadEvidenceSentences({
-      anomalyType: "과부하 의심",
+      anomalyTypes: ["난이도 편중 의심"],
       taskCountActiveRel: 1.0,
       taskCountTotalRel: 1.0,
-      difficultyAvgRel: 1.0,
-      overdueCount: 0,
-      completionRate: 0.3,
+      difficultyTotalRel: 1.7,
+      overdueCount: 3,
+      completionRate: 0.5,
       teamMeanCompletionRate: 0.5,
     });
 
-    expect(sentences).toEqual(["업무 완료율은 30%로 팀 평균(50%)보다 낮습니다."]);
+    expect(sentences).toEqual([
+      "담당 업무의 전체 난이도 부담이 팀 평균 대비 1.7배 높습니다.",
+      "마감이 지난 업무가 3건 있습니다.",
+    ]);
+  });
+
+  it("난이도 편중 의심이지만 difficultyTotalRel이 1.0 이하면 난이도/연체 문장을 생성하지 않는다(업무량 축과 동일한 가드)", () => {
+    const sentences = buildWorkloadEvidenceSentences({
+      anomalyTypes: ["난이도 편중 의심"],
+      taskCountActiveRel: 1.0,
+      taskCountTotalRel: 1.0,
+      difficultyTotalRel: 1.0,
+      overdueCount: 5,
+      completionRate: 0.5,
+      teamMeanCompletionRate: 0.5,
+    });
+
+    expect(sentences).toEqual([]);
   });
 
   it("배정량 불균형: 배정량 감소와 완료율 문장을 생성한다(진행중 업무 개수가 아니라 전체 배정량 기준)", () => {
     const sentences = buildWorkloadEvidenceSentences({
-      anomalyType: "배정량 불균형",
+      anomalyTypes: ["배정량 불균형"],
       taskCountActiveRel: 0.0,
       taskCountTotalRel: 0.3,
-      difficultyAvgRel: 0.9,
+      difficultyTotalRel: 0.9,
       overdueCount: 0,
       completionRate: 0.95,
       teamMeanCompletionRate: 0.7,
@@ -361,29 +408,30 @@ describe("buildWorkloadEvidenceSentences", () => {
     ]);
   });
 
-  it("진행중 업무가 0이어도(배정 업무 완료) 문구는 taskCountTotalRel(배정량 기준)로 생성된다(회귀 테스트)", () => {
-    // 백엔드 anomaly_type이 "배정량 불균형"으로 내려오는 경우, 문장 생성기 레벨에서도
-    // taskCountActiveRel(진행중 업무 비율)이 아니라 taskCountTotalRel(배정량 기준)을
-    // 쓴다는 걸 명확히 하기 위해 activeRel=0인 케이스를 별도로 검증한다.
+  it("여러 축이 동시에 이상치면 각 축의 문장이 순서대로 모두 생성된다", () => {
     const sentences = buildWorkloadEvidenceSentences({
-      anomalyType: "배정량 불균형",
-      taskCountActiveRel: 0.0,
-      taskCountTotalRel: 1.0,
-      difficultyAvgRel: 1.0,
+      anomalyTypes: ["난이도 편중 의심", "배정량 불균형"],
+      taskCountActiveRel: 0.2,
+      taskCountTotalRel: 0.3,
+      difficultyTotalRel: 1.6,
       overdueCount: 0,
-      completionRate: 1.0,
-      teamMeanCompletionRate: 0.26,
+      completionRate: 0.9,
+      teamMeanCompletionRate: 0.5,
     });
 
-    expect(sentences[0]).toBe("배정된 업무 자체가 팀 평균 대비 1.0배 적습니다.");
+    expect(sentences).toEqual([
+      "담당 업무의 전체 난이도 부담이 팀 평균 대비 1.6배 높습니다.",
+      "배정된 업무 자체가 팀 평균 대비 0.3배 적습니다.",
+      "업무 완료율은 90%로 팀 평균(50%)보다 높습니다.",
+    ]);
   });
 
-  it("정상: 편중이 없다는 문장 하나만 생성한다", () => {
+  it("정상(빈 배열): 편중이 없다는 문장 하나만 생성한다", () => {
     const sentences = buildWorkloadEvidenceSentences({
-      anomalyType: "정상",
+      anomalyTypes: [],
       taskCountActiveRel: 1.0,
       taskCountTotalRel: 1.0,
-      difficultyAvgRel: 1.0,
+      difficultyTotalRel: 1.0,
       overdueCount: 0,
       completionRate: 0.8,
       teamMeanCompletionRate: 0.8,
@@ -394,10 +442,10 @@ describe("buildWorkloadEvidenceSentences", () => {
 
   it("teamMeanCompletionRate가 null이면 팀 평균과 비교하지 않고 실측 완료율만 표시한다(팀 평균 오도 방지 회귀 테스트)", () => {
     const sentences = buildWorkloadEvidenceSentences({
-      anomalyType: "과부하 의심",
+      anomalyTypes: ["업무량 편중 의심"],
       taskCountActiveRel: 1.0,
       taskCountTotalRel: 1.0,
-      difficultyAvgRel: 1.0,
+      difficultyTotalRel: 1.0,
       overdueCount: 0,
       completionRate: 0.3,
       teamMeanCompletionRate: null,

@@ -37,11 +37,17 @@ allowed_status='^A[[:space:]]'
 # 2026-07-28 추가: 서로 다른 두 PR이 독립적으로 V20260728_2를 잡아 생긴 충돌
 # (notifications_delete_orphaned_null_project_id.sql)을 해소하기 위한 R100
 # rename 1건도 같은 방식으로 예외 처리한다.
+# 2026-07-29 추가: dev(project_members_last_accessed_at)와 contribution_score
+# (activities_actor_index)가 독립적으로 같은 버전(V20260729_1)을 잡아 같은 문제가
+# 재발했다. 두 마이그레이션 사이에 실행 순서 의존성은 없으므로(서로 다른 테이블/
+# 인덱스), dev 쪽을 그대로 두고 contribution_score 쪽만 다음 빈 슬롯인 _3으로
+# 옮긴다(V20260729_2__projects_year.sql이 이미 사용 중).
 approved_renames=(
   "R100	$migration_dir/V20260726_1__rag_assignee_sync_failures.sql	$migration_dir/V20260727_1__rag_assignee_sync_failures.sql"
   "R100	$migration_dir/V20260726_2__task_done_date.sql	$migration_dir/V20260727_2__task_done_date.sql"
   "R100	$migration_dir/V20260726_3__user_profile_and_agreements.sql	$migration_dir/V20260727_3__user_profile_and_agreements.sql"
   "R100	$migration_dir/V20260728_2__notifications_delete_orphaned_null_project_id.sql	$migration_dir/V20260728_3__notifications_delete_orphaned_null_project_id.sql"
+  "R100	$migration_dir/V20260729_1__activities_actor_index.sql	$migration_dir/V20260729_3__activities_actor_index.sql"
 )
 
 is_approved_rename() {

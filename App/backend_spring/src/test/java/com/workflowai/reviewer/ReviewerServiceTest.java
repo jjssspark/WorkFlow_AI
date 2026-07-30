@@ -1,8 +1,12 @@
 package com.workflowai.reviewer;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
+import com.workflowai.activity.Activity;
+import com.workflowai.activity.ActivityRepository;
 import com.workflowai.deliverable.DeliverableRepository;
 import com.workflowai.github.GithubRecordRepository;
 import com.workflowai.project.EvalStatus;
@@ -14,6 +18,7 @@ import com.workflowai.project.ProjectRole;
 import com.workflowai.task.TaskRepository;
 import com.workflowai.user.User;
 import com.workflowai.user.UserRepository;
+import java.time.LocalDateTime;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -31,6 +36,7 @@ class ReviewerServiceTest {
     @Mock private TaskRepository taskRepository;
     @Mock private DeliverableRepository deliverableRepository;
     @Mock private GithubRecordRepository githubRecordRepository;
+    @Mock private ActivityRepository activityRepository;
 
     private ReviewerService reviewerService;
 
@@ -38,7 +44,7 @@ class ReviewerServiceTest {
     void setUp() {
         reviewerService = new ReviewerService(
             projectMemberRepository, projectRepository, userRepository,
-            taskRepository, deliverableRepository, githubRecordRepository
+            taskRepository, deliverableRepository, githubRecordRepository, activityRepository
         );
     }
 
@@ -134,5 +140,59 @@ class ReviewerServiceTest {
         List<ReviewerProjectSummary> result = reviewerService.getMyReviewProjects(9L);
 
         assertThat(result.get(0).githubConnected()).isTrue();
+    }
+
+    @Test
+    void getMyRecentActivities_returnsActivitiesWithProjectTitleAttached() {
+        Activity activity = new Activity(3L, 9L, "GRADE_PUBLISHED", 20L, "김민준님의 학점을 공개했습니다.");
+        ReflectionTestUtils.setField(activity, "id", 100L);
+        ReflectionTestUtils.setField(activity, "createdAt", LocalDateTime.of(2026, 7, 28, 10, 0));
+        when(activityRepository.findTop10ByActorIdAndTypeInOrderByCreatedAtDescIdDesc(eq(9L), any()))
+            .thenReturn(List.of(activity));
+        when(projectRepository.findAllById(List.of(3L)))
+            .thenReturn(List.of(projectWithId(3L, "실시간 버스 도착 알리미", "캡스톤디자인", EvalStatus.PUBLISHED)));
+
+        List<ReviewerActivityDto> result = reviewerService.getMyRecentActivities(9L);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).id()).isEqualTo("100");
+        assertThat(result.get(0).projectTitle()).isEqualTo("실시간 버스 도착 알리미");
+        assertThat(result.get(0).message()).isEqualTo("김민준님의 학점을 공개했습니다.");
+    }
+
+    @Test
+    void getMyRecentActivities_returnsEmptyListWhenNoActivities() {
+        when(activityRepository.findTop10ByActorIdAndTypeInOrderByCreatedAtDescIdDesc(eq(9L), any()))
+            .thenReturn(List.of());
+
+        List<ReviewerActivityDto> result = reviewerService.getMyRecentActivities(9L);
+
+        assertThat(result).isEmpty();
+    }
+
+    private record FakeProjectLastAccessView(Long getProjectId, LocalDateTime getLastAccessedAt)
+        implements ActivityRepository.ProjectLastAccessView {
+    }
+
+    @Test
+    void getMyLastAccess_returnsLastAccessedAtPerProject() {
+        LocalDateTime at = LocalDateTime.of(2026, 7, 28, 9, 30);
+        when(activityRepository.findLastProjectAccessByActorId(9L))
+            .thenReturn(List.of(new FakeProjectLastAccessView(3L, at)));
+
+        List<ProjectLastAccessDto> result = reviewerService.getMyLastAccess(9L);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).projectId()).isEqualTo(3L);
+        assertThat(result.get(0).lastAccessedAt()).isEqualTo("2026-07-28T09:30:00.000Z");
+    }
+
+    @Test
+    void getMyLastAccess_returnsEmptyListWhenNoAccessRecorded() {
+        when(activityRepository.findLastProjectAccessByActorId(9L)).thenReturn(List.of());
+
+        List<ProjectLastAccessDto> result = reviewerService.getMyLastAccess(9L);
+
+        assertThat(result).isEmpty();
     }
 }

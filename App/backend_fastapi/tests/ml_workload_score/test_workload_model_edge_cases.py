@@ -10,15 +10,26 @@
 """
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import pandas as pd
 import pytest
 
 from ml_workload_score.app.services.workload_model import (
-    FEATURE_COLUMNS,
+    ALLOCATION_AXIS_COLUMN,
+    DIFFICULTY_AXIS_COLUMNS,
+    WORKLOAD_AXIS_COLUMNS,
     build_features,
     detect_overload_anomalies_robust,
 )
+
+# 3축 판정이 실제로 읽는 피처 전체. 구 FEATURE_COLUMNS(단일 통합 피처 집합)를 대체한다.
+AXIS_FEATURE_COLUMNS = DIFFICULTY_AXIS_COLUMNS + WORKLOAD_AXIS_COLUMNS + [ALLOCATION_AXIS_COLUMN]
+
+# 축별 원시 점수. 통합 overload_score_0_100은 축 점수의 가중합이라, 어느 한 축이 NaN이어도
+# 가중합 과정에서 가려질 수 있다. NaN 누출을 보려면 축 점수를 직접 봐야 한다.
+AXIS_SCORE_COLUMNS = ["difficulty_score", "workload_score", "allocation_score"]
 
 
 def _tasks_df(plan: list[tuple[str, int, int]], today: pd.Timestamp) -> pd.DataFrame:
@@ -69,9 +80,14 @@ def _uneven_three_member_team(today: pd.Timestamp) -> pd.DataFrame:
 def test_the_most_loaded_member_ranks_highest():
     """UT-170의 앞부분. 업무 수와 난이도가 모두 높은 팀원이 가장 높은 점수를 받는다.
 
-    점수는 더 이상 "팀 내 최댓값 = 100점" 상대 스케일링이 아니라 이상치 임계값(3.5) 기준
-    절대 스케일링이다 - 결합 거리 3.0을 임계값 3.5로 나눈 100분율(3.0/3.5*100)이 정확한 값이고,
-    전원이 정상 범위여도 상대적으로 가장 튀는 사람이 무조건 100점을 받던 예전 버그가 없다.
+    점수는 "팀 내 최댓값 = 100점" 상대 스케일링이 아니라 이상치 임계값(3.5) 기준 절대
+    스케일링이다 - 전원이 정상 범위여도 상대적으로 가장 튀는 사람이 무조건 100점을 받던
+    예전 버그가 없다.
+
+    3축 독립 판정에서는 세 축(난이도/업무량/배정량) 각각이 이 데이터(a=10건·긴급 vs
+    b/c=2건·낮음, 10:2:2 비율)에 대해 동일한 결합 거리(1.5*sqrt(2) ≈ 2.121, MAD가 0으로
+    표준편차 폴백이 걸림)를 내므로 세 축 점수가 모두 같고, 가중평균인
+    overload_score_0_100도 같은 값이 된다: 100 * 1.5*sqrt(2) / 3.5.
     """
     today = pd.Timestamp("2026-07-23")
     result = detect_overload_anomalies_robust(
@@ -80,7 +96,7 @@ def test_the_most_loaded_member_ranks_highest():
 
     top = result.sort_values("overload_score_0_100", ascending=False).iloc[0]
     assert top["assignee_id"] == "a"
-    assert top["overload_score_0_100"] == pytest.approx(3.0 / 3.5 * 100)
+    assert top["overload_score_0_100"] == pytest.approx(100 * 1.5 * math.sqrt(2) / 3.5)
 
 
 def test_three_member_team_never_reaches_the_warning_threshold():
@@ -101,9 +117,12 @@ def test_three_member_team_never_reaches_the_warning_threshold():
     )
 
     top = result.sort_values("overload_score_0_100", ascending=False).iloc[0]
-    assert top["anomaly_score_raw"] == 3.0
+    # 3축 전환 + 임계값 기준 스케일링 후에도 같은 관측이 성립한다: a는 세 축 모두 팀 내
+    # 최고 결합 거리(1.5*sqrt(2) ≈ 2.121)를 기록하지만, 임계값 3.5에는 못 미쳐 라벨이
+    # 하나도 붙지 않는다. "팀 내 최고 점수"와 "이상치 판정"이 서로 독립이라는 게 핵심이다.
+    assert top["overload_score_0_100"] == pytest.approx(100 * 1.5 * math.sqrt(2) / 3.5)
     assert not top["is_anomaly"]
-    assert top["anomaly_type"] == "정상"
+    assert top["anomaly_types"] == []
 
 
 def test_single_member_team_produces_defined_scores_without_dividing_by_zero():
@@ -115,9 +134,9 @@ def test_single_member_team_produces_defined_scores_without_dividing_by_zero():
     )
 
     assert len(result) == 1
-    # anomaly_score_raw까지 봐야 한다. overload_score_0_100은 최대값이 0 이하면 0.0으로
-    # 덮어쓰는 분기가 있어서, 거리 계산이 NaN이 되어도 0점으로 가려진다(변이로 확인).
-    assert np.isfinite(result["anomaly_score_raw"]).all()
+    # 축 점수까지 봐야 한다. 각 축은 최대값이 0 이하면 0.0으로 덮어쓰는 분기가 있어서,
+    # 거리 계산이 NaN이 되어도 0점으로 가려진다(변이로 확인).
+    assert np.isfinite(result[AXIS_SCORE_COLUMNS]).all().all()
     assert np.isfinite(result["overload_score_0_100"]).all()
     assert not result["is_anomaly"].any()
 
@@ -129,10 +148,10 @@ def test_scores_stay_finite_when_the_team_average_is_zero():
     today = pd.Timestamp("2026-07-23")
     features = build_features(_tasks_df([("a", 2, 0), ("b", 2, 0), ("c", 2, 0)], today), today=today)
 
-    assert features[FEATURE_COLUMNS].notna().all().all()
+    assert features[AXIS_FEATURE_COLUMNS].notna().all().all()
 
     result = detect_overload_anomalies_robust(features)
 
-    assert np.isfinite(result["anomaly_score_raw"]).all()
+    assert np.isfinite(result[AXIS_SCORE_COLUMNS]).all().all()
     assert np.isfinite(result["overload_score_0_100"]).all()
     assert not result["overload_score_0_100"].isna().any()

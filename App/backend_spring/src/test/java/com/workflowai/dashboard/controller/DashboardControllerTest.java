@@ -142,7 +142,10 @@ class DashboardControllerTest {
     void getWorkloadScoreReturnsDataFromService() throws Exception {
         WorkloadScoreResponseDto response = new WorkloadScoreResponseDto(
             "1.0", 1L, "db", "MAD (소규모 팀)",
-            List.of(new WorkloadScoreMemberDto("5", 12, 0.4, 88.5, true, "과부하 의심", 1.8, 1.2, 3)),
+            List.of(new WorkloadScoreMemberDto(
+                "5", 12, 0.4, 88.5, true, List.of("업무량 편중 의심"),
+                90.0, 85.0, 10.0, 1.8, 1.2, 1.3, 3
+            )),
             null, 0.62, "2026-07-29T00:00:00Z"
         );
         when(dashboardService.getWorkloadScore(eq("demo-project"))).thenReturn(response);
@@ -152,7 +155,7 @@ class DashboardControllerTest {
 
         mockMvc.perform(get("/api/v1/projects/demo-project/dashboard/workload-score"))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.members[0].anomaly_type").value("과부하 의심"))
+            .andExpect(jsonPath("$.data.members[0].anomaly_types[0]").value("업무량 편중 의심"))
             .andExpect(jsonPath("$.data.members[0].overload_score").value(88.5));
     }
 

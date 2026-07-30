@@ -13,7 +13,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.workflowai.reviewer.ReviewerActivityService;
+import com.workflowai.activity.ActivityService;
 import com.workflowai.security.ProjectAccess;
 import com.workflowai.security.UserPrincipal;
 import java.time.LocalDate;
@@ -57,7 +57,7 @@ class ProjectControllerSecurityTest {
     private ProjectService projectService;
 
     @MockBean
-    private ReviewerActivityService reviewerActivityService;
+    private ActivityService activityService;
 
     @MockBean(name = "projectAccess")
     private ProjectAccess projectAccess;
@@ -236,6 +236,19 @@ class ProjectControllerSecurityTest {
             )
             .andExpect(status().isForbidden())
             .andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
+    }
+
+    @Test
+    void recordReviewerAccessReturns403WhenCallerIsNotReviewer() throws Exception {
+        when(projectAccess.hasRole(eq(1L), eq("REVIEWER"))).thenReturn(false);
+
+        mockMvc.perform(
+                post("/api/v1/projects/1/reviewer-access")
+                    .with(user("member"))
+            )
+            .andExpect(status().isForbidden())
+            .andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
+        verify(activityService, never()).record(any(), any(), any(), any(), any());
     }
 
     @EnableMethodSecurity

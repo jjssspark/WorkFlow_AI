@@ -43,7 +43,7 @@ function makeScoreResult(assigneeId: string): ContributionScoreResult {
   return {
     members: [{
       assigneeId, workloadComponent: 78, taskComponent: 85, meetingComponent: 90,
-      contributionScore: 92, anomalyType: "NONE", taskCountActiveRel: 1, difficultyAvgRel: 1, overdueCount: 0,
+      contributionScore: 92, anomalyTypes: [], difficultyScore: 0, workloadScore: 0, allocationScore: 0, taskCountActiveRel: 1, taskCountTotalRel: 1, difficultyTotalRel: 1, overdueCount: 0,
     }],
     note: null,
     teamMeanCompletion: 0.8,

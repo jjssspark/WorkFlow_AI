@@ -110,13 +110,13 @@ describe("TaskDetailPanel 점세개 메뉴 - 신규 구현 액션", () => {
     await waitFor(() => expect(onShowToast).toHaveBeenCalledWith("시작 알림을 보냈습니다."));
   });
 
-  it("inprogress: 블로커 등록 클릭 시 준비중 배지 없이 onQuickAction을 호출한다 (PR 연결/AI 지연 분석은 숨김)", async () => {
+  it("inprogress: 검토 요청 클릭 시 준비중 배지 없이 onQuickAction을 호출한다 (PR 연결/AI 지연 분석은 숨김)", async () => {
     const { onQuickAction } = renderPanel("inprogress");
     await openMenu();
-    const item = await screen.findByText("블로커 등록");
+    const item = await screen.findByText("검토 요청");
     expect(item.closest("button")?.textContent).not.toContain("준비 중");
     await userEvent.click(item);
-    expect(onQuickAction).toHaveBeenCalledWith("블로커 등록", false);
+    expect(onQuickAction).toHaveBeenCalledWith("검토 요청", false);
     expect(screen.queryByText("PR 연결")).not.toBeInTheDocument();
     expect(screen.queryByText("AI 지연 분석")).not.toBeInTheDocument();
   });
@@ -192,6 +192,6 @@ describe("TaskDetailPanel 점세개 메뉴 - 신규 구현 액션", () => {
     renderPanel("inprogress");
     expect(screen.getByText("승인 신청")).toBeInTheDocument();
     await openMenu();
-    expect(screen.getByText("블로커 등록")).toBeInTheDocument();
+    expect(screen.getByText("검토 요청")).toBeInTheDocument();
   });
 });

@@ -20,6 +20,18 @@ def _fake_tasks_df() -> pd.DataFrame:
     ])
 
 
+def _fake_result_row(**overrides) -> dict:
+    base = {
+        "assignee_id": "1", "task_count_total": 1, "completion_rate": 0.0,
+        "overload_score_0_100": 10.0, "is_anomaly": False, "anomaly_types": [],
+        "difficulty_score": 5.0, "workload_score": 5.0, "allocation_score": 5.0,
+        "task_count_active_rel": 1.0, "task_count_total_rel": 1.0,
+        "difficulty_total_rel": 1.0, "overdue_count": 0,
+    }
+    base.update(overrides)
+    return base
+
+
 @pytest.mark.asyncio
 async def test_get_workload_score_builds_features_from_database_tasks_only():
     tasks_df = _fake_tasks_df()
@@ -29,11 +41,7 @@ async def test_get_workload_score_builds_features_from_database_tasks_only():
     ), patch(
         "ml_workload_score.app.services.workload_service.build_features",
     ) as mock_build_features:
-        mock_build_features.return_value = pd.DataFrame([
-            {"assignee_id": "1", "task_count_total": 1, "completion_rate": 0.0,
-             "overload_score_0_100": 10.0, "is_anomaly": False, "anomaly_type": "정상",
-             "task_count_active_rel": 1.0, "task_count_total_rel": 1.0, "difficulty_avg_rel": 1.0, "overdue_count": 0},
-        ])
+        mock_build_features.return_value = pd.DataFrame([_fake_result_row()])
         with patch(
             "ml_workload_score.app.services.workload_service.detect_overload_anomalies_auto",
         ) as mock_detect:
@@ -61,27 +69,19 @@ async def test_get_workload_score_synthetic_fallback_still_works():
 
 @pytest.mark.asyncio
 async def test_get_workload_score_includes_workload_evidence_fields():
-    """편중도 근거 패널이 필요로 하는 세 필드가 응답까지 그대로 전달되는지 확인한다."""
+    """편중도 근거 패널이 필요로 하는 필드들이 응답까지 그대로 전달되는지 확인한다."""
     with patch(
         "ml_workload_score.app.services.workload_service.db.load_tasks_from_db",
         return_value=_fake_tasks_df(),
     ), patch(
         "ml_workload_score.app.services.workload_service.build_features",
     ) as mock_build_features:
-        mock_build_features.return_value = pd.DataFrame([
-            {
-                "assignee_id": "1",
-                "task_count_total": 4,
-                "completion_rate": 0.5,
-                "overload_score_0_100": 82.5,
-                "is_anomaly": True,
-                "anomaly_type": "과부하 의심",
-                "task_count_active_rel": 1.8,
-                "task_count_total_rel": 1.8,
-                "difficulty_avg_rel": 1.4,
-                "overdue_count": 2,
-            },
-        ])
+        mock_build_features.return_value = pd.DataFrame([_fake_result_row(
+            task_count_total=4, completion_rate=0.5, overload_score_0_100=82.5,
+            is_anomaly=True, anomaly_types=["업무량 편중 의심"],
+            task_count_active_rel=1.8, task_count_total_rel=1.8,
+            difficulty_total_rel=1.4, overdue_count=2,
+        )])
         with patch(
             "ml_workload_score.app.services.workload_service.detect_overload_anomalies_auto",
         ) as mock_detect:
@@ -91,14 +91,15 @@ async def test_get_workload_score_includes_workload_evidence_fields():
 
     member = result.members[0]
     assert member.task_count_active_rel == pytest.approx(1.8)
-    assert member.difficulty_avg_rel == pytest.approx(1.4)
+    assert member.difficulty_total_rel == pytest.approx(1.4)
     assert member.overdue_count == 2
+    assert member.anomaly_types == ["업무량 편중 의심"]
 
 
 @pytest.mark.asyncio
 async def test_get_workload_score_passes_team_mean_completion_from_attrs():
-    """anomaly_type 판정에 쓰인 실제 팀 평균 완료율이 result.attrs를 거쳐
-    응답까지 그대로 전달돼야 한다 — 편중도 근거 패널이 이 값 없이 "팀 평균보다
+    """anomaly_types 판정에 쓰인 실제 팀 평균 완료율이 result.attrs를 거쳐
+    응답까지 그대로 전달돼야 한다 - 편중도 근거 패널이 이 값 없이 "팀 평균보다
     높음/낮음"을 단정하면 심사 근거를 오도할 수 있다(리뷰 지적사항)."""
     with patch(
         "ml_workload_score.app.services.workload_service.db.load_tasks_from_db",
@@ -106,11 +107,12 @@ async def test_get_workload_score_passes_team_mean_completion_from_attrs():
     ), patch(
         "ml_workload_score.app.services.workload_service.build_features",
     ) as mock_build_features:
-        mock_build_features.return_value = pd.DataFrame([
-            {"assignee_id": "1", "task_count_total": 4, "completion_rate": 0.5,
-             "overload_score_0_100": 82.5, "is_anomaly": True, "anomaly_type": "과부하 의심",
-             "task_count_active_rel": 1.8, "task_count_total_rel": 1.8, "difficulty_avg_rel": 1.4, "overdue_count": 2},
-        ])
+        mock_build_features.return_value = pd.DataFrame([_fake_result_row(
+            task_count_total=4, completion_rate=0.5, overload_score_0_100=82.5,
+            is_anomaly=True, anomaly_types=["업무량 편중 의심"],
+            task_count_active_rel=1.8, task_count_total_rel=1.8,
+            difficulty_total_rel=1.4, overdue_count=2,
+        )])
         with patch(
             "ml_workload_score.app.services.workload_service.detect_overload_anomalies_auto",
         ) as mock_detect:
@@ -131,11 +133,12 @@ async def test_get_workload_score_team_mean_completion_defaults_to_none_when_mis
     ), patch(
         "ml_workload_score.app.services.workload_service.build_features",
     ) as mock_build_features:
-        mock_build_features.return_value = pd.DataFrame([
-            {"assignee_id": "1", "task_count_total": 4, "completion_rate": 0.5,
-             "overload_score_0_100": 82.5, "is_anomaly": True, "anomaly_type": "과부하 의심",
-             "task_count_active_rel": 1.8, "task_count_total_rel": 1.8, "difficulty_avg_rel": 1.4, "overdue_count": 2},
-        ])
+        mock_build_features.return_value = pd.DataFrame([_fake_result_row(
+            task_count_total=4, completion_rate=0.5, overload_score_0_100=82.5,
+            is_anomaly=True, anomaly_types=["업무량 편중 의심"],
+            task_count_active_rel=1.8, task_count_total_rel=1.8,
+            difficulty_total_rel=1.4, overdue_count=2,
+        )])
         with patch(
             "ml_workload_score.app.services.workload_service.detect_overload_anomalies_auto",
         ) as mock_detect:

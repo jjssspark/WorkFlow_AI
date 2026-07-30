@@ -1,5 +1,6 @@
 package com.workflowai.project;
 
+import com.workflowai.activity.ActivityService;
 import com.workflowai.rag.RagIngestService;
 import com.workflowai.dashboard.entity.Milestone;
 import com.workflowai.dashboard.repository.MilestoneRepository;
@@ -40,6 +41,7 @@ public class ProjectService {
     private final MilestoneRepository milestoneRepository;
     private final TransactionOperations transactionOperations;
     private final RagIngestService ragIngestService;
+    private final ActivityService activityService;
 
     public ProjectService(
         ProjectRepository projectRepository,
@@ -48,7 +50,8 @@ public class ProjectService {
         TaskRepository taskRepository,
         MilestoneRepository milestoneRepository,
         TransactionOperations transactionOperations,
-        RagIngestService ragIngestService
+        RagIngestService ragIngestService,
+        ActivityService activityService
     ) {
         this.projectRepository = projectRepository;
         this.projectMemberRepository = projectMemberRepository;
@@ -57,6 +60,7 @@ public class ProjectService {
         this.milestoneRepository = milestoneRepository;
         this.transactionOperations = transactionOperations;
         this.ragIngestService = ragIngestService;
+        this.activityService = activityService;
     }
 
     public ProjectResponse create(Long creatorUserId, CreateProjectRequest request) {
@@ -279,11 +283,13 @@ public class ProjectService {
      * 심사자가 기여도 분석 화면에서 "평가 확정"을 누를 때 호출한다. eval_status를
      * PUBLISHED로 전이한다. 확정 후에도 팀원별 점수/공개 여부(evaluation_scores)는
      * 계속 수정 가능하다 — 이 필드는 단순 진행 상태 표시용이며 잠금 기능은 아니다.
+     * actorId는 심사자 홈 "최근 심사 활동"/대시보드 "최근 활동"에 남길 행위자다.
      */
     @Transactional
-    public ProjectResponse finalizeEvaluation(Long projectId) {
+    public ProjectResponse finalizeEvaluation(Long projectId, Long actorId) {
         Project project = getProjectOrThrow(projectId);
         project.setEvalStatus(EvalStatus.PUBLISHED);
+        activityService.record(projectId, actorId, "EVALUATION_FINALIZED", null, "프로젝트 평가를 확정했습니다.");
         return toResponse(project);
     }
 
@@ -294,9 +300,10 @@ public class ProjectService {
      * 팀원별 점수/공개 여부(evaluation_scores)는 건드리지 않는다.
      */
     @Transactional
-    public ProjectResponse unfinalizeEvaluation(Long projectId) {
+    public ProjectResponse unfinalizeEvaluation(Long projectId, Long actorId) {
         Project project = getProjectOrThrow(projectId);
         project.setEvalStatus(EvalStatus.EVALUATING);
+        activityService.record(projectId, actorId, "EVALUATION_UNFINALIZED", null, "프로젝트 평가 확정을 취소했습니다.");
         return toResponse(project);
     }
 

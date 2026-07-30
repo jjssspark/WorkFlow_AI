@@ -21,17 +21,22 @@ from contribution_score.app.services.contribution_service import (
 from ml_workload_score.app.schema.workload_schema import WorkloadMemberResult
 
 
-def _member(assignee_id: str, completion_rate: float, overload_score: float, anomaly_type: str):
+def _member(assignee_id: str, completion_rate: float, overload_score: float, anomaly_types: list[str]):
+    """축별 점수는 이 테스트의 관심사가 아니다(총점 범위만 본다) — overload_score가 이미
+    가중합 결과로 주어지므로 축 점수는 0으로 채운다."""
     return WorkloadMemberResult(
         assignee_id=assignee_id,
         task_count_total=1,
         completion_rate=completion_rate,
         overload_score=overload_score,
-        is_anomaly=anomaly_type != "정상",
-        anomaly_type=anomaly_type,
+        is_anomaly=len(anomaly_types) > 0,
+        anomaly_types=anomaly_types,
+        difficulty_score=0.0,
+        workload_score=0.0,
+        allocation_score=0.0,
         task_count_active_rel=1.0,
         task_count_total_rel=1.0,
-        difficulty_avg_rel=1.0,
+        difficulty_total_rel=1.0,
         overdue_count=0,
     )
 
@@ -45,8 +50,8 @@ def test_component_weights_sum_to_one():
 def test_scores_stay_within_zero_and_hundred_at_both_extremes():
     """UT-204. 최악(아무것도 안 함 + 배정량 불균형)과 최선(전부 완료 + 전원 참석) 양 끝."""
     members = [
-        _member("worst", completion_rate=0.0, overload_score=100.0, anomaly_type="배정량 불균형"),
-        _member("best", completion_rate=1.0, overload_score=0.0, anomaly_type="정상"),
+        _member("worst", completion_rate=0.0, overload_score=100.0, anomaly_types=["배정량 불균형"]),
+        _member("best", completion_rate=1.0, overload_score=0.0, anomaly_types=[]),
     ]
 
     results = compute_contribution_scores(members, attendance={"best": 10}, total_meetings=10)
@@ -61,7 +66,7 @@ def test_scores_stay_within_zero_and_hundred_at_both_extremes():
 def test_overload_score_beyond_one_hundred_is_clamped_not_negative():
     """이상치 점수는 0~100으로 정규화되지만 상류가 바뀌면 100을 넘을 수 있다.
     그때 workload 구성요소가 음수로 내려가면 총점도 음수가 된다."""
-    members = [_member("outlier", completion_rate=0.0, overload_score=250.0, anomaly_type="배정량 불균형")]
+    members = [_member("outlier", completion_rate=0.0, overload_score=250.0, anomaly_types=["배정량 불균형"])]
 
     results = compute_contribution_scores(members, attendance={}, total_meetings=5)
 
