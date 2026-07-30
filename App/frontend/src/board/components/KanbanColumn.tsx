@@ -44,7 +44,9 @@ export function KanbanColumn({ col, tasks, projectMembers, compact, selectedId, 
 
   return (
     <div
-      ref={dropRef}
+      // react-dnd의 connect 함수는 값을 반환한다. React 19는 콜백 ref의 반환값을 정리
+      // 함수로 취급하므로 그대로 넘기면 안 된다 - 반환값을 버리는 래퍼로 감싼다.
+      ref={(node) => { dropRef(node); }}
       className={`h-full min-w-0 min-h-0 flex flex-col rounded-xl transition-shadow ${isDropTarget ? "ring-2 ring-blue-400" : ""}`}
       style={{ background: col.bg }}
     >

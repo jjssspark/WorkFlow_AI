@@ -200,6 +200,10 @@ export function Header({ onOpenMobileMenu }: { onOpenMobileMenu?: () => void }) 
                     <div className="px-4 py-6 text-xs text-muted-foreground text-center">알림이 없습니다.</div>
                   ) : notifications.map(n => {
                     const isActionRequired = ACTION_REQUIRED_NOTIFICATION_TYPES.has(n.type);
+                    // n.targetId를 JSX에서 직접 검사하면 그 좁히기가 onClick 클로저 안까지
+                    // 유지되지 않는다(프로퍼티는 나중에 바뀔 수 있다고 보기 때문). const로
+                    // 뽑아 두면 검사 결과가 클로저까지 따라간다.
+                    const targetId = n.targetId;
                     return (
                       <div
                         key={n.id}
@@ -213,24 +217,24 @@ export function Header({ onOpenMobileMenu }: { onOpenMobileMenu?: () => void }) 
                         </div>
                         {n.content && <div className="text-muted-foreground mt-0.5">{n.content}</div>}
                         <div className="text-[10px] text-muted-foreground mt-0.5">{new Date(n.createdAt).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "Asia/Seoul" })}</div>
-                        {MEETING_SHORTCUT_NOTIFICATION_TYPES.has(n.type) && n.targetType === "meeting" && n.targetId && (
+                        {MEETING_SHORTCUT_NOTIFICATION_TYPES.has(n.type) && n.targetType === "meeting" && targetId && (
                           <button
                             onClick={() => {
                               setNotifOpen(false);
-                              navigate(`/meetings?meetingId=${n.targetId}${meetingNotificationPanelQuery(n.type)}`);
+                              navigate(`/meetings?meetingId=${targetId}${meetingNotificationPanelQuery(n.type)}`);
                             }}
                             className="mt-1.5 px-2 py-1 rounded bg-blue-600 text-white text-[10px] font-semibold hover:bg-blue-700"
                           >
                             바로가기
                           </button>
                         )}
-                        {n.targetType === "task" && n.targetId && (
+                        {n.targetType === "task" && targetId && (
                           <button
                             onClick={() => {
                               setNotifOpen(false);
                               const taskPath = n.type === "COMPLETION_REQUESTED"
-                                ? `/leader/completion-approvals?taskId=${encodeURIComponent(n.targetId)}`
-                                : `/board?taskId=${encodeURIComponent(n.targetId)}`;
+                                ? `/leader/completion-approvals?taskId=${encodeURIComponent(targetId)}`
+                                : `/board?taskId=${encodeURIComponent(targetId)}`;
                               navigate(taskPath);
                             }}
                             className="mt-1.5 px-2 py-1 rounded bg-blue-600 text-white text-[10px] font-semibold hover:bg-blue-700"
@@ -238,7 +242,7 @@ export function Header({ onOpenMobileMenu }: { onOpenMobileMenu?: () => void }) 
                             바로가기
                           </button>
                         )}
-                        {n.targetType === "evaluation" && n.targetId && (
+                        {n.targetType === "evaluation" && targetId && (
                           <button
                             onClick={() => {
                               setNotifOpen(false);
@@ -249,11 +253,11 @@ export function Header({ onOpenMobileMenu }: { onOpenMobileMenu?: () => void }) 
                             바로가기
                           </button>
                         )}
-                        {n.targetType === "personal_comment" && n.targetId && (
+                        {n.targetType === "personal_comment" && targetId && (
                           <button
                             onClick={() => {
                               setNotifOpen(false);
-                              navigate(`/mypage?commentId=${encodeURIComponent(n.targetId)}`);
+                              navigate(`/mypage?commentId=${encodeURIComponent(targetId)}`);
                             }}
                             className="mt-1.5 px-2 py-1 rounded bg-blue-600 text-white text-[10px] font-semibold hover:bg-blue-700"
                           >
