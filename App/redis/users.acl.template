@@ -1,4 +1,7 @@
 user default off resetkeys resetchannels -@all
+
 user admin on >__ADMIN_PASSWORD__ ~* &* +@all
-user spring on >__SPRING_PASSWORD__ resetkeys ~meeting-analysis -@all +ping +hello +client|setinfo +client|setname +select +xadd +xlen +xgroup|create +xreadgroup +xpending +xclaim +xack +xdel +eval +evalsha
-user fastapi on >__FASTAPI_PASSWORD__ resetkeys -@all +ping +hello +client|setinfo +client|setname +select (~meeting_analysis:* ~rag_answer:* +get +set +del) (~rag_epoch:* +get +incr)
+
+user spring on >__SPRING_PASSWORD__ resetkeys resetchannels -@all +ping +hello +client|setinfo +client|setname +select (~meeting-analysis ~dashboard-ai-jobs +xadd +xlen +xgroup|create +xreadgroup +xpending +xclaim +xack +xdel +eval +evalsha) (~dashboard-ai-inflight:* +get +set +del +pexpire +eval +evalsha) (~dashboard-ai-done:* +set +exists) (~assistant_thread:* +get +set) (~dashboard:workload-score:* +get +set)
+
+user fastapi on >__FASTAPI_PASSWORD__ resetkeys resetchannels -@all +ping +hello +client|setinfo +client|setname +select +subscribe +unsubscribe +publish &rag-result:* (~rag-jobs +xadd +xlen +xgroup|create +xreadgroup +xpending +xclaim +xack +xdel +eval +evalsha) (~meeting_analysis:* ~rag_answer:* +get +set +del) (~rag_epoch:* +get +incr)
