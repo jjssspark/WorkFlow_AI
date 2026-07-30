@@ -188,6 +188,21 @@ jobs:
             test -n "$jdbc_url"
             test -n "$db_password"
 
+            # 2026-07-30 운영 DB가 Supabase에서 Compose 내부 db 서비스로 바뀌었다.
+            # "db"는 Compose 네트워크 안에서만 도는 별칭이라, --network 없이 뜨는 이 컨테이너는
+            # UnknownHostException으로 죽는다(실측: 2026-07-30 배포 실패). prod 오버레이가
+            # db를 127.0.0.1:5432에 게시하므로 위 스키마 preflight와 같은 방식으로 바꿔 붙는다.
+            case "$jdbc_url" in
+              *://db:*)
+                flyway_network=host
+                jdbc_url="${jdbc_url%%://db:*}://127.0.0.1:${jdbc_url#*://db:}"
+                ;;
+              *)
+                # 외부 호스트(과거 Supabase 등)는 기본 브리지에서도 해석된다.
+                flyway_network=bridge
+                ;;
+            esac
+
             # 런타임 flyway-core와 같은 버전이어야 체크섬 산출이 일치한다.
             #
             # -ignoreMigrationPatterns="*:pending" 이 없으면 새 V파일을 들고 오는 배포는
@@ -196,7 +211,8 @@ jobs:
             # 이 플래그가 있어야 preflight가 런타임과 같은 판정을 한다.
             # pending만 완화한다 — 체크섬 불일치와 버전 중복은 그대로 잡힌다(2026-07-27 실측).
             set +e
-            docker run --rm -v /tmp/flyway-preflight-sql:/flyway/sql:ro flyway/flyway:11.7.2 \
+            docker run --rm --network "$flyway_network" \
+              -v /tmp/flyway-preflight-sql:/flyway/sql:ro flyway/flyway:11.7.2 \
               -url="$jdbc_url" -user="$db_user" -password="$db_password" \
               -locations=filesystem:/flyway/sql \
               -baselineOnMigrate=true -baselineVersion="$baseline_version" \
