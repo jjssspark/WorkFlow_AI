@@ -41,6 +41,14 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # vite/vitest는 타입을 검사하지 않고 트랜스파일만 한다. 그래서 tsconfig가 없던
+      # 동안 타입 오류 60건이 이 CI를 그대로 통과했다 - 회의록 AI가 만든 업무 카드가
+      # Task의 필수 필드 3개를 빠뜨리거나, API가 줄 수 없는 role 값으로 테스트하는
+      # 것들이 섞여 있었다. 빌드보다 앞에 두는 이유는 미해결 import를 rollup의
+      # "Could not resolve"보다 정확한 파일·줄 번호로 알려주기 때문이다.
+      - name: Type check
+        run: pnpm typecheck
+
       # 운영 이미지와 동일한 빌드. 미해결 import는 여기서 잡힌다.
       - name: Build
         run: pnpm build
