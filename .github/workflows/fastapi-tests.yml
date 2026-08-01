@@ -9,12 +9,24 @@ on:
       - 'App/backend_fastapi/**'
       - 'requirements.txt'
       - '.github/workflows/fastapi-tests.yml'
+  # main 은 일부러 빠져 있다. main push 에서는 deploy-oci.yml 이 아래 workflow_call 로
+  # 이 워크플로를 게이트로 부른다. 여기에 main 을 두면 같은 테스트가 두 번 돌고,
+  # 상태 체크가 두 개 뜨는데 그중 하나만 배포를 막아 "어느 게 진짜 게이트냐"가 흐려진다.
   push:
-    branches: [dev, main]
+    branches: [dev]
     paths:
       - 'App/backend_fastapi/**'
       - 'requirements.txt'
       - '.github/workflows/fastapi-tests.yml'
+
+  # deploy-oci.yml 이 배포 게이트로 이 워크플로를 그대로 호출한다. 스텝을 저쪽에 복사해
+  # 두면 torch 버전이나 --ignore 목록을 한쪽만 고쳤을 때 배포 게이트가 다른 것을 검증하게
+  # 된다. 정의를 여기 하나만 두어 갈라질 수 없게 한다.
+  #
+  # 주의: workflow_call 은 위의 paths 필터를 따르지 않는다. 즉 FastAPI 를 건드리지 않은
+  # 배포에서도 이 잡이 돈다. 그게 맞다 — 게이트는 "이번 변경이 FastAPI 를 건드렸나"가
+  # 아니라 "지금 main 이 정상인가"를 확인하는 것이기 때문이다.
+  workflow_call:
 
 jobs:
   test:
