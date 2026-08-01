@@ -80,6 +80,19 @@ TASK_CODE_MAX_SLOTS = 3
 # 넉넉히 받아 파이썬에서 고르는 편이 싸다.
 _TASK_CODE_FETCH_CAP = 30
 
+# 같은 내용이 서로 다른 source_id 로 여러 벌 색인돼 있다. 운영 project 1 기준 378청크 중
+# 잉여가 109건(28.8%)이고, 원인은 같은 회의록을 서로 다른 회의로 반복 업로드한 것이다
+# (회의별 분석 실행 수는 전부 1회 - 색인·분석·청킹 어디에도 결함이 없다).
+#
+# 원인이 코드 밖에 있어도 검색은 방어해야 한다. 그대로 두면 상위 5칸을 같은 문장이 채워
+# 사용자가 받는 근거가 줄어든다 - 실측상 30문항 중 10문항(33%)이 걸리고, 최악은 5칸 중
+# 고유가 3개뿐이었다. 재업로드는 운영에서도 정상적으로 일어난다(같은 정기회의 반복 등).
+#
+# 넉넉히 받아 파이썬에서 걸러낸다. 444행 순차 스캔이 1ms 미만이라 SQL 로 DISTINCT ON 을
+# 짜는 것보다 싸고, 유사도 정렬을 그대로 유지할 수 있다.
+_CONTENT_DEDUP_FETCH_FACTOR = 4
+_CONTENT_DEDUP_FETCH_CAP = 40
+
 MEETING_SOURCE_TYPE = "meeting"
 # task/action_item 청크 수가 meeting보다 훨씬 많아 일반 유사도 검색에서 meeting이
 # 밀려나는 경우가 잦다. meeting 청크가 하나도 안 뽑혔을 때만 별도로 최소 슬롯을 예약한다.
@@ -171,32 +184,72 @@ async def find_task_chunks_by_code_scored(
     return _allocate_evenly([dict(row) for row in rows], codes, limit)
 
 
+def _dedupe_fetch_limit(limit: int) -> int:
+    """중복을 걸러내고도 limit 칸을 채울 수 있도록 넉넉히 받을 개수.
+
+    0 이하는 그대로 넘긴다 - 기존 호출 계약을 바꾸지 않기 위해서다.
+    """
+    if limit <= 0:
+        return limit
+    return min(limit * _CONTENT_DEDUP_FETCH_FACTOR, _CONTENT_DEDUP_FETCH_CAP)
+
+
+def _dedupe_by_content(rows: list[dict]) -> list[dict]:
+    """내용이 같은 청크를 한 건으로 접는다. 순서는 원래 유사도 순 그대로 둔다.
+
+    source_id 가 아니라 content 로 접는 이유: 중복은 같은 내용이 서로 다른 source_id 로
+    들어와 생긴 것이라 (source_type, source_id) 로는 하나도 안 걸린다. 반대로 긴 업무
+    설명이 여러 청크로 쪼개진 경우는 content 가 서로 달라 잘못 합쳐지지 않는다.
+
+    남길 대표는 (source_type, source_id) 가 가장 작은 행으로 정한다. 내용이 같으면
+    임베딩도 같아 유사도가 완전히 동률이라, 이렇게 정하지 않으면 DB 가 돌려주는 순서에
+    따라 매번 다른 행이 남는다 - 답변 캐시와 평가 재현이 흔들린다.
+    """
+    best: dict[str, dict] = {}
+    order: list[str] = []
+    for row in rows:
+        content = row["content"]
+        current = best.get(content)
+        if current is None:
+            best[content] = row
+            order.append(content)
+        elif (row["source_type"], row["source_id"]) < (current["source_type"], current["source_id"]):
+            best[content] = row
+    return [best[content] for content in order]
+
+
 async def search_similar_chunks(
     pool, project_id: int, query_embedding: list[float], top_k: int = 5, assignee_id: int | None = None
 ) -> list[dict]:
     embedding_literal = to_vector_literal(query_embedding)
+    fetch_limit = _dedupe_fetch_limit(top_k)
 
     if assignee_id is not None:
         # 담당 업무가 하나도 없어도 프로젝트 전체 검색으로 대체하지 않는다. 대체하면 다른
         # 사람의 업무가 컨텍스트에 섞여, LLM이 그걸 질문자 본인의 담당 업무처럼 답할 위험이
         # 있다 (개인화 질문에서는 정확한 "없음"이 잘못된 "있음"보다 안전하다).
         async with pool.acquire() as conn:
-            assignee_rows = await conn.fetch(_SEARCH_BY_ASSIGNEE_SQL, embedding_literal, project_id, assignee_id, top_k)
-        return [dict(row) for row in assignee_rows]
+            assignee_rows = await conn.fetch(
+                _SEARCH_BY_ASSIGNEE_SQL, embedding_literal, project_id, assignee_id, fetch_limit
+            )
+        return _dedupe_by_content([dict(row) for row in assignee_rows])[:top_k]
 
     async with pool.acquire() as conn:
-        rows = await conn.fetch(_SEARCH_SQL, embedding_literal, project_id, top_k)
-        general = [dict(row) for row in rows]
+        rows = await conn.fetch(_SEARCH_SQL, embedding_literal, project_id, fetch_limit)
+        general = _dedupe_by_content([dict(row) for row in rows])[:top_k]
 
+        # 회의록 예약 여부는 중복을 걷어낸 뒤에 판단해야 한다. 걷어내기 전에 보면 같은
+        # 회의록이 여러 벌 들어와 "회의록은 이미 있다"가 되어 예약이 걸리지 않는다.
         has_meeting = any(row["source_type"] == MEETING_SOURCE_TYPE for row in general)
         if has_meeting or top_k <= 0:
             return general
 
         reserved = min(MEETING_MIN_RESERVED, top_k)
         meeting_rows = await conn.fetch(
-            _SEARCH_BY_TYPE_SQL, embedding_literal, project_id, MEETING_SOURCE_TYPE, reserved
+            _SEARCH_BY_TYPE_SQL, embedding_literal, project_id, MEETING_SOURCE_TYPE,
+            _dedupe_fetch_limit(reserved),
         )
-        meeting = [dict(row) for row in meeting_rows]
+        meeting = _dedupe_by_content([dict(row) for row in meeting_rows])[:reserved]
 
     if not meeting:
         return general
@@ -204,19 +257,8 @@ async def search_similar_chunks(
     slots_for_meeting = min(len(meeting), top_k)
     combined = general[: top_k - slots_for_meeting] + meeting[:slots_for_meeting]
     combined.sort(key=lambda row: row["similarity"], reverse=True)
-    return combined
-
-
-def _chunk_key(row: dict) -> tuple:
-    """완전히 같은 청크만 중복으로 보기 위한 키.
-
-    (source_type, source_id) 만 쓰면 긴 업무 설명이 여러 청크로 쪼개진 경우까지 한 건으로
-    합쳐져 근거가 줄어든다. content 까지 봐야 진짜 같은 청크만 사라진다.
-
-    .get() 을 쓰지 않는 것은 의도적이다. 키가 빠지면 모든 행이 (None, None, None) 으로 같아져
-    조용히 전부 중복 처리되고 근거가 소리 없이 사라진다. 그럴 바에는 터지는 편이 낫다.
-    """
-    return (row["source_type"], row["source_id"], row["content"])
+    # general 과 meeting 이 같은 내용을 물어올 수 있다(회의록 청크가 양쪽에 다 잡히는 경우).
+    return _dedupe_by_content(combined)
 
 
 async def search_chunks_for_question(
@@ -264,14 +306,17 @@ async def search_chunks_for_question(
     # 코드 히트는 유사도로 재정렬하지 않는다. 정확 일치 청크의 유사도가 임베딩 1등보다
     # 낮은 것이 정상이고(질문 어휘와 겹치는 게 코드뿐이라), 섞어서 줄 세우면 뒤로 밀려
     # 잘려나간다. 그러면 라우팅한 의미가 없다.
-    merged = list(code_rows)
-    seen = {_chunk_key(row) for row in merged}
+    # 코드 히트끼리도 같은 내용이 있을 수 있다(같은 업무가 여러 벌 색인된 경우).
+    merged = _dedupe_by_content(list(code_rows))
+    seen = {row["content"] for row in merged}
     for row in similar:
         if len(merged) >= top_k:
             break
-        key = _chunk_key(row)
-        if key in seen:
+        # .get() 을 쓰지 않는 것은 의도적이다. 키가 빠지면 모든 행이 None 으로 같아져
+        # 조용히 전부 중복 처리되고 근거가 소리 없이 사라진다. 그럴 바에는 터지는 편이 낫다.
+        content = row["content"]
+        if content in seen:
             continue
-        seen.add(key)
+        seen.add(content)
         merged.append(row)
     return merged[:top_k]

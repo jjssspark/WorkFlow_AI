@@ -41,7 +41,9 @@ _SNIPPET_MAX_LEN = 200
 # 목록 다음 문단 앞 빈 줄 보정 (generation_service._space_out_list_blocks)
 # v14: 업무 코드가 든 질문을 코드 정확 일치로 먼저 검색(질의 라우팅). 검색 결과가 달라지므로
 # 올리지 않으면 30분 TTL 동안 옛 검색으로 만든 답변이 계속 나가 배포 효과가 안 보인다.
-_ANSWER_CACHE_SCHEMA_VERSION = "v14"
+# v15: 내용이 같은 청크를 한 건으로 접어 남는 칸을 다른 근거로 채운다. 같은 질문에 돌아가는
+# 출처 목록이 달라지므로 v14 캐시를 그대로 쓰면 여전히 같은 문장이 여러 번 실린 답이 나간다.
+_ANSWER_CACHE_SCHEMA_VERSION = "v15"
 _ANSWER_CACHE_TTL_SECONDS = 1800
 
 # "내 할 일 알려줘" 류 개인화 질문 판별용. 순수 벡터 유사도만으로는 "내"가 누구인지 구분할
