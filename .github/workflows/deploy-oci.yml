@@ -70,8 +70,18 @@ jobs:
       - name: Run tests
         run: pnpm test
 
+  # 배포 게이트가 Spring(test)과 프론트(frontend)만 막고 있었다. FastAPI 는 테스트가
+  # 397개 있어도 배포를 막지 못해, 어시스턴트가 깨진 코드도 운영에 도달할 수 있었다
+  # (2026-08-01 질의 라우팅 배포에서 드러났다 — 그 배포는 FastAPI 검증 없이 나갔다).
+  #
+  # 스텝을 여기 복사하지 않고 fastapi-tests.yml 을 그대로 호출한다. 복사하면 torch 버전이나
+  # --ignore 목록이 두 파일에서 갈라지고, 배포 게이트가 PR 에서 돈 것과 다른 것을 검증하게
+  # 된다. 위 test 잡 주석의 migration-guard 사례가 정확히 그 실패다.
+  fastapi:
+    uses: ./.github/workflows/fastapi-tests.yml
+
   deploy:
-    needs: [test, frontend]
+    needs: [test, frontend, fastapi]
     runs-on: ubuntu-latest
     steps:
       - name: Set up SSH

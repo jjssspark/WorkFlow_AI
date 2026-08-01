@@ -77,6 +77,32 @@ from app.main import app   # 이것만으로 test_generation_service 16건이 �
   한 건도 못 돈다.
 - 실행 건수 하한을 `ci/verify-fastapi-test-count.py`로 못 박는다.
 
+### 워크플로를 붙이는 것만으로는 배포를 막지 못했다
+
+워크플로를 추가한 직후에도 **배포는 여전히 FastAPI 를 검증하지 않았다.** `deploy-oci.yml`은
+`main` push 에서만 돌고, 자기 게이트로 Spring(`test`)과 프론트(`frontend`)만 요구했다.
+`fastapi-tests.yml`은 그 옆에서 병렬로 돌 뿐 `deploy`의 `needs`에 없었다.
+
+실제로 2026-08-01 질의 라우팅 배포(run 30698374508)가 그 상태로 나갔다. FastAPI 테스트는
+같은 시각에 통과했지만(run 30698374514) **통과가 배포 조건이 아니었으므로 우연이었다.**
+
+`deploy-oci.yml`에 `fastapi` 잡을 추가하고 `deploy`가 이 잡에 의존하게 했다.
+
+```yaml
+fastapi:
+  uses: ./.github/workflows/fastapi-tests.yml   # 스텝 복사 금지 - 아래 참고
+
+deploy:
+  needs: [test, frontend, fastapi]
+```
+
+스텝을 `deploy-oci.yml`에 복사하지 않고 재사용 워크플로로 호출한다. 복사하면 torch 버전이나
+`--ignore` 목록을 한쪽만 고쳤을 때 **배포 게이트가 PR 에서 돈 것과 다른 것을 검증하게 된다.**
+같은 파일의 migration-guard 주석이 정확히 그 실패를 기록하고 있다.
+
+`fastapi-tests.yml`의 push 트리거에서는 `main`을 뺐다. 안 빼면 같은 테스트가 두 번 돌고
+상태 체크가 두 개 뜨는데 그중 하나만 배포를 막아, 방금 고친 혼란이 그대로 재생된다.
+
 ### 건수 하한을 두는 이유
 
 pytest는 `--ignore`를 하나 더 붙이거나 파일이 통째로 수집되지 않아도 **"통과"로 끝난다.**
