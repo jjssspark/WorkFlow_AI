@@ -21,6 +21,7 @@ from httpx import ASGITransport, AsyncClient
 from app.main import app
 from core.db import get_pool
 from core.security import verify_internal_api_key
+from llm_rag_assistant.app.routers import chat_router
 from llm_rag_assistant.app.services import chat_service, ingestion_service
 
 # 운영 컬럼 타입 vector(1024)와 같은 차원. 다르면 pgvector가 INSERT에서 거부한다.
@@ -72,6 +73,27 @@ def rag_client(pgvector_pool, monkeypatch):
         return _ANSWER_STUB
 
     monkeypatch.setattr(chat_service, "generate_answer", _generate)
+
+    # /ai/rag/query는 Redis 스트림(rag-jobs)에 작업을 넣고 RagQueueWorker가 처리하기를
+    # 기다린다. 그 워커는 이 테스트 프로세스 밖에 있다. 즉 위의 스텁들이 아무 효과가 없고,
+    # 로컬에 compose가 떠 있으면 그쪽 워커가 자기 DB와 진짜 LLM으로 답을 만들어 돌려준다.
+    #
+    # 실제로 그러고 있었다(2026-08-01 확인). 이 테스트는 테스트컨테이너가 아니라 동결된
+    # Supabase 운영 데이터를 읽고 실제 사람 이름이 든 답변을 받아왔고, 돌릴 때마다 LLM
+    # 토큰을 썼다. 큐는 나중에 라우터와 chat_service 사이에 끼어든 인프라이고, 이 파일이
+    # 첫 줄에 선언한 검증 대상(청킹·벡터 직렬화·INSERT·유사도 검색·출처 조립)에 없다.
+    #
+    # 큐 홉을 걷어내고 워커가 하는 일을 같은 프로세스에서 한다(rag_queue_service._process와
+    # 같은 호출이다). 풀은 dependency_overrides로 못 넘긴다 - query 엔드포인트는 pool을
+    # Depends로 받지 않고 워커가 자기 전역 풀을 쓰기 때문이다. 그래서 여기서 직접 건넨다.
+    #
+    # 대신 커버되지 않는 것: 큐 적재·구독·타임아웃 자체. 그건 rag_queue_service 단위 테스트가 본다.
+    async def _answer_in_process(project_id, question, user_id, history=None, timeout=None):
+        return await chat_service.answer_question(
+            pgvector_pool, project_id, question, user_id, history=history or []
+        )
+
+    monkeypatch.setattr(chat_router, "enqueue_and_wait", _answer_in_process)
 
     # 로컬에 Redis가 떠 있으면 답변 캐시가 걸려 두 번째 실행이 DB를 안 탄다. 검증 대상이
     # 검색 경로이므로 캐시를 확실히 끈다(운영에서도 Redis 실패는 캐시 없이 진행한다).

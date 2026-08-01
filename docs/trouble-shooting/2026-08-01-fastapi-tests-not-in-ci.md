@@ -1,8 +1,8 @@
 # FastAPI 테스트가 CI에서 한 번도 실행되지 않던 문제
 
 - 발견: 2026-08-01 (질의 라우팅 변경이 CI 검증 없이 머지될 뻔함)
-- 조치: `.github/workflows/fastapi-tests.yml` 추가
-- 남은 일: 통합 테스트 5건 (아래 "제외한 것")
+- 조치: `.github/workflows/fastapi-tests.yml` 추가 → 배포 게이트에 연결 → 통합 테스트 5건 수리
+- 상태: 397건 전부 CI에서 실행, 배포를 실제로 막음
 
 ## 증상
 
@@ -111,37 +111,95 @@ pytest는 `--ignore`를 하나 더 붙이거나 파일이 통째로 수집되지
 
 테스트를 늘리면 `MINIMUM_TESTS`도 같이 올린다.
 
-## 제외한 것 — 통합 테스트 5건 (미해결)
+## 통합 테스트 5건 — 테스트가 프로세스 밖으로 새고 있었다 (해결)
 
 ```
 test_rag_indexing_integration.py   2건
 test_rag_reindex_integration.py    3건
 ```
 
-이 변경 **이전부터 실패하던 것**이고 질의 라우팅과 무관하다(변경 전후 동일하게 실패).
-
-### 지금까지 파악한 것
-
-테스트는 `chat_service.generate_answer`를 고정 문자열 스텁으로 덮는다.
+처음에는 "스텁이 안 먹는다"로 봤다. 테스트가 답변 생성을 고정 문자열로 덮는데
 
 ```python
 monkeypatch.setattr(chat_service, "generate_answer", _generate)   # "테스트용 고정 답변"
 ```
 
-그런데 응답은 `근거 없음: 관련 자료를 찾지 못했습니다`가 나온다. 이 문자열은 운영 코드
-어디에도 없고 **오직 프롬프트 안에만 있다**(`generation_service.py:23`, 모델에게 근거가
-없으면 이렇게 답하라고 지시하는 문장). **즉 스텁이 안 먹고 진짜 모델이 호출됐다는 뜻이다.**
+응답은 `근거 없음: 관련 자료를 찾지 못했습니다`가 나왔다. 이 문자열은 운영 코드 어디에도
+없고 **오직 프롬프트 안에만 있다**(`generation_service.py:23`). 진짜 모델이 호출됐다는 뜻이다.
 
-응답이 `chat_service.answer_question`이 아닌 다른 경로(그래프 등)로 나오고 있을 가능성이
-높다. 그렇다면 이 테스트들은 지금 의도한 것을 검증하고 있지 않다.
+### 진짜 원인
 
-DB는 안전하다 — `pgvector_dsn`은 테스트컨테이너를 띄우므로 `TRUNCATE document_chunks`는
-일회용 컨테이너에만 적용된다. 운영 DB와 무관하다.
+`/ai/rag/query`는 `chat_service.answer_question`을 부르지 않는다.
 
-### 다음에 할 일
+```python
+# chat_router.py:75
+return await enqueue_and_wait(request.project_id, request.question, ...)
+```
 
-1. `_query` 헬퍼가 때리는 엔드포인트가 실제로 어느 생성 경로를 타는지 확인
-2. 스텁을 그 경로에 맞게 걸거나, 테스트 의도를 다시 정의
-3. 고쳐지면 워크플로의 `--ignore` 두 줄을 지우고 `MINIMUM_TESTS`를 올린다
+Redis 스트림 `rag-jobs`에 작업을 넣고 `RagQueueWorker`가 결과를 publish하기를 기다린다.
+**그 워커는 테스트 프로세스 밖에 있다.** 그래서 실제로 일어난 일은:
 
-**`--ignore`를 그대로 두는 한 이 5건은 아무도 안 본다.** 이 문서가 그 사실을 붙들고 있다.
+```
+테스트 → workflow-redis(:6379) → rag-jobs 스트림
+                                      ↓
+                    workflow-backend-fastapi 컨테이너의 RagQueueWorker
+                                      ↓
+                    자기 DB + 진짜 LLM 호출 → 결과를 다시 publish
+                                      ↓
+                                   테스트가 수신
+```
+
+즉 monkeypatch도, `dependency_overrides[get_pool]`도, 띄운 테스트컨테이너도 **전부 무관했다.**
+답변은 로컬 compose 워커가 자기 DB를 읽어 만든 것이었다. 그 워커가 붙어 있던 곳:
+
+```
+DATABASE_URL=postgresql://postgres.<...>@aws-1-ap-south-1.pooler.supabase.com:6543/postgres
+```
+
+**동결된 Supabase 운영 데이터다.** 실패 diff에 실제 업무 제목과 사람 이름이 그대로 찍혀
+있었고, 테스트를 돌릴 때마다 LLM 토큰이 나갔다. `--ignore`로 가려 둔 것이 결과적으로는
+다행이었다 — CI에는 Redis가 없어 이 누수가 재현되지 않는다.
+
+`TRUNCATE document_chunks`가 운영을 건드리지는 않았다. 그건 테스트컨테이너에만 걸렸고,
+운영 DB는 읽히기만 했다.
+
+### 왜 이렇게 됐나
+
+큐는 **나중에** 라우터와 `chat_service` 사이에 끼어든 인프라다. 테스트가 처음 쓰였을 때는
+`chat_router`가 `answer_question`을 직접 불렀고 스텁이 정확히 맞았다. 큐가 들어오면서
+테스트는 조용히 무력화됐지만, 로컬 워커가 그럴듯한 답을 돌려주는 바람에 "실패하는 테스트"로
+보였을 뿐 "새는 테스트"로는 보이지 않았다.
+
+### 조치
+
+큐 홉을 걷어내고 워커가 하는 일(`rag_queue_service._process`)을 같은 프로세스에서 한다.
+
+```python
+async def _answer_in_process(project_id, question, user_id, history=None, timeout=None):
+    return await chat_service.answer_question(
+        pgvector_pool, project_id, question, user_id, history=history or []
+    )
+
+monkeypatch.setattr(chat_router, "enqueue_and_wait", _answer_in_process)
+```
+
+풀을 직접 건네는 이유: `query` 엔드포인트는 pool을 `Depends`로 받지 않는다(워커가 자기 전역
+풀을 쓴다). 그래서 `dependency_overrides`로는 못 넘긴다.
+
+| | 조치 전 | 조치 후 |
+| --- | --- | --- |
+| 결과 | 5건 실패 | **5건 통과** |
+| 실행 시간 | 40초 | **8초** |
+| 읽은 DB | Supabase 운영 | **테스트컨테이너** |
+| LLM 호출 | 실제 | **없음** |
+
+시간이 준 것은 네트워크 왕복과 실제 모델 추론이 사라졌기 때문이다.
+
+**커버되지 않는 것**: 큐 적재·구독·타임아웃 자체. 그건 `rag_queue_service` 단위 테스트가 본다.
+이 파일들의 검증 대상은 첫 줄에 적힌 대로 청킹·벡터 직렬화·INSERT·유사도 검색·출처 조립이다.
+
+### 남는 교훈
+
+**엔드포인트와 서비스 사이에 인프라를 끼워 넣으면 그 경로를 타던 테스트는 조용히 죽는다.**
+죽었는지 알아채려면 테스트가 프로세스 밖으로 나가지 못하게 막아야 한다. 지금은 Redis에
+붙는 순간 로컬 환경이 답을 대신 만들어 줘서 실패가 "그냥 빨간 것"으로 보였다.
