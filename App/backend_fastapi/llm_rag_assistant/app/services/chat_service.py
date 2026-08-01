@@ -14,7 +14,7 @@ from llm_rag_assistant.app.services.generation_service import (
 )
 from llm_rag_assistant.app.services.project_stats_service import fetch_project_stats
 from llm_rag_assistant.app.services.query_rewrite_service import rewrite_question
-from llm_rag_assistant.app.services.retrieval_service import search_similar_chunks
+from llm_rag_assistant.app.services.retrieval_service import search_chunks_for_question
 from llm_rag_assistant.app.services.task_facts_service import enrich_with_facts
 
 logger = logging.getLogger(__name__)
@@ -39,7 +39,9 @@ _SNIPPET_MAX_LEN = 200
 # (generation_service._strip_markdown). 올리지 않으면 마크다운이 섞인 옛 답변이 계속 나간다.
 # v13: 나열 항목 앞에 '- '를 붙이도록 프롬프트에 출력 예시 추가(기호 없이 줄바꿈만 하던 문제) +
 # 목록 다음 문단 앞 빈 줄 보정 (generation_service._space_out_list_blocks)
-_ANSWER_CACHE_SCHEMA_VERSION = "v13"
+# v14: 업무 코드가 든 질문을 코드 정확 일치로 먼저 검색(질의 라우팅). 검색 결과가 달라지므로
+# 올리지 않으면 30분 TTL 동안 옛 검색으로 만든 답변이 계속 나가 배포 효과가 안 보인다.
+_ANSWER_CACHE_SCHEMA_VERSION = "v14"
 _ANSWER_CACHE_TTL_SECONDS = 1800
 
 # "내 할 일 알려줘" 류 개인화 질문 판별용. 순수 벡터 유사도만으로는 "내"가 누구인지 구분할
@@ -189,7 +191,11 @@ async def answer_question(
                 )
 
     query_embedding = await embed_text(effective_question)
-    rows = await search_similar_chunks(pool, project_id, query_embedding, top_k=5, assignee_id=assignee_id)
+    # effective_question(재작성본)을 넘긴다. 후속 질문("그거 언제까지야?")은 재작성을 거쳐야
+    # 업무 코드가 문장에 드러나므로 원문을 넘기면 라우팅이 발동하지 않는다.
+    rows = await search_chunks_for_question(
+        pool, project_id, effective_question, query_embedding, top_k=5, assignee_id=assignee_id
+    )
     # 청크 본문에 없는 마감일·상태·우선순위를 붙인다. 실패해도 facts만 비고 답변은 정상 진행된다.
     enriched_rows = await enrich_with_facts(pool, project_id, rows)
     # 검색은 상위 k개(표본)만 본다. "블로커 몇 건이야" 같은 전수 집계 질문은 이 경로로 답할 수

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import logging
-import re
 
 from pydantic import BaseModel, Field
 
 from llm_rag_assistant.app.services.embedding_service import embed_text
 from llm_rag_assistant.app.services.retrieval_service import (
+    TASK_CODE_PATTERN,
     find_task_chunks_by_code,
     search_similar_chunks,
 )
@@ -15,10 +15,9 @@ logger = logging.getLogger(__name__)
 
 _SEARCH_TOP_K = 5
 _TITLE_MAX_LEN = 60
-# "WF-195", "FS-6" 같은 명시적 업무 코드. 있으면 임베딩보다 이 토큰의 정확 일치를 우선한다.
-# 앞뒤 경계(lookaround)로 더 긴 코드의 일부를 잘라내지 않게 한다: "WF-195A"에서 "WF-195"를
-# 추출하면 실제로는 다른 업무를 지칭한 것을 WF-195로 오인해 엉뚱한 업무를 변경할 수 있다.
-_CODE_PATTERN = re.compile(r"(?<![A-Za-z0-9])[A-Za-z]{2,}-\d+(?![A-Za-z0-9])")
+# 업무 코드 정규식(TASK_CODE_PATTERN)은 retrieval_service 한 곳에만 둔다. 복제하면 나중에
+# 한쪽만 고쳤을 때 명령 경로(여기)와 질문 경로가 서로 다른 코드를 인식하게 된다.
+
 # 1등과 2등의 유사도 차이가 이보다 작으면 "확실하다"고 볼 수 없어 사용자에게 되묻는다.
 # 임의로 하나를 골랐다가 엉뚱한 업무를 수정하는 것이 되묻는 것보다 훨씬 나쁘다.
 _AMBIGUITY_MARGIN = 0.05
@@ -90,7 +89,7 @@ async def resolve_task_ref(pool, project_id: int, task_ref: str) -> TaskMatch:
     의미 유사한 업무를 찾는다. 검색이 돌려주는 source_id가 곧 task id다(source_type="task").
     회의록·액션아이템의 source_id는 다른 테이블의 id라 반드시 걸러내야 한다.
     """
-    code = _CODE_PATTERN.search(task_ref or "")
+    code = TASK_CODE_PATTERN.search(task_ref or "")
     if code:
         return await _resolve_by_code(pool, project_id, code.group(0))
 

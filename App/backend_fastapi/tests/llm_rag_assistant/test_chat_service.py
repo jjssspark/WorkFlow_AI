@@ -54,7 +54,7 @@ async def test_answer_question_returns_answer_with_sources() -> None:
             new=AsyncMock(return_value=[0.1, 0.2]),
         ),
         patch(
-            "llm_rag_assistant.app.services.chat_service.search_similar_chunks",
+            "llm_rag_assistant.app.services.chat_service.search_chunks_for_question",
             new=AsyncMock(return_value=rows),
         ) as mock_search,
         patch(
@@ -64,7 +64,7 @@ async def test_answer_question_returns_answer_with_sources() -> None:
     ):
         result = await answer_question(pool, project_id=5, question="질문")
 
-    mock_search.assert_awaited_once_with(pool, 5, [0.1, 0.2], top_k=5, assignee_id=None)
+    mock_search.assert_awaited_once_with(pool, 5, "질문", [0.1, 0.2], top_k=5, assignee_id=None)
     assert result.answer == "이것이 답변입니다"
     assert len(result.sources) == 1
     assert result.sources[0].source_type == "meeting"
@@ -83,7 +83,7 @@ async def test_answer_question_handles_no_matching_chunks() -> None:
             new=AsyncMock(return_value=[0.1]),
         ),
         patch(
-            "llm_rag_assistant.app.services.chat_service.search_similar_chunks",
+            "llm_rag_assistant.app.services.chat_service.search_chunks_for_question",
             new=AsyncMock(return_value=[]),
         ),
         patch(
@@ -126,7 +126,7 @@ async def test_answer_question_filters_by_assignee_when_personal_intent_and_user
             new=AsyncMock(return_value=[0.1]),
         ),
         patch(
-            "llm_rag_assistant.app.services.chat_service.search_similar_chunks",
+            "llm_rag_assistant.app.services.chat_service.search_chunks_for_question",
             new=AsyncMock(return_value=rows),
         ) as mock_search,
         patch(
@@ -136,7 +136,9 @@ async def test_answer_question_filters_by_assignee_when_personal_intent_and_user
     ):
         await answer_question(pool, project_id=5, question="내가 담당한 업무 알려줘", user_id=42)
 
-    mock_search.assert_awaited_once_with(pool, 5, [0.1], top_k=5, assignee_id=42)
+    mock_search.assert_awaited_once_with(
+        pool, 5, "내가 담당한 업무 알려줘", [0.1], top_k=5, assignee_id=42
+    )
     # 담당자 필터를 걸었다는 사실이 생성 단계까지 전달돼야 한다. 전달하지 않으면 모델이
     # 청크가 질문자 것인지 알 수 없어 담당 업무가 있어도 '근거 없음'으로 답한다.
     assert mock_generate.await_args.kwargs["is_personal"] is True
@@ -152,7 +154,7 @@ async def test_answer_question_does_not_filter_by_assignee_for_non_personal_ques
             new=AsyncMock(return_value=[0.1]),
         ),
         patch(
-            "llm_rag_assistant.app.services.chat_service.search_similar_chunks",
+            "llm_rag_assistant.app.services.chat_service.search_chunks_for_question",
             new=AsyncMock(return_value=[]),
         ) as mock_search,
         patch(
@@ -162,7 +164,9 @@ async def test_answer_question_does_not_filter_by_assignee_for_non_personal_ques
     ):
         await answer_question(pool, project_id=5, question="프로젝트 전체 업무 현황 알려줘", user_id=42)
 
-    mock_search.assert_awaited_once_with(pool, 5, [0.1], top_k=5, assignee_id=None)
+    mock_search.assert_awaited_once_with(
+        pool, 5, "프로젝트 전체 업무 현황 알려줘", [0.1], top_k=5, assignee_id=None
+    )
     assert mock_generate.await_args.kwargs["is_personal"] is False
 
 
@@ -340,7 +344,7 @@ async def test_answer_question_cache_hit_skips_embedding_search_and_generation()
             return_value=cache,
         ),
         patch("llm_rag_assistant.app.services.chat_service.embed_text", new=AsyncMock()) as embed,
-        patch("llm_rag_assistant.app.services.chat_service.search_similar_chunks", new=AsyncMock()) as search,
+        patch("llm_rag_assistant.app.services.chat_service.search_chunks_for_question", new=AsyncMock()) as search,
         patch("llm_rag_assistant.app.services.chat_service.generate_answer", new=AsyncMock()) as generate,
     ):
         result = await answer_question(object(), project_id=5, question="질문")
@@ -371,7 +375,7 @@ async def test_answer_question_project_epoch_change_bypasses_stale_cached_answer
             new=AsyncMock(return_value=[0.1]),
         ),
         patch(
-            "llm_rag_assistant.app.services.chat_service.search_similar_chunks",
+            "llm_rag_assistant.app.services.chat_service.search_chunks_for_question",
             new=AsyncMock(return_value=[]),
         ),
         patch(
@@ -410,7 +414,7 @@ async def test_answer_question_rechecks_epoch_before_returning_cache_hit() -> No
             new=AsyncMock(return_value=[0.1]),
         ),
         patch(
-            "llm_rag_assistant.app.services.chat_service.search_similar_chunks",
+            "llm_rag_assistant.app.services.chat_service.search_chunks_for_question",
             new=AsyncMock(return_value=[]),
         ),
         patch(
@@ -437,7 +441,7 @@ async def test_answer_question_cache_miss_is_stored_for_1800_seconds_and_reused(
             new=AsyncMock(return_value=[0.1]),
         ) as embed,
         patch(
-            "llm_rag_assistant.app.services.chat_service.search_similar_chunks",
+            "llm_rag_assistant.app.services.chat_service.search_chunks_for_question",
             new=AsyncMock(return_value=[]),
         ) as search,
         patch(
@@ -469,7 +473,7 @@ async def test_answer_question_uses_effective_personal_assignee_in_cache_scope()
             new=AsyncMock(return_value=[0.1]),
         ),
         patch(
-            "llm_rag_assistant.app.services.chat_service.search_similar_chunks",
+            "llm_rag_assistant.app.services.chat_service.search_chunks_for_question",
             new=AsyncMock(return_value=[]),
         ) as search,
         patch(
@@ -504,7 +508,7 @@ async def test_answer_question_deletes_corrupt_cache_and_recomputes(caplog: pyte
             new=AsyncMock(return_value=[0.1]),
         ),
         patch(
-            "llm_rag_assistant.app.services.chat_service.search_similar_chunks",
+            "llm_rag_assistant.app.services.chat_service.search_chunks_for_question",
             new=AsyncMock(return_value=[]),
         ),
         patch(
@@ -551,7 +555,7 @@ async def test_answer_question_cache_failures_warn_and_fail_open(
             new=AsyncMock(return_value=[0.1]),
         ),
         patch(
-            "llm_rag_assistant.app.services.chat_service.search_similar_chunks",
+            "llm_rag_assistant.app.services.chat_service.search_chunks_for_question",
             new=AsyncMock(return_value=[]),
         ),
         patch(
@@ -581,7 +585,7 @@ async def test_answer_question_enriches_search_results_with_facts() -> None:
             new=AsyncMock(return_value=[0.1]),
         ),
         patch(
-            "llm_rag_assistant.app.services.chat_service.search_similar_chunks",
+            "llm_rag_assistant.app.services.chat_service.search_chunks_for_question",
             new=AsyncMock(return_value=rows),
         ),
         patch(
@@ -619,7 +623,7 @@ async def test_answer_question_snippet_uses_original_content_not_facts() -> None
             new=AsyncMock(return_value=[0.1]),
         ),
         patch(
-            "llm_rag_assistant.app.services.chat_service.search_similar_chunks",
+            "llm_rag_assistant.app.services.chat_service.search_chunks_for_question",
             new=AsyncMock(return_value=enriched),
         ),
         patch(
@@ -657,7 +661,7 @@ async def test_sources_map_one_to_one_to_search_rows_without_cross_wiring() -> N
             new=AsyncMock(return_value=[0.1]),
         ),
         patch(
-            "llm_rag_assistant.app.services.chat_service.search_similar_chunks",
+            "llm_rag_assistant.app.services.chat_service.search_chunks_for_question",
             new=AsyncMock(return_value=rows),
         ),
         patch(
@@ -701,7 +705,7 @@ async def test_sources_collapse_chunks_from_the_same_origin() -> None:
             new=AsyncMock(return_value=[0.1]),
         ),
         patch(
-            "llm_rag_assistant.app.services.chat_service.search_similar_chunks",
+            "llm_rag_assistant.app.services.chat_service.search_chunks_for_question",
             new=AsyncMock(return_value=rows),
         ),
         patch(
@@ -741,7 +745,7 @@ async def test_sources_keep_distinct_origins_that_share_an_id() -> None:
             new=AsyncMock(return_value=[0.1]),
         ),
         patch(
-            "llm_rag_assistant.app.services.chat_service.search_similar_chunks",
+            "llm_rag_assistant.app.services.chat_service.search_chunks_for_question",
             new=AsyncMock(return_value=rows),
         ),
         patch(
@@ -779,7 +783,7 @@ def _pipeline_patches(rewrite_return: str):
             new=AsyncMock(return_value=[0.1]),
         ),
         patch(
-            "llm_rag_assistant.app.services.chat_service.search_similar_chunks",
+            "llm_rag_assistant.app.services.chat_service.search_chunks_for_question",
             new=AsyncMock(return_value=[]),
         ),
         patch(
@@ -802,6 +806,20 @@ async def test_rewritten_question_is_used_for_embedding() -> None:
 
     mock_rewrite.assert_awaited_once_with(_MULTITURN_HISTORY, "그 업무는 언제까지야?")
     assert embed.await_args.args[0] == "로그인 API 구현 업무의 마감일은?"
+
+
+@pytest.mark.asyncio
+async def test_rewritten_question_is_what_the_code_routing_sees() -> None:
+    """원문("그 업무 어때?")에는 업무 코드가 없고 재작성본에만 드러난다. 원문을 넘기면
+    코드 라우팅이 발동하지 않아 정확 일치 검색을 통째로 놓친다."""
+    rewrite, embed_patch, search_patch, generate = _pipeline_patches("WF-195 업무의 마감일은?")
+
+    with rewrite, embed_patch, search_patch as search, generate:
+        await answer_question(
+            object(), project_id=5, question="그 업무 어때?", history=_MULTITURN_HISTORY
+        )
+
+    assert search.await_args.args[2] == "WF-195 업무의 마감일은?"
 
 
 @pytest.mark.asyncio
@@ -867,7 +885,7 @@ async def test_project_stats_are_passed_to_the_generator() -> None:
             new=AsyncMock(return_value=[0.1]),
         ),
         patch(
-            "llm_rag_assistant.app.services.chat_service.search_similar_chunks",
+            "llm_rag_assistant.app.services.chat_service.search_chunks_for_question",
             new=AsyncMock(return_value=[]),
         ),
         patch(
@@ -894,7 +912,7 @@ async def test_answer_is_generated_even_when_stats_are_unavailable() -> None:
             new=AsyncMock(return_value=[0.1]),
         ),
         patch(
-            "llm_rag_assistant.app.services.chat_service.search_similar_chunks",
+            "llm_rag_assistant.app.services.chat_service.search_chunks_for_question",
             new=AsyncMock(return_value=[]),
         ),
         patch(
@@ -937,12 +955,15 @@ async def test_stats_are_not_queried_on_cache_hit() -> None:
 
 
 def test_cache_schema_version_matches_the_current_prompt_shape() -> None:
-    """프롬프트 구성이 바뀌었는데 버전을 안 올리면 TTL 30분 동안 옛 답변이 계속 나간다.
+    """답변 내용이 달라지는 변경인데 버전을 안 올리면 TTL 30분 동안 옛 답변이 계속 나간다.
 
-    이 테스트는 실패하라고 있는 것이다 - 프롬프트를 건드리면 여기서 걸리고, 그때 버전을
-    올렸는지 스스로 확인하게 된다. 값만 고쳐 통과시키지 말 것.
+    프롬프트 구성뿐 아니라 검색 방식이 바뀌어도 마찬가지다 - 같은 질문에 다른 근거가
+    들어가면 답변도 달라진다.
+
+    이 테스트는 실패하라고 있는 것이다 - 프롬프트나 검색을 건드리면 여기서 걸리고, 그때
+    버전을 올렸는지 스스로 확인하게 된다. 값만 고쳐 통과시키지 말 것.
     """
-    assert _ANSWER_CACHE_SCHEMA_VERSION == "v13"
+    assert _ANSWER_CACHE_SCHEMA_VERSION == "v14"
 
 
 @pytest.mark.asyncio
@@ -954,7 +975,7 @@ async def test_personal_questions_scope_the_stats_to_the_asker() -> None:
             new=AsyncMock(return_value=[0.1]),
         ),
         patch(
-            "llm_rag_assistant.app.services.chat_service.search_similar_chunks",
+            "llm_rag_assistant.app.services.chat_service.search_chunks_for_question",
             new=AsyncMock(return_value=[]),
         ),
         patch(
@@ -979,7 +1000,7 @@ async def test_general_questions_do_not_scope_the_stats() -> None:
             new=AsyncMock(return_value=[0.1]),
         ),
         patch(
-            "llm_rag_assistant.app.services.chat_service.search_similar_chunks",
+            "llm_rag_assistant.app.services.chat_service.search_chunks_for_question",
             new=AsyncMock(return_value=[]),
         ),
         patch(
