@@ -389,19 +389,25 @@ async def test_vector_search_is_asked_for_the_full_top_k_not_just_the_leftover_s
 
 @pytest.mark.asyncio
 async def test_code_slots_are_capped_so_vector_results_keep_room() -> None:
-    """코드를 아무리 많이 물어도 상한까지만 받는다. 상한은 코드별이 아니라 전체 상한이라
-    SQL LIMIT 인자로 그대로 넘어가야 한다."""
-    conn = _FakeRoutingConn(code=[], general=[])
+    """코드를 아무리 많이 물어도 코드 정확 일치는 상한까지만 자리를 차지한다. 상한은
+    코드별이 아니라 전체 상한이고, 나머지 칸은 임베딩 몫으로 남는다."""
+    conn = _FakeRoutingConn(
+        code=[_row("task", n, f"WF-{n} 업무", 0.5) for n in (1, 2, 3, 4, 5)],
+        general=[_row("meeting", 90, "회의 요약", 0.95), _row("task", 91, "다른 업무", 0.93)],
+    )
 
-    await search_chunks_for_question(
+    result = await search_chunks_for_question(
         _FakeRoutingPool(conn), 1, "WF-1 WF-2 WF-3 WF-4 WF-5 차이가 뭐야?", [0.1], top_k=5
     )
 
     code_call = conn.code_call()
     assert code_call is not None
-    patterns, limit = code_call[1][2], code_call[1][3]
-    assert len(patterns) == 5
-    assert limit == TASK_CODE_MAX_SLOTS
+    assert len(code_call[1][2]) == 5, "코드는 전부 SQL로 넘겨야 배분 후보가 된다"
+
+    from_code = [row for row in result if row["source_id"] in {1, 2, 3, 4, 5}]
+    assert len(from_code) == TASK_CODE_MAX_SLOTS
+    assert len(result) == 5
+    assert {90, 91} <= {row["source_id"] for row in result}
 
 
 @pytest.mark.asyncio
@@ -484,3 +490,71 @@ async def test_code_patterns_use_the_same_boundaries_as_the_command_path() -> No
 
     patterns = conn.code_call()[1][2]
     assert patterns == ["(^|[^0-9A-Za-z])WF-195([^0-9A-Za-z]|$)"]
+
+
+@pytest.mark.asyncio
+async def test_one_code_cannot_monopolise_the_slots_of_the_others() -> None:
+    """운영 실측 재현: "FS-4 와 WF-174 와 WF-175 비교해줘" 가 [FS-4, FS-4, WF-175] 를
+    돌려주고 WF-174 가 통째로 빠졌다. 사용자가 코드 셋을 나열했으면 셋 다 근거에 있어야 한다."""
+    conn = _FakeRoutingConn(
+        code=[
+            _row("task", 41, "FS-4 앞부분", 0.90),
+            _row("task", 42, "FS-4 뒷부분", 0.88),
+            _row("task", 74, "WF-174 로그인", 0.40),
+            _row("task", 75, "WF-175 프로젝트 생성", 0.35),
+        ],
+        general=[],
+    )
+
+    result = await search_chunks_for_question(
+        _FakeRoutingPool(conn), 1, "FS-4 와 WF-174 와 WF-175 비교해줘", [0.1], top_k=5
+    )
+
+    covered = {sid for sid in (row["source_id"] for row in result)}
+    assert covered == {41, 74, 75}, f"코드마다 한 건씩 돌아가야 한다: {covered}"
+
+
+@pytest.mark.asyncio
+async def test_leftover_slots_go_to_a_second_chunk_of_the_same_code() -> None:
+    """코드가 슬롯보다 적으면 남는 칸은 두 바퀴째로 채운다 - 칸을 놀리지 않는다."""
+    conn = _FakeRoutingConn(
+        code=[
+            _row("task", 41, "FS-4 앞부분", 0.90),
+            _row("task", 42, "FS-4 뒷부분", 0.88),
+            _row("task", 74, "WF-174 로그인", 0.40),
+        ],
+        general=[],
+    )
+
+    result = await search_chunks_for_question(
+        _FakeRoutingPool(conn), 1, "FS-4 와 WF-174 비교해줘", [0.1], top_k=5
+    )
+
+    assert [row["source_id"] for row in result] == [41, 74, 42]
+
+
+@pytest.mark.asyncio
+async def test_codes_beyond_the_slot_budget_are_dropped_from_the_back() -> None:
+    """슬롯이 모자라면 질문에서 뒤에 말한 코드부터 밀린다. 임의로 고르는 것보다 예측 가능하다."""
+    conn = _FakeRoutingConn(
+        code=[_row("task", n, f"WF-{n} 업무", 0.5) for n in (174, 175, 176, 179, 180)],
+        general=[],
+    )
+
+    result = await search_chunks_for_question(
+        _FakeRoutingPool(conn), 1, "WF-174 WF-175 WF-176 WF-179 WF-180 비교해줘", [0.1], top_k=5
+    )
+
+    assert [row["source_id"] for row in result] == [174, 175, 176]
+
+
+@pytest.mark.asyncio
+async def test_fetch_limit_is_widened_so_fair_allocation_has_candidates() -> None:
+    """슬롯 수만큼만 받아오면 한 코드가 후보를 다 채워 다른 코드가 배분 대상에조차 못 오른다."""
+    conn = _FakeRoutingConn(code=[], general=[])
+
+    await search_chunks_for_question(
+        _FakeRoutingPool(conn), 1, "WF-174 WF-175 WF-176 비교해줘", [0.1], top_k=5
+    )
+
+    assert conn.code_call()[1][3] == 3 * TASK_CODE_MAX_SLOTS

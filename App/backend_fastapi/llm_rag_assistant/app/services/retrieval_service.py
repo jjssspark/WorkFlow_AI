@@ -74,6 +74,12 @@ TASK_CODE_PATTERN = re.compile(r"(?<![A-Za-z0-9])[A-Za-z]{2,}-\d+(?![A-Za-z0-9])
 # 물었을 때 몇 개까지 받아주나"를 정한다. 나머지 칸은 임베딩에 남겨 주변 맥락을 잃지 않는다.
 TASK_CODE_MAX_SLOTS = 3
 
+# 공정 배분에 쓸 후보를 넉넉히 받아오기 위한 상한. 슬롯 수만큼만 받아오면 한 코드가 전부
+# 가져가 다른 코드가 후보에조차 못 오른다(운영 실측: "FS-4 와 WF-174 와 WF-175" 질문에서
+# FS-4 가 3칸 중 2칸을 먹고 WF-174 가 통째로 누락됐다). 444행 순차 스캔이 1ms 미만이라
+# 넉넉히 받아 파이썬에서 고르는 편이 싸다.
+_TASK_CODE_FETCH_CAP = 30
+
 MEETING_SOURCE_TYPE = "meeting"
 # task/action_item 청크 수가 meeting보다 훨씬 많아 일반 유사도 검색에서 meeting이
 # 밀려나는 경우가 잦다. meeting 청크가 하나도 안 뽑혔을 때만 별도로 최소 슬롯을 예약한다.
@@ -92,6 +98,51 @@ async def find_task_chunks_by_code(
     return [dict(row) for row in rows]
 
 
+def _code_boundary_pattern(code: str) -> str:
+    """코드를 단어 경계로 감싼 정규식 문자열. SQL과 파이썬이 같은 문자열을 쓴다.
+
+    두 곳에서 따로 만들면 한쪽만 고쳤을 때 SQL이 찾은 행을 파이썬이 어느 코드 것인지
+    몰라 배분에서 조용히 빠진다. 경계를 앞뒤 모두 [^0-9A-Za-z]로 잡는 이유는
+    _SEARCH_BY_TASK_CODE_SQL 위 주석에 있다(WF-195가 WF-195A에 오매칭되는 문제).
+    """
+    return f"(^|[^0-9A-Za-z]){code}([^0-9A-Za-z]|$)"
+
+
+def _allocate_evenly(rows: list[dict], codes: list[str], limit: int) -> list[dict]:
+    """코드마다 한 건씩 돌아가며 limit 까지 채운다.
+
+    유사도 순으로 앞에서 limit 만큼 자르면 한 코드가 슬롯을 독점한다. 운영 실측:
+    "FS-4 와 WF-174 와 WF-175 비교해줘" -> [FS-4, FS-4, WF-175] 로 WF-174 가 통째로
+    누락됐다. 사용자가 코드 셋을 나열했으면 셋 다 근거에 있어야 한다.
+
+    코드 순서는 질문에 나온 순서다. 슬롯이 모자라면 뒤에 말한 코드부터 밀린다 -
+    임의로 고르는 것보다 예측 가능하다.
+    """
+    matchers = {code: re.compile(_code_boundary_pattern(code), re.IGNORECASE) for code in codes}
+    buckets: dict[str, list[dict]] = {code: [] for code in codes}
+    for row in rows:
+        for code in codes:
+            if matchers[code].search(row["content"]):
+                buckets[code].append(row)
+                break
+
+    picked: list[dict] = []
+    depth = 0
+    while len(picked) < limit:
+        added = False
+        for code in codes:
+            if len(picked) >= limit:
+                break
+            bucket = buckets[code]
+            if depth < len(bucket):
+                picked.append(bucket[depth])
+                added = True
+        if not added:
+            break
+        depth += 1
+    return picked
+
+
 async def find_task_chunks_by_code_scored(
     pool,
     project_id: int,
@@ -105,16 +156,19 @@ async def find_task_chunks_by_code_scored(
     한 번에 받고, limit 이 코드별이 아니라 결과 집합 전체 상한이다.
 
     codes 는 TASK_CODE_PATTERN 으로 추출돼 넘어와야 한다(정규식 메타문자 없음).
+
+    코드를 여러 개 물으면 코드마다 한 건씩 돌아가며 채운다. 유사도 순으로 limit 만큼
+    자르면 한 코드가 슬롯을 독점해 다른 코드가 통째로 빠진다(_allocate_evenly 참고).
     """
-    # 경계 조건은 _SEARCH_BY_TASK_CODE_SQL 과 글자 그대로 같아야 한다. 뒤 경계가 [^0-9]로
-    # 느슨해지면 WF-195 가 WF-195A 에 오매칭된다.
-    patterns = [f"(^|[^0-9A-Za-z]){code}([^0-9A-Za-z]|$)" for code in codes]
     embedding_literal = to_vector_literal(query_embedding)
+    patterns = [_code_boundary_pattern(code) for code in codes]
+    # 슬롯 수만큼만 받아오면 공정 배분을 할 후보 자체가 없다. 넉넉히 받아 파이썬에서 고른다.
+    fetch_limit = min(len(codes) * limit, _TASK_CODE_FETCH_CAP)
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            _SEARCH_BY_TASK_CODES_SCORED_SQL, embedding_literal, project_id, patterns, limit
+            _SEARCH_BY_TASK_CODES_SCORED_SQL, embedding_literal, project_id, patterns, fetch_limit
         )
-    return [dict(row) for row in rows]
+    return _allocate_evenly([dict(row) for row in rows], codes, limit)
 
 
 async def search_similar_chunks(
