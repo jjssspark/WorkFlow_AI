@@ -22,10 +22,28 @@
 --   근사 인덱스가 이득 없이 정확도만 깎고 있으므로 제거한다.
 --
 -- 재도입 기준:
---   document_chunks가 1만 건을 넘어 순차 스캔 지연이 체감되면 ivfflat이 아니라 HNSW를 쓴다.
---   HNSW는 probes 같은 절벽이 없어 이런 방식으로 조용히 망가지지 않는다.
+--   document_chunks가 1만 건을 넘어 순차 스캔 지연이 체감되면 인덱스를 다시 검토한다.
+--   그때 정해야 할 것은 두 가지이고, 인덱스 종류만으로는 이 문제가 안 없어진다.
+--
+--   (1) 인덱스 종류: ivfflat 대신 HNSW
 --     CREATE INDEX idx_document_chunks_embedding
 --       ON document_chunks USING hnsw (embedding vector_cosine_ops);
+--
+--     HNSW는 후보 풀이 훨씬 크다(hnsw.ef_search 기본 40 vs 이번 ivfflat의 실질 후보 4건).
+--     그래서 같은 사고가 날 확률은 크게 낮다. 다만 면역은 아니다 - 근사 인덱스는 후보를
+--     먼저 뽑고 WHERE를 나중에 적용하므로, 필터가 후보 대부분을 걷어내면 HNSW도 LIMIT을
+--     못 채운다. 실패 확률이 낮아질 뿐 실패 방식은 같다.
+--
+--   (2) iterative_scan (진짜 해법)
+--     pgvector 0.8이 바로 이 문제를 고치려고 넣은 설정이고, 운영은 0.8.5인데 기본값이 off다.
+--       hnsw.iterative_scan    = off  -> relaxed_order 또는 strict_order
+--       ivfflat.iterative_scan = off  -> relaxed_order 또는 strict_order
+--     켜면 LIMIT을 채울 때까지 스캔을 이어간다. 인덱스를 다시 만든다면 이 설정을 같이 켜고,
+--     실제로 LIMIT만큼 돌아오는지 EXPLAIN과 반환 건수로 확인한 뒤 배포한다.
+--
+--   참고: ivfflat.iterative_scan = on 으로 이번 문제도 고칠 수 있었다. 그럼에도 인덱스를
+--   지운 이유는 444행에서 인덱스가 주는 속도 이득이 없기 때문이다(순차 스캔 3.2ms).
+--   이득 없는 근사 인덱스를 설정으로 떠받치는 것보다 없애는 편이 단순하다.
 --
 -- 되돌리기 (원상 복구):
 --   CREATE INDEX idx_document_chunks_embedding
