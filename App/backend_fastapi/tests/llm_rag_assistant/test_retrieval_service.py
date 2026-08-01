@@ -402,21 +402,26 @@ async def test_vector_search_is_asked_for_the_full_top_k_not_just_the_leftover_s
 
 
 @pytest.mark.asyncio
-async def test_code_slots_are_capped_so_vector_results_keep_room() -> None:
-    """코드를 아무리 많이 물어도 코드 정확 일치는 상한까지만 자리를 차지한다. 상한은
-    코드별이 아니라 전체 상한이고, 나머지 칸은 임베딩 몫으로 남는다."""
+async def test_one_code_leaves_room_for_vector_results() -> None:
+    """코드를 하나만 물으면 그 코드가 최대 TASK_CODE_MAX_SLOTS 칸까지 쓰고 나머지는 임베딩 몫이다.
+
+    한 업무가 여러 청크로 쪼개진 경우를 담기 위한 여유다. 코드를 더 말하면 그만큼 늘어나는데
+    (_code_slots_for), 하나만 말했을 때는 늘어날 이유가 없으므로 여기서 경계가 지켜져야 한다.
+    """
     conn = _FakeRoutingConn(
-        code=[_row("task", n, f"WF-{n} 업무", 0.5) for n in (1, 2, 3, 4, 5)],
+        # content 를 서로 다르게 둔다. 같으면 중복 제거가 한 건으로 접어서, 여기서 재려는
+        # "슬롯 상한"이 아니라 중복 제거를 재게 된다.
+        code=[_row("task", n, f"WF-1 업무 {n}부", 0.5) for n in (1, 2, 3, 4, 5)],
         general=[_row("meeting", 90, "회의 요약", 0.95), _row("task", 91, "다른 업무", 0.93)],
     )
 
     result = await search_chunks_for_question(
-        _FakeRoutingPool(conn), 1, "WF-1 WF-2 WF-3 WF-4 WF-5 차이가 뭐야?", [0.1], top_k=5
+        _FakeRoutingPool(conn), 1, "WF-1 이 뭐야?", [0.1], top_k=5
     )
 
     code_call = conn.code_call()
     assert code_call is not None
-    assert len(code_call[1][2]) == 5, "코드는 전부 SQL로 넘겨야 배분 후보가 된다"
+    assert len(code_call[1][2]) == 1, "코드는 전부 SQL로 넘겨야 배분 후보가 된다"
 
     from_code = [row for row in result if row["source_id"] in {1, 2, 3, 4, 5}]
     assert len(from_code) == TASK_CODE_MAX_SLOTS
@@ -548,18 +553,57 @@ async def test_leftover_slots_go_to_a_second_chunk_of_the_same_code() -> None:
 
 
 @pytest.mark.asyncio
-async def test_codes_beyond_the_slot_budget_are_dropped_from_the_back() -> None:
-    """슬롯이 모자라면 질문에서 뒤에 말한 코드부터 밀린다. 임의로 고르는 것보다 예측 가능하다."""
+async def test_every_code_the_user_named_gets_a_slot_when_they_fit() -> None:
+    """질문에 명시한 업무는 전부 근거에 있어야 한다.
+
+    고정 상한 3을 그대로 두면 4번째부터 조용히 빠지고, 모델은 그 업무를 아예 언급하지
+    못한다. 사용자가 5개를 나열했으면 그 열거 자체가 질의다 - 느슨하게 닮은 청크 한 건보다
+    명시된 업무를 하나 더 넣는 편이 낫다.
+    """
     conn = _FakeRoutingConn(
         code=[_row("task", n, f"WF-{n} 업무", 0.5) for n in (174, 175, 176, 179, 180)],
-        general=[],
+        general=[_row("task", 900, "느슨하게 닮은 청크", 0.99)],
     )
 
     result = await search_chunks_for_question(
         _FakeRoutingPool(conn), 1, "WF-174 WF-175 WF-176 WF-179 WF-180 비교해줘", [0.1], top_k=5
     )
 
-    assert [row["source_id"] for row in result] == [174, 175, 176]
+    assert [row["source_id"] for row in result] == [174, 175, 176, 179, 180]
+
+
+@pytest.mark.asyncio
+async def test_a_fourth_code_takes_a_slot_from_the_vector_search_not_from_another_code() -> None:
+    """코드 4개는 4칸을 쓰고 임베딩에 1칸이 남는다. 코드끼리 자리를 뺏지 않는다."""
+    conn = _FakeRoutingConn(
+        code=[_row("task", n, f"WF-{n} 업무", 0.5) for n in (174, 175, 176, 179)],
+        general=[_row("task", 900, "맥락 청크", 0.99)],
+    )
+
+    result = await search_chunks_for_question(
+        _FakeRoutingPool(conn), 1, "WF-174 WF-175 WF-176 WF-179 비교해줘", [0.1], top_k=5
+    )
+
+    assert [row["source_id"] for row in result] == [174, 175, 176, 179, 900]
+
+
+@pytest.mark.asyncio
+async def test_codes_beyond_top_k_are_dropped_from_the_back() -> None:
+    """top_k 보다 많이 나열하면 결국 잘린다. 뒤에 말한 코드부터 밀려야 예측 가능하다.
+
+    로그의 "코드 N개, 정확 일치 M건" 에서 N > M 이면 잘렸다는 뜻이다.
+    """
+    codes = (174, 175, 176, 179, 180, 181, 182)
+    conn = _FakeRoutingConn(
+        code=[_row("task", n, f"WF-{n} 업무", 0.5) for n in codes],
+        general=[],
+    )
+
+    result = await search_chunks_for_question(
+        _FakeRoutingPool(conn), 1, " ".join(f"WF-{n}" for n in codes) + " 비교해줘", [0.1], top_k=5
+    )
+
+    assert [row["source_id"] for row in result] == [174, 175, 176, 179, 180]
 
 
 @pytest.mark.asyncio

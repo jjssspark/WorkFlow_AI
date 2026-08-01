@@ -69,9 +69,9 @@ LIMIT $4
 # 두 경로가 같은 것을 인식해야 하므로 여기 한 곳에만 둔다.
 TASK_CODE_PATTERN = re.compile(r"(?<![A-Za-z0-9])[A-Za-z]{2,}-\d+(?![A-Za-z0-9])")
 
-# 질문 하나에서 코드 정확 일치에 내줄 최대 슬롯 수. 운영 실측상 코드 101종 중 100종이
-# 청크 1건에만 매칭되므로, 이 값은 "한 코드가 몇 청크로 쪼개지나"가 아니라 "코드를 여러 개
-# 물었을 때 몇 개까지 받아주나"를 정한다. 나머지 칸은 임베딩에 남겨 주변 맥락을 잃지 않는다.
+# 코드 정확 일치에 내줄 최소 슬롯 수. 운영 실측상 코드 101종 중 100종이 청크 1건에만
+# 매칭되므로, 코드가 하나일 때 이 값은 "한 업무가 여러 청크로 쪼개진 경우"를 담는 여유다.
+# 상한이 아니라 하한이다 - 코드를 이보다 많이 말하면 말한 만큼 늘어난다(_code_slots_for).
 TASK_CODE_MAX_SLOTS = 3
 
 # 공정 배분에 쓸 후보를 넉넉히 받아오기 위한 상한. 슬롯 수만큼만 받아오면 한 코드가 전부
@@ -261,6 +261,29 @@ async def search_similar_chunks(
     return _dedupe_by_content(combined)
 
 
+def _code_slots_for(codes: list[str], top_k: int) -> int:
+    """코드 정확 일치에 내줄 칸 수.
+
+    고정 상한(TASK_CODE_MAX_SLOTS)만 쓰면 사용자가 코드를 4개 이상 말했을 때 뒤에 말한
+    코드가 조용히 빠진다. 이건 튜닝이 아니라 정확성 문제다 - 질문에 명시한 업무는 근거에
+    있어야 하고, 없으면 모델이 그 업무를 아예 언급하지 못한다.
+
+    규칙: 최소 TASK_CODE_MAX_SLOTS 칸, 코드를 더 말했으면 그만큼, 단 top_k 를 넘지 않는다.
+
+      코드 1개 -> 3칸  (한 업무가 여러 청크로 쪼개진 경우를 담고, 2칸은 임베딩에 남긴다)
+      코드 3개 -> 3칸  (코드마다 1칸, 2칸은 임베딩)
+      코드 4개 -> 4칸  (코드마다 1칸, 1칸은 임베딩)
+      코드 5개 -> 5칸  (임베딩 없음)
+
+    코드를 top_k 개 이상 나열했으면 임베딩 칸을 남기지 않는다. 그 질문은 열거 자체가
+    질의이므로, 느슨하게 닮은 청크 한 건보다 명시된 업무를 하나 더 넣는 편이 낫다.
+
+    top_k 를 넘게 나열하면 여전히 잘린다. 다만 뒤에 말한 코드부터 예측 가능하게 밀리고,
+    로그의 "코드 N개, 정확 일치 M건" 에서 N > M 이면 잘렸다는 뜻이다.
+    """
+    return min(max(TASK_CODE_MAX_SLOTS, len(codes)), top_k)
+
+
 async def search_chunks_for_question(
     pool,
     project_id: int,
@@ -287,7 +310,7 @@ async def search_chunks_for_question(
 
     try:
         code_rows = await find_task_chunks_by_code_scored(
-            pool, project_id, codes, query_embedding, limit=min(TASK_CODE_MAX_SLOTS, top_k)
+            pool, project_id, codes, query_embedding, limit=_code_slots_for(codes, top_k)
         )
     except Exception:
         # 부가 경로가 본 기능을 죽이면 안 된다. 이때 아래 info 로그는 남기지 않는다 -
