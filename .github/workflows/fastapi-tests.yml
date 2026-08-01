@@ -1,0 +1,73 @@
+name: FastAPI tests
+
+# backend-tests.yml 이 Spring gradle 만 돌려서 FastAPI 쪽은 테스트가 397개 있어도 아무도
+# 실행하지 않았다. 2026-08-01 어시스턴트 질의 라우팅 변경이 CI 검증을 전혀 못 받고 머지될
+# 뻔했고, 실제로 그 변경에서 다중 코드 슬롯 독점 결함이 리뷰로만 잡혔다. 머지 전에 잡는다.
+on:
+  pull_request:
+    paths:
+      - 'App/backend_fastapi/**'
+      - 'requirements.txt'
+      - '.github/workflows/fastapi-tests.yml'
+  push:
+    branches: [dev, main]
+    paths:
+      - 'App/backend_fastapi/**'
+      - 'requirements.txt'
+      - '.github/workflows/fastapi-tests.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: App/backend_fastapi
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # App/backend_fastapi/.python-version 과 같은 버전이어야 한다.
+          python-version: '3.12.13'
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      # torch 는 requirements.txt 에 없다(용량 문제로 기본 설치 제외). 그런데
+      # sentence-transformers 가 torch 를 요구하고, 테스트 수집 시점에 이미 임포트되므로
+      # 없으면 한 건도 못 돈다. CPU 전용 휠로 먼저 넣는다 - 기본 인덱스에서 받으면
+      # CUDA 포함본이라 2GB 가 넘고 캐시도 매번 터진다.
+      #
+      # convention/ai.md 는 2.13.0 을 적어두었지만 여기서는 2.12.1 로 고정한다. 392건이
+      # 통과하는 것을 실제로 확인한 버전이 2.12.1 이고, CI 는 검증된 상태를 재현하는 것이
+      # 역할이기 때문이다. 올릴 때는 로컬에서 먼저 통과를 확인하고 같이 올린다.
+      - name: Install PyTorch (CPU wheel)
+        run: pip install torch==2.12.1 --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Install dependencies
+        run: pip install -r ../../requirements.txt
+
+      # 테스트가 개발자 로컬 .env 에 오염되지 않는지 CI에서도 지킨다. CI에는 .env 가
+      # 없으므로(gitignore 대상) 여기서 초록이면 로컬에서도 초록이어야 정상이다.
+      - name: Run tests
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          python -m pytest tests/llm_rag_assistant \
+            --ignore=tests/llm_rag_assistant/test_rag_indexing_integration.py \
+            --ignore=tests/llm_rag_assistant/test_rag_reindex_integration.py \
+            -q --junitxml=pytest-report.xml
+
+      # --ignore 를 하나 더 붙이거나 파일이 통째로 수집 실패해도 pytest 는 초록으로 끝난다.
+      # 그러면 방어선이 있는 척하면서 실제로는 아무것도 안 지키게 되므로 하한을 못 박는다.
+      # 테스트를 늘렸으면 이 숫자도 같이 올린다.
+      - name: Verify the expected number of tests actually ran
+        if: always()
+        run: python ci/verify-fastapi-test-count.py pytest-report.xml
+
+      - name: Upload test report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fastapi-test-report
+          path: App/backend_fastapi/pytest-report.xml
+          retention-days: 7
