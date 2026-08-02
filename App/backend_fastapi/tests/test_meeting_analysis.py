@@ -626,7 +626,28 @@ def test_analyze_json_uses_rule_based_only_when_provider_is_rule(monkeypatch):
     mock_ollama.assert_not_called()
 
 
-def test_analyze_json_auto_skips_huggingface_when_token_is_missing(monkeypatch):
+@pytest.fixture
+def no_analysis_cache(monkeypatch):
+    """회의록 분석 캐시를 확실히 끈다.
+
+    아래 provider 분기 테스트들은 "어떤 백엔드가 불렸는가"를 본다. 그런데 캐시를 끄지
+    않으면 로컬에 진짜 Redis 가 떠 있을 때 앞선 실행이 남긴 결과를 그대로 돌려받아
+    provider 호출 자체가 일어나지 않는다.
+
+    2026-08-02 실측: 같은 테스트가 Redis 가 없을 때 58건 전부 통과하고, 로컬 compose 의
+    Redis 가 떠 있고 캐시가 데워진 상태에서는 4건이 실패했다. CI 에는 Redis 가 없어
+    지금까지 통과해 왔지만 그건 옳은 이유가 아니다 - 개발자 기계에서만 빨개진다.
+
+    운영에서도 Redis 실패는 캐시 없이 진행하므로(app/main.py 의 fail-open) 같은 경로다.
+    """
+
+    def _no_redis():
+        raise RuntimeError("테스트에서는 회의록 분석 캐시를 사용하지 않는다")
+
+    monkeypatch.setattr("app.main.get_redis_client", _no_redis)
+
+
+def test_analyze_json_auto_skips_huggingface_when_token_is_missing(monkeypatch, no_analysis_cache):
     monkeypatch.delenv("MEETING_ANALYSIS_PROVIDER", raising=False)
     monkeypatch.delenv("HF_TOKEN", raising=False)
     monkeypatch.delenv("HUGGINGFACEHUB_API_TOKEN", raising=False)
@@ -662,7 +683,7 @@ def test_analyze_upload_invalid_pdf_returns_422_instead_of_empty_analysis(monkey
     assert "PDF" in response.json()["detail"]
 
 
-def test_analyze_json_uses_ollama_result_when_available(monkeypatch):
+def test_analyze_json_uses_ollama_result_when_available(monkeypatch, no_analysis_cache):
     monkeypatch.setenv("MEETING_ANALYSIS_PROVIDER", "ollama")
     fake_result = analyze_meeting(
         AnalyzeRequest(title="정기회의", meeting_date="2026-07-15", text="내용", participants=["김민준"])
@@ -678,8 +699,11 @@ def test_analyze_json_uses_ollama_result_when_available(monkeypatch):
     mock_ollama.assert_called_once()
 
 
-def test_analyze_json_uses_huggingface_result_when_provider_is_huggingface(monkeypatch):
+def test_analyze_json_uses_huggingface_result_when_provider_is_huggingface(monkeypatch, no_analysis_cache):
     monkeypatch.setenv("MEETING_ANALYSIS_PROVIDER", "huggingface")
+    # 토큰을 직접 세운다. _huggingface_configured() 가 토큰 유무로 분기하므로, 주변 환경에
+    # 맡기면 개발자 기계(.env 에 토큰 있음)에서는 통과하고 CI(토큰 없음)에서는 실패한다.
+    monkeypatch.setenv("HF_TOKEN", "test-token")
     fake_result = analyze_meeting(
         AnalyzeRequest(title="정기회의", meeting_date="2026-07-15", text="내용", participants=["김민준"])
     )
@@ -694,14 +718,17 @@ def test_analyze_json_uses_huggingface_result_when_provider_is_huggingface(monke
     mock_hf.assert_called_once()
 
 
-def test_analyze_json_falls_back_to_ollama_when_huggingface_fails(monkeypatch):
+def test_analyze_json_falls_back_to_ollama_when_huggingface_fails(monkeypatch, no_analysis_cache):
     monkeypatch.setenv("MEETING_ANALYSIS_PROVIDER", "huggingface")
+    # 토큰이 없으면 huggingface 를 아예 건너뛰므로 "실패해서 폴백"이 아니라 "설정이 없어서
+    # 건너뜀"을 재게 된다. 그 경로는 바로 위 test_analyze_json_auto_skips_... 가 따로 본다.
+    monkeypatch.setenv("HF_TOKEN", "test-token")
     fake_result = analyze_meeting(
         AnalyzeRequest(title="정기회의", meeting_date="2026-07-15", text="내용", participants=["김민준"])
     )
     client = TestClient(app)
     with (
-        patch("app.main.analyze_meeting_with_huggingface", side_effect=RuntimeError("hf down")),
+        patch("app.main.analyze_meeting_with_huggingface", side_effect=RuntimeError("hf down")) as mock_hf,
         patch("app.main.analyze_meeting_with_ollama", return_value=fake_result) as mock_ollama,
     ):
         response = client.post(
@@ -710,6 +737,9 @@ def test_analyze_json_falls_back_to_ollama_when_huggingface_fails(monkeypatch):
         )
 
     assert response.status_code == 200
+    # 이 단언이 없으면 huggingface 가 호출조차 안 된 경우에도 통과한다 - 실제로 CI 에서
+    # 토큰이 없어 그 상태로 초록이었다. 폴백을 재려면 먼저 실패가 일어나야 한다.
+    mock_hf.assert_called_once()
     mock_ollama.assert_called_once()
 
 

@@ -28,37 +28,9 @@ import pytest
 import pytest_asyncio
 from testcontainers.core.container import DockerContainer
 
-from core.config import get_settings
-
-
-# 개발자 로컬 .env 가 프로세스 환경에 새어 들어와 테스트 결과를 바꾸는 것을 막는다.
-# 아래 값들은 "어느 LLM 백엔드를 쓸지"를 고르는 스위치라, 값이 하나라도 남아 있으면
-# generation_service 가 자동 폴백 체인 대신 고정 백엔드로 빠져 테스트가 패치한 경로를
-# 아예 타지 않는다.
-_PROVIDER_ENV_VARS = ("RAG_PROVIDER", "MEETING_ANALYSIS_PROVIDER")
-
-
-@pytest.fixture(autouse=True)
-def _isolate_ambient_env(monkeypatch: pytest.MonkeyPatch):
-    """테스트를 개발자 로컬 환경에서 격리한다.
-
-    app/main.py 는 임포트 시점에 load_dotenv() 를 호출한다. 그래서 FastAPI 앱을 임포트하는
-    테스트가 하나라도 먼저 돌면 App/.env 의 값이 os.environ 에 영구히 주입되고, 그 뒤로
-    도는 모든 테스트가 그 값을 보게 된다.
-
-    실제로 test_assistant_router / test_chat_router_query / test_rag_internal_auth 중
-    아무거나 앞에 오면 RAG_PROVIDER 가 주입돼 test_generation_service 16건이 무너졌다.
-    한 줄짜리 파일(from app.main import app)만으로도 재현된다. .env 는 .gitignore 대상이라
-    CI에는 없어서, 로컬에서만 빨갛고 CI에서는 초록인 - 아무도 믿지 않게 되는 - 상태였다.
-
-    monkeypatch 로 지우므로 스스로 setenv 하는 테스트는 그대로 자기 값을 쓴다.
-    설정은 lru_cache 되므로 환경을 바꾼 뒤에는 캐시도 비워야 한다.
-    """
-    for name in _PROVIDER_ENV_VARS:
-        monkeypatch.delenv(name, raising=False)
-    get_settings.cache_clear()
-    yield
-    get_settings.cache_clear()
+# 로컬 .env 오염을 막는 _isolate_ambient_env 픽스처는 tests/conftest.py 로 올렸다.
+# 오염원(app/main.py 의 load_dotenv)이 이 폴더 전용이 아니라서, 여기 두는 동안
+# tests/test_meeting_analysis.py 가 같은 이유로 깨져 있었다.
 
 # tests/llm_rag_assistant/ -> tests/ -> backend_fastapi/ -> App/
 _INIT_SCRIPT_DIR = (

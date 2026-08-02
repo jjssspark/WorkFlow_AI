@@ -58,6 +58,9 @@ jobs:
       - name: Install dependencies
         run: pip install -r ../../requirements.txt
 
+      # 범위는 tests/llm_rag_assistant 가 아니라 tests 전체다. 좁혀 두는 동안 631건 중
+      # 397건만 돌아 234건이 아무도 안 보는 상태였고, 그 안에 실제로 깨진 테스트가 있었다.
+      #
       # 테스트가 개발자 로컬 .env 에 오염되지 않는지 CI에서도 지킨다. CI에는 .env 가
       # 없으므로(gitignore 대상) 여기서 초록이면 로컬에서도 초록이어야 정상이다.
       - name: Run tests
@@ -65,7 +68,7 @@ jobs:
           PYTHONDONTWRITEBYTECODE: '1'
         # 통합 테스트 5건은 testcontainers 로 pgvector 를 띄운다. Docker 가 없으면 스킵되는데,
         # 스킵은 아래 건수 검사에서 실행 건수로 치지 않으므로 조용히 사라지지 않는다.
-        run: python -m pytest tests/llm_rag_assistant -q --junitxml=pytest-report.xml
+        run: python -m pytest tests -q --junitxml=pytest-report.xml
 
       # --ignore 를 하나 더 붙이거나 파일이 통째로 수집 실패해도 pytest 는 초록으로 끝난다.
       # 그러면 방어선이 있는 척하면서 실제로는 아무것도 안 지키게 되므로 하한을 못 박는다.
