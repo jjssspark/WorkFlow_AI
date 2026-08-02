@@ -11,18 +11,19 @@ import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-# 2026-08-02 기준 실행 건수는 641이다.
+# 2026-08-02 기준 실행 건수는 670이다.
 #
 #   404  tests/llm_rag_assistant (통합 5건 포함 - 큐 누수를 고쳐 --ignore 를 걷어냈다)
 #   234  그 밖의 tests/ (CI 범위를 tests 전체로 넓히기 전에는 아무도 안 보던 것들)
 #     3  로깅 설정 테스트
+#    29  질의 집계 카운터 (필드 조건 17 + 검색 경로 배선 7 + 읽기 스크립트 5)
 #
 # 여유를 두지 않고 실제 건수에 맞춘다. 통합 5건은 Docker 가 없으면 스킵되는데, 여유를 두면
 # 그 스킵이 그대로 통과해 pgvector 커버리지가 소리 없이 사라진다 - 이 스크립트가 막으려는
 # 상황 그 자체다. ubuntu-latest 에는 Docker 가 있으므로 스킵되면 그게 이상 신호다.
 #
 # 여기 걸리면 숫자부터 낮추지 말고 왜 줄었는지 먼저 확인한다. 테스트를 늘렸으면 같이 올린다.
-MINIMUM_TESTS = 641
+MINIMUM_TESTS = 670
 
 
 def main() -> int:

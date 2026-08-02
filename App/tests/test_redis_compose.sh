@@ -164,10 +164,63 @@ grep -Fq -- '--auto-aof-rewrite-min-size' "${app_dir}/docker-compose.yml"
 
 grep -q 'user default off' "${app_dir}/redis/users.acl.template"
 grep -Fq 'user admin on >__ADMIN_PASSWORD__ ~* &* +@all' "${app_dir}/redis/users.acl.template"
-grep -Fq 'user spring on >__SPRING_PASSWORD__ resetkeys ~meeting-analysis -@all +ping +hello +client|setinfo +client|setname +select +xadd +xlen +xgroup|create +xreadgroup +xpending +xclaim +xack +xdel +eval +evalsha' \
-  "${app_dir}/redis/users.acl.template"
-grep -Fq 'user fastapi on >__FASTAPI_PASSWORD__ resetkeys -@all +ping +hello +client|setinfo +client|setname +select (~meeting_analysis:* ~rag_answer:* +get +set +del) (~rag_epoch:* +get +incr)' \
-  "${app_dir}/redis/users.acl.template"
+# 앱 계정 검사를 줄 전체 고정 문자열에서 성질별 검사로 바꿨다(2026-08-02).
+#
+# 고정 문자열은 선택자를 하나 추가할 때마다 깨지는데, 이 스크립트는 CI에서 돌지 않아
+# 아무도 모른 채 방치됐다 - 2026-07-30 ACL 보강 이후 spring/fastapi 두 줄이 모두 템플릿과
+# 어긋나 있었다. 즉 "ACL을 지키는 테스트"가 실제로는 아무것도 지키지 않고 있었다.
+#
+# 그래서 두 가지를 나눠 본다.
+#   1. 거부 기본값(posture) - 여기가 무너지면 나머지 검사가 무의미하다
+#   2. 코드가 실제로 쓰는 키 묶음이 열려 있는가 - 빠지면 런타임 NOPERM 으로 조용히 죽는다
+# 선택자를 추가해도 1은 안 깨지고, 2는 기능이 바뀔 때만 같이 고치면 된다.
+acl_template="${app_dir}/redis/users.acl.template"
+
+assert_contains() {
+  file="$1"
+  expected="$2"
+  description="$3"
+  if ! grep -Fq "${expected}" "${file}"; then
+    printf 'missing %s in %s\n' "${description}" "${file}" >&2
+    exit 1
+  fi
+}
+
+for service_user in spring fastapi; do
+  password_placeholder="$(printf '%s' "${service_user}" | tr '[:lower:]' '[:upper:]')"
+  grep -Eq "^user ${service_user} on >__${password_placeholder}_PASSWORD__ resetkeys resetchannels -@all " \
+    "${acl_template}" || {
+    printf '%s\n' "${service_user} must start from deny-all with keys and channels reset" >&2
+    exit 1
+  }
+  # 앱 계정에 전체 키/채널/명령을 주면 계정을 나눈 의미가 사라진다.
+  if grep -E "^user ${service_user} " "${acl_template}" | grep -Eq '(~\*|&\*|\+@all)'; then
+    printf '%s\n' "${service_user} must not receive all keys, channels, or commands" >&2
+    exit 1
+  fi
+done
+
+# 코드가 실제로 쓰는 키 묶음. 여기가 비면 기능이 통째로 죽는다(2026-07-30 실측).
+for selector in \
+  '(~meeting-analysis ~dashboard-ai-jobs ' \
+  '(~dashboard-ai-inflight:* ' \
+  '(~dashboard-ai-done:* ' \
+  '(~assistant_thread:* ' \
+  '(~dashboard:workload-score:* ' \
+  '(~rag-jobs ' \
+  '&rag-result:*' \
+  '(~meeting_analysis:* ~rag_answer:* ' \
+  '(~rag_epoch:* +get +incr)' \
+  '(~rag_stats:* +hincrby +expire +hgetall)'; do
+  assert_contains "${acl_template}" "${selector}" "ACL selector ${selector}"
+done
+
+# 통계는 파이프라인을 transaction=False 로 연다. 여기에 +multi/+exec 가 생겼다면
+# 코드가 트랜잭션을 쓰기 시작했다는 뜻이니 양쪽을 같이 확인해야 한다.
+if grep -E '^user fastapi ' "${acl_template}" | grep -Eq '\+(multi|exec)'; then
+  printf '%s\n' "fastapi does not use MULTI/EXEC; remove the grant or update rag_stats" >&2
+  exit 1
+fi
 if grep -Eq '(^|[[:space:]])\+client([[:space:]]|$)' "${app_dir}/redis/users.acl.template"; then
   printf '%s\n' "Redis service users must not receive all CLIENT subcommands" >&2
   exit 1
@@ -184,16 +237,6 @@ grep -Fq 'ClassPathResource("redis/meeting-analysis-enqueue.lua")' \
 workflow="${repo_root}/.github/workflows/deploy-oci.yml"
 runbook="${app_dir}/DEPLOY_OCI.md"
 troubleshooting="${repo_root}/docs/trouble-shooting/2026-07-23-redis-queue-oci.md"
-
-assert_contains() {
-  file="$1"
-  expected="$2"
-  description="$3"
-  if ! grep -Fq "${expected}" "${file}"; then
-    printf 'missing %s in %s\n' "${description}" "${file}" >&2
-    exit 1
-  fi
-}
 
 assert_contains "${workflow}" 'config --quiet' "safe Compose credential gate"
 assert_contains "${workflow}" 'validate_redis_password' "Redis ACL password format preflight"
@@ -230,7 +273,10 @@ rollback_outbox_line=$(grep -nF 'SELECT source_type FROM rag_assignee_sync_failu
 rollback_stop_line=$(grep -nF 'docker stop --time 60 workflow-backend-spring' "${workflow}" | cut -d: -f1)
 rollback_numeric_gate_line=$(grep -nF '^[0-9]+$' "${workflow}" | head -n 1 | cut -d: -f1)
 rollback_zero_gate_line=$(grep -nF '[ "$queue_length" -ne 0 ]' "${workflow}" | head -n 1 | cut -d: -f1)
-rollback_reset_line=$(grep -nF 'git reset --hard deploy-previous' "${workflow}" | cut -d: -f1)
+# 롤백 대상이 deploy-previous 에서 deploy-last-good 으로 바뀌었는데(직전 배포본은 정상
+# 동작이 확인된 적이 없다는 이유, deploy-oci.yml 주석 참고) 이 줄은 따라가지 않아
+# 스크립트가 여기서 죽어 있었다. 아래 순서 검사들이 통째로 도달하지 못했다는 뜻이다.
+rollback_reset_line=$(grep -nF 'git reset --hard "$rollback_target"' "${workflow}" | cut -d: -f1)
 test "${config_line}" -lt "${up_line}"
 test "${password_preflight_line}" -lt "${config_line}"
 for readiness_command in 'redis-cli --raw --user admin ping' \
