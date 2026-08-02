@@ -15,7 +15,7 @@ HGETALL 로 하루씩 볼 수도 있지만, 판단에 필요한 건 며칠치 �
 FastAPI 컨테이너 안에서 그대로 돌린다. 컨테이너에 이미 REDIS_URL 과 fastapi 계정
 자격 증명이 있어 추가로 넘길 것이 없다.
 
-    docker exec workflow-fastapi python scripts/show_rag_stats.py --days 14
+    docker exec workflow-backend-fastapi python scripts/show_rag_stats.py --days 14
 
 admin 계정을 쓰지 않는 이유: admin 비밀번호는 redis 컨테이너에만 있다. 읽기를 admin 으로만
 열어두면 비밀번호를 한 벌 더 실어 날라야 하므로, ACL 에 fastapi 의 +hgetall 을 열었다
