@@ -2,6 +2,9 @@ import { createBrowserRouter, Navigate, Outlet, type RouteObject } from "react-r
 import { Toaster } from "../global/component/ui/sonner";
 import { RequireAuth, RequireRole, RequireAdmin } from "../global/hooks/useAuthGuard";
 import { AppShell } from "../global/component/layout/AppShell";
+// A안 (다크 히어로 + 좌우 교차 기능 섹션). 현재는 B안이 기본 랜딩페이지라 라우팅에서 뺐다.
+import { LandingScreenA } from "../landing/screen/LandingScreenA";
+import { LandingScreenB } from "../landing/screen/LandingScreenB";
 import { LoginScreen } from "../auth/screen/LoginScreen";
 import { SignupScreen } from "../auth/screen/SignupScreen";
 import { TermsScreen } from "../auth/screen/TermsScreen";
@@ -45,6 +48,8 @@ function RootLayout() {
 }
 
 const appRoutes: RouteObject[] = [
+  { path: "/", element: <LandingScreenA /> }, // A안 (주석 처리, B안과 비교용으로 코드는 유지)
+  // { path: "/", element: <LandingScreenB /> }, // B안
   { path: "/login", element: <LoginScreen /> },
   { path: "/signup", element: <SignupScreen /> },
   { path: "/terms", element: <TermsScreen /> },
@@ -64,7 +69,6 @@ const appRoutes: RouteObject[] = [
       {
         element: <AppShell />,
         children: [
-          { index: true, element: <Navigate to="/dashboard" replace /> },
           { path: "dashboard", element: <DashboardView /> },
           { path: "dashboard/all-tasks", element: <AllTasksPage /> },
           { path: "dashboard/progress", element: <ProgressPage /> },
