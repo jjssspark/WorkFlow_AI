@@ -23,6 +23,7 @@ from httpx import ASGITransport, AsyncClient
 from app.main import app
 from core.db import get_pool
 from core.security import verify_internal_api_key
+from llm_rag_assistant.app.routers import chat_router
 from llm_rag_assistant.app.services import chat_service, ingestion_service
 
 _EMBEDDING_DIMENSIONS = 1024
@@ -66,6 +67,18 @@ def rag_client(pgvector_pool, monkeypatch):
         return _ANSWER_STUB
 
     monkeypatch.setattr(chat_service, "generate_answer", _generate)
+
+    # 큐 홉을 걷어내는 이유는 test_rag_indexing_integration.py의 같은 지점 주석에 있다.
+    # 요약: /ai/rag/query는 Redis 스트림에 작업을 넣고 프로세스 밖 워커를 기다리므로,
+    # 위 스텁이 무시되고 로컬 compose 워커가 자기 DB와 진짜 LLM으로 답을 만들어 준다.
+    # 여기서는 특히 치명적이다 - "지운 것이 정말 지워졌는가"를 보는 파일인데, 답이 다른
+    # DB에서 오면 삭제 검증이 통째로 무의미해진다.
+    async def _answer_in_process(project_id, question, user_id, history=None, timeout=None):
+        return await chat_service.answer_question(
+            pgvector_pool, project_id, question, user_id, history=history or []
+        )
+
+    monkeypatch.setattr(chat_router, "enqueue_and_wait", _answer_in_process)
 
     # 캐시가 살아 있으면 색인을 바꿔도 이전 답변이 그대로 돌아와 변경 검증 자체가 성립하지
     # 않는다. 운영에서도 Redis 실패 시 캐시 없이 진행하므로 같은 경로를 탄다.

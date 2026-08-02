@@ -66,11 +66,9 @@ jobs:
       - name: Run tests
         env:
           PYTHONDONTWRITEBYTECODE: '1'
-        run: |
-          python -m pytest tests \
-            --ignore=tests/llm_rag_assistant/test_rag_indexing_integration.py \
-            --ignore=tests/llm_rag_assistant/test_rag_reindex_integration.py \
-            -q --junitxml=pytest-report.xml
+        # 통합 테스트 5건은 testcontainers 로 pgvector 를 띄운다. Docker 가 없으면 스킵되는데,
+        # 스킵은 아래 건수 검사에서 실행 건수로 치지 않으므로 조용히 사라지지 않는다.
+        run: python -m pytest tests -q --junitxml=pytest-report.xml
 
       # --ignore 를 하나 더 붙이거나 파일이 통째로 수집 실패해도 pytest 는 초록으로 끝난다.
       # 그러면 방어선이 있는 척하면서 실제로는 아무것도 안 지키게 되므로 하한을 못 박는다.

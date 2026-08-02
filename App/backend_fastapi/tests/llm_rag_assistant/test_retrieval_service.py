@@ -45,7 +45,10 @@ async def test_search_uses_bound_parameters_not_string_concatenation() -> None:
     query, args = conn.calls[0]
     # project_id, top_k가 SQL 문자열에 직접 삽입되지 않고 바인딩 파라미터로만 전달되는지 검증
     assert "7" not in query
-    assert args == ("[0.10000000,0.20000000]", 7, 5)
+    # LIMIT 값 자체는 단언하지 않는다. 중복 제거 때문에 top_k 보다 넉넉히 받으므로 값이
+    # 구현에 따라 변한다. 여기서 지키려는 건 "문자열 결합이 아니라 바인딩"이다.
+    assert args[:2] == ("[0.10000000,0.20000000]", 7)
+    assert isinstance(args[2], int) and args[2] >= 5
 
 
 @pytest.mark.asyncio
@@ -200,23 +203,31 @@ async def test_merged_results_respect_top_k_of_one() -> None:
     result = await search_similar_chunks(_FakeSequencePool(conn), project_id=1, query_embedding=[0.1], top_k=1)
 
     assert len(result) == 1
-    # 예약 검색에 넘기는 limit도 top_k를 넘지 않아야 한다.
+    # 예약 검색이 무제한으로 긁어오지는 않는지만 본다. 중복 제거를 위해 top_k 보다 넉넉히
+    # 받으므로 "top_k 이하"는 더 이상 성립하지 않는다 - 결과가 1건인 것이 지켜야 할 계약이다.
     _, reserve_args = conn.calls[1]
-    assert reserve_args[3] == 1
+    assert isinstance(reserve_args[3], int) and 1 <= reserve_args[3] <= 40
 
 
 @pytest.mark.asyncio
-async def test_top_k_is_passed_to_sql_limit_on_general_search() -> None:
-    """병합이 없을 때는 SQL LIMIT이 상한을 책임진다 - top_k가 그대로 전달돼야 한다."""
+async def test_general_search_asks_for_at_least_top_k_rows() -> None:
+    """SQL LIMIT 은 top_k 이상이어야 한다.
+
+    중복 제거가 결과를 줄이므로 딱 top_k 만 받으면 접힌 만큼 빈칸이 남는다. 반대로 상한이
+    없으면 프로젝트 전체를 긁어온다. 정확한 값이 아니라 이 두 경계를 잠근다.
+    """
     general_rows = [{"source_type": "meeting", "source_id": 1, "content": "회의", "similarity": 0.9}]
     conn = _FakeSequenceConn([general_rows])
 
-    await search_similar_chunks(_FakeSequencePool(conn), project_id=1, query_embedding=[0.1], top_k=3)
+    result = await search_similar_chunks(
+        _FakeSequencePool(conn), project_id=1, query_embedding=[0.1], top_k=3
+    )
 
     query, args = conn.calls[0]
     assert "ORDER BY embedding" in query
     assert "LIMIT" in query
-    assert args[2] == 3
+    assert args[2] >= 3
+    assert len(result) <= 3
 
 
 @pytest.mark.asyncio
@@ -230,7 +241,8 @@ async def test_search_filters_by_assignee_id_when_provided() -> None:
     assert result == assignee_rows
     query, args = conn.calls[0]
     assert "assignee_id" in query
-    assert args == ("[0.10000000]", 1, 42, 5)
+    # LIMIT 값은 단언하지 않는다(위 바인딩 테스트와 같은 이유). 담당자 필터가 걸리는지가 관심사다.
+    assert args[:3] == ("[0.10000000]", 1, 42)
 
 
 @pytest.mark.asyncio
@@ -384,25 +396,32 @@ async def test_vector_search_is_asked_for_the_full_top_k_not_just_the_leftover_s
 
     general_call = conn.general_call()
     assert general_call is not None
-    assert general_call[1][2] == 5
+    # 잔여 칸(5-3=2)이 아니라 top_k 전체 이상으로 물어야 한다. 중복 제거 때문에 실제로는
+    # 이보다 넉넉히 받지만, 지켜야 할 경계는 "2로 줄지 않는 것"이다.
+    assert general_call[1][2] >= 5
 
 
 @pytest.mark.asyncio
-async def test_code_slots_are_capped_so_vector_results_keep_room() -> None:
-    """코드를 아무리 많이 물어도 코드 정확 일치는 상한까지만 자리를 차지한다. 상한은
-    코드별이 아니라 전체 상한이고, 나머지 칸은 임베딩 몫으로 남는다."""
+async def test_one_code_leaves_room_for_vector_results() -> None:
+    """코드를 하나만 물으면 그 코드가 최대 TASK_CODE_MAX_SLOTS 칸까지 쓰고 나머지는 임베딩 몫이다.
+
+    한 업무가 여러 청크로 쪼개진 경우를 담기 위한 여유다. 코드를 더 말하면 그만큼 늘어나는데
+    (_code_slots_for), 하나만 말했을 때는 늘어날 이유가 없으므로 여기서 경계가 지켜져야 한다.
+    """
     conn = _FakeRoutingConn(
-        code=[_row("task", n, f"WF-{n} 업무", 0.5) for n in (1, 2, 3, 4, 5)],
+        # content 를 서로 다르게 둔다. 같으면 중복 제거가 한 건으로 접어서, 여기서 재려는
+        # "슬롯 상한"이 아니라 중복 제거를 재게 된다.
+        code=[_row("task", n, f"WF-1 업무 {n}부", 0.5) for n in (1, 2, 3, 4, 5)],
         general=[_row("meeting", 90, "회의 요약", 0.95), _row("task", 91, "다른 업무", 0.93)],
     )
 
     result = await search_chunks_for_question(
-        _FakeRoutingPool(conn), 1, "WF-1 WF-2 WF-3 WF-4 WF-5 차이가 뭐야?", [0.1], top_k=5
+        _FakeRoutingPool(conn), 1, "WF-1 이 뭐야?", [0.1], top_k=5
     )
 
     code_call = conn.code_call()
     assert code_call is not None
-    assert len(code_call[1][2]) == 5, "코드는 전부 SQL로 넘겨야 배분 후보가 된다"
+    assert len(code_call[1][2]) == 1, "코드는 전부 SQL로 넘겨야 배분 후보가 된다"
 
     from_code = [row for row in result if row["source_id"] in {1, 2, 3, 4, 5}]
     assert len(from_code) == TASK_CODE_MAX_SLOTS
@@ -534,18 +553,57 @@ async def test_leftover_slots_go_to_a_second_chunk_of_the_same_code() -> None:
 
 
 @pytest.mark.asyncio
-async def test_codes_beyond_the_slot_budget_are_dropped_from_the_back() -> None:
-    """슬롯이 모자라면 질문에서 뒤에 말한 코드부터 밀린다. 임의로 고르는 것보다 예측 가능하다."""
+async def test_every_code_the_user_named_gets_a_slot_when_they_fit() -> None:
+    """질문에 명시한 업무는 전부 근거에 있어야 한다.
+
+    고정 상한 3을 그대로 두면 4번째부터 조용히 빠지고, 모델은 그 업무를 아예 언급하지
+    못한다. 사용자가 5개를 나열했으면 그 열거 자체가 질의다 - 느슨하게 닮은 청크 한 건보다
+    명시된 업무를 하나 더 넣는 편이 낫다.
+    """
     conn = _FakeRoutingConn(
         code=[_row("task", n, f"WF-{n} 업무", 0.5) for n in (174, 175, 176, 179, 180)],
-        general=[],
+        general=[_row("task", 900, "느슨하게 닮은 청크", 0.99)],
     )
 
     result = await search_chunks_for_question(
         _FakeRoutingPool(conn), 1, "WF-174 WF-175 WF-176 WF-179 WF-180 비교해줘", [0.1], top_k=5
     )
 
-    assert [row["source_id"] for row in result] == [174, 175, 176]
+    assert [row["source_id"] for row in result] == [174, 175, 176, 179, 180]
+
+
+@pytest.mark.asyncio
+async def test_a_fourth_code_takes_a_slot_from_the_vector_search_not_from_another_code() -> None:
+    """코드 4개는 4칸을 쓰고 임베딩에 1칸이 남는다. 코드끼리 자리를 뺏지 않는다."""
+    conn = _FakeRoutingConn(
+        code=[_row("task", n, f"WF-{n} 업무", 0.5) for n in (174, 175, 176, 179)],
+        general=[_row("task", 900, "맥락 청크", 0.99)],
+    )
+
+    result = await search_chunks_for_question(
+        _FakeRoutingPool(conn), 1, "WF-174 WF-175 WF-176 WF-179 비교해줘", [0.1], top_k=5
+    )
+
+    assert [row["source_id"] for row in result] == [174, 175, 176, 179, 900]
+
+
+@pytest.mark.asyncio
+async def test_codes_beyond_top_k_are_dropped_from_the_back() -> None:
+    """top_k 보다 많이 나열하면 결국 잘린다. 뒤에 말한 코드부터 밀려야 예측 가능하다.
+
+    로그의 "코드 N개, 정확 일치 M건" 에서 N > M 이면 잘렸다는 뜻이다.
+    """
+    codes = (174, 175, 176, 179, 180, 181, 182)
+    conn = _FakeRoutingConn(
+        code=[_row("task", n, f"WF-{n} 업무", 0.5) for n in codes],
+        general=[],
+    )
+
+    result = await search_chunks_for_question(
+        _FakeRoutingPool(conn), 1, " ".join(f"WF-{n}" for n in codes) + " 비교해줘", [0.1], top_k=5
+    )
+
+    assert [row["source_id"] for row in result] == [174, 175, 176, 179, 180]
 
 
 @pytest.mark.asyncio
@@ -558,3 +616,105 @@ async def test_fetch_limit_is_widened_so_fair_allocation_has_candidates() -> Non
     )
 
     assert conn.code_call()[1][3] == 3 * TASK_CODE_MAX_SLOTS
+
+
+# --- 같은 내용이 여러 벌 색인된 경우 -------------------------------------------------
+#
+# 운영 project 1 은 378청크 중 잉여가 109건(28.8%)이다. 같은 회의록을 서로 다른 회의로
+# 반복 업로드해서 생긴 것이고 색인 자체는 정상이다(회의별 분석 실행 수는 전부 1회).
+# 그대로 두면 상위 5칸을 같은 문장이 채워 사용자가 받는 근거가 줄어든다 - 실측상 30문항 중
+# 10문항이 걸렸고 최악은 5칸 중 고유가 3개뿐이었다.
+
+
+@pytest.mark.asyncio
+async def test_same_content_from_different_sources_collapses_into_one() -> None:
+    """중복은 같은 내용이 서로 다른 source_id 로 들어와 생긴다.
+
+    (source_type, source_id) 로 접으면 하나도 안 걸린다 - 반드시 content 로 접어야 한다.
+    """
+    rows = [
+        _row("action_item", 375, "제안서 목차를 나눈다", 0.9),
+        _row("action_item", 422, "제안서 목차를 나눈다", 0.9),
+        _row("action_item", 506, "제안서 목차를 나눈다", 0.9),
+        _row("meeting", 61, "회의록 본문", 0.4),
+    ]
+    conn = _FakeConn(rows)
+
+    result = await search_similar_chunks(_FakePool(conn), project_id=1, query_embedding=[0.1], top_k=5)
+
+    assert [r["content"] for r in result] == ["제안서 목차를 나눈다", "회의록 본문"]
+
+
+@pytest.mark.asyncio
+async def test_slots_freed_by_dedup_are_filled_with_other_evidence() -> None:
+    """접기만 하고 끝내면 근거가 줄어든다. 접힌 만큼 다음 근거가 올라와야 한다.
+
+    그래서 SQL 에 top_k 만 요청하면 안 되고 넉넉히 받아야 한다.
+    """
+    # 회의록을 하나 섞어 예약 분기를 타지 않게 한다 - 여기서 보려는 건 중복 제거 뒤
+    # 빈칸이 채워지는지 하나다. 예약이 끼면 무엇 때문에 5건인지가 흐려진다.
+    rows = [_row("meeting", 61, "회의록", 0.95)]
+    rows += [_row("action_item", 100 + i, "같은 문장", 0.9) for i in range(4)]
+    rows += [_row("task", 200 + i, f"다른 근거{i}", 0.8 - i * 0.01) for i in range(4)]
+    conn = _FakeSequenceConn([rows])
+
+    result = await search_similar_chunks(
+        _FakeSequencePool(conn), project_id=1, query_embedding=[0.1], top_k=5
+    )
+
+    assert len(conn.calls) == 1
+    assert [r["content"] for r in result] == [
+        "회의록", "같은 문장", "다른 근거0", "다른 근거1", "다른 근거2",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_dedup_keeps_a_deterministic_representative() -> None:
+    """내용이 같으면 임베딩도 같아 유사도가 완전 동률이다.
+
+    대표를 정해두지 않으면 DB 가 돌려주는 순서에 따라 매번 다른 source_id 가 남아, 같은
+    질문의 출처 목록이 흔들리고 답변 캐시와 평가 재현이 어긋난다.
+    """
+    conn = _FakeConn([
+        _row("action_item", 506, "같은 문장", 0.9),
+        _row("action_item", 375, "같은 문장", 0.9),
+        _row("action_item", 422, "같은 문장", 0.9),
+    ])
+
+    result = await search_similar_chunks(_FakePool(conn), project_id=1, query_embedding=[0.1], top_k=5)
+
+    assert [(r["source_type"], r["source_id"]) for r in result] == [("action_item", 375)]
+
+
+@pytest.mark.asyncio
+async def test_a_long_document_split_into_several_chunks_is_not_collapsed() -> None:
+    """긴 업무 설명이 여러 청크로 쪼개진 것은 중복이 아니다.
+
+    content 가 서로 다르므로 접히면 안 된다 - 접히면 근거가 소리 없이 사라진다.
+    """
+    conn = _FakeConn([
+        _row("task", 7, "설계 문서 1부: 배경", 0.9),
+        _row("task", 7, "설계 문서 2부: 구조", 0.8),
+        _row("task", 7, "설계 문서 3부: 일정", 0.7),
+    ])
+
+    result = await search_similar_chunks(_FakePool(conn), project_id=1, query_embedding=[0.1], top_k=5)
+
+    assert len(result) == 3
+
+
+@pytest.mark.asyncio
+async def test_meeting_reservation_is_decided_after_dedup() -> None:
+    """중복을 걷어내기 전에 회의록 유무를 보면 예약이 걸리지 않는다.
+
+    같은 회의록이 여러 벌 들어와 상위를 채우면 "회의록은 이미 있다"가 되어 예약을 건너뛰고,
+    접고 나면 회의록이 한 건뿐이라 결국 근거가 줄어든 채로 나간다.
+    """
+    general = [_row("task", 10 + i, f"업무{i}", 0.9 - i * 0.01) for i in range(5)]
+    conn = _FakeSequenceConn([general, [_row("meeting", 61, "회의록", 0.3)]])
+
+    result = await search_similar_chunks(
+        _FakeSequencePool(conn), project_id=1, query_embedding=[0.1], top_k=5
+    )
+
+    assert any(r["source_type"] == "meeting" for r in result)
