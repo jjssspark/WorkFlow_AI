@@ -35,6 +35,23 @@ from ml_delay_risk.routers.delay_router import router as delay_risk_router
 from contribution_score.app.routers.contribution_router import router as contribution_score_router
 from llm_checklist.app.routers.checklist_router import router as checklist_router
 
+# 앱 로거의 INFO 가 실제로 나가게 한다.
+#
+# 기동 명령은 `uvicorn app.main:app` 하나뿐이고(docker-entrypoint.sh), uvicorn 은 자기
+# dictConfig 로 uvicorn* 로거만 잡을 뿐 루트에는 핸들러를 달지 않는다. 그래서 앱 로거의
+# INFO 는 핸들러 없는 루트로 전파되고 logging.lastResort 가 WARNING 이상만 내보낸다.
+# 결과적으로 INFO 관측은 무엇을 넣어도 사라진다 - 라우팅 때 넣은 "코드 라우팅 발동" 로그가
+# 운영에서 한 번도 찍히지 않은 이유다(2026-08-01 확인, 운영 로그 grep 0건).
+#
+# basicConfig 는 루트에 핸들러가 이미 있으면 아무것도 하지 않는다. 덕분에 pytest 처럼
+# 자기 핸들러를 붙이는 환경은 건드리지 않고, 운영처럼 비어 있을 때만 채운다.
+# 바꿔 말하면 이 설정이 깨졌는지는 같은 프로세스 안에서 검증할 수 없다
+# (tests/test_logging_config.py 가 별도 프로세스를 쓰는 이유).
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO"),
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_OLLAMA_HOST = "http://localhost:11434"

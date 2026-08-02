@@ -58,13 +58,16 @@ jobs:
       - name: Install dependencies
         run: pip install -r ../../requirements.txt
 
+      # 범위는 tests/llm_rag_assistant 가 아니라 tests 전체다. 좁혀 두는 동안 631건 중
+      # 397건만 돌아 234건이 아무도 안 보는 상태였고, 그 안에 실제로 깨진 테스트가 있었다.
+      #
       # 테스트가 개발자 로컬 .env 에 오염되지 않는지 CI에서도 지킨다. CI에는 .env 가
       # 없으므로(gitignore 대상) 여기서 초록이면 로컬에서도 초록이어야 정상이다.
       - name: Run tests
         env:
           PYTHONDONTWRITEBYTECODE: '1'
         run: |
-          python -m pytest tests/llm_rag_assistant \
+          python -m pytest tests \
             --ignore=tests/llm_rag_assistant/test_rag_indexing_integration.py \
             --ignore=tests/llm_rag_assistant/test_rag_reindex_integration.py \
             -q --junitxml=pytest-report.xml
