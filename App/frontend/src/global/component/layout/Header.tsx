@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
-import { ChevronRight, Search, Calendar, Bell, LogOut, Menu } from "lucide-react";
+import { ChevronRight, Calendar, Bell, LogOut, Menu } from "lucide-react";
 import { TAB_TITLES } from "../../lib/constants/nav";
 import type { Tab } from "../../../board/libs/types/task";
 import {
@@ -47,7 +47,6 @@ export function Header({ onOpenMobileMenu }: { onOpenMobileMenu?: () => void }) 
   const navigate = useNavigate();
   const location = useLocation();
   const isMobile = useIsMobile();
-  const [searchOpen, setSearchOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const { currentProject, currentProjectId, logout } = useAuth();
   const { unreadCount, refreshUnreadCount } = useNotifications();
@@ -152,14 +151,6 @@ export function Header({ onOpenMobileMenu }: { onOpenMobileMenu?: () => void }) 
       </div>
 
       <div className="flex items-center gap-2">
-        {/* Search */}
-        <button onClick={() => setSearchOpen(v => !v)}
-          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all text-sm ${searchOpen ? "bg-secondary border-blue-300" : "border-border bg-muted hover:bg-secondary"}`}>
-          <Search className="w-3.5 h-3.5 text-muted-foreground" />
-          {!searchOpen && <span className="text-muted-foreground text-xs">검색...</span>}
-          {searchOpen && <input autoFocus className="bg-transparent outline-none text-xs text-foreground w-32 placeholder-muted-foreground" placeholder="업무, 회의록, 파일 검색" />}
-        </button>
-
         {/* Deadline badge — 실제 프로젝트 마감일 기준 */}
         {dDay && (
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 border border-amber-200">

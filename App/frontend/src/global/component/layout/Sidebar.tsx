@@ -40,6 +40,7 @@ export function Sidebar({ active, onSelect, onAI, collapsed, onToggleCollapsed, 
     if (item.activate === false) return false;
     if (item.id === "contributors") return role === "심사자";
     if (item.id === "leader") return role === "팀장";
+    if (item.id === "mypage") return role !== "심사자";
     return true;
   });
 
