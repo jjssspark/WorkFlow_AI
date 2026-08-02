@@ -248,9 +248,44 @@ MULTI/EXEC 를 쓰는데 그 권한이 없으면 통째로 NOPERM 이 된다. �
 
 ### 2. Dockerfile 에 `scripts/` 를 추가했다
 
-설계에 적은 조회 명령(`docker exec workflow-fastapi python scripts/show_rag_stats.py`)이
+설계에 적은 조회 명령(`docker exec workflow-backend-fastapi python scripts/show_rag_stats.py`)이
 **그대로는 동작하지 않았다.** Dockerfile 이 패키지 디렉터리만 COPY 하고 있어 이미지에
 `scripts/` 가 없었다. 읽는 방법이 없으면 만들 이유가 없는 기능이라 같이 고쳤다.
+
+컨테이너 이름도 틀렸었다. `workflow-fastapi` 가 아니라 **`workflow-backend-fastapi`** 다
+(`docker-compose.yml` 의 `container_name`). 배포 후 대표가 직접 돌려보다 발견했다.
+
+### 2-1. ACL 변경은 배포만으로 반영되지 않는다 (운영 함정)
+
+**`docker compose up -d --build` 는 Redis 컨테이너를 재생성하지 않는다.**
+
+`users.acl.template` 은 bind mount 다(`docker-compose.prod.yml`).
+
+```yaml
+    volumes:
+      - ./redis/users.acl.template:/usr/local/etc/redis/users.acl.template:ro
+```
+
+Compose 는 서비스 정의(이미지·환경변수·명령)가 바뀌었을 때만 컨테이너를 재생성한다.
+bind mount 된 **파일 내용** 변화는 감지하지 않는다. 그리고 ACL 파일은 redis-server 가
+기동 시 한 번 읽어 메모리에 올린다. 따라서 배포가 성공해도 Redis 는 **옛 ACL 을 그대로
+들고 계속 떠 있다.**
+
+배포 직후 실측으로 확인했다 — `ACL GETUSER fastapi` 에 선택자가 3개뿐이고 `~rag_stats:*`
+가 없었다. 컨테이너는 "Up 2 days" 였다.
+
+이 상태에서 무슨 일이 일어나는지가 특히 나쁘다. 통계는 실패를 삼키도록 설계돼 있어
+(질의를 죽이지 않기 위해) **아무 증상도 없이 카운터만 영원히 비어 있게 된다.**
+"질의가 없었다"와 구분되지 않는다.
+
+그래서 ACL 을 바꾼 배포에는 재기동이 반드시 따라야 한다.
+
+```
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --force-recreate redis
+```
+
+AOF + `/data` 볼륨이라 데이터는 살아남는다. 재기동 후 `ACL GETUSER fastapi` 로 선택자가
+실제로 늘었는지 눈으로 확인한다 — 이 확인을 건너뛰면 위의 "조용한 실패"로 되돌아간다.
 
 ### 3. `test_redis_compose.sh` 는 예상보다 더 썩어 있었다
 
