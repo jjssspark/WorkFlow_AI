@@ -1032,3 +1032,24 @@ describe("MeetingsView PDF 내보내기", () => {
     expect(await screen.findByText(/PDF 생성 중 오류가 발생했습니다/)).toBeInTheDocument();
   });
 });
+
+describe("MeetingsView 회의록 양식 다운로드", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockUseAuth.mockReturnValue(asLeader());
+    fetchMeetings.mockResolvedValue([]);
+  });
+
+  it("회의록 페이지에 들어가자마자 양식을 내려받을 수 있다 — 업로드 모달을 열 필요가 없다", async () => {
+    render(
+      <MemoryRouter initialEntries={["/meetings"]}>
+        <MeetingsView />
+      </MemoryRouter>
+    );
+
+    const templateLink = await screen.findByRole("link", { name: /회의록 양식 다운로드/ });
+
+    expect(templateLink).toHaveAttribute("href", "/templates/meeting-minutes-template.docx");
+    expect(templateLink).toHaveAttribute("download", "회의록_양식.docx");
+  });
+});

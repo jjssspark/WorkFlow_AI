@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
-import { AlertTriangle, ArrowLeft, ArrowRight, Check, FileText, Radio, Sparkles, Upload, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowRight, Check, Download, FileText, Radio, Sparkles, Upload, X } from "lucide-react";
 import { analyzeMeeting } from "../libs/utils/meetingAiApi";
+import { MEETING_TEMPLATE_FILE_NAME, MEETING_TEMPLATE_URL } from "../libs/constants/meetingTemplate";
 import { ApiRequestError } from "../../global/api/apiClient";
 import type { MemberResponse } from "../../global/api/projectsApi";
 
@@ -151,6 +152,22 @@ export function MeetingUploadModal({ projectId, projectMembers, onClose, onUploa
                     <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: utype.bg }}><Icon className="w-4 h-4" style={{ color: utype.color }} /></div>
                     <span className="text-sm font-bold text-foreground">{utype.label}</span>
                   </div>
+
+                  {uploadType === "document" && (
+                    <a
+                      href={MEETING_TEMPLATE_URL}
+                      download={MEETING_TEMPLATE_FILE_NAME}
+                      className="flex items-center gap-3 rounded-xl border border-blue-200 bg-blue-50/60 px-4 py-3 transition-colors hover:bg-blue-50"
+                    >
+                      <div className="w-9 h-9 rounded-lg bg-white flex items-center justify-center shrink-0">
+                        <Download className="w-4 h-4" style={{ color: "#3B5BDB" }} />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold text-foreground">회의록 양식 다운로드 (.docx)</div>
+                        <div className="text-[11px] text-muted-foreground mt-0.5">이 양식으로 작성하면 AI가 더 정확하게 분석합니다.</div>
+                      </div>
+                    </a>
+                  )}
 
                   <input
                     ref={fileInputRef}
