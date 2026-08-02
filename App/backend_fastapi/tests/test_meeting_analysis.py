@@ -701,6 +701,9 @@ def test_analyze_json_uses_ollama_result_when_available(monkeypatch, no_analysis
 
 def test_analyze_json_uses_huggingface_result_when_provider_is_huggingface(monkeypatch, no_analysis_cache):
     monkeypatch.setenv("MEETING_ANALYSIS_PROVIDER", "huggingface")
+    # 토큰을 직접 세운다. _huggingface_configured() 가 토큰 유무로 분기하므로, 주변 환경에
+    # 맡기면 개발자 기계(.env 에 토큰 있음)에서는 통과하고 CI(토큰 없음)에서는 실패한다.
+    monkeypatch.setenv("HF_TOKEN", "test-token")
     fake_result = analyze_meeting(
         AnalyzeRequest(title="정기회의", meeting_date="2026-07-15", text="내용", participants=["김민준"])
     )
@@ -717,12 +720,15 @@ def test_analyze_json_uses_huggingface_result_when_provider_is_huggingface(monke
 
 def test_analyze_json_falls_back_to_ollama_when_huggingface_fails(monkeypatch, no_analysis_cache):
     monkeypatch.setenv("MEETING_ANALYSIS_PROVIDER", "huggingface")
+    # 토큰이 없으면 huggingface 를 아예 건너뛰므로 "실패해서 폴백"이 아니라 "설정이 없어서
+    # 건너뜀"을 재게 된다. 그 경로는 바로 위 test_analyze_json_auto_skips_... 가 따로 본다.
+    monkeypatch.setenv("HF_TOKEN", "test-token")
     fake_result = analyze_meeting(
         AnalyzeRequest(title="정기회의", meeting_date="2026-07-15", text="내용", participants=["김민준"])
     )
     client = TestClient(app)
     with (
-        patch("app.main.analyze_meeting_with_huggingface", side_effect=RuntimeError("hf down")),
+        patch("app.main.analyze_meeting_with_huggingface", side_effect=RuntimeError("hf down")) as mock_hf,
         patch("app.main.analyze_meeting_with_ollama", return_value=fake_result) as mock_ollama,
     ):
         response = client.post(
@@ -731,6 +737,9 @@ def test_analyze_json_falls_back_to_ollama_when_huggingface_fails(monkeypatch, n
         )
 
     assert response.status_code == 200
+    # 이 단언이 없으면 huggingface 가 호출조차 안 된 경우에도 통과한다 - 실제로 CI 에서
+    # 토큰이 없어 그 상태로 초록이었다. 폴백을 재려면 먼저 실패가 일어나야 한다.
+    mock_hf.assert_called_once()
     mock_ollama.assert_called_once()
 
 
