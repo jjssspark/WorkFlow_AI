@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import re
 
+from llm_rag_assistant.app.services.rag_stats import QuestionQueryStats, record_question_query
 from llm_rag_assistant.app.services.vector_utils import to_vector_literal
 
 logger = logging.getLogger(__name__)
@@ -298,29 +299,62 @@ async def search_chunks_for_question(
     청크를 높게 주기 때문에("어떻게 돼가" 류) 정작 지목된 업무를 놓친다. 운영 데이터
     30문항 평가에서 코드가 든 질문의 Hit@5 가 0.400 이었다.
     """
+    # 반환이 한 곳뿐인 것은 의도적이다. 아래 record_question_query 를 반환 직전에 딱 한 번만
+    # 부르기 위해서다. 조기 반환으로 흩어 두면 경로가 늘 때마다 계측이 조용히 빠지고,
+    # 그 누락은 "그 조건의 질문이 0건"으로 보여 관측값이 아니라 결론을 틀리게 만든다.
+    codes: list[str] = []
+    code_rows: list[dict] = []
+    code_slots = 0
+    code_search_failed = False
+
     # 개인화 질문에는 라우팅을 걸지 않는다. 코드 정확 검색에는 담당자 필터가 없어 남의
     # 담당 업무가 개인화 답변에 섞일 수 있다 (아래 search_similar_chunks 의 assignee 분기와
     # 같은 이유 - 개인화 질문에서는 정확한 "없음"이 잘못된 "있음"보다 안전하다).
     if assignee_id is not None:
-        return await search_similar_chunks(pool, project_id, query_embedding, top_k, assignee_id)
+        rows = await search_similar_chunks(pool, project_id, query_embedding, top_k, assignee_id)
+    else:
+        codes = list(dict.fromkeys(TASK_CODE_PATTERN.findall(question or "")))
+        if not codes:
+            rows = await search_similar_chunks(pool, project_id, query_embedding, top_k)
+        else:
+            code_slots = _code_slots_for(codes, top_k)
+            try:
+                code_rows = await find_task_chunks_by_code_scored(
+                    pool, project_id, codes, query_embedding, limit=code_slots
+                )
+            except Exception:
+                # 부가 경로가 본 기능을 죽이면 안 된다. 이때 아래 info 로그는 남기지 않는다 -
+                # "정확 일치 0건"이 "코드가 정말 없음"과 "조회 실패" 둘을 뜻하면 관측값이
+                # 오염된다. 같은 이유로 통계도 code_search_failed 로 구분해 넘긴다.
+                logger.warning("업무 코드 검색 실패, 유사도 검색만으로 진행합니다.", exc_info=True)
+                code_search_failed = True
+                rows = await search_similar_chunks(pool, project_id, query_embedding, top_k)
+            else:
+                # 개수만 남긴다. 질문 원문도 코드 값도 로그에 넣지 않는다.
+                logger.info("코드 라우팅 발동: 코드 %d개, 정확 일치 %d건", len(codes), len(code_rows))
+                rows = await _merge_code_hits_with_similar(
+                    pool, project_id, query_embedding, top_k, code_rows
+                )
 
-    codes = list(dict.fromkeys(TASK_CODE_PATTERN.findall(question or "")))
-    if not codes:
-        return await search_similar_chunks(pool, project_id, query_embedding, top_k)
-
-    try:
-        code_rows = await find_task_chunks_by_code_scored(
-            pool, project_id, codes, query_embedding, limit=_code_slots_for(codes, top_k)
+    await record_question_query(
+        QuestionQueryStats(
+            project_id=project_id,
+            top_k=top_k,
+            personal=assignee_id is not None,
+            source_count=len(rows),
+            code_count=len(codes),
+            code_hits=len(code_rows),
+            code_slots=code_slots,
+            code_search_failed=code_search_failed,
         )
-    except Exception:
-        # 부가 경로가 본 기능을 죽이면 안 된다. 이때 아래 info 로그는 남기지 않는다 -
-        # "정확 일치 0건"이 "코드가 정말 없음"과 "조회 실패" 둘을 뜻하면 관측값이 오염된다.
-        logger.warning("업무 코드 검색 실패, 유사도 검색만으로 진행합니다.", exc_info=True)
-        return await search_similar_chunks(pool, project_id, query_embedding, top_k)
+    )
+    return rows
 
-    # 개수만 남긴다. 질문 원문도 코드 값도 로그에 넣지 않는다.
-    logger.info("코드 라우팅 발동: 코드 %d개, 정확 일치 %d건", len(codes), len(code_rows))
 
+async def _merge_code_hits_with_similar(
+    pool, project_id: int, query_embedding: list[float], top_k: int, code_rows: list[dict]
+) -> list[dict]:
+    """코드 정확 일치를 앞에 놓고 남은 칸을 유사도 검색으로 채운다."""
     # 임베딩은 잔여 칸 수가 아니라 항상 top_k 전체로 요청한다. 줄여서 부르면 회의록 예약이
     # 남은 칸을 통째로 먹는다: top_k=2 면 reserved=min(2,2)=2 라 general[:0] 이 되어
     # 의미 검색 결과가 하나도 안 남는다.

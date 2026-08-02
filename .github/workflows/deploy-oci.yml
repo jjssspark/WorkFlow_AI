@@ -80,8 +80,14 @@ jobs:
   fastapi:
     uses: ./.github/workflows/fastapi-tests.yml
 
+  # ACL 이 어긋난 채로 배포되면 Redis 를 쓰는 기능이 런타임 NOPERM 으로 조용히 죽는다
+  # (2026-07-30 실측: rag-jobs 누락으로 RAG 큐가 통째로 정지). 정적 검사는 몇 초라
+  # 게이트에 넣지 않을 이유가 없다.
+  redis-acl:
+    uses: ./.github/workflows/redis-acl-tests.yml
+
   deploy:
-    needs: [test, frontend, fastapi]
+    needs: [test, frontend, fastapi, redis-acl]
     runs-on: ubuntu-latest
     steps:
       - name: Set up SSH

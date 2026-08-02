@@ -11,6 +11,7 @@ from __future__ import annotations
 import pytest
 
 from core.config import get_settings
+from llm_rag_assistant.app.services import rag_stats
 
 # 개발자 로컬 .env 가 프로세스 환경에 새어 들어와 테스트 결과를 바꾸는 것을 막는다.
 # 아래 값들은 "어느 LLM 백엔드를 쓸지"를 고르는 스위치라, 값이 하나라도 남아 있으면
@@ -43,3 +44,57 @@ def _isolate_ambient_env(monkeypatch: pytest.MonkeyPatch):
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
+
+
+class _FakeStatsPipeline:
+    def __init__(self, redis: "FakeStatsRedis") -> None:
+        self._redis = redis
+        self._ops: list[tuple] = []
+
+    def hincrby(self, key: str, field: str, amount: int) -> None:
+        self._ops.append(("hincrby", key, field, amount))
+
+    def expire(self, key: str, seconds: int) -> None:
+        self._ops.append(("expire", key, seconds))
+
+    async def execute(self) -> None:
+        for op in self._ops:
+            if op[0] == "hincrby":
+                _, key, field, amount = op
+                self._redis.hashes.setdefault(key, {})
+                self._redis.hashes[key][field] = self._redis.hashes[key].get(field, 0) + amount
+            else:
+                _, key, seconds = op
+                self._redis.expirations[key] = seconds
+        self._ops.clear()
+
+
+class FakeStatsRedis:
+    """rag_stats 가 쓰는 만큼만 흉내 내는 인메모리 Redis."""
+
+    def __init__(self) -> None:
+        self.hashes: dict[str, dict[str, int]] = {}
+        self.expirations: dict[str, int] = {}
+
+    def pipeline(self, transaction: bool = True) -> _FakeStatsPipeline:
+        # 운영에서 transaction=True 로 부르면 MULTI/EXEC 권한이 없어 통째로 NOPERM 이 된다.
+        # 그건 로컬 테스트에서는 예외를 삼키느라 안 보이고 배포 후에야 드러나므로 여기서 막는다.
+        assert transaction is False, "fastapi ACL 계정에는 MULTI/EXEC 권한이 없다"
+        return _FakeStatsPipeline(self)
+
+
+@pytest.fixture(autouse=True)
+def rag_stats_redis(monkeypatch: pytest.MonkeyPatch) -> FakeStatsRedis:
+    """질의 통계가 진짜 Redis 로 새어 나가지 않게 막고, 올라간 값을 검증할 수 있게 한다.
+
+    autouse 인 것이 핵심이다. 막지 않으면 개발자 로컬에 Redis 가 떠 있을 때 테스트가
+    운영과 같은 키(rag_stats:{오늘})에 카운트를 쌓아 관측값을 오염시킨다. 실제로 이런
+    새어나감을 두 번 겪었다 - 통합 테스트가 운영 DB 를 읽은 건, 회의록 분석 테스트가
+    로컬 캐시를 읽은 건(둘 다 2026-08-02).
+
+    통계는 실패해도 예외를 삼키므로 '연결 실패로 어차피 안 쌓인다'에 기대면 안 된다.
+    Redis 가 떠 있는 환경에서는 조용히 성공한다.
+    """
+    fake = FakeStatsRedis()
+    monkeypatch.setattr(rag_stats, "get_async_redis_client", lambda: fake)
+    return fake

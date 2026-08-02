@@ -718,3 +718,123 @@ async def test_meeting_reservation_is_decided_after_dedup() -> None:
     )
 
     assert any(r["source_type"] == "meeting" for r in result)
+
+
+# --- 질의 통계 배선 -------------------------------------------------------
+#
+# 위 rag_stats 테스트는 "조건이 맞으면 어떤 필드가 오르는가"를 본다. 여기서는 그 조건이
+# 실제 검색 경로에서 제대로 채워지는지를 본다. 둘을 나눈 이유는, 계측이 빠지는 사고가
+# 계산이 틀려서가 아니라 **경로가 늘었을 때 호출이 안 붙어서** 나기 때문이다.
+# 그 누락은 "그 조건의 질문이 0건"으로 보여, 관측값이 아니라 결론을 틀리게 만든다.
+
+
+def _counters(rag_stats_redis) -> dict[str, int]:
+    from llm_rag_assistant.app.services.rag_stats import _stats_key
+
+    return rag_stats_redis.hashes.get(_stats_key(), {})
+
+
+@pytest.mark.asyncio
+async def test_a_plain_vector_question_is_counted(rag_stats_redis) -> None:
+    conn = _FakeRoutingConn(general=[_row("task", 1, "업무1", 0.9)])
+
+    await search_chunks_for_question(_FakeRoutingPool(conn), 7, "뭐 하기로 했지?", [0.1], top_k=5)
+
+    counters = _counters(rag_stats_redis)
+    assert counters["total"] == 1
+    assert counters["proj_7"] == 1
+    assert counters["codes_0"] == 1
+    # 근거가 1건뿐이라 top_k 에 못 미친다.
+    assert counters["sources_short"] == 1
+
+
+@pytest.mark.asyncio
+async def test_a_personal_question_is_counted_as_personal(rag_stats_redis) -> None:
+    conn = _FakeRoutingConn(assignee=[_row("task", 3, "내 업무", 0.9)])
+
+    await search_chunks_for_question(
+        _FakeRoutingPool(conn), 7, "내가 맡은 WF-195 어때?", [0.1], top_k=5, assignee_id=42
+    )
+
+    counters = _counters(rag_stats_redis)
+    assert counters["personal"] == 1
+    # 라우팅을 타지 않은 질문이 코드 분모에 들어가면 '코드 질문 비중'이 낮게 나온다.
+    assert "codes_1" not in counters
+
+
+@pytest.mark.asyncio
+async def test_a_routed_question_records_its_code_count(rag_stats_redis) -> None:
+    conn = _FakeRoutingConn(
+        code=[_row("task", n, f"WF-{n} 업무", 0.5) for n in (174, 175)],
+        general=[_row("task", 900, "일반", 0.9)],
+    )
+
+    await search_chunks_for_question(
+        _FakeRoutingPool(conn), 7, "WF-174 와 WF-175 비교해줘", [0.1], top_k=5
+    )
+
+    assert _counters(rag_stats_redis)["codes_2"] == 1
+
+
+@pytest.mark.asyncio
+async def test_naming_more_codes_than_top_k_is_recorded_as_truncated(rag_stats_redis) -> None:
+    """이 값이 top_k 상한을 올릴 근거가 된다."""
+    codes = (171, 172, 173, 174, 175, 176, 177)
+    conn = _FakeRoutingConn(
+        code=[_row("task", n, f"WF-{n} 업무", 0.5) for n in codes], general=[]
+    )
+
+    await search_chunks_for_question(
+        _FakeRoutingPool(conn), 7, " ".join(f"WF-{n}" for n in codes), [0.1], top_k=5
+    )
+
+    counters = _counters(rag_stats_redis)
+    assert counters["codes_5plus"] == 1
+    assert counters["codes_truncated"] == 1
+
+
+@pytest.mark.asyncio
+async def test_a_code_that_matches_nothing_is_recorded_as_a_miss(rag_stats_redis) -> None:
+    conn = _FakeRoutingConn(code=[], general=[_row("meeting", 1, "회의 요약", 0.8)])
+
+    await search_chunks_for_question(
+        _FakeRoutingPool(conn), 7, "WF-9999 어떻게 돼가?", [0.1], top_k=5
+    )
+
+    assert _counters(rag_stats_redis)["code_miss"] == 1
+
+
+@pytest.mark.asyncio
+async def test_a_failed_code_lookup_is_not_recorded_as_a_miss(rag_stats_redis) -> None:
+    """'코드가 정말 없음'과 '조회 실패'가 한 칸에 섞이면 폴백 비율을 못 믿게 된다."""
+    conn = _FakeRoutingConn(
+        code_error=RuntimeError("코드 검색 실패"), general=[_row("meeting", 1, "회의 요약", 0.8)]
+    )
+
+    await search_chunks_for_question(
+        _FakeRoutingPool(conn), 7, "WF-195 어떻게 돼가?", [0.1], top_k=5
+    )
+
+    counters = _counters(rag_stats_redis)
+    assert "code_miss" not in counters
+    # 질문 자체는 세야 한다. 안 세면 실패한 만큼 total 이 비어 비율이 전부 틀어진다.
+    assert counters["total"] == 1
+
+
+@pytest.mark.asyncio
+async def test_broken_stats_never_break_the_search(monkeypatch) -> None:
+    """통계가 검색을 죽이면 그건 관측이 아니라 새로 만든 장애 지점이다."""
+    from llm_rag_assistant.app.services import rag_stats
+
+    def _explode():
+        raise RuntimeError("redis down")
+
+    monkeypatch.setattr(rag_stats, "get_async_redis_client", _explode)
+    general = [_row("task", 1, "업무1", 0.9)]
+    conn = _FakeRoutingConn(general=general)
+
+    result = await search_chunks_for_question(
+        _FakeRoutingPool(conn), 7, "뭐 하기로 했지?", [0.1], top_k=5
+    )
+
+    assert result == general
