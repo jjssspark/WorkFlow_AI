@@ -35,6 +35,9 @@ COPY App/backend_fastapi/llm_checklist llm_checklist
 COPY App/backend_fastapi/ml_delay_risk ml_delay_risk
 # ml_delay_risk/models/*.pkl은 git에 없으므로(.gitignore 참고),
 # 컨테이너 기동 시 docker-entrypoint.sh가 Hugging Face Hub에서 내려받는다.
+# 운영에서 손으로 돌리는 조회 스크립트. 앱 코드는 아니지만 이미지에 없으면
+# `docker exec ... python scripts/show_rag_stats.py` 가 안 돌아 관측을 읽을 수 없다.
+COPY App/backend_fastapi/scripts scripts
 COPY App/backend_fastapi/docker-entrypoint.sh docker-entrypoint.sh
 RUN chmod +x docker-entrypoint.sh
 

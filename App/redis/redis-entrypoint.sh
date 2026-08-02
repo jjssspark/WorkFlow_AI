@@ -62,6 +62,16 @@ template=/usr/local/etc/redis/users.acl.template
 #            &rag-result:*                           워커 -> 요청 스레드 결과 전달 채널
 #            ~meeting_analysis:*, ~rag_answer:*      결과 캐시
 #            ~rag_epoch:*                            캐시 무효화 카운터 (get + incr)
+#            ~rag_stats:*                            질의 집계 카운터 (hincrby + expire + hgetall)
+#
+# rag_stats 에 +multi/+exec 가 없는 것은 의도적이다. 코드가 파이프라인을 transaction=False
+# 로 열어 MULTI/EXEC 를 쓰지 않는다(rag_stats.record_question_query). 통계는 필드마다
+# 독립적인 HINCRBY 라 원자성이 필요 없고, 권한은 실제로 쓰는 것만 준다.
+#
+# +hgetall 은 조회 스크립트(scripts/show_rag_stats.py)용이다. admin 비밀번호는 redis 컨테이너
+# 에만 있어서, 읽기를 admin 으로만 열어두면 fastapi 컨테이너에서 스크립트를 돌릴 수 없다.
+# 비밀번호를 한 벌 더 실어 나르는 것보다, 자기가 쓴 집계 카운터를 자기가 읽게 두는 편이 낫다
+# (질문 원문이 아니라 숫자만 들어 있어 읽어도 얻을 정보가 없다).
 #
 # 2026-07-30: 코드가 쓰는 키의 절반이 빠져 있어 기능 두 개가 통째로 죽어 있던 것을 바로잡음.
 #   - dashboard-ai-jobs 누락 -> DashboardAiQueueWorker가 기동마다 그룹 생성 실패
