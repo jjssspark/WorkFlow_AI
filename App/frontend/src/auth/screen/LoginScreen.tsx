@@ -9,18 +9,6 @@ import type { AuthTokenResponse, SignupResponse } from "../../global/api/authTyp
 import { tokenStore } from "../../global/api/tokenStore";
 import { Button } from "../../global/component/ui/button";
 
-const TEST_ACCOUNTS = [
-  { username: "leader", name: "허영주", role: "팀장" },
-  { username: "member1", name: "박상준", role: "팀원" },
-  { username: "member2", name: "유소은", role: "팀원" },
-  { username: "member3", name: "이은주", role: "팀원" },
-  { username: "member4", name: "박지수", role: "팀원" },
-  { username: "member5", name: "홍길동", role: "팀원" },
-  { username: "reviewer", name: "고무서", role: "심사자" },
-];
-const TEST_PASSWORD = "1111";
-const testLoginGuideEnabled = import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO_AUTH === "true";
-
 export function LoginScreen() {
   const navigate = useNavigate();
   const { loginWithGoogle, refreshMe } = useAuth();
@@ -43,26 +31,19 @@ export function LoginScreen() {
   const handleLogin = async () => {
     if (loggingIn) return;
     if (!username.trim() || !password.trim()) {
-      setLoginError("아이디 또는 비밀번호가 올바르지 않습니다.");
+      setLoginError("이메일 또는 비밀번호가 올바르지 않습니다.");
       return;
     }
     setLoginError(null);
     setRejectedMessage(null);
     setLoggingIn(true);
     try {
-      const id = username.trim();
-      const isRealAccount = id.includes("@");
-      const tokens = isRealAccount
-        ? await apiFetch<AuthTokenResponse>("/auth/login", {
-            method: "POST",
-            body: JSON.stringify({ email: id, password }),
-          })
-        : await apiFetch<AuthTokenResponse>("/auth/test-login", {
-            method: "POST",
-            body: JSON.stringify({ username: id, password }),
-          });
+      const tokens = await apiFetch<AuthTokenResponse>("/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ email: username.trim(), password }),
+      });
       tokenStore.clear();
-      tokenStore.setTokens(tokens.accessToken, tokens.refreshToken, tokens.testSessionId ?? null);
+      tokenStore.setTokens(tokens.accessToken, tokens.refreshToken, null);
       const me = await refreshMe();
       // 로그인 화면 히스토리 엔트리를 replace로 지워버리면 로그인 직후 뒤로가기를 눌러도
       // 로그인 화면으로 못 돌아가고 이 화면(/projects 등)이 다시 뜬다. 뒤로가기가 로그인
@@ -79,12 +60,6 @@ export function LoginScreen() {
     } finally {
       setLoggingIn(false);
     }
-  };
-
-  const fillTestAccount = (accountUsername: string) => {
-    setLoginError(null);
-    setUsername(accountUsername);
-    setPassword(TEST_PASSWORD);
   };
 
   const handleReapply = async () => {
@@ -201,7 +176,7 @@ export function LoginScreen() {
 
           <form onSubmit={(event) => { event.preventDefault(); void handleLogin(); }}>
             <div className="space-y-4">
-              <AuthInput label="아이디 또는 이메일" type="text" placeholder="아이디(예: leader) 또는 이메일"
+              <AuthInput label="이메일" type="email" placeholder="이메일 입력"
                 value={username} onChange={setUsername} icon={User} />
               <AuthInput
                 label="비밀번호" type={showPassword ? "text" : "password"} placeholder="비밀번호 입력"
@@ -261,30 +236,6 @@ export function LoginScreen() {
             </button>
           </p>
 
-          {testLoginGuideEnabled && (
-            <div className="mt-8 pt-6 border-t border-border">
-              <p className="text-center text-[11px] font-semibold text-amber-600 mb-3">
-                ⚠ 중간보고/시연용 테스트 계정 — 비밀번호는 전부 1111입니다
-              </p>
-              <div className="grid grid-cols-2 gap-2">
-                {TEST_ACCOUNTS.map((account) => (
-                  <button
-                    key={account.username}
-                    type="button"
-                    onClick={() => fillTestAccount(account.username)}
-                    className="flex flex-col items-center gap-0.5 py-2.5 rounded-xl border border-dashed border-border bg-muted/40 text-xs font-medium text-foreground transition-colors hover:bg-muted"
-                    title={`${account.name} / ${account.role}`}
-                  >
-                    <span>{account.username}</span>
-                    <span className="text-[10px] text-muted-foreground">{account.name} · {account.role}</span>
-                  </button>
-                ))}
-              </div>
-              <p className="text-center text-[10px] text-muted-foreground mt-2">
-                계정을 누르면 아이디/비밀번호가 자동으로 채워집니다. 로그인 버튼을 눌러 접속하세요.
-              </p>
-            </div>
-          )}
           </>
           )}
         </div>

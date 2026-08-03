@@ -47,8 +47,8 @@ describe("LoginScreen", () => {
       </MemoryRouter>
     );
 
-    await userEvent.type(screen.getByPlaceholderText("아이디(예: leader) 또는 이메일"), "leader");
-    await userEvent.type(screen.getByPlaceholderText("비밀번호 입력"), "1111");
+    await userEvent.type(screen.getByPlaceholderText("이메일 입력"), "leader@test");
+    await userEvent.type(screen.getByPlaceholderText("비밀번호 입력"), "pw-1234");
     await userEvent.click(screen.getByRole("button", { name: "로그인" }));
 
     expect(mockNavigate).toHaveBeenCalledTimes(1);

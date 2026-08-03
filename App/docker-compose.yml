@@ -211,7 +211,7 @@ services:
     build:
       context: ./frontend
       args:
-        VITE_ENABLE_DEMO_AUTH: ${VITE_ENABLE_DEMO_AUTH:-true}
+        VITE_ENABLE_DEMO_AUTH: ${VITE_ENABLE_DEMO_AUTH:-false}
     container_name: workflow-frontend
     # Dockerfile이 pnpm build 결과를 nginx(1.27-alpine)에 얹어 5173으로 서빙하고
     # /api/는 backend-spring:8080으로 프록시한다 (frontend/nginx.conf).
