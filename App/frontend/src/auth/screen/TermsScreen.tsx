@@ -6,7 +6,7 @@ import { SIGNUP_DRAFT_KEY } from "./SignupScreen";
 // 끝까지 스크롤했다고 판정하는 여유값(px) — 정확히 바닥에 딱 붙지 않아도(서브픽셀 반올림 등) 통과시킨다.
 const SCROLL_END_THRESHOLD_PX = 8;
 
-const TERMS_SECTIONS = [
+export const TERMS_SECTIONS = [
   {
     title: "제1조 (목적)",
     body: "이 약관은 WorkFlow AI(이하 \"회사\")가 제공하는 팀 프로젝트 관리 서비스(이하 \"서비스\")의 이용과 관련하여 회사와 회원 간의 권리, 의무 및 책임사항, 기타 필요한 사항을 규정함을 목적으로 합니다.",

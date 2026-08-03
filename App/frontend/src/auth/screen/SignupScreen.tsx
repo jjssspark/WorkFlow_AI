@@ -17,14 +17,16 @@ import {
 } from "lucide-react";
 import { AuthBrandPanel } from "../components/AuthBrandPanel";
 import { AuthInput } from "../components/AuthInput";
+import { TERMS_SECTIONS } from "./TermsScreen";
 import { useAuth } from "../../global/hooks/useAuth";
 import { apiFetch, ApiRequestError } from "../../global/api/apiClient";
 import type { SignupResponse } from "../../global/api/authTypes";
 import { tokenStore } from "../../global/api/tokenStore";
 
-// 회원가입 폼은 순수 useState라 /terms로 이동했다 돌아오면 초기화된다 — sessionStorage에 임시 저장해 왕복 시 값을 유지한다.
-// 비밀번호는 절대 포함하지 않는다 — sessionStorage는 평문으로 남고 XSS/공유 PC 등에서 읽힐 수 있어,
-// 약관 페이지를 다녀오면 비밀번호 두 필드는 사용자가 다시 입력해야 한다.
+// 회원가입 폼은 순수 useState라 화면을 벗어났다 돌아오면 초기화된다 — sessionStorage에 임시 저장해 왕복 시 값을 유지한다.
+// 비밀번호는 절대 포함하지 않는다 — sessionStorage는 평문으로 남고 XSS/공유 PC 등에서 읽힐 수 있다.
+// 그래서 약관·개인정보처리방침 동의는 라우트 이동이 아니라 모달로 처리한다. /terms로 넘어갔다 오면
+// 이 화면이 언마운트돼 비밀번호 두 필드가 비워지기 때문이다(복원할 수도 없다).
 export const SIGNUP_DRAFT_KEY = "workflow-ai:signup-draft";
 
 interface SignupDraft {
@@ -62,13 +64,14 @@ export function SignupScreen() {
   const [approvalSubmitted, setApprovalSubmitted] = useState(false);
   const [signupError, setSignupError] = useState<string | null>(null);
   const [showPrivacyModal, setShowPrivacyModal] = useState(false);
+  const [showTermsModal, setShowTermsModal] = useState(false);
 
   useEffect(() => {
     const nextDraft: SignupDraft = { name, email, isProfessor, termsAgreed, privacyAgreed };
     sessionStorage.setItem(SIGNUP_DRAFT_KEY, JSON.stringify(nextDraft));
   }, [name, email, isProfessor, termsAgreed, privacyAgreed]);
 
-  const goToTerms = () => navigate("/terms");
+  const openTerms = () => setShowTermsModal(true);
 
   const pwMatch = Boolean(pw && pwConfirm && pw === pwConfirm);
   const pwMismatch = Boolean(pw && pwConfirm && pw !== pwConfirm);
@@ -251,13 +254,13 @@ export function SignupScreen() {
                   <button
                     type="button"
                     aria-label={termsAgreed ? "이용약관 동의 해제" : "이용약관 보기"}
-                    onClick={() => (termsAgreed ? setTermsAgreed(false) : goToTerms())}
+                    onClick={() => (termsAgreed ? setTermsAgreed(false) : openTerms())}
                     className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-all mt-0.5 cursor-pointer shrink-0 ${termsAgreed ? "border-blue-500 bg-blue-500" : "border-slate-400 bg-input-background"}`}
                   >
                     {termsAgreed && <Check className="w-3 h-3 text-white" />}
                   </button>
                   <span className="text-xs text-muted-foreground leading-relaxed">
-                    (필수) <button type="button" onClick={goToTerms} className="font-semibold text-blue-600 hover:text-blue-700">이용약관</button>에 동의합니다.
+                    (필수) <button type="button" onClick={openTerms} className="font-semibold text-blue-600 hover:text-blue-700">이용약관</button>에 동의합니다.
                     {!termsAgreed && <span className="block mt-1 text-[11px] text-muted-foreground">이용약관을 끝까지 확인해야 동의할 수 있습니다.</span>}
                   </span>
                 </div>
@@ -322,8 +325,19 @@ export function SignupScreen() {
         </div>
       </div>
 
+      {showTermsModal && (
+        <PolicyModal
+          title="이용약관"
+          sections={TERMS_SECTIONS}
+          onClose={() => setShowTermsModal(false)}
+          onAgree={() => { setTermsAgreed(true); setShowTermsModal(false); }}
+        />
+      )}
+
       {showPrivacyModal && (
-        <PrivacyPolicyModal
+        <PolicyModal
+          title="개인정보처리방침"
+          sections={PRIVACY_SECTIONS}
           onClose={() => setShowPrivacyModal(false)}
           onAgree={() => { setPrivacyAgreed(true); setShowPrivacyModal(false); }}
         />
@@ -343,7 +357,14 @@ const PRIVACY_SECTIONS = [
 // 끝까지 스크롤했다고 판정하는 여유값(px) — TermsScreen과 동일한 기준.
 const PRIVACY_SCROLL_END_THRESHOLD_PX = 8;
 
-function PrivacyPolicyModal({ onClose, onAgree }: { onClose: () => void; onAgree: () => void }) {
+interface PolicyModalProps {
+  title: string;
+  sections: ReadonlyArray<{ title: string; body: string }>;
+  onClose: () => void;
+  onAgree: () => void;
+}
+
+function PolicyModal({ title, sections, onClose, onAgree }: PolicyModalProps) {
   const [scrolledToEnd, setScrolledToEnd] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -363,7 +384,7 @@ function PrivacyPolicyModal({ onClose, onAgree }: { onClose: () => void; onAgree
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-          <h2 className="text-base font-bold text-foreground">개인정보처리방침</h2>
+          <h2 className="text-base font-bold text-foreground">{title}</h2>
           <button type="button" onClick={onClose} aria-label="닫기" className="text-muted-foreground hover:text-foreground">
             <X className="w-4 h-4" />
           </button>
@@ -373,7 +394,7 @@ function PrivacyPolicyModal({ onClose, onAgree }: { onClose: () => void; onAgree
           onScroll={(e) => checkScrolledToEnd(e.currentTarget)}
           className="px-6 py-4 max-h-[60vh] overflow-y-auto space-y-4"
         >
-          {PRIVACY_SECTIONS.map((section) => (
+          {sections.map((section) => (
             <div key={section.title}>
               <h3 className="text-xs font-bold text-foreground mb-1">{section.title}</h3>
               <p className="text-xs text-muted-foreground leading-relaxed">{section.body}</p>
