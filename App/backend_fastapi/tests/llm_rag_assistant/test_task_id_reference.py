@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import pytest
 
+from llm_rag_assistant.app.services.query_rewrite_service import _drops_task_reference
 from llm_rag_assistant.app.services.retrieval_service import (
     TASK_CODE_PATTERN,
     extract_task_codes,
@@ -79,3 +80,38 @@ def test_표시용_코드와_본문_코드가_섞이면_각자의_경로로_갈�
     question = "TASK-230 과 WF-195 비교해줘"
     assert extract_task_ids(question) == [230]
     assert extract_task_codes(question) == ["WF-195"]
+
+
+# --- 재작성이 업무 지칭을 잃지 않는지 ---
+#
+# 검색은 재작성본만 본다. "85번 마감일 언제야"가 "마감일이 언제인가요"로 바뀌면
+# 어느 업무인지 알 방법이 없다. 운영에서 실제로 근거 없음이 나왔고, 직전 답변이
+# "사유는 ... WF-230입니다"로 끝나 다른 번호로 바꿔치기된 것으로 보인다.
+
+@pytest.mark.parametrize(
+    "question, rewritten",
+    [
+        ("85번 마감일 언제야", "마감일이 언제인가요"),          # 지칭이 통째로 사라짐
+        ("85번 마감일 언제야", "WF-230의 마감일은 언제인가요"),   # 다른 번호로 바꿔치기
+        ("TASK-230 상황", "그 업무의 상황을 알려주세요"),
+        ("WF-195 상황 알려줘", "해당 업무의 상황을 알려주세요"),  # 본문 코드도 지켜야 한다
+        ("TASK-230 과 #7 비교", "TASK-230 의 상황"),           # 일부만 남아도 잃은 것이다
+    ],
+)
+def test_지칭을_잃은_재작성은_원문으로_되돌린다(question, rewritten):
+    assert _drops_task_reference(question, rewritten) is True
+
+
+@pytest.mark.parametrize(
+    "question, rewritten",
+    [
+        ("85번 마감일 언제야", "85번 업무의 마감일은 언제인가요"),
+        ("85번 마감일 언제야", "TASK-85의 마감일은 언제인가요"),  # 표기가 달라도 같은 id
+        ("TASK-230 상황", "TASK-230 업무의 현재 상황은 어떤가요"),
+        ("WF-195 상황", "WF-195 업무의 현재 상황은 어떤가요"),
+        ("wf-195 상황", "WF-195 업무의 현재 상황은 어떤가요"),   # 대소문자는 같은 코드다
+        ("오늘 할 일 뭐야", "오늘 해야 할 일은 무엇인가요"),      # 지칭이 없으면 검사 대상이 아니다
+    ],
+)
+def test_지칭이_지켜졌으면_재작성본을_쓴다(question, rewritten):
+    assert _drops_task_reference(question, rewritten) is False
