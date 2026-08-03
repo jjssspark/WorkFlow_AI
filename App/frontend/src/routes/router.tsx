@@ -49,8 +49,8 @@ function RootLayout() {
 }
 
 const appRoutes: RouteObject[] = [
-  { path: "/", element: <LandingScreenA /> }, // A안 (주석 처리, B안과 비교용으로 코드는 유지)
-  // { path: "/", element: <LandingScreenB /> }, // B안
+  // { path: "/", element: <LandingScreenA /> }, // A안
+  { path: "/", element: <LandingScreenB /> }, // B안
   { path: "/login", element: <LoginScreen /> },
   { path: "/signup", element: <SignupScreen /> },
   { path: "/terms", element: <TermsScreen /> },

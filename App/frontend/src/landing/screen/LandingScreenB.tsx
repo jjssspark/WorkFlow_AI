@@ -21,6 +21,7 @@ import {
 import { cn } from "../../global/component/ui/utils";
 import { useAuth } from "../../global/hooks/useAuth";
 import { HeroIllustration } from "../components/HeroIllustration";
+import { ScreenshotFrame } from "../components/ScreenshotFrame";
 import screenshotMeetings from "../assets/screenshots/meetings-ai.png";
 import screenshotBoard from "../assets/screenshots/board.png";
 import screenshotDashboard from "../assets/screenshots/dashboard.png";
@@ -317,31 +318,38 @@ export function LandingScreenB() {
           </p>
         </Reveal>
 
-        <motion.div
-          variants={staggerContainer}
-          initial="hidden"
-          whileInView="show"
-          viewport={{ once: true, margin: "-80px" }}
-          className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
-        >
-          {FEATURE_CARDS.map((f) => (
-            <motion.div
+        <div className="mt-16 space-y-24">
+          {FEATURE_CARDS.map((f, i) => (
+            <div
               key={f.title}
-              variants={fadeUp}
-              whileHover={{ y: -6, boxShadow: "0 12px 24px -8px rgba(59,91,219,0.25)" }}
-              className="rounded-xl border border-border bg-card p-6 shadow-sm"
+              className={cn(
+                "grid items-center gap-10 md:grid-cols-2",
+                i % 2 === 1 && "md:[&>*:first-child]:order-2",
+              )}
             >
-              <span className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                <f.icon className="size-5" />
-              </span>
-              <div className="mt-4 h-24 overflow-hidden rounded-lg border border-border">
-                <img src={f.screenshot} alt={f.title} className="w-full object-cover object-top" loading="lazy" />
-              </div>
-              <h3 className="mt-4 font-medium">{f.title}</h3>
-              <p className="mt-2 text-sm text-muted-foreground leading-relaxed">{f.desc}</p>
-            </motion.div>
+              <motion.div
+                initial="hidden"
+                whileInView="show"
+                viewport={{ once: true }}
+                variants={{ hidden: { opacity: 0, x: i % 2 === 0 ? -30 : 30 }, show: { opacity: 1, x: 0, transition: { duration: 0.55, ease: [0.22, 1, 0.36, 1] } } }}
+              >
+                <ScreenshotFrame src={f.screenshot} alt={`${f.title} 화면`} />
+              </motion.div>
+              <motion.div
+                initial="hidden"
+                whileInView="show"
+                viewport={{ once: true }}
+                variants={{ hidden: { opacity: 0, x: i % 2 === 0 ? 30 : -30 }, show: { opacity: 1, x: 0, transition: { duration: 0.55, ease: [0.22, 1, 0.36, 1] } } }}
+              >
+                <span className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                  <f.icon className="size-5" />
+                </span>
+                <h3 className="mt-4 text-xl font-semibold">{f.title}</h3>
+                <p className="mt-3 text-muted-foreground leading-relaxed">{f.desc}</p>
+              </motion.div>
+            </div>
           ))}
-        </motion.div>
+        </div>
       </section>
 
       {/* About / audience */}
