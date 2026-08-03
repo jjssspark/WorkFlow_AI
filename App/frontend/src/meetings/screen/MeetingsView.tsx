@@ -464,6 +464,13 @@ export function MeetingsView() {
   const resultTransitionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollSessionRef = useRef(0);
   const deepLinkHandledIdRef = useRef<string | null>(null);
+  // fetchMeetings 응답이 도착하기 전에 프로젝트를 전환/생성하면, 이전 프로젝트로 나간 요청이
+  // 전환 이후에 뒤늦게 응답할 수 있다. ref는 항상 "지금" 프로젝트를 가리키므로, 응답 시점에
+  // 요청 당시와 비교해 어긋나면(=전환됨) 그 응답은 버린다.
+  const currentProjectIdRef = useRef(projectId);
+  useEffect(() => {
+    currentProjectIdRef.current = projectId;
+  }, [projectId]);
   const analyzeStages = getAnalyzeStages(uploadType);
   const canAddManualTodo = currentUserRole === "leader";
 
@@ -645,10 +652,12 @@ export function MeetingsView() {
   // 실패해도 화면은 로컬 저장 목록으로 그대로 동작한다.
   // 마운트 시의 초기 로드뿐 아니라, 회의록 수정(버전 생성) 후 목록을 다시 불러올 때도 재사용한다.
   const refreshMeetingsFromServer = () => {
-    const cached = getStoredMeetings(projectId);
-    return fetchMeetings(projectId)
+    const requestedProjectId = projectId;
+    const cached = getStoredMeetings(requestedProjectId);
+    return fetchMeetings(requestedProjectId)
       .then(list => {
-        const deletedMeetingIds = getDeletedMeetingIds(projectId);
+        if (currentProjectIdRef.current !== requestedProjectId) return; // 응답 도착 전에 전환됨 - 폐기
+        const deletedMeetingIds = getDeletedMeetingIds(requestedProjectId);
         const serverMeetings: Meeting[] = list.map(dto => {
           const status = dto.analysisStatus === "completed" ? "processed" : dto.analysisStatus === "analysis_deleted" ? "analysisDeleted" : dto.analysisStatus === "failed" ? "failed" : dto.analysisStatus === "pending" ? "pending" : "processing";
           const base: Meeting = {
@@ -674,9 +683,10 @@ export function MeetingsView() {
         const merged = [...serverMeetings, ...cached.filter(meeting => !serverIds.has(meeting.id) && !deletedMeetingIds.has(meeting.id))];
         setMeetings(merged);
         setSelected(current => (current && merged.some(meeting => meeting.id === current)) ? current : merged[0]?.id ?? null);
-        saveStoredMeetings(merged, projectId);
+        saveStoredMeetings(merged, requestedProjectId);
       })
       .catch(() => {
+        if (currentProjectIdRef.current !== requestedProjectId) return; // 전환된 뒤의 실패는 화면에 반영하지 않는다
         setMeetingListError("서버에서 회의록 목록을 불러오지 못했습니다. 로컬 저장 목록만 표시됩니다.");
         setTimeout(() => setMeetingListError(null), 4000);
       });
