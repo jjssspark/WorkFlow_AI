@@ -78,14 +78,14 @@ describe("Sidebar", () => {
   it("shows menu labels and logo text when expanded", () => {
     renderSidebar({ collapsed: false });
     expect(screen.getByText("업무 보드")).toBeInTheDocument();
-    expect(screen.getByText("TeamFlow")).toBeInTheDocument();
+    expect(screen.getByText("WorkFlow")).toBeInTheDocument();
   });
 
   it("hides menu labels, group headers, and logo text when collapsed", () => {
     renderSidebar({ collapsed: true });
     expect(screen.queryByText("업무 보드")).not.toBeInTheDocument();
     expect(screen.queryByText("계획 관리")).not.toBeInTheDocument();
-    expect(screen.queryByText("TeamFlow")).not.toBeInTheDocument();
+    expect(screen.queryByText("WorkFlow")).not.toBeInTheDocument();
   });
 
   it("keeps the active item visually highlighted when collapsed", () => {

@@ -465,7 +465,7 @@ export function ProjectEntryScreen() {
                   value={inviteCode}
                   onChange={(event) => { setInviteCode(event.target.value); setMessage(null); }}
                   className="w-full rounded-xl border border-border bg-input-background px-3 py-2.5 text-sm outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
-                  placeholder="예: https://teamflow.ai/invite/gX4mKp 또는 gX4mKp"
+                  placeholder="예: https://workflow.ai/invite/gX4mKp 또는 gX4mKp"
                 />
                 {message && <div className="mt-2 text-xs text-red-500">{message}</div>}
                 <button

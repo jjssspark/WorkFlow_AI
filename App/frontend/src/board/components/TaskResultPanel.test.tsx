@@ -168,15 +168,15 @@ describe("TaskResultPanel", () => {
   });
 
   it("링크를 추가하면 API를 호출하고 목록에 표시된다", async () => {
-    vi.mocked(addTaskResultLink).mockResolvedValue({ id: "2", url: "https://github.com/teamflow-ai/backend/pull/42", title: "PR #42" });
+    vi.mocked(addTaskResultLink).mockResolvedValue({ id: "2", url: "https://github.com/workflow-ai/backend/pull/42", title: "PR #42" });
     renderPanel();
     await userEvent.click(await screen.findByText("링크 추가"));
-    await userEvent.type(screen.getByPlaceholderText("https://..."), "https://github.com/teamflow-ai/backend/pull/42");
+    await userEvent.type(screen.getByPlaceholderText("https://..."), "https://github.com/workflow-ai/backend/pull/42");
     await userEvent.type(screen.getByPlaceholderText("제목 (선택)"), "PR #42");
     await userEvent.click(screen.getByText("추가"));
 
     expect(await screen.findByText("PR #42")).toBeInTheDocument();
-    expect(addTaskResultLink).toHaveBeenCalledWith("TF-01", "https://github.com/teamflow-ai/backend/pull/42", "PR #42", 1);
+    expect(addTaskResultLink).toHaveBeenCalledWith("TF-01", "https://github.com/workflow-ai/backend/pull/42", "PR #42", 1);
   });
 
   it("링크 삭제 시 API를 호출하고 목록에서 제거된다", async () => {

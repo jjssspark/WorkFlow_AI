@@ -50,7 +50,7 @@ function renderScreen() {
   );
 }
 
-const INVITE_PLACEHOLDER = "예: https://teamflow.ai/invite/gX4mKp 또는 gX4mKp";
+const INVITE_PLACEHOLDER = "예: https://workflow.ai/invite/gX4mKp 또는 gX4mKp";
 
 describe("ProjectEntryScreen 초대 URL/코드 입력", () => {
   const existingProjectRoles = [{ projectId: 1, projectTitle: "기존 프로젝트", role: "팀원" as const }];
@@ -87,7 +87,7 @@ describe("ProjectEntryScreen 초대 URL/코드 입력", () => {
     renderScreen();
     await userEvent.type(
       screen.getByPlaceholderText(INVITE_PLACEHOLDER),
-      "https://teamflow.ai/invite/d5133a86-789f-4296-ba6e-a020638f48a6"
+      "https://workflow.ai/invite/d5133a86-789f-4296-ba6e-a020638f48a6"
     );
     await userEvent.click(screen.getByRole("button", { name: "팀원으로 참여" }));
 
