@@ -112,13 +112,6 @@ export function createInvitation(projectId: number, email: string, role: Project
   });
 }
 
-// 대상 없이 팀원 역할 초대 토큰을 발급/재사용한다(사이드바 "링크 복사"용).
-export function createInvitationLink(projectId: number) {
-  return apiFetch<InvitationResponse>(`/projects/${projectId}/invitations/link`, {
-    method: "POST",
-  });
-}
-
 export interface AcceptInvitationResponse {
   projectId: number;
 }
