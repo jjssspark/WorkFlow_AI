@@ -485,11 +485,14 @@ export function LandingScreenB() {
                   ))}
                 </ul>
                 <button
+                  disabled={p.paid}
                   onClick={p.paid ? undefined : () => navigate("/signup")}
                   title={p.paid ? "결제 기능은 준비 중입니다" : undefined}
                   className={cn(
                     "mt-6 w-full rounded-full py-2.5 text-sm font-semibold transition-transform hover:scale-[1.02] active:scale-[0.98]",
-                    p.paid ? "cursor-not-allowed bg-white text-[#0B0A1A]" : "bg-primary text-white",
+                    p.paid
+                      ? "cursor-not-allowed bg-white text-[#0B0A1A] opacity-60 hover:scale-100 active:scale-100"
+                      : "bg-primary text-white",
                   )}
                 >
                   {p.cta}
@@ -537,8 +540,7 @@ export function LandingScreenB() {
               <h4 className="text-sm font-semibold text-white">회사 정보</h4>
               <ul className="mt-4 space-y-2.5 text-sm text-white/50">
                 <li>WorkFlow AI 팀</li>
-                <li>대표자 고무서</li>
-                <li>개인정보 보호책임자 박지수</li>
+                <li>팀 프로젝트 협업·평가 보조 플랫폼</li>
                 <li>휴먼 3조 AI 파이널 프로젝트 · 2026</li>
                 <li>
                   <a href="mailto:contact@workflow.ai" className="transition-colors hover:text-white">
@@ -551,8 +553,8 @@ export function LandingScreenB() {
             <div>
               <h4 className="text-sm font-semibold text-white">약관</h4>
               <ul className="mt-4 space-y-2.5 text-sm text-white/50">
-                <li><a href="#" className="transition-colors hover:text-white">이용약관</a></li>
-                <li><a href="#" className="transition-colors hover:text-white">개인정보처리방침</a></li>
+                <li><button onClick={() => navigate("/terms")} className="transition-colors hover:text-white">이용약관</button></li>
+                <li><button onClick={() => navigate("/terms")} className="transition-colors hover:text-white">개인정보처리방침</button></li>
               </ul>
             </div>
           </div>
