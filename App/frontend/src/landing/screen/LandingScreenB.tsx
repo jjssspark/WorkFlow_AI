@@ -233,7 +233,7 @@ export function LandingScreenB() {
                 transition={{ duration: 2.2, repeat: Infinity, ease: "easeInOut" }}
                 className="flex size-7 items-center justify-center rounded-md bg-primary text-primary-foreground text-xs"
               >
-                TF
+                WF
               </motion.span>
               WorkFlow AI
             </div>
@@ -509,7 +509,7 @@ export function LandingScreenB() {
           <div className="grid gap-10 border-b border-white/10 pb-10 md:grid-cols-[1.4fr_1fr_1fr_1fr]">
             <div>
               <div className="flex items-center gap-2 font-semibold">
-                <span className="flex size-7 items-center justify-center rounded-md bg-primary text-primary-foreground text-xs">TF</span>
+                <span className="flex size-7 items-center justify-center rounded-md bg-primary text-primary-foreground text-xs">WF</span>
                 WorkFlow AI
               </div>
               <p className="mt-3 max-w-xs text-sm leading-relaxed text-white/50">

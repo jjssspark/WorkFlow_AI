@@ -136,8 +136,8 @@ export function LandingScreenA() {
       >
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
           <div className="flex items-center gap-2 font-semibold">
-            <span className="flex size-7 items-center justify-center rounded-md bg-primary text-primary-foreground text-xs">TF</span>
-            TeamFlow AI
+            <span className="flex size-7 items-center justify-center rounded-md bg-primary text-primary-foreground text-xs">WF</span>
+            WorkFlow AI
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -356,7 +356,7 @@ export function LandingScreenA() {
         />
         <Reveal className="relative mx-auto max-w-2xl px-6 text-center">
           <h2 className="text-2xl font-semibold md:text-3xl">지금 무료로 시작하세요</h2>
-          <p className="mt-3 text-white/70">회의록부터 기여도 평가까지, TeamFlow AI로 팀 프로젝트를 한 곳에서 관리하세요.</p>
+          <p className="mt-3 text-white/70">회의록부터 기여도 평가까지, WorkFlow AI로 팀 프로젝트를 한 곳에서 관리하세요.</p>
           <button
             onClick={() => navigate("/signup")}
             className="group mt-8 inline-flex items-center gap-2 rounded-md bg-primary px-8 py-3 font-medium text-white shadow-lg shadow-primary/30 transition-transform hover:scale-[1.03] active:scale-[0.98]"
@@ -371,15 +371,15 @@ export function LandingScreenA() {
       <footer className="border-t border-border py-8">
         <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-6 text-sm text-muted-foreground sm:flex-row">
           <div className="flex items-center gap-2 font-medium text-foreground">
-            <span className="flex size-6 items-center justify-center rounded-md bg-primary text-primary-foreground text-[10px]">TF</span>
-            TeamFlow AI
+            <span className="flex size-6 items-center justify-center rounded-md bg-primary text-primary-foreground text-[10px]">WF</span>
+            WorkFlow AI
           </div>
           <div className="flex items-center gap-4">
             <a href="https://github.com" target="_blank" rel="noreferrer" className="flex items-center gap-1.5 hover:text-foreground transition-colors">
               <Github className="size-4" />
               GitHub
             </a>
-            <span>© 2026 TeamFlow AI</span>
+            <span>© 2026 WorkFlow AI</span>
           </div>
         </div>
       </footer>
