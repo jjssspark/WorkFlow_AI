@@ -47,6 +47,18 @@ WHERE project_id = $1 AND source_type = 'task'
 LIMIT $3
 """
 
+# 표시용 코드(TASK-230)로 지목된 업무. 본문 텍스트가 아니라 source_id 정수 일치라
+# 오매칭이 원리적으로 없다. 존재하지 않는 id 면 0건이 나오고 평소 검색으로 떨어지므로,
+# "230번" 같은 느슨한 표현을 받아도 엉뚱한 답이 아니라 원래 답이 된다.
+_SEARCH_BY_TASK_IDS_SQL = """
+SELECT source_type, source_id, content,
+       1 - (embedding <=> $1::vector) AS similarity
+FROM document_chunks
+WHERE project_id = $2 AND source_type = 'task' AND source_id = ANY($3::bigint[])
+ORDER BY embedding <=> $1::vector
+LIMIT $4
+"""
+
 # 질문 경로 전용. 위 SQL과 조건은 같고 두 가지가 다르다.
 #   1. similarity 를 함께 뽑는다 - 질문 경로는 이 값을 출처 목록에 그대로 표시하므로
 #      1.0 같은 가짜 값을 넣을 수 없다. 명령 경로(task_resolver)는 임베딩을 갖고 있지
@@ -69,6 +81,45 @@ LIMIT $4
 # 주는 데 그치지만, 명령 경로(graph/task_resolver)에서는 엉뚱한 업무를 실제로 변경한다.
 # 두 경로가 같은 것을 인식해야 하므로 여기 한 곳에만 둔다.
 TASK_CODE_PATTERN = re.compile(r"(?<![A-Za-z0-9])[A-Za-z]{2,}-\d+(?![A-Za-z0-9])")
+
+# 화면이 보여주는 표시용 업무 코드. tasks.id 에서 파생하며 DB 에도 청크 본문에도 없다
+# (frontend board/libs/utils/taskCode.ts 와 같은 접두사를 쓴다).
+# 본문에 없으므로 위 TASK_CODE_PATTERN 의 텍스트 검색으로는 영원히 0건이다. 대신
+# 숫자를 뽑아 source_id 로 정확 조회한다 - 텍스트가 아니라 정수 일치라 더 정확하다.
+TASK_ID_PREFIX = "TASK-"
+
+# 받는 형태는 세 가지다: TASK-230(화면 표기), #230, 230번(사람 말투).
+# 맨숫자는 받지 않는다 - "3일 남은", "230명"이 전부 업무 지칭이 돼버린다.
+# "번째"는 서수라 제외한다("3번째 회의").
+TASK_ID_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9])(?:" + TASK_ID_PREFIX + r"(\d+)|#(\d+)|(\d+)\s*번(?!째))(?![A-Za-z0-9])",
+    re.IGNORECASE,
+)
+
+# TASK-230 은 TASK_CODE_PATTERN 에도 매칭된다. 걸러내지 않으면 본문 텍스트 검색이 함께
+# 발동해 0건을 받고 슬롯만 먹는다. 두 경로가 같은 토큰을 두고 다투게 두지 않는다.
+_DISPLAY_CODE_PATTERN = re.compile(TASK_ID_PREFIX + r"\d+", re.IGNORECASE)
+
+
+def extract_task_ids(question: str | None) -> list[int]:
+    """질문이 지목한 업무 id 를 말한 순서대로 돌려준다(중복 제거)."""
+    ids: list[int] = []
+    for match in TASK_ID_PATTERN.finditer(question or ""):
+        # 세 대안 중 실제로 잡힌 하나만 값이 있다.
+        digits = next(group for group in match.groups() if group is not None)
+        value = int(digits)
+        if value not in ids:
+            ids.append(value)
+    return ids
+
+
+def extract_task_codes(question: str | None) -> list[str]:
+    """본문에 토큰으로 들어 있는 업무 코드만 돌려준다(표시용 코드는 뺀다)."""
+    return [
+        code
+        for code in dict.fromkeys(TASK_CODE_PATTERN.findall(question or ""))
+        if not _DISPLAY_CODE_PATTERN.fullmatch(code)
+    ]
 
 # 코드 정확 일치에 내줄 최소 슬롯 수. 운영 실측상 코드 101종 중 100종이 청크 1건에만
 # 매칭되므로, 코드가 하나일 때 이 값은 "한 업무가 여러 청크로 쪼개진 경우"를 담는 여유다.
@@ -109,6 +160,18 @@ async def find_task_chunks_by_code(
     """
     async with pool.acquire() as conn:
         rows = await conn.fetch(_SEARCH_BY_TASK_CODE_SQL, project_id, code, limit)
+    return [dict(row) for row in rows]
+
+
+async def find_task_chunks_by_ids(
+    pool, project_id: int, task_ids: list[int], query_embedding: list[float], limit: int
+) -> list[dict]:
+    """지목된 업무 id 의 task 청크를 정확히 찾는다."""
+    if not task_ids:
+        return []
+    vector = to_vector_literal(query_embedding)
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(_SEARCH_BY_TASK_IDS_SQL, vector, project_id, task_ids, limit)
     return [dict(row) for row in rows]
 
 
@@ -174,6 +237,10 @@ async def find_task_chunks_by_code_scored(
     코드를 여러 개 물으면 코드마다 한 건씩 돌아가며 채운다. 유사도 순으로 limit 만큼
     자르면 한 코드가 슬롯을 독점해 다른 코드가 통째로 빠진다(_allocate_evenly 참고).
     """
+    # 표시용 코드만 든 질문("TASK-230 상황")은 codes 가 비어 온다. 막지 않으면 LIMIT 0 인
+    # 쿼리가 매번 DB 를 한 번 더 왕복한다.
+    if not codes:
+        return []
     embedding_literal = to_vector_literal(query_embedding)
     patterns = [_code_boundary_pattern(code) for code in codes]
     # 슬롯 수만큼만 받아오면 공정 배분을 할 후보 자체가 없다. 넉넉히 받아 파이썬에서 고른다.
@@ -262,8 +329,8 @@ async def search_similar_chunks(
     return _dedupe_by_content(combined)
 
 
-def _code_slots_for(codes: list[str], top_k: int) -> int:
-    """코드 정확 일치에 내줄 칸 수.
+def _exact_slots_for(reference_count: int, top_k: int) -> int:
+    """정확 일치에 내줄 칸 수. id 지칭과 본문 코드가 이 칸을 함께 쓴다.
 
     고정 상한(TASK_CODE_MAX_SLOTS)만 쓰면 사용자가 코드를 4개 이상 말했을 때 뒤에 말한
     코드가 조용히 빠진다. 이건 튜닝이 아니라 정확성 문제다 - 질문에 명시한 업무는 근거에
@@ -282,7 +349,7 @@ def _code_slots_for(codes: list[str], top_k: int) -> int:
     top_k 를 넘게 나열하면 여전히 잘린다. 다만 뒤에 말한 코드부터 예측 가능하게 밀리고,
     로그의 "코드 N개, 정확 일치 M건" 에서 N > M 이면 잘렸다는 뜻이다.
     """
-    return min(max(TASK_CODE_MAX_SLOTS, len(codes)), top_k)
+    return min(max(TASK_CODE_MAX_SLOTS, reference_count), top_k)
 
 
 async def search_chunks_for_question(
@@ -303,7 +370,9 @@ async def search_chunks_for_question(
     # 부르기 위해서다. 조기 반환으로 흩어 두면 경로가 늘 때마다 계측이 조용히 빠지고,
     # 그 누락은 "그 조건의 질문이 0건"으로 보여 관측값이 아니라 결론을 틀리게 만든다.
     codes: list[str] = []
+    task_ids: list[int] = []
     code_rows: list[dict] = []
+    id_rows: list[dict] = []
     code_slots = 0
     code_search_failed = False
 
@@ -313,12 +382,18 @@ async def search_chunks_for_question(
     if assignee_id is not None:
         rows = await search_similar_chunks(pool, project_id, query_embedding, top_k, assignee_id)
     else:
-        codes = list(dict.fromkeys(TASK_CODE_PATTERN.findall(question or "")))
-        if not codes:
+        # 두 경로가 같은 질문에 함께 걸릴 수 있다("TASK-230 과 WF-195 비교해줘").
+        # extract_task_codes 가 표시용 코드를 빼주므로 서로 다투지 않는다.
+        task_ids = extract_task_ids(question)
+        codes = extract_task_codes(question)
+        if not task_ids and not codes:
             rows = await search_similar_chunks(pool, project_id, query_embedding, top_k)
         else:
-            code_slots = _code_slots_for(codes, top_k)
+            code_slots = _exact_slots_for(len(task_ids) + len(codes), top_k)
             try:
+                id_rows = await find_task_chunks_by_ids(
+                    pool, project_id, task_ids, query_embedding, limit=code_slots
+                )
                 code_rows = await find_task_chunks_by_code_scored(
                     pool, project_id, codes, query_embedding, limit=code_slots
                 )
@@ -326,14 +401,23 @@ async def search_chunks_for_question(
                 # 부가 경로가 본 기능을 죽이면 안 된다. 이때 아래 info 로그는 남기지 않는다 -
                 # "정확 일치 0건"이 "코드가 정말 없음"과 "조회 실패" 둘을 뜻하면 관측값이
                 # 오염된다. 같은 이유로 통계도 code_search_failed 로 구분해 넘긴다.
-                logger.warning("업무 코드 검색 실패, 유사도 검색만으로 진행합니다.", exc_info=True)
+                logger.warning("업무 지칭 검색 실패, 유사도 검색만으로 진행합니다.", exc_info=True)
                 code_search_failed = True
+                # 한쪽이 성공한 뒤 다른 쪽이 터졌을 수 있다. 부분 결과를 남기면 통계의
+                # "일치 N건"이 실패한 질의에도 값을 갖게 돼 관측값이 오염된다.
+                id_rows = []
+                code_rows = []
                 rows = await search_similar_chunks(pool, project_id, query_embedding, top_k)
             else:
-                # 개수만 남긴다. 질문 원문도 코드 값도 로그에 넣지 않는다.
-                logger.info("코드 라우팅 발동: 코드 %d개, 정확 일치 %d건", len(codes), len(code_rows))
+                # 개수만 남긴다. 질문 원문도 id 도 코드 값도 로그에 넣지 않는다.
+                logger.info(
+                    "업무 지칭 라우팅 발동: id %d개(일치 %d건), 코드 %d개(일치 %d건)",
+                    len(task_ids), len(id_rows), len(codes), len(code_rows),
+                )
+                # id 정확 조회를 앞에 놓는다. 사용자가 화면에서 보고 지목한 업무라
+                # 본문에 우연히 코드가 든 청크보다 지칭 의도가 분명하다.
                 rows = await _merge_code_hits_with_similar(
-                    pool, project_id, query_embedding, top_k, code_rows
+                    pool, project_id, query_embedding, top_k, id_rows + code_rows
                 )
 
     await record_question_query(
@@ -346,6 +430,8 @@ async def search_chunks_for_question(
             code_hits=len(code_rows),
             code_slots=code_slots,
             code_search_failed=code_search_failed,
+            id_count=len(task_ids),
+            id_hits=len(id_rows),
         )
     )
     return rows

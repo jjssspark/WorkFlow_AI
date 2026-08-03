@@ -45,7 +45,11 @@ from redis import Redis  # noqa: E402
 
 # 관심 순서대로 나열한다. 여기 없는 필드(proj_* 등)는 아래에서 따로 묶어 보여준다.
 _CODE_BUCKETS = ("codes_0", "codes_1", "codes_2", "codes_3", "codes_4", "codes_5plus")
-_FLAGS = ("personal", "codes_truncated", "code_miss", "sources_short")
+_FLAGS = ("personal", "codes_truncated", "code_miss", "ids_referenced", "id_miss", "sources_short")
+
+# 분모가 total 이 아니라 라우팅 대상(개인화 제외)인 플래그. 개인화 질문에는 라우팅을
+# 걸지 않으므로 total 로 나누면 비율이 실제보다 낮게 보인다.
+_ROUTED_BASE_FLAGS = ("codes_truncated", "code_miss", "ids_referenced", "id_miss")
 
 
 def _connect() -> Redis:
@@ -105,7 +109,7 @@ def _render(totals: Counter, seen_days: list[str], days: int) -> str:
     lines += ["", "플래그"]
     for flag in _FLAGS:
         count = totals.get(flag, 0)
-        base = routed if flag in ("codes_truncated", "code_miss") else total
+        base = routed if flag in _ROUTED_BASE_FLAGS else total
         lines.append(f"  {flag:<16} {count:>6}  {_percent(count, base)}")
 
     projects = sorted(

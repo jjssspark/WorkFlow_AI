@@ -51,10 +51,16 @@ class QuestionQueryStats:
     source_count: int
     code_count: int = 0
     code_hits: int = 0
+    # 정확 일치에 내준 칸 수. id 지칭과 본문 코드가 함께 쓴다.
     code_slots: int = 0
     # 코드 검색이 예외로 실패한 경우. code_hits 가 0 이어도 "코드가 정말 없음"이 아니므로
     # code_miss 로 세면 안 된다. 두 가지를 한 칸에 담으면 관측값이 오염된다.
     code_search_failed: bool = False
+    # 표시용 코드(TASK-230)·"230번"으로 지목된 업무 id. 본문 코드와 따로 센다 - 한 칸에
+    # 담으면 "화면을 보고 지칭한 것"과 "제목에 우연히 코드가 든 것"을 구분할 수 없고,
+    # 그 둘은 다음 투자처를 정할 때 정반대의 결론을 가리킨다.
+    id_count: int = 0
+    id_hits: int = 0
 
 
 def _code_bucket(code_count: int) -> str:
@@ -73,10 +79,17 @@ def _counter_fields(stats: QuestionQueryStats) -> dict[str, int]:
         fields["personal"] = 1
     else:
         fields[_code_bucket(stats.code_count)] = 1
-        if stats.code_count > stats.code_slots:
+        if stats.code_count + stats.id_count > stats.code_slots:
             fields["codes_truncated"] = 1
         if stats.code_count > 0 and not stats.code_search_failed and stats.code_hits == 0:
             fields["code_miss"] = 1
+
+        if stats.id_count > 0:
+            fields["ids_referenced"] = 1
+            # id 는 정수 정확 일치라 0건이면 그 업무가 이 프로젝트에 없다는 뜻이다.
+            # 본문 텍스트 매칭인 code_miss 와 원인이 달라 따로 센다.
+            if not stats.code_search_failed and stats.id_hits == 0:
+                fields["id_miss"] = 1
 
     if stats.source_count < stats.top_k:
         fields["sources_short"] = 1
