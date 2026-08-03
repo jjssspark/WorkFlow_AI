@@ -40,18 +40,18 @@ describe("AppShell", () => {
 
   it("renders the sidebar expanded by default", () => {
     renderAppShell();
-    expect(screen.getByText("TeamFlow")).toBeInTheDocument();
+    expect(screen.getByText("WorkFlow")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "사이드바 접기" })).toBeInTheDocument();
   });
 
   it("collapses the sidebar when the toggle is clicked and keeps it collapsed after remount", async () => {
     const { unmount } = renderAppShell();
     await userEvent.click(screen.getByRole("button", { name: "사이드바 접기" }));
-    expect(screen.queryByText("TeamFlow")).not.toBeInTheDocument();
+    expect(screen.queryByText("WorkFlow")).not.toBeInTheDocument();
     unmount();
 
     renderAppShell();
-    expect(screen.queryByText("TeamFlow")).not.toBeInTheDocument();
+    expect(screen.queryByText("WorkFlow")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "사이드바 펼치기" })).toBeInTheDocument();
   });
 

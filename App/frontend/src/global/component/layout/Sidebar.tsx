@@ -52,11 +52,11 @@ export function Sidebar({ active, onSelect, onAI, collapsed, onToggleCollapsed, 
       {/* Logo */}
       <div className="px-5 pt-6 pb-4 flex items-center gap-2.5">
         <div className="w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-sm shrink-0" style={{ background: "var(--sidebar-primary)" }}>
-          TF
+          WF
         </div>
         {!collapsed && (
           <div>
-            <div className="text-white font-semibold text-sm leading-none whitespace-nowrap">TeamFlow</div>
+            <div className="text-white font-semibold text-sm leading-none whitespace-nowrap">WorkFlow</div>
             <div className="text-[10px] font-medium mt-0.5 whitespace-nowrap" style={{ color: "var(--accent)" }}>AI Powered</div>
           </div>
         )}

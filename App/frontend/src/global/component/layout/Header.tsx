@@ -132,7 +132,7 @@ export function Header({ onOpenMobileMenu }: { onOpenMobileMenu?: () => void }) 
             <Menu className="w-4 h-4 text-muted-foreground" />
           </button>
         )}
-        <span className="text-muted-foreground">TeamFlow AI</span>
+        <span className="text-muted-foreground">WorkFlow AI</span>
         <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
         <span className="text-muted-foreground truncate max-w-[220px]">{currentProjectName || "프로젝트를 선택하세요"}</span>
         <span className="px-2 py-0.5 rounded-full text-[10px] font-bold text-white" style={{ background: ROLE_COLORS[role] }}>

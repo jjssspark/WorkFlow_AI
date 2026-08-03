@@ -17,6 +17,18 @@ import { useAuth } from "../../global/hooks/useAuth";
 import type { ProjectRoleKo, ProjectRoleSummary } from "../../global/api/authTypes";
 import { ApiRequestError } from "../../global/api/apiClient";
 import { acceptInvitation, joinProjectByCode, listProjects, type ProjectResponse } from "../../global/api/projectsApi";
+
+/** 초대 입력란 예시. 실제로 받게 되는 값 두 가지를 그대로 보여준다.
+ *
+ * 도메인을 고정 문자열로 적으면 안 된다. "링크 복사"(InviteCodeSection)가
+ * `${window.location.origin}/invite/{token}` 으로 만들므로, 운영에서는 운영 도메인이,
+ * 로컬에서는 localhost 가 나온다. 여기만 한쪽으로 박아두면 다른 쪽에서 거짓말이 된다.
+ *
+ * URL 안의 토큰 자리에 코드(gX4mKp)를 넣어두면 안 된다. 토큰은 UUID 이고
+ * (InvitationService: UUID.randomUUID()), 짧은 코드는 프로젝트 고정 코드라 URL 없이
+ * 단독으로 쓴다. 둘을 섞으면 존재할 수 없는 링크를 예시로 주게 된다.
+ */
+export const INVITE_PLACEHOLDER = `예: ${window.location.origin}/invite/… 또는 gX4mKp`;
 import {
   fetchReviewerActivities, fetchReviewerLastAccess, recordReviewerAccess, type ReviewerActivityDto,
 } from "../../global/api/reviewerActivityApi";
@@ -465,7 +477,7 @@ export function ProjectEntryScreen() {
                   value={inviteCode}
                   onChange={(event) => { setInviteCode(event.target.value); setMessage(null); }}
                   className="w-full rounded-xl border border-border bg-input-background px-3 py-2.5 text-sm outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
-                  placeholder="예: https://teamflow.ai/invite/gX4mKp 또는 gX4mKp"
+                  placeholder={INVITE_PLACEHOLDER}
                 />
                 {message && <div className="mt-2 text-xs text-red-500">{message}</div>}
                 <button

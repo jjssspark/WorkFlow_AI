@@ -155,7 +155,7 @@ export function SignupScreen() {
           ) : (
             <>
               <div className="mb-7">
-                <h1 className="text-2xl font-bold text-foreground mb-1">TeamFlow AI 시작하기</h1>
+                <h1 className="text-2xl font-bold text-foreground mb-1">WorkFlow AI 시작하기</h1>
                 <p className="text-sm text-muted-foreground">팀 프로젝트를 스마트하게 관리해보세요.</p>
               </div>
 

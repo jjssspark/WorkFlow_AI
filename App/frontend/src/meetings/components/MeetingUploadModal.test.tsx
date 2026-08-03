@@ -96,4 +96,39 @@ describe("MeetingUploadModal", () => {
     expect(await screen.findByText("참석자를 1명 이상 선택해주세요.")).toBeInTheDocument();
     expect(analyzeMeeting).not.toHaveBeenCalled();
   });
+
+  it("문서 업로드에서는 회의록 양식을 내려받을 수 있다", async () => {
+    const user = userEvent.setup();
+    render(
+      <MeetingUploadModal
+        projectId="7"
+        projectMembers={projectMembers}
+        onClose={vi.fn()}
+        onUploaded={vi.fn()}
+      />
+    );
+
+    await openDocumentForm(user);
+
+    const templateLink = screen.getByRole("link", { name: /회의록 양식 다운로드/ });
+    expect(templateLink).toHaveAttribute("href", "/templates/meeting-minutes-template.docx");
+    expect(templateLink).toHaveAttribute("download", "회의록_양식.docx");
+  });
+
+  it("음성 업로드에는 양식 다운로드를 노출하지 않는다", async () => {
+    const user = userEvent.setup();
+    render(
+      <MeetingUploadModal
+        projectId="7"
+        projectMembers={projectMembers}
+        onClose={vi.fn()}
+        onUploaded={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: /음성파일 업로드/ }));
+    await user.click(screen.getByRole("button", { name: "다음" }));
+
+    expect(screen.queryByRole("link", { name: /회의록 양식 다운로드/ })).not.toBeInTheDocument();
+  });
 });

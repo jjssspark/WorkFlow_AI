@@ -66,7 +66,9 @@ DEFAULT_HF_MEETING_ANALYSIS_TIMEOUT_SECONDS = 35.0
 DEFAULT_HF_MEETING_ANALYSIS_MAX_TOKENS = 900
 DEFAULT_HF_MEETING_ANALYSIS_TEMPERATURE = 0.1
 HF_CHAT_COMPLETIONS_URL = "https://router.huggingface.co/v1/chat/completions"
-MEETING_ANALYSIS_CACHE_SCHEMA_VERSION = 1
+# v2: 요청에 sections(양식 기반 섹션 본문)가 추가됐다. 올리지 않으면 같은 텍스트의 기존 캐시가
+# 섹션을 무시한 분석 결과를 그대로 돌려준다.
+MEETING_ANALYSIS_CACHE_SCHEMA_VERSION = 2
 MEETING_ANALYSIS_CACHE_TTL_SECONDS = 86400
 DEFAULT_WHISPER_MODEL_SIZE = "small"
 DEFAULT_WHISPER_DEVICE = "cpu"
@@ -140,6 +142,15 @@ def favicon():
     return Response(status_code=204)
 
 
+class MeetingSections(BaseModel):
+    """서비스가 제공한 회의록 양식으로 작성된 문서에서 Spring이 잘라낸 섹션 본문."""
+
+    discussion: str = ""
+    decisions: str = ""
+    todos: str = ""
+    issues: str = ""
+
+
 class AnalyzeRequest(BaseModel):
     project_id: str = "demo-project"
     title: str = "회의록 AI 분석 회의"
@@ -149,6 +160,8 @@ class AnalyzeRequest(BaseModel):
     file_name: Optional[str] = None
     text: str = ""
     participants: List[str] = Field(default_factory=list)
+    # 양식으로 작성되지 않은 문서와 음성 업로드는 None이고, 이때 분석은 기존 전체 텍스트 경로를 탄다.
+    sections: Optional[MeetingSections] = None
 
 
 class MeetingTodo(BaseModel):
@@ -287,6 +300,24 @@ def _meeting_analysis_cache_key(request: AnalyzeRequest) -> str:
 
 
 def _analyze_json_uncached(request: AnalyzeRequest) -> MeetingAnalysisResult:
+    result = _analyze_by_provider(request)
+    action_items = parse_action_items(request.sections.todos) if request.sections else []
+    if not action_items:
+        return result
+
+    # 작성자가 액션 아이템 칸에 적은 줄이 To-Do의 정답이다. LLM에 맡기면 논의·결정 문장까지
+    # To-Do로 지어내고 체크한 우선순위도 무시하므로, 이 경우에는 결정적으로 대체한다.
+    # 요약·결정사항·위험요소는 그대로 LLM 결과를 쓴다.
+    return result.model_copy(
+        update={
+            "todos": build_todos_from_action_items(
+                action_items, request.meeting_date, request.participants
+            )
+        }
+    )
+
+
+def _analyze_by_provider(request: AnalyzeRequest) -> MeetingAnalysisResult:
     provider = os.getenv("MEETING_ANALYSIS_PROVIDER", "auto").lower()
     if provider in {"auto", "huggingface", "hf"} and _huggingface_configured():
         try:
@@ -358,25 +389,134 @@ def resolve_participants(request: AnalyzeRequest) -> List[str]:
     return participants
 
 
+def section_sentences(section_text: str, limit: int) -> List[str]:
+    """양식 섹션 본문은 이미 해당 항목만 담고 있으므로 키워드 필터 없이 문장만 잘라 쓴다.
+
+    섹션이 비어 있으면 빈 리스트를 돌려주고, 호출부가 기존 키워드 방식으로 폴백한다.
+    """
+    if not section_text or not section_text.strip():
+        return []
+    results: List[str] = []
+    for sentence in split_sentences(section_text):
+        if len(sentence) < 6:
+            continue
+        results.append(shorten(sentence, 120))
+        if len(results) >= limit:
+            break
+    return results
+
+
+# 양식의 액션 아이템 표에서 사용자가 체크한 우선순위. "[v] 긴급" 처럼 대괄호 안에 표시한다.
+_PRIORITY_LABELS = {"긴급": "HIGH", "보통": "MEDIUM", "낮음": "LOW"}
+_CHECKED_PRIORITY_PATTERN = re.compile(r"\[\s*[vVxXoO✓√]\s*\]\s*(긴급|보통|낮음)")
+_PRIORITY_ROW_PATTERN = re.compile(r"\[[^\]]*\]\s*(?:긴급|보통|낮음)")
+
+
+def parse_action_items(todos_section: str) -> List[tuple]:
+    """액션 아이템 표를 (체크된 우선순위, 내용) 쌍으로 읽는다.
+
+    docx 표는 행 순서대로 셀마다 한 줄로 풀리므로 "우선순위 줄 → 내용 줄" 순으로 나온다.
+    내용을 안 적은 빈 행은 우선순위 줄만 남으므로 버린다. 우선순위 줄 없이 그냥 적은
+    문장도 내용으로 받아준다(체크를 안 했을 뿐 할 일은 할 일이다).
+    """
+    if not todos_section or not todos_section.strip():
+        return []
+
+    items: List[tuple] = []
+    pending_priority: Optional[str] = None
+    saw_priority_row = False
+
+    for line in todos_section.split("\n"):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if _PRIORITY_ROW_PATTERN.search(stripped):
+            checked = _CHECKED_PRIORITY_PATTERN.search(stripped)
+            pending_priority = _PRIORITY_LABELS[checked.group(1)] if checked else None
+            saw_priority_row = True
+            continue
+        items.append((pending_priority, stripped))
+        pending_priority = None
+
+    # 우선순위 줄이 하나도 없으면 양식 표가 아니라 자유 서술이다. 그대로 내용만 넘긴다.
+    if not saw_priority_row:
+        return [(None, text) for _, text in items]
+    return items
+
+
+def build_todos_from_action_items(
+    action_items: List[tuple],
+    meeting_date: str,
+    participants: Optional[List[str]] = None,
+) -> List[MeetingTodo]:
+    """양식의 액션 아이템 칸에 적힌 줄은 하나도 빠짐없이 To-Do로 만든다.
+
+    자유 텍스트에서 To-Do를 찾아낼 때 쓰는 업무 키워드 필터는 여기서 적용하지 않는다.
+    작성자가 액션 아이템 칸에 적었다는 것 자체가 "이건 할 일"이라는 선언이라, 키워드에 안 걸린다고
+    버리면 사용자가 직접 적은 업무가 조용히 사라진다.
+
+    AI는 대신 담당자·기한·분류를 문장에서 뽑아내는 데 집중한다. 우선순위는 체크한 값을 쓰고,
+    체크하지 않았으면 MEDIUM으로 둔다.
+    """
+    try:
+        base_date = date.fromisoformat(meeting_date)
+    except (TypeError, ValueError):
+        base_date = date.today()
+
+    allowed_names = _allowed_assignee_names(participants or [])
+    todos: List[MeetingTodo] = []
+    for priority, sentence in action_items:
+        assignee = extract_assignee_candidate(sentence)
+        if allowed_names is not None and assignee not in allowed_names:
+            assignee = ""
+        todos.append(
+            MeetingTodo(
+                title=shorten(clean_todo_title(sentence) or sentence, 44),
+                description=sentence,
+                assignee_candidate=assignee,
+                due_date=sanitize_due_date(
+                    extract_due_date_candidate(sentence, base_date.year), sentence, meeting_date
+                ),
+                priority=priority or "MEDIUM",
+                category=infer_category(sentence),
+                evidence_text=shorten(sentence, _EVIDENCE_MAX_LEN),
+            )
+        )
+    return todos
+
+
 def analyze_meeting(request: AnalyzeRequest) -> MeetingAnalysisResult:
     raw_text = request.text or request.title
     text = normalize_text(raw_text)
     participants = resolve_participants(request)
+    sections = request.sections
 
-    decisions = extract_sentences(text, ["확정", "결정", "통일", "진행", "사용", "구성"], 5)
+    # 양식 문서는 "이 문단이 결정사항"임을 알 수 있으므로 키워드 추측 없이 해당 섹션을 그대로 쓴다.
+    decisions = section_sentences(sections.decisions, 5) if sections else []
+    if not decisions:
+        decisions = extract_sentences(text, ["확정", "결정", "통일", "진행", "사용", "구성"], 5)
     if not decisions:
         decisions = [
             "회의록 분석 결과를 요약, 결정사항, To-Do, 위험요소로 구조화한다.",
             "생성된 To-Do는 팀장 검토 후 업무 보드에 등록한다.",
         ]
 
-    risks = extract_sentences(text, ["위험", "지연", "부족", "오류", "실패", "불안정", "촉박"], 4)
+    risks = section_sentences(sections.issues, 4) if sections else []
+    if not risks:
+        risks = extract_sentences(text, ["위험", "지연", "부족", "오류", "실패", "불안정", "촉박"], 4)
     if not risks:
         risks = ["담당자와 마감일이 명확하지 않은 업무는 일정 지연으로 이어질 수 있다."]
 
     # 원본 텍스트(줄바꿈 보존)에서 "이름: 발언" 화자 형식을 먼저 시도하고, 없으면 공백-정규화 텍스트의
     # 키워드 문장 추출로 대체한다. normalize_text()는 줄바꿈을 공백으로 뭉개므로 화자 구분에 쓸 수 없다.
-    todos = build_todos(raw_text, text, request.meeting_date, request.participants)
+    # 양식 문서라면 액션 아이템 섹션으로 범위를 좁혀, 논의 문장이 업무로 잘못 잡히는 것을 막는다.
+    # 우선순위 체크 줄은 내용이 아니므로 빼고 문장만 AI에 넘긴다 — AI는 담당자·기한·분류 추출에 집중하고,
+    # 우선순위는 사용자가 체크한 값으로 덮어쓴다.
+    action_items = parse_action_items(sections.todos) if sections else []
+    if action_items:
+        todos = build_todos_from_action_items(action_items, request.meeting_date, request.participants)
+    else:
+        todos = build_todos(raw_text, text, request.meeting_date, request.participants)
     summary = (
         f"{request.title} 내용을 분석해 핵심 결정사항 {len(decisions)}건, "
         f"업무 후보 {len(todos)}건, 위험요소 {len(risks)}건을 추출했습니다."
@@ -481,15 +621,38 @@ def _huggingface_configured() -> bool:
     return bool(os.getenv("HF_TOKEN") or os.getenv("HUGGINGFACEHUB_API_TOKEN"))
 
 
+def build_section_hint(sections: Optional[MeetingSections]) -> str:
+    """양식 문서일 때, 모델이 섹션 경계를 추측하지 않도록 구조를 명시한다."""
+    if sections is None:
+        return ""
+    labeled = [
+        ("논의 내용", sections.discussion),
+        ("결정 사항", sections.decisions),
+        ("액션 아이템", sections.todos),
+        ("특이사항·리스크", sections.issues),
+    ]
+    filled = [f"[{label}]\n{body.strip()}" for label, body in labeled if body and body.strip()]
+    if not filled:
+        return ""
+    body = "\n\n".join(filled)
+    return (
+        "\n이 회의록은 정해진 양식으로 작성되어 섹션이 구분되어 있습니다. "
+        "각 항목은 반드시 해당 섹션 안에서만 뽑으세요. "
+        "액션 아이템의 '[v] 긴급' 같은 표기는 작성자가 직접 고른 우선순위이니 임의로 바꾸지 말고, "
+        "담당자·기한·업무 내용을 문장에서 정확히 뽑아내는 데 집중하세요.\n\n" + body + "\n"
+    )
+
+
 def build_ollama_prompt(request: AnalyzeRequest) -> str:
     participants = ", ".join(resolve_participants(request))
     text = _limit_text_for_local_model(request.text or request.title)
+    section_hint = build_section_hint(request.sections)
     return f"""다음은 회의록 원문입니다. 이 내용을 분석해서 아래 JSON 스키마로만 응답하세요. 스키마에 없는 다른 텍스트는 출력하지 마세요.
 
 회의 제목: {request.title}
 회의 일자: {request.meeting_date}
 선택된 참석자: {participants}
-
+{section_hint}
 회의록 원문:
 {text}
 
@@ -740,11 +903,24 @@ def _has_unsupported_date_claim(statement: str, source_text: str, meeting_date: 
     return False
 
 
+def _is_schema_placeholder(statement: str) -> str:
+    """프롬프트 JSON 스키마 예시의 자리표시자("...", "…", "결정사항 문장")를 그대로 받아쓴 것인지."""
+    stripped = statement.strip().strip("\"'")
+    if not stripped:
+        return True
+    if set(stripped) <= {".", "…", "·", "-"}:
+        return True
+    return stripped in {"결정사항 문장", "위험요소 문장", "키워드"}
+
+
 def sanitize_model_statements(statements: object, source_text: str, meeting_date: str) -> List[str]:
     safe: List[str] = []
     for item in statements or []:
         statement = str(item).strip()
         if not statement:
+            continue
+        if _is_schema_placeholder(statement):
+            # 프롬프트의 JSON 스키마 예시에 있는 "..." 를 모델이 그대로 따라 적는 경우가 있다.
             continue
         if _has_unsupported_date_claim(statement, source_text, meeting_date):
             logger.info("회의록 원문 근거가 부족한 날짜 포함 문장을 제거합니다. statement=%s", statement)

@@ -212,7 +212,9 @@ public class MeetingAnalysisService {
             resolvedSourceType,
             fileName,
             text,
-            resolvedParticipantNames
+            resolvedParticipantNames,
+            // 음성 업로드는 이 시점에 text가 비어 있고 STT 결과가 양식일 리도 없으므로 파서를 태우지 않는다.
+            isAudioUpload ? null : MeetingTemplateParser.parse(text).orElse(null)
         );
         runAnalysisAfterCommit(meeting.getId(), request, jobId, uploaderId);
 
@@ -1555,7 +1557,11 @@ public class MeetingAnalysisService {
                     .replace("&amp;", "&")
                     .replace("&quot;", "\"")
                     .replace("&apos;", "'")
-                    .replaceAll("\\s+", " ")
+                    // 문단 개행은 섹션 구조 파싱(MeetingTemplateParser)과 FastAPI의 "이름: 발언" 화자 인식이
+                    // 기대하는 입력이므로 보존한다. 예전에는 \s+ 하나로 개행까지 뭉개 결과가 한 줄이 됐다.
+                    .replaceAll("[^\\S\\n]+", " ")
+                    .replaceAll(" *\\n *", "\n")
+                    .replaceAll("\\n{2,}", "\n")
                     .trim();
                 if (text.isBlank()) {
                     throw new IllegalArgumentException("DOCX에서 분석할 텍스트를 추출하지 못했습니다.");

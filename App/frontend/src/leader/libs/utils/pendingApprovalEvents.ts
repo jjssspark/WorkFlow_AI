@@ -1,4 +1,4 @@
-export const PENDING_APPROVAL_COUNT_CHANGED = "teamflow:pending-approval-count-changed";
+export const PENDING_APPROVAL_COUNT_CHANGED = "workflow-ai:pending-approval-count-changed";
 
 export interface PendingApprovalCountDetail {
   projectId: number;

@@ -2,7 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ProjectEntryScreen } from "./ProjectEntryScreen";
+import { INVITE_PLACEHOLDER, ProjectEntryScreen } from "./ProjectEntryScreen";
 import { ApiRequestError } from "../../global/api/apiClient";
 import { acceptInvitation, joinProjectByCode, listProjects, type ProjectResponse } from "../../global/api/projectsApi";
 import {
@@ -50,7 +50,9 @@ function renderScreen() {
   );
 }
 
-const INVITE_PLACEHOLDER = "예: https://teamflow.ai/invite/gX4mKp 또는 gX4mKp";
+// 리터럴을 복제하지 않고 구현에서 가져온다. 복제해 두면 문구가 바뀔 때 한쪽만 고쳐도
+// 테스트가 통과해 버린다 - 실제로 그래서 이 플레이스홀더가 존재하지 않는 도메인과
+// 나올 수 없는 링크 형태를 오래 달고 있었다.
 
 describe("ProjectEntryScreen 초대 URL/코드 입력", () => {
   const existingProjectRoles = [{ projectId: 1, projectTitle: "기존 프로젝트", role: "팀원" as const }];
@@ -87,7 +89,10 @@ describe("ProjectEntryScreen 초대 URL/코드 입력", () => {
     renderScreen();
     await userEvent.type(
       screen.getByPlaceholderText(INVITE_PLACEHOLDER),
-      "https://teamflow.ai/invite/d5133a86-789f-4296-ba6e-a020638f48a6"
+      // "링크 복사"(InviteCodeSection)가 실제로 만드는 형태 그대로 - origin + UUID 토큰.
+      // 존재하지 않는 도메인을 쓰면 파서가 마지막 경로 조각만 보기 때문에 테스트는 통과하지만,
+      // 이 테스트가 "실제로 붙여넣는 값"을 대표한다는 근거는 사라진다.
+      `${window.location.origin}/invite/d5133a86-789f-4296-ba6e-a020638f48a6`
     );
     await userEvent.click(screen.getByRole("button", { name: "팀원으로 참여" }));
 

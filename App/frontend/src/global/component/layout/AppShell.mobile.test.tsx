@@ -37,7 +37,7 @@ describe("AppShell (mobile)", () => {
       </MemoryRouter>
     );
 
-    const sidebarWrapper = screen.getByText("TeamFlow").closest("[data-sidebar-wrapper]") as HTMLElement;
+    const sidebarWrapper = screen.getByText("WorkFlow").closest("[data-sidebar-wrapper]") as HTMLElement;
     expect(sidebarWrapper.className).toContain("-translate-x-full");
 
     await userEvent.click(screen.getByRole("button", { name: "메뉴 열기" }));
@@ -58,7 +58,7 @@ describe("AppShell (mobile)", () => {
       </MemoryRouter>
     );
 
-    const sidebarWrapper = screen.getByText("TeamFlow").closest("[data-sidebar-wrapper]") as HTMLElement;
+    const sidebarWrapper = screen.getByText("WorkFlow").closest("[data-sidebar-wrapper]") as HTMLElement;
     expect(sidebarWrapper).toHaveAttribute("aria-hidden", "true");
     expect(sidebarWrapper).toHaveAttribute("inert");
 

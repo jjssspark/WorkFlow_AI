@@ -10,6 +10,7 @@ import { CATEGORIES } from "../../board/libs/mock/tasks";
 import type { Meeting, UploadFlow, UploadType, GenTodo, SavedMeetingRecord, ExportablePdfData } from "../libs/types/meeting";
 import type { CatId, Priority, Task } from "../../board/libs/types/task";
 import { analyzeMeeting, confirmMeetingSave, deleteMeeting, deleteMeetingAnalysis, fetchMeeting, fetchMeetings, reanalyzeMeeting, registerMeetingTasks, retryMeetingAnalysis } from "../libs/utils/meetingAiApi";
+import { MEETING_TEMPLATE_FILE_NAME, MEETING_TEMPLATE_URL } from "../libs/constants/meetingTemplate";
 import { MeetingEditPanel } from "../components/MeetingEditPanel";
 import { MeetingAudioPlayer } from "../components/MeetingAudioPlayer";
 import type { MeetingAiResult } from "../libs/types/meetingAiTypes";
@@ -47,6 +48,7 @@ import {
   Radio,
   Trash2,
   Loader2,
+  Download,
 } from "lucide-react";
 
 export type CurrentUserRole = "leader" | "member" | "reviewer";
@@ -2454,7 +2456,18 @@ export function MeetingsView() {
 
       {/* ── Meeting list ── */}
       <div className="w-80 shrink-0 border-r border-border flex flex-col">
-        <div className="p-4 border-b border-border flex items-center gap-2">
+        <div className="p-4 border-b border-border space-y-2">
+          {/* 양식 다운로드는 업로드보다 먼저 필요하다 — 이 양식으로 회의록을 작성한 뒤 올리는 흐름이라
+              업로드 모달 안이 아니라 페이지 진입 즉시 보이는 자리에 둔다. */}
+          <a
+            href={MEETING_TEMPLATE_URL}
+            download={MEETING_TEMPLATE_FILE_NAME}
+            className="flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg border border-blue-200 bg-blue-50/60 text-xs font-semibold text-blue-800 hover:bg-blue-50 transition-colors"
+          >
+            <Download className="w-3.5 h-3.5" />
+            회의록 양식 다운로드 (.docx)
+          </a>
+          <div className="flex items-center gap-2">
           <button onClick={() => { setUploadFlow("modal"); setModalStep(0); setUploadType(null); setUploadFileName(""); setUploadFileSize(""); setSelectedFile(null); setAnalysisSource(null); setAnalysisError(null); }}
             className="flex-1 flex items-center justify-center gap-2 py-2 px-4 rounded-lg text-white text-sm font-medium transition-opacity hover:opacity-90"
             style={{ background:"linear-gradient(135deg,#7048E8 0%,#4F6EF7 100%)" }}>
@@ -2468,6 +2481,7 @@ export function MeetingsView() {
             className="p-2 rounded-lg border border-border bg-card hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
             <Mic className={`w-4 h-4 ${recordingStatus === "recording" ? "text-red-500" : "text-muted-foreground"}`} />
           </button>
+          </div>
         </div>
         <div className="flex-1 overflow-y-auto p-3 space-y-2">
           {meetingListError && <div className="text-[11px] text-amber-600 px-1">{meetingListError}</div>}
