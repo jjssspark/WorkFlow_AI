@@ -23,7 +23,7 @@ from pathlib import Path
 # 상황 그 자체다. ubuntu-latest 에는 Docker 가 있으므로 스킵되면 그게 이상 신호다.
 #
 # 여기 걸리면 숫자부터 낮추지 말고 왜 줄었는지 먼저 확인한다. 테스트를 늘렸으면 같이 올린다.
-MINIMUM_TESTS = 670
+MINIMUM_TESTS = 717
 
 
 def main() -> int:

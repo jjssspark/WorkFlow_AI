@@ -72,3 +72,25 @@ def test_a_known_field_is_never_reported_as_unknown(script):
     output = script._render(totals, ["2026-08-02"], days=7)
 
     assert "모르는 필드" not in output
+
+
+def test_id_reference_counters_are_rendered(script) -> None:
+    """id 지칭이 집계에 잡혀도 스크립트가 모르면 '모르는 필드'로 밀려 눈에 안 띈다."""
+    totals = Counter({"total": 10, "codes_0": 8, "ids_referenced": 6, "id_miss": 1, "proj_1": 10})
+
+    output = script._render(totals, ["2026-08-03"], days=1)
+
+    assert "ids_referenced" in output
+    assert "id_miss" in output
+    assert "이 스크립트가 모르는 필드" not in output
+
+
+def test_id_flags_are_measured_against_routed_questions(script) -> None:
+    """분모가 total 이면 개인화 질문이 섞여 비율이 실제보다 낮게 보인다."""
+    totals = Counter({"total": 10, "personal": 5, "codes_0": 5, "ids_referenced": 5, "proj_1": 10})
+
+    output = script._render(totals, ["2026-08-03"], days=1)
+
+    # 라우팅 대상 5건 중 5건 -> 100%. total 10 으로 나누면 50% 로 보인다.
+    ids_line = next(line for line in output.splitlines() if "ids_referenced" in line)
+    assert "100.0%" in ids_line
