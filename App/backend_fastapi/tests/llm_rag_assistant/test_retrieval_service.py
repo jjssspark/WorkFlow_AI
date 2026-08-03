@@ -273,16 +273,26 @@ class _FakeRoutingConn:
         meeting: list[dict] | None = None,
         assignee: list[dict] | None = None,
         code_error: Exception | None = None,
+        by_id: list[dict] | None = None,
+        id_error: Exception | None = None,
     ) -> None:
         self.code = code if code is not None else []
         self.general = general if general is not None else []
         self.meeting = meeting if meeting is not None else []
         self.assignee = assignee if assignee is not None else []
         self.code_error = code_error
+        self.by_id = by_id if by_id is not None else []
+        self.id_error = id_error
         self.calls: list[tuple] = []
 
     async def fetch(self, query: str, *args):
         self.calls.append((query, args))
+        # id 분기를 코드 분기보다 먼저 본다. 뒤에 두면 아래 general 로 흘러
+        # "id 검색이 붙지 않았는데도 결과가 나오는" 상태가 조용히 통과한다.
+        if "ANY($3::bigint[])" in query:
+            if self.id_error is not None:
+                raise self.id_error
+            return self.by_id
         if "ANY($3::text[])" in query:
             if self.code_error is not None:
                 raise self.code_error
@@ -295,6 +305,9 @@ class _FakeRoutingConn:
 
     def code_call(self) -> tuple | None:
         return next((call for call in self.calls if "ANY($3::text[])" in call[0]), None)
+
+    def id_call(self) -> tuple | None:
+        return next((call for call in self.calls if "ANY($3::bigint[])" in call[0]), None)
 
     def general_call(self) -> tuple | None:
         return next(
@@ -835,6 +848,140 @@ async def test_broken_stats_never_break_the_search(monkeypatch) -> None:
 
     result = await search_chunks_for_question(
         _FakeRoutingPool(conn), 7, "뭐 하기로 했지?", [0.1], top_k=5
+    )
+
+    assert result == general
+
+
+# --- 업무 id 지칭 라우팅 ---------------------------------------------------
+#
+# 화면이 TASK-230 을 보여주므로 사용자는 그렇게 말한다. 그 문자열은 청크 본문에 없으므로
+# 텍스트 검색으로는 영원히 0건이고, source_id 정수 일치로 가야 한다.
+# 아래는 "함수가 있다"가 아니라 "검색 경로에 실제로 붙었다"를 본다.
+
+
+@pytest.mark.asyncio
+async def test_a_display_code_question_queries_by_source_id() -> None:
+    hit = _row("task", 230, "AI/ML 업무", 0.42)
+    conn = _FakeRoutingConn(by_id=[hit], general=[_row("task", 9, "다른 업무", 0.95)])
+
+    result = await search_chunks_for_question(
+        _FakeRoutingPool(conn), 7, "TASK-230 현재 상황 알려줘", [0.1], top_k=5
+    )
+
+    call = conn.id_call()
+    assert call is not None, "id 정확 조회가 아예 호출되지 않았다"
+    assert call[1][2] == [230], "질문에서 뽑은 id 가 조회 인자로 넘어가야 한다"
+    # 유사도가 낮아도 앞에 온다. 지목된 업무를 유사도로 줄 세우면 잘려나간다.
+    assert result[0] == hit
+
+
+@pytest.mark.asyncio
+async def test_a_spoken_number_question_queries_by_source_id() -> None:
+    conn = _FakeRoutingConn(by_id=[_row("task", 230, "AI/ML 업무", 0.4)])
+
+    await search_chunks_for_question(
+        _FakeRoutingPool(conn), 7, "230번 현재 상황 알려줘", [0.1], top_k=5
+    )
+
+    assert conn.id_call()[1][2] == [230]
+
+
+@pytest.mark.asyncio
+async def test_a_display_code_does_not_also_trigger_the_content_code_search() -> None:
+    """TASK-230 은 TASK_CODE_PATTERN 에도 걸린다. 둘 다 돌면 0건짜리가 슬롯을 먹는다."""
+    conn = _FakeRoutingConn(by_id=[_row("task", 230, "업무", 0.4)])
+
+    await search_chunks_for_question(
+        _FakeRoutingPool(conn), 7, "TASK-230 상황", [0.1], top_k=5
+    )
+
+    assert conn.code_call() is None
+
+
+@pytest.mark.asyncio
+async def test_display_code_and_content_code_split_into_their_own_paths() -> None:
+    conn = _FakeRoutingConn(
+        by_id=[_row("task", 230, "업무230", 0.4)],
+        code=[_row("task", 5, "WF-195 업무", 0.5)],
+    )
+
+    await search_chunks_for_question(
+        _FakeRoutingPool(conn), 7, "TASK-230 과 WF-195 비교해줘", [0.1], top_k=5
+    )
+
+    assert conn.id_call()[1][2] == [230]
+    # 본문 코드 검색에는 표시용 코드가 섞이지 않아야 한다.
+    assert all("TASK-230" not in pattern for pattern in conn.code_call()[1][2])
+
+
+@pytest.mark.asyncio
+async def test_a_plain_number_does_not_query_by_id() -> None:
+    conn = _FakeRoutingConn(general=[_row("task", 1, "업무", 0.9)])
+
+    await search_chunks_for_question(
+        _FakeRoutingPool(conn), 7, "3일 남은 업무 알려줘", [0.1], top_k=5
+    )
+
+    assert conn.id_call() is None
+
+
+@pytest.mark.asyncio
+async def test_an_unknown_id_falls_back_to_normal_search() -> None:
+    """존재하지 않는 id 를 지목해도 엉뚱한 답이 아니라 원래 답이 나와야 한다."""
+    general = [_row("task", 1, "업무1", 0.9)]
+    conn = _FakeRoutingConn(by_id=[], general=general)
+
+    result = await search_chunks_for_question(
+        _FakeRoutingPool(conn), 7, "99999번 상황", [0.1], top_k=5
+    )
+
+    assert result == general
+
+
+@pytest.mark.asyncio
+async def test_an_id_question_is_counted_separately_from_content_codes(rag_stats_redis) -> None:
+    conn = _FakeRoutingConn(by_id=[_row("task", 230, "업무", 0.4)])
+
+    await search_chunks_for_question(_FakeRoutingPool(conn), 7, "TASK-230 상황", [0.1], top_k=5)
+
+    counters = _counters(rag_stats_redis)
+    assert counters["ids_referenced"] == 1
+    assert "id_miss" not in counters
+    # 본문 코드는 하나도 없었다. 한 칸에 담으면 두 경로를 구분할 수 없다.
+    assert counters["codes_0"] == 1
+
+
+@pytest.mark.asyncio
+async def test_a_missing_id_is_counted_as_id_miss(rag_stats_redis) -> None:
+    conn = _FakeRoutingConn(by_id=[], general=[_row("task", 1, "업무", 0.9)])
+
+    await search_chunks_for_question(_FakeRoutingPool(conn), 7, "99999번 상황", [0.1], top_k=5)
+
+    counters = _counters(rag_stats_redis)
+    assert counters["ids_referenced"] == 1
+    assert counters["id_miss"] == 1
+
+
+@pytest.mark.asyncio
+async def test_an_id_search_failure_is_not_counted_as_a_miss(rag_stats_redis) -> None:
+    """조회 실패와 '그 업무가 없음'을 한 칸에 담으면 관측값이 오염된다."""
+    conn = _FakeRoutingConn(id_error=RuntimeError("db down"), general=[_row("task", 1, "업무", 0.9)])
+
+    await search_chunks_for_question(_FakeRoutingPool(conn), 7, "230번 상황", [0.1], top_k=5)
+
+    counters = _counters(rag_stats_redis)
+    assert counters["ids_referenced"] == 1
+    assert "id_miss" not in counters
+
+
+@pytest.mark.asyncio
+async def test_an_id_search_failure_still_answers(rag_stats_redis) -> None:
+    general = [_row("task", 1, "업무", 0.9)]
+    conn = _FakeRoutingConn(id_error=RuntimeError("db down"), general=general)
+
+    result = await search_chunks_for_question(
+        _FakeRoutingPool(conn), 7, "230번 상황", [0.1], top_k=5
     )
 
     assert result == general
