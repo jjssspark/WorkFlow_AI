@@ -13,6 +13,7 @@ import { fetchChecklist, createChecklistItem, updateChecklistItem, deleteCheckli
 import { fetchTaskComments, createTaskComment, updateTaskComment, deleteTaskComment, type TaskCommentDto } from "../libs/utils/taskCommentApi";
 import { fetchTaskActivity, type TaskActivityDto } from "../libs/utils/activityApi";
 import { DEMO_PROJECT_ID, sendTaskNudge, type NudgeKind } from "../libs/utils/taskApi";
+import { taskCode } from "../libs/utils/taskCode";
 import { useAuth } from "../../global/hooks/useAuth";
 import type { Task, ChecklistItem } from "../libs/types/task";
 import ChecklistGenerateModal from "./ChecklistGenerateModal";
@@ -459,7 +460,7 @@ export function TaskDetailPanel({ task, projectMembers, onClose, onQuickAction, 
         {task.description && (
           <div className="text-xs text-muted-foreground mt-1 whitespace-pre-wrap">{task.description}</div>
         )}
-        <div className="text-[10px] font-mono text-muted-foreground mt-0.5">{task.id}</div>
+        <div className="text-[10px] font-mono text-muted-foreground mt-0.5">{taskCode(task.id)}</div>
       </div>
 
       {confirmingDelete && (

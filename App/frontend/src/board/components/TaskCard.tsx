@@ -8,6 +8,7 @@ import type { MemberResponse } from "../../global/api/projectsApi";
 import { TASK_DRAG_TYPE, type TaskDragItem } from "../libs/utils/dnd";
 import { canMoveTask } from "../libs/utils/taskActions";
 import { formatBoardTaskDate, shouldHideYearOnBoard } from "../libs/utils/taskService";
+import { taskCode } from "../libs/utils/taskCode";
 import type { Task } from "../libs/types/task";
 
 interface TaskCardProps {
@@ -84,7 +85,11 @@ export function TaskCard({ task, catId, projectMembers, compact, selected, onSel
         style={{ opacity: isDragging ? 0.4 : task.pendingApproval ? 0.75 : 1 }}
       >
         <div className="flex items-center justify-between gap-1 mb-1.5">
-          <CatTag catId={catId} />
+          <div className="flex items-center gap-1.5 min-w-0">
+            <CatTag catId={catId} />
+            {/* 어시스턴트에 업무를 지칭하려면 사용자가 코드를 볼 수 있어야 한다 */}
+            <span className="text-[9px] font-mono text-muted-foreground shrink-0">{taskCode(task.id)}</span>
+          </div>
           {task.pendingApproval ? (
             <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-amber-100 text-amber-700 shrink-0">승인 대기중</span>
           ) : task.status === "blocked" && (
