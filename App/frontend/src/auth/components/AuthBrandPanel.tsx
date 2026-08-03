@@ -12,10 +12,10 @@ export function AuthBrandPanel() {
       <div>
         <div className="flex items-center gap-3 mb-12">
           <div className="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-white text-base" style={{ background: "linear-gradient(135deg, #7048E8, #4F6EF7)" }}>
-            TF
+            WF
           </div>
           <div>
-            <div className="text-white font-bold text-lg leading-none">TeamFlow</div>
+            <div className="text-white font-bold text-lg leading-none">WorkFlow</div>
             <div className="text-xs font-medium mt-0.5" style={{ color: "#A78BFA" }}>AI Powered</div>
           </div>
         </div>

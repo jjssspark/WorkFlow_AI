@@ -131,9 +131,9 @@ export function OnboardingScreen() {
       {/* top logo */}
       <div className="flex items-center gap-2.5 mb-10">
         <div className="w-9 h-9 rounded-xl flex items-center justify-center text-white font-bold text-sm" style={{ background: "linear-gradient(135deg, #7048E8, #4F6EF7)" }}>
-          TF
+          WF
         </div>
-        <span className="font-bold text-foreground text-base">TeamFlow AI</span>
+        <span className="font-bold text-foreground text-base">WorkFlow AI</span>
       </div>
 
       {/* card */}
