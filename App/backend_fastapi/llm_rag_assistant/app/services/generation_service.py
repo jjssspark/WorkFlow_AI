@@ -70,6 +70,12 @@ def _format_facts(facts: dict | None) -> str:
     if not facts:
         return ""
     parts = [f"{label}: {facts[key]}" for key, label in _FACT_LABELS if facts.get(key) is not None]
+    # 담당자는 위 목록에 넣지 않는다. 값이 없을 때 조용히 빼면 모델이 제목 문구에서 담당자를
+    # 주워 오기 때문이다 - 제목이 "담당 미정 · ..."인 업무에 대해 실제 담당자가 있는데도
+    # "담당자는 미정입니다"라고 답한 것이 그 결과였다. 배정이 없다는 것 자체가 답할 근거다.
+    # 키가 아예 없는 호출부(facts를 붙이기 전 코드 경로)는 지금처럼 담당자 없이 지나간다.
+    if "assignee_name" in facts:
+        parts.insert(0, f"담당자: {facts['assignee_name'] or _UNASSIGNED_LABEL}")
     return f" ({', '.join(parts)})" if parts else ""
 
 

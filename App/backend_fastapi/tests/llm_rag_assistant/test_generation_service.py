@@ -231,6 +231,56 @@ async def test_generate_answer_omits_parentheses_when_all_facts_empty(
 
 
 @pytest.mark.asyncio
+async def test_generate_answer_includes_assignee_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    """담당자가 컨텍스트에 없으면 모델이 제목 문구에서 담당자를 추측한다.
+
+    실측: 제목이 "담당 미정 · ..."인 업무에 박지수가 배정돼 있는데도 "담당자는 미정입니다"라고
+    답했다. 근거를 주지 않으면 모델은 있는 글자를 읽는다.
+    """
+    sources = [
+        {
+            "source_type": "task",
+            "source_id": 3,
+            "content": "담당 미정 · 삭제된 심사자 계정 3개를 다시 만들지 결정",
+            "facts": {
+                "due_date": None, "status": "todo",
+                "priority": "MEDIUM", "assignee_name": "박지수",
+            },
+        }
+    ]
+
+    prompt = await _prompt_for_sources(monkeypatch, sources)
+
+    assert "담당자: 박지수" in prompt
+
+
+@pytest.mark.asyncio
+async def test_generate_answer_marks_unassigned_task_explicitly(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """담당자는 값이 없는 것 자체가 정보다.
+
+    마감일처럼 조용히 빼면, 모델이 다시 제목 문구에서 담당자를 주워 온다.
+    """
+    sources = [
+        {
+            "source_type": "task",
+            "source_id": 4,
+            "content": "타임존 혼용 정리",
+            "facts": {
+                "due_date": None, "status": "todo",
+                "priority": "LOW", "assignee_name": None,
+            },
+        }
+    ]
+
+    prompt = await _prompt_for_sources(monkeypatch, sources)
+
+    assert "담당자: 미배정" in prompt
+    assert "None" not in prompt
+
+
+@pytest.mark.asyncio
 async def test_generate_answer_works_when_facts_key_absent(monkeypatch: pytest.MonkeyPatch) -> None:
     """facts 키 자체가 없는 호출부(기존 코드)가 남아 있어도 깨지지 않아야 한다."""
     sources = [{"source_type": "meeting", "source_id": 1, "content": "회의 내용 요약"}]
