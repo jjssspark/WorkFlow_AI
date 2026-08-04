@@ -62,13 +62,19 @@ class _RaisingPool:
 async def test_enriches_task_row_with_due_date_status_priority() -> None:
     rows = [{"source_type": "task", "source_id": 12, "content": "로그인 API 구현", "similarity": 0.9}]
     conn = _FakeConn(
-        task_rows=[{"id": 12, "due_date": date(2026, 8, 1), "status": "진행중", "priority": "high"}],
+        task_rows=[{
+            "id": 12, "due_date": date(2026, 8, 1), "status": "진행중",
+            "priority": "high", "assignee_name": "김민준",
+        }],
         action_item_rows=[],
     )
 
     result = await enrich_with_facts(_FakePool(conn), project_id=1, rows=rows)
 
-    assert result[0]["facts"] == {"due_date": date(2026, 8, 1), "status": "진행중", "priority": "high"}
+    assert result[0]["facts"] == {
+        "due_date": date(2026, 8, 1), "status": "진행중",
+        "priority": "high", "assignee_name": "김민준",
+    }
 
 
 @pytest.mark.asyncio
@@ -76,12 +82,75 @@ async def test_enriches_action_item_row_from_meeting_action_items_table() -> Non
     rows = [{"source_type": "action_item", "source_id": 5, "content": "배포 스크립트 점검", "similarity": 0.8}]
     conn = _FakeConn(
         task_rows=[],
-        action_item_rows=[{"id": 5, "due_date": date(2026, 9, 30), "priority": "medium"}],
+        action_item_rows=[{
+            "id": 5, "due_date": date(2026, 9, 30), "priority": "medium", "assignee_name": "이서연",
+        }],
     )
 
     result = await enrich_with_facts(_FakePool(conn), project_id=1, rows=rows)
 
-    assert result[0]["facts"] == {"due_date": date(2026, 9, 30), "status": None, "priority": "medium"}
+    assert result[0]["facts"] == {
+        "due_date": date(2026, 9, 30), "status": None,
+        "priority": "medium", "assignee_name": "이서연",
+    }
+
+
+# ── 담당자 ──────────────────────────────────────────────────────────────────
+#
+# 담당자는 청크 본문에도 없고 이 조회에도 없었다. 그래서 모델이 제목 문구에서 추측했고,
+# 제목이 "담당 미정 · ..."으로 시작하는 업무(회의록 양식이 담당자 칸을 제목에 흘려 넣는다)에
+# 대해 실제로는 박지수가 배정돼 있는데도 "담당자는 미정입니다"라고 답했다.
+# 근거 없음보다 나쁘다 - 사용자가 틀린 줄 모른다.
+
+
+@pytest.mark.asyncio
+async def test_task_facts_include_assignee_name() -> None:
+    rows = [{"source_type": "task", "source_id": 3, "content": "담당 미정 · 심사자 계정 재생성", "similarity": 0.4}]
+    conn = _FakeConn(
+        task_rows=[{
+            "id": 3, "due_date": None, "status": "todo",
+            "priority": "MEDIUM", "assignee_name": "박지수",
+        }],
+        action_item_rows=[],
+    )
+
+    result = await enrich_with_facts(_FakePool(conn), project_id=1, rows=rows)
+
+    assert result[0]["facts"]["assignee_name"] == "박지수"
+
+
+@pytest.mark.asyncio
+async def test_unassigned_task_keeps_assignee_name_as_none() -> None:
+    """배정이 없는 것과 조회가 안 된 것은 다르다. 표기는 소비 측이 정한다."""
+    rows = [{"source_type": "task", "source_id": 3, "content": "심사자 계정 재생성", "similarity": 0.4}]
+    conn = _FakeConn(
+        task_rows=[{
+            "id": 3, "due_date": None, "status": "todo",
+            "priority": "MEDIUM", "assignee_name": None,
+        }],
+        action_item_rows=[],
+    )
+
+    result = await enrich_with_facts(_FakePool(conn), project_id=1, rows=rows)
+
+    assert result[0]["facts"]["assignee_name"] is None
+
+
+@pytest.mark.asyncio
+async def test_both_queries_join_users_to_resolve_the_name() -> None:
+    """이름은 users 에만 있다. 조인이 조용히 빠지면 담당자가 다시 안 보이게 된다."""
+    rows = [
+        {"source_type": "task", "source_id": 1, "content": "업무", "similarity": 0.9},
+        {"source_type": "action_item", "source_id": 2, "content": "액션", "similarity": 0.8},
+    ]
+    conn = _FakeConn(task_rows=[], action_item_rows=[])
+
+    await enrich_with_facts(_FakePool(conn), project_id=1, rows=rows)
+
+    assert len(conn.calls) == 2
+    for query, _args in conn.calls:
+        assert "JOIN users" in query
+        assert "assignee_name" in query
 
 
 @pytest.mark.asyncio
@@ -109,7 +178,7 @@ async def test_source_id_missing_from_query_result_gets_no_facts() -> None:
         {"source_type": "task", "source_id": 999, "content": "타 프로젝트 업무", "similarity": 0.8},
     ]
     conn = _FakeConn(
-        task_rows=[{"id": 12, "due_date": date(2026, 8, 1), "status": "진행중", "priority": "high"}],
+        task_rows=[{"id": 12, "due_date": date(2026, 8, 1), "status": "진행중", "priority": "high", "assignee_name": "김민준"}],
         action_item_rows=[],
     )
 
@@ -169,7 +238,7 @@ async def test_returns_rows_without_facts_when_query_fails() -> None:
 async def test_does_not_mutate_input_rows() -> None:
     rows = [{"source_type": "task", "source_id": 12, "content": "로그인 API 구현", "similarity": 0.9}]
     conn = _FakeConn(
-        task_rows=[{"id": 12, "due_date": date(2026, 8, 1), "status": "진행중", "priority": "high"}],
+        task_rows=[{"id": 12, "due_date": date(2026, 8, 1), "status": "진행중", "priority": "high", "assignee_name": "김민준"}],
         action_item_rows=[],
     )
 
@@ -191,14 +260,25 @@ async def test_same_id_in_different_source_types_does_not_swap_facts() -> None:
         {"source_type": "action_item", "source_id": 7, "content": "액션 7", "similarity": 0.8},
     ]
     conn = _FakeConn(
-        task_rows=[{"id": 7, "due_date": date(2026, 8, 1), "status": "진행중", "priority": "high"}],
-        action_item_rows=[{"id": 7, "due_date": date(2026, 9, 30), "priority": "low"}],
+        task_rows=[{
+            "id": 7, "due_date": date(2026, 8, 1), "status": "진행중",
+            "priority": "high", "assignee_name": "김민준",
+        }],
+        action_item_rows=[{
+            "id": 7, "due_date": date(2026, 9, 30), "priority": "low", "assignee_name": "이서연",
+        }],
     )
 
     result = await enrich_with_facts(_FakePool(conn), project_id=1, rows=rows)
 
-    assert result[0]["facts"] == {"due_date": date(2026, 8, 1), "status": "진행중", "priority": "high"}
-    assert result[1]["facts"] == {"due_date": date(2026, 9, 30), "status": None, "priority": "low"}
+    assert result[0]["facts"] == {
+        "due_date": date(2026, 8, 1), "status": "진행중",
+        "priority": "high", "assignee_name": "김민준",
+    }
+    assert result[1]["facts"] == {
+        "due_date": date(2026, 9, 30), "status": None,
+        "priority": "low", "assignee_name": "이서연",
+    }
 
 
 @pytest.mark.asyncio
@@ -215,8 +295,8 @@ async def test_preserves_row_order_and_count() -> None:
         {"source_type": "action_item", "source_id": 7, "content": "액션 7", "similarity": 0.8},
     ]
     conn = _FakeConn(
-        task_rows=[{"id": 7, "due_date": date(2026, 8, 1), "status": "진행중", "priority": "high"}],
-        action_item_rows=[{"id": 7, "due_date": date(2026, 9, 30), "priority": "low"}],
+        task_rows=[{"id": 7, "due_date": date(2026, 8, 1), "status": "진행중", "priority": "high", "assignee_name": "김민준"}],
+        action_item_rows=[{"id": 7, "due_date": date(2026, 9, 30), "priority": "low", "assignee_name": "이서연"}],
     )
 
     result = await enrich_with_facts(_FakePool(conn), project_id=1, rows=rows)
