@@ -331,3 +331,123 @@ def test_LLM_제목이_비어_설명으로_대체될_때도_담당자_칸이_빠
 
     assert result.todos[0].description.startswith("고무서"), "원문 To-Do 가 유지돼야 검사가 유효하다"
     assert "고무서" not in result.todos[0].title
+
+
+# ── 실행항목 칸의 "누가"를 담당자 후보로 쓴다 ────────────────────────────────
+#
+# 회의록에 "고무서 · 관리자와 구글 계정으로…"라고 적혀 있는데도 4건이 전부 미배정으로
+# 등록됐다. extract_assignee_candidate 는 "OO가 ~한다"와 "담당: OO"만 보기 때문에
+# 양식이 정한 "누가 · 무엇을 · 언제까지" 형식을 읽지 못한다.
+#
+# (참석자 목록이 비면 필터 자체가 없다. 미배정의 원인은 필터가 아니라 추출 실패다.)
+
+
+def test_누가_칸의_이름이_담당자_후보가_된다():
+    todos = build_todos_from_action_items(
+        [("MEDIUM", "고무서 · 관리자와 구글 계정으로 로그인되는지 확인 · 배포 당일")],
+        meeting_date="2026-08-03",
+    )
+
+    assert todos[0].assignee_candidate == "고무서"
+
+
+def test_담당_미정이라고_적었으면_미배정으로_확정한다():
+    """작성자가 미정이라고 적었는데 문장에서 이름을 주워오면 작성자 의도를 뒤집는다."""
+    todos = build_todos_from_action_items(
+        [("MEDIUM", "담당 미정 · 김민준이 문서를 작성한다 · 8/10")],
+        meeting_date="2026-08-03",
+    )
+
+    assert todos[0].assignee_candidate == ""
+
+
+def test_누가_칸이_없으면_기존_문장_추출을_그대로_쓴다():
+    todos = build_todos_from_action_items(
+        [("HIGH", "김민준이 결제 API 연동을 8/10까지 마무리한다.")],
+        meeting_date="2026-08-03",
+    )
+
+    assert todos[0].assignee_candidate == "김민준"
+
+
+def test_참석자_목록에_없는_이름은_지금처럼_지운다():
+    """참석자를 골라 보냈다면 그건 실제 명단이다. 명단 밖 이름은 오타이거나 외부인이다."""
+    todos = build_todos_from_action_items(
+        [("MEDIUM", "고무서 · 관리자와 구글 계정으로 로그인되는지 확인 · 배포 당일")],
+        meeting_date="2026-08-03",
+        participants=["김민준", "이서연"],
+    )
+
+    assert todos[0].assignee_candidate == ""
+
+
+def test_참석자_목록에_있는_이름은_남는다():
+    todos = build_todos_from_action_items(
+        [("MEDIUM", "김민준 · 결제 API 연동 마무리 · 8/10")],
+        meeting_date="2026-08-03",
+        participants=["김민준", "이서연"],
+    )
+
+    assert todos[0].assignee_candidate == "김민준"
+
+
+# ── 실행항목 칸의 "언제까지"도 제목에서 뺀다 ─────────────────────────────────
+#
+# 담당자 칸만 떼고 나니 제목이 "관리자와 구글 계정으로 로그인되는지 확인 ·…"으로 끝났다.
+# 44자 상한에 걸려 기한 칸이 잘린 꼬리로 남는다. 양식이 세 칸이라고 정했으니 가운데 칸만
+# 제목으로 쓴다. 기한은 due_date 가 원문(description)에서 따로 읽으므로 잃지 않는다.
+
+
+def test_기한_칸이_제목에서_빠진다():
+    todos = build_todos_from_action_items(
+        [("MEDIUM", "고무서 · 관리자와 구글 계정으로 로그인되는지 확인 · 배포 당일")],
+        meeting_date="2026-08-03",
+    )
+
+    assert todos[0].title == "관리자와 구글 계정으로 로그인되는지 확인"
+
+
+def test_담당자_칸이_없어도_기한_칸은_빠진다():
+    todos = build_todos_from_action_items(
+        [("MEDIUM", "결제 API 연동 마무리 · 8/10")],
+        meeting_date="2026-08-03",
+    )
+
+    assert "8/10" not in todos[0].title
+
+
+def test_가운데_칸에_가운뎃점이_더_있어도_내용을_잃지_않는다():
+    """칸이 넷 이상이면 처음이 누가, 마지막이 언제까지, 나머지가 전부 내용이다."""
+    todos = build_todos_from_action_items(
+        [("MEDIUM", "고무서 · A 확인 · B 확인 · 배포 당일")],
+        meeting_date="2026-08-03",
+    )
+
+    assert "A 확인" in todos[0].title
+    assert "B 확인" in todos[0].title
+    assert "배포 당일" not in todos[0].title
+
+
+def test_기한_칸을_떼면_내용이_비는_경우는_그대로_둔다():
+    todos = build_todos_from_action_items(
+        [("LOW", "고무서 · 배포 당일")],
+        meeting_date="2026-08-03",
+    )
+
+    assert todos[0].title.strip() != ""
+
+
+def test_마감일은_원문에서_계속_읽는다():
+    """제목에서 뺐다고 기한 정보를 잃으면 안 된다. due_date 는 원문(description)에서 읽는다.
+
+    표 칸에 날짜만("· 8/10") 적으면 sanitize_due_date 가 "원문에 없는 후보"로 버린다.
+    _extract_due_date_mentions 가 "8/10까지"처럼 기한 표현이 붙은 경우만 인정하기 때문인데,
+    이건 이 변경과 무관한 기존 동작이라 여기서는 인정되는 형태로 검증한다.
+    """
+    todos = build_todos_from_action_items(
+        [("MEDIUM", "고무서 · 결제 API 연동 마무리 · 8/10까지")],
+        meeting_date="2026-08-03",
+    )
+
+    assert todos[0].title == "결제 API 연동 마무리"
+    assert todos[0].due_date == "2026-08-10"
