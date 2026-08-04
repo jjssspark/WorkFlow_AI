@@ -466,21 +466,23 @@ def build_todos_from_action_items(
     allowed_names = _allowed_assignee_names(participants or [])
     todos: List[MeetingTodo] = []
     for priority, sentence in action_items:
+        slot_assignee, title_source, due_slot = split_todo_cell(sentence)
         # 양식이 정한 "누가" 칸이 문장 추출보다 우선한다. 작성자가 지정 칸에 적은 것이
         # 문장에서 유추한 것보다 확실하고, "담당 미정"이라고 적은 것도 하나의 지정이다.
-        slot_assignee = resolve_assignee_slot(sentence)
         assignee = slot_assignee if slot_assignee is not None else extract_assignee_candidate(sentence)
         if allowed_names is not None and assignee not in allowed_names:
             assignee = ""
-        # 제목에서만 담당자 칸을 떼어낸다. description·evidence_text 는 원문을 지킨다 -
+        # 제목에는 "무엇을" 칸만 쓴다. description·evidence_text 는 원문을 지킨다 -
         # 회의록에 뭐라고 적혔는지 되짚을 수 없게 되면 안 된다.
-        title_source = strip_assignee_slot(sentence)
         todos.append(
             MeetingTodo(
                 title=shorten(clean_todo_title(title_source) or title_source, 44),
                 description=sentence,
                 assignee_candidate=assignee,
-                due_date=sanitize_due_date(
+                # 기한 칸이 있으면 그 값이 우선한다. 칸 밖의 날짜는 서술이므로 기존 방어막
+                # (문맥 키워드 확인)을 그대로 통과해야 마감일이 된다.
+                due_date=_due_date_from_slot(due_slot, meeting_date)
+                or sanitize_due_date(
                     extract_due_date_candidate(sentence, base_date.year), sentence, meeting_date
                 ),
                 priority=priority or "MEDIUM",
@@ -1136,22 +1138,55 @@ def _looks_like_assignee_slot(segment: str) -> bool:
     return text.lower() in _UNASSIGNED_MARKERS or bool(_ASSIGNEE_SLOT_NAME_PATTERN.match(text))
 
 
-def resolve_assignee_slot(sentence: str) -> Optional[str]:
-    """실행항목 칸의 "누가"를 읽는다.
+def split_todo_cell(sentence: str) -> tuple[Optional[str], str, Optional[str]]:
+    """실행항목 칸을 (누가, 무엇을, 언제까지)로 나눈다.
 
-    돌려주는 값이 세 가지다. 이 셋을 구분하지 않으면 작성자 의도를 뒤집는다.
-      - 이름  : 작성자가 지목한 사람
-      - ""    : 작성자가 "담당 미정"이라고 명시했다. 여기서 끝이고 문장을 더 뒤지지 않는다
-      - None  : 이름 자리가 없다(양식 미준수). 호출부가 기존 문장 추출로 넘어간다
+    세 소비처(제목·담당자·마감일)가 같은 분해를 봐야 한다. 각자 나누면 한쪽만 고쳤을 때
+    제목에서는 뗀 칸을 담당자 쪽은 그대로 읽는 식으로 조용히 어긋난다.
+
+    누가:   이름 / "" (작성자가 "담당 미정"이라고 명시) / None (자리 없음)
+    무엇을: 제목으로 쓸 문자열. 떼고 나서 남는 게 없으면 원문을 지킨다
+    언제까지: 기한 칸 원문 / None
     """
     if _TODO_FIELD_SEPARATOR not in sentence:
+        return None, sentence, None
+
+    parts = [part.strip() for part in sentence.split(_TODO_FIELD_SEPARATOR)]
+
+    assignee: Optional[str] = None
+    if _looks_like_assignee_slot(parts[0]):
+        head = parts[0]
+        assignee = "" if head.lower() in _UNASSIGNED_MARKERS else head.rstrip("님씨")
+        parts = parts[1:]
+
+    # 칸이 둘 이상 남았을 때만 마지막을 뗀다. 하나뿐이면 그게 업무 내용이다.
+    # 담당자 칸을 이미 확인했다면 양식을 지킨 문서이므로 마지막 칸은 기한으로 본다.
+    due: Optional[str] = None
+    if len(parts) >= 2 and (assignee is not None or _looks_like_due_slot(parts[-1])):
+        due = parts[-1]
+        parts = parts[:-1]
+
+    content = f" {_TODO_FIELD_SEPARATOR} ".join(part for part in parts if part)
+    return assignee, content or sentence, due
+
+
+def resolve_assignee_slot(sentence: str) -> Optional[str]:
+    """실행항목 칸의 "누가"를 읽는다. 세 가지를 구분하지 않으면 작성자 의도를 뒤집는다."""
+    return split_todo_cell(sentence)[0]
+
+
+# 양식의 "언제까지" 칸에 적힌 날짜는 추측이 아니라 선언이다. sanitize_due_date 는 마감·완료
+# 같은 문맥 키워드가 곁에 있어야 마감일로 인정하는데, 그건 회의 일자 헤더를 마감일로 오인하지
+# 않으려는 자유 서술용 방어막이다. 지정된 칸 안에서는 그 방어막이 필요 없고, 있으면 양식대로
+# 날짜만 적은 사용자의 마감일이 조용히 사라진다.
+def _due_date_from_slot(due_text: Optional[str], meeting_date: str) -> Optional[str]:
+    if not due_text:
         return None
-    head = sentence.partition(_TODO_FIELD_SEPARATOR)[0].strip()
-    if not _looks_like_assignee_slot(head):
+    match = _DATEISH_PATTERN.search(due_text)
+    if not match:
+        # "배포 당일"처럼 사람은 알아도 날짜가 아닌 표현이다. 지어내지 않는다.
         return None
-    if head.lower() in _UNASSIGNED_MARKERS:
-        return ""
-    return head.rstrip("님씨")
+    return _normalize_date_token(match.group(0), meeting_date)
 
 
 # 기한 칸은 "배포 당일", "심사 일정 전까지", "8/10", "미정"처럼 적힌다. 날짜로 파싱되거나
@@ -1178,19 +1213,7 @@ def strip_assignee_slot(sentence: str) -> str:
     양식대로 적히지 않았으면 원문을 그대로 돌려준다. 떼어낸 뒤 남는 내용이 없을 때도
     마찬가지다 - 제목이 빈 문자열이 되느니 지저분한 편이 낫다.
     """
-    if _TODO_FIELD_SEPARATOR not in sentence:
-        return sentence
-
-    parts = [part.strip() for part in sentence.split(_TODO_FIELD_SEPARATOR)]
-    dropped_assignee = _looks_like_assignee_slot(parts[0])
-    if dropped_assignee:
-        parts = parts[1:]
-    # 칸이 둘 이상 남았을 때만 마지막을 뗀다. 하나뿐이면 그게 업무 내용이다.
-    # 담당자 칸을 이미 확인했다면 양식을 지킨 문서이므로 마지막 칸은 기한으로 본다.
-    if len(parts) >= 2 and (dropped_assignee or _looks_like_due_slot(parts[-1])):
-        parts = parts[:-1]
-
-    return f" {_TODO_FIELD_SEPARATOR} ".join(part for part in parts if part) or sentence
+    return split_todo_cell(sentence)[1]
 
 
 def clean_todo_title(raw_title: str) -> str:

@@ -451,3 +451,62 @@ def test_마감일은_원문에서_계속_읽는다():
 
     assert todos[0].title == "결제 API 연동 마무리"
     assert todos[0].due_date == "2026-08-10"
+
+
+# ── 실행항목 "언제까지" 칸의 날짜 ────────────────────────────────────────────
+#
+# 양식이 날짜를 적으라고 안내하는 칸인데, 날짜만 적으면("· 8/10") 마감일이 버려졌다.
+# sanitize_due_date 가 마감/완료/제출 같은 문맥 키워드가 곁에 있어야 마감일로 인정하기
+# 때문이다. 그 방어막은 회의 일자 헤더를 마감일로 오인하지 않으려는 것이라 자유 서술에는
+# 필요하다. 하지만 "언제까지" 칸에 적힌 날짜는 추측이 아니라 선언이다.
+
+
+def test_기한_칸에_날짜만_적어도_마감일이_잡힌다():
+    todos = build_todos_from_action_items(
+        [("MEDIUM", "고무서 · 결제 API 연동 마무리 · 8/10")],
+        meeting_date="2026-08-03",
+    )
+
+    assert todos[0].due_date == "2026-08-10"
+
+
+def test_기한_칸의_여러_날짜_표기를_모두_읽는다():
+    for cell, expected in [
+        ("고무서 · 결제 연동 마무리 · 2026-08-10", "2026-08-10"),
+        ("고무서 · 결제 연동 마무리 · 8월 10일", "2026-08-10"),
+        ("고무서 · 결제 연동 마무리 · 8/10까지", "2026-08-10"),
+    ]:
+        todos = build_todos_from_action_items([("MEDIUM", cell)], meeting_date="2026-08-03")
+        assert todos[0].due_date == expected, cell
+
+
+def test_날짜가_아닌_기한_표현은_마감일이_없다():
+    """"배포 당일"은 사람은 알아도 날짜가 아니다. 없는 날짜를 지어내면 안 된다."""
+    todos = build_todos_from_action_items(
+        [("MEDIUM", "고무서 · 관리자와 구글 계정으로 로그인되는지 확인 · 배포 당일")],
+        meeting_date="2026-08-03",
+    )
+
+    assert todos[0].due_date is None
+
+
+def test_기한_칸_밖의_날짜는_기존_방어막을_그대로_받는다():
+    """회의 일자 헤더 같은 날짜를 마감일로 오인하지 않으려는 방어막은 유지돼야 한다.
+
+    업무 내용 칸에 적힌 날짜는 선언이 아니라 서술이므로 문맥 키워드가 없으면 쓰지 않는다.
+    """
+    todos = build_todos_from_action_items(
+        [("MEDIUM", "고무서 · 2026-08-10 배포 회고 정리 · 미정")],
+        meeting_date="2026-08-03",
+    )
+
+    assert todos[0].due_date is None
+
+
+def test_자유_서술의_마감일_추출은_그대로다():
+    todos = build_todos_from_action_items(
+        [("HIGH", "김민준이 결제 API 연동을 8/10까지 마무리한다.")],
+        meeting_date="2026-08-03",
+    )
+
+    assert todos[0].due_date == "2026-08-10"
