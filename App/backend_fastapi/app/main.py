@@ -466,7 +466,10 @@ def build_todos_from_action_items(
     allowed_names = _allowed_assignee_names(participants or [])
     todos: List[MeetingTodo] = []
     for priority, sentence in action_items:
-        assignee = extract_assignee_candidate(sentence)
+        # 양식이 정한 "누가" 칸이 문장 추출보다 우선한다. 작성자가 지정 칸에 적은 것이
+        # 문장에서 유추한 것보다 확실하고, "담당 미정"이라고 적은 것도 하나의 지정이다.
+        slot_assignee = resolve_assignee_slot(sentence)
+        assignee = slot_assignee if slot_assignee is not None else extract_assignee_candidate(sentence)
         if allowed_names is not None and assignee not in allowed_names:
             assignee = ""
         # 제목에서만 담당자 칸을 떼어낸다. description·evidence_text 는 원문을 지킨다 -
@@ -1133,18 +1136,61 @@ def _looks_like_assignee_slot(segment: str) -> bool:
     return text.lower() in _UNASSIGNED_MARKERS or bool(_ASSIGNEE_SLOT_NAME_PATTERN.match(text))
 
 
+def resolve_assignee_slot(sentence: str) -> Optional[str]:
+    """실행항목 칸의 "누가"를 읽는다.
+
+    돌려주는 값이 세 가지다. 이 셋을 구분하지 않으면 작성자 의도를 뒤집는다.
+      - 이름  : 작성자가 지목한 사람
+      - ""    : 작성자가 "담당 미정"이라고 명시했다. 여기서 끝이고 문장을 더 뒤지지 않는다
+      - None  : 이름 자리가 없다(양식 미준수). 호출부가 기존 문장 추출로 넘어간다
+    """
+    if _TODO_FIELD_SEPARATOR not in sentence:
+        return None
+    head = sentence.partition(_TODO_FIELD_SEPARATOR)[0].strip()
+    if not _looks_like_assignee_slot(head):
+        return None
+    if head.lower() in _UNASSIGNED_MARKERS:
+        return ""
+    return head.rstrip("님씨")
+
+
+# 기한 칸은 "배포 당일", "심사 일정 전까지", "8/10", "미정"처럼 적힌다. 날짜로 파싱되거나
+# 기한을 가리키는 말이면 기한 칸으로 본다. 길면 업무 내용이므로 건드리지 않는다.
+_DUE_SLOT_MAX_LEN = 20
+_DUE_SLOT_KEYWORD_PATTERN = re.compile(
+    r"(까지|당일|오늘|내일|모레|이번\s*주|다음\s*주|월말|주말|분기|미정|미배정|tbd)", re.IGNORECASE
+)
+
+
+def _looks_like_due_slot(segment: str) -> bool:
+    text = segment.strip()
+    if not text or len(text) > _DUE_SLOT_MAX_LEN:
+        return False
+    return bool(_DATEISH_PATTERN.search(text) or _DUE_SLOT_KEYWORD_PATTERN.search(text))
+
+
 def strip_assignee_slot(sentence: str) -> str:
-    """실행항목 칸의 맨 앞 "누가" 칸을 떼어낸 나머지를 돌려준다.
+    """실행항목 칸에서 업무 내용("무엇을")만 남긴다.
+
+    양식은 "누가 · 무엇을 · 언제까지"다. 담당자와 기한은 각각 별도 필드로 저장되므로
+    제목에 남을 이유가 없다. 기한을 남겨두면 44자 상한에 걸려 "…확인 ·…" 같은 꼬리가 된다.
 
     양식대로 적히지 않았으면 원문을 그대로 돌려준다. 떼어낸 뒤 남는 내용이 없을 때도
     마찬가지다 - 제목이 빈 문자열이 되느니 지저분한 편이 낫다.
     """
     if _TODO_FIELD_SEPARATOR not in sentence:
         return sentence
-    head, _, rest = sentence.partition(_TODO_FIELD_SEPARATOR)
-    if not _looks_like_assignee_slot(head):
-        return sentence
-    return rest.strip() or sentence
+
+    parts = [part.strip() for part in sentence.split(_TODO_FIELD_SEPARATOR)]
+    dropped_assignee = _looks_like_assignee_slot(parts[0])
+    if dropped_assignee:
+        parts = parts[1:]
+    # 칸이 둘 이상 남았을 때만 마지막을 뗀다. 하나뿐이면 그게 업무 내용이다.
+    # 담당자 칸을 이미 확인했다면 양식을 지킨 문서이므로 마지막 칸은 기한으로 본다.
+    if len(parts) >= 2 and (dropped_assignee or _looks_like_due_slot(parts[-1])):
+        parts = parts[:-1]
+
+    return f" {_TODO_FIELD_SEPARATOR} ".join(part for part in parts if part) or sentence
 
 
 def clean_todo_title(raw_title: str) -> str:
