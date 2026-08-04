@@ -10,6 +10,14 @@
 
 ---
 
+## 시연 영상
+
+[![WorkFlow AI 시연 영상](https://img.youtube.com/vi/D5jy2qbKh7g/maxresdefault.jpg)](https://youtu.be/D5jy2qbKh7g)
+
+썸네일을 클릭하면 YouTube에서 시연 영상을 볼 수 있습니다. → https://youtu.be/D5jy2qbKh7g
+
+---
+
 ## 왜 만들었나
 
 팀프로젝트에서 실제로 시간을 잡아먹는 건 개발이 아니라 **기록과 기록 사이의 단절**이었습니다.
