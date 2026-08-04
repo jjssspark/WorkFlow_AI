@@ -469,9 +469,12 @@ def build_todos_from_action_items(
         assignee = extract_assignee_candidate(sentence)
         if allowed_names is not None and assignee not in allowed_names:
             assignee = ""
+        # 제목에서만 담당자 칸을 떼어낸다. description·evidence_text 는 원문을 지킨다 -
+        # 회의록에 뭐라고 적혔는지 되짚을 수 없게 되면 안 된다.
+        title_source = strip_assignee_slot(sentence)
         todos.append(
             MeetingTodo(
-                title=shorten(clean_todo_title(sentence) or sentence, 44),
+                title=shorten(clean_todo_title(title_source) or title_source, 44),
                 description=sentence,
                 assignee_candidate=assignee,
                 due_date=sanitize_due_date(
@@ -1107,6 +1110,43 @@ def _to_noun_style_title(title: str) -> str:
     return rebuilt if len(rebuilt) >= 2 else title
 
 
+# 양식의 실행항목 칸은 "내용 (누가 · 무엇을 · 언제까지)"로 적으라고 안내한다. 세 칸을 · 로
+# 나누는 것은 우리가 정한 규격인데 파서가 칸 전체를 제목으로 써서, 보드에
+# "담당 미정 · 삭제된 심사자 계정…"처럼 담당자 칸이 제목에 박혔다.
+#
+# 제목은 문자열이고 배정은 별개 필드다. 나중에 사람을 배정해도 제목의 "담당 미정"은 그대로
+# 남아 둘이 영원히 어긋난다. 어시스턴트가 그 글자를 읽고 "담당자는 미정입니다"라고 답한 것이
+# 그 결과였다(2026-08-04 운영 실측).
+_TODO_FIELD_SEPARATOR = "·"
+_UNASSIGNED_MARKERS = {"담당 미정", "담당미정", "미정", "미배정", "담당자 미정", "tbd", "-", "?"}
+# 이름 자리는 사람 이름이나 "담당 미정" 정도가 들어가는 짧은 칸이다. 길면 작성자가 양식을
+# 안 지키고 문장을 · 로 이어 적은 것이므로 건드리지 않는다 - 잘라내면 업무 내용의 앞부분이
+# 소리 없이 사라진다.
+_ASSIGNEE_SLOT_MAX_LEN = 12
+_ASSIGNEE_SLOT_NAME_PATTERN = re.compile(r"^[가-힣]{2,4}(?:님|씨)?$")
+
+
+def _looks_like_assignee_slot(segment: str) -> bool:
+    text = segment.strip()
+    if not text or len(text) > _ASSIGNEE_SLOT_MAX_LEN:
+        return False
+    return text.lower() in _UNASSIGNED_MARKERS or bool(_ASSIGNEE_SLOT_NAME_PATTERN.match(text))
+
+
+def strip_assignee_slot(sentence: str) -> str:
+    """실행항목 칸의 맨 앞 "누가" 칸을 떼어낸 나머지를 돌려준다.
+
+    양식대로 적히지 않았으면 원문을 그대로 돌려준다. 떼어낸 뒤 남는 내용이 없을 때도
+    마찬가지다 - 제목이 빈 문자열이 되느니 지저분한 편이 낫다.
+    """
+    if _TODO_FIELD_SEPARATOR not in sentence:
+        return sentence
+    head, _, rest = sentence.partition(_TODO_FIELD_SEPARATOR)
+    if not _looks_like_assignee_slot(head):
+        return sentence
+    return rest.strip() or sentence
+
+
 def clean_todo_title(raw_title: str) -> str:
     """LLM/규칙 기반 추출이 회의록 발언을 그대로 title로 반환하는 것을 막는 최소 보정.
     발언체 표현(저는/제가/~하겠습니다 등)을 제거하고 명사형 업무명에 가깝게 다듬는다."""
@@ -1194,14 +1234,18 @@ def parse_ollama_analysis_response(raw: str, request: AnalyzeRequest) -> Meeting
             _allowed_assignee_names(request.participants),
             f"{title} {description}",
         )
-        cleaned_title = clean_todo_title(title) if title else ""
+        # 프롬프트로 "원문을 그대로 베끼지 말라"고 지시하지만 모델은 자주 어긴다. 베낀 경우
+        # 규칙 경로와 똑같이 담당자 칸이 제목에 실려 나가므로 여기서도 떼어낸다.
+        # description 폴백도 원문 칸이라 같은 처리가 필요하다.
+        title_source = strip_assignee_slot(title) if title else ""
+        cleaned_title = clean_todo_title(title_source) if title_source else ""
         raw_evidence = str(item.get("evidence_text") or item.get("source_excerpt") or "")
         evidence_text = _resolve_evidence_text(raw_evidence, cleaned_title or title, description, source_text)
         due_date = sanitize_due_date(item.get("due_date"), source_text, request.meeting_date)
 
         todos.append(
             MeetingTodo(
-                title=shorten(cleaned_title or description, 44),
+                title=shorten(cleaned_title or strip_assignee_slot(description), 44),
                 description=description or title,
                 assignee_candidate=assignee_candidate,
                 assignee_id=None,

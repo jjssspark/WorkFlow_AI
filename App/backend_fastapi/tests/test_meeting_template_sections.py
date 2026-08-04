@@ -4,6 +4,8 @@ Spring이 회의록 양식을 인식하면 AnalyzeRequest.sections를 채워 보
 전체 텍스트 키워드 추측이 아니라 해당 섹션 안에서만 나와야 한다.
 """
 
+import json
+
 from app.main import (
     AnalyzeRequest,
     sanitize_model_statements,
@@ -12,6 +14,8 @@ from app.main import (
     _meeting_analysis_cache_key,
     analyze_meeting,
     build_section_hint,
+    build_todos_from_action_items,
+    parse_ollama_analysis_response,
 )
 
 FULL_TEXT = "\n".join([
@@ -190,3 +194,140 @@ def test_schema_placeholder_statements_are_dropped():
     )
 
     assert cleaned == ["PG사는 A사로 확정한다."]
+
+
+# ── 실행항목 칸의 "누가 · 무엇을 · 언제까지" ────────────────────────────────
+#
+# 배포되는 양식의 실행항목 표 머리말이 "내용 (누가 · 무엇을 · 언제까지)"다. 세 칸을 · 로
+# 나눠 쓰라는 것은 우리가 정한 규격인데, 파서는 그 칸을 통문장으로 받아 제목에 넣었다.
+# 그래서 보드에 "담당 미정 · 삭제된 심사자 계정…"처럼 담당자 칸이 제목에 박혔다.
+#
+# 제목은 문자열이고 배정은 별개 필드다. 나중에 박지수를 배정해도 제목의 "담당 미정"은
+# 그대로 남아 영원히 어긋난다. 어시스턴트가 그 글자를 읽고 "담당자는 미정입니다"라고
+# 답한 것이 그 결과였다(2026-08-04 운영 실측).
+
+
+def test_담당_미정_표기가_제목에서_빠진다():
+    todos = build_todos_from_action_items(
+        [("MEDIUM", "담당 미정 · 삭제된 심사자 계정 3개를 다시 만들지 결정 · 심사 일정 전까지")],
+        meeting_date="2026-08-03",
+    )
+
+    assert "담당 미정" not in todos[0].title
+    assert todos[0].title.startswith("삭제된 심사자 계정")
+
+
+def test_담당자_이름이_제목에서_빠진다():
+    todos = build_todos_from_action_items(
+        [("MEDIUM", "고무서 · 관리자와 구글 계정으로 로그인되는지 확인 · 배포 당일")],
+        meeting_date="2026-08-03",
+    )
+
+    assert "고무서" not in todos[0].title
+    assert todos[0].title.startswith("관리자와 구글 계정")
+
+
+def test_미배정_표기도_빠진다():
+    todos = build_todos_from_action_items(
+        [("LOW", "미배정 · 타임존 혼용 문제 정리 · 미정")],
+        meeting_date="2026-08-03",
+    )
+
+    assert "미배정" not in todos[0].title
+
+
+def test_원문은_설명과_근거에_그대로_남는다():
+    """제목만 다듬는다. 원문을 잃으면 회의록에 뭐라고 적혔는지 되짚을 수 없다."""
+    sentence = "고무서 · 관리자와 구글 계정으로 로그인되는지 확인 · 배포 당일"
+
+    todos = build_todos_from_action_items([("MEDIUM", sentence)], meeting_date="2026-08-03")
+
+    assert todos[0].description == sentence
+    assert "고무서" in todos[0].evidence_text
+
+
+def test_가운뎃점이_없는_자유_서술은_건드리지_않는다():
+    todos = build_todos_from_action_items(
+        [("HIGH", "김민준이 결제 API 연동을 8/10까지 마무리한다.")],
+        meeting_date="2026-08-03",
+    )
+
+    assert "김민준" in todos[0].description
+    assert todos[0].title
+
+
+def test_첫_칸이_이름_자리가_아니면_그대로_둔다():
+    """작성자가 양식을 안 지키고 문장을 · 로 이어 적었을 수 있다.
+
+    이름 자리로 보이지 않는데 잘라내면, 업무 내용의 앞부분이 소리 없이 사라진다.
+    """
+    sentence = "결제 모듈 연동을 마무리한다 · 8/10"
+
+    todos = build_todos_from_action_items([("HIGH", sentence)], meeting_date="2026-08-03")
+
+    assert todos[0].title.startswith("결제 모듈 연동")
+
+
+def test_이름_자리만_있고_내용이_비면_원문을_지킨다():
+    """잘라낸 뒤 남는 게 없으면 제목이 빈 문자열이 된다. 그럴 바에는 안 자르는 게 낫다."""
+    todos = build_todos_from_action_items([("LOW", "담당 미정 ·")], meeting_date="2026-08-03")
+
+    assert todos[0].title.strip() != ""
+
+
+CELL_TEXT = "\n".join([
+    "고무서 · 관리자와 구글 계정으로 로그인되는지 확인 · 배포 당일",
+    "담당 미정 · 삭제된 심사자 계정 3개를 다시 만들지 결정 · 심사 일정 전까지",
+])
+
+
+def test_LLM이_칸을_그대로_베껴도_담당자_칸은_제목에서_빠진다():
+    """프롬프트는 원문 복사를 금지하지만 모델은 자주 어긴다.
+
+    규칙 경로만 고치면, 로컬 모델이 붙은 환경에서 같은 증상이 그대로 재현된다.
+    """
+    raw = json.dumps({
+        "summary": "요약",
+        "decisions": [],
+        "risks": [],
+        "keywords": [],
+        "todos": [{
+            "title": "담당 미정 · 삭제된 심사자 계정 3개를 다시 만들지 결정 · 심사 일정 전까지",
+            "description": "담당 미정 · 삭제된 심사자 계정 3개를 다시 만들지 결정 · 심사 일정 전까지",
+            "assignee_candidate": "",
+            "due_date": "",
+            "priority": "MEDIUM",
+            "category": "ETC",
+            "evidence_text": "",
+        }],
+    }, ensure_ascii=False)
+
+    # source_text 에 없는 To-Do 는 지어낸 것으로 보고 통째로 대체된다. 원문을 넣지 않으면
+    # 제목이 고쳐진 게 아니라 다른 업무로 갈려서 통과하는 거짓 초록불이 된다.
+    result = parse_ollama_analysis_response(raw, _request(text=CELL_TEXT))
+
+    assert result.todos[0].description.startswith("담당 미정"), "원문 To-Do 가 유지돼야 검사가 유효하다"
+    assert "담당 미정" not in result.todos[0].title
+
+
+def test_LLM_제목이_비어_설명으로_대체될_때도_담당자_칸이_빠진다():
+    raw = json.dumps({
+        "summary": "요약",
+        "decisions": [],
+        "risks": [],
+        "keywords": [],
+        "todos": [{
+            "title": "",
+            "description": "고무서 · 관리자와 구글 계정으로 로그인되는지 확인 · 배포 당일",
+            "assignee_candidate": "",
+            "due_date": "",
+            "priority": "MEDIUM",
+            "category": "ETC",
+            "evidence_text": "",
+        }],
+    }, ensure_ascii=False)
+
+    result = parse_ollama_analysis_response(raw, _request(text=CELL_TEXT))
+
+    assert result.todos[0].description.startswith("고무서"), "원문 To-Do 가 유지돼야 검사가 유효하다"
+    assert "고무서" not in result.todos[0].title
