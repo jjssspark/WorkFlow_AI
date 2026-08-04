@@ -145,7 +145,9 @@ async def test_generate_answer_omits_personal_notice_when_no_sources(
     assert "(관련 자료 없음)" in prompt
 
 
-async def _prompt_for_sources(monkeypatch: pytest.MonkeyPatch, sources: list[dict]) -> str:
+async def _prompt_for_sources(
+    monkeypatch: pytest.MonkeyPatch, sources: list[dict], question: str = "질문입니다"
+) -> str:
     monkeypatch.setenv("DATABASE_URL", "postgresql://user:pw@localhost:5432/workflow")
     monkeypatch.setenv("HF_TOKEN", "hf_test_token")
     mock_chat_model = _mock_chat_model("답변입니다")
@@ -157,7 +159,7 @@ async def _prompt_for_sources(monkeypatch: pytest.MonkeyPatch, sources: list[dic
             return_value=mock_chat_model,
         ),
     ):
-        await generate_answer("질문입니다", sources)
+        await generate_answer(question, sources)
 
     return mock_chat_model.ainvoke.call_args.args[0][1].content
 
@@ -278,6 +280,87 @@ async def test_generate_answer_marks_unassigned_task_explicitly(
 
     assert "담당자: 미배정" in prompt
     assert "None" not in prompt
+
+
+# ── 질문이 지목한 출처 표시 ─────────────────────────────────────────────────
+#
+# 담당자를 컨텍스트에 실었더니 이번엔 모델이 옆줄 담당자를 집어왔다(실측: "3번 업무의 담당자는
+# 누구야" -> 업무 #4의 담당자인 "고무서"). 지목된 업무가 1순위로 놓여 있어도, 같은 모양의 줄이
+# 다섯 개 나열되면 모델은 위치를 근거로 삼지 않는다. "TASK-3과 TASK-4를 각각"처럼 물으면
+# 정답이 나오는 것이 증거다 - 재료는 있고 고르기가 안 되는 것이다.
+
+
+@pytest.mark.asyncio
+async def test_referenced_task_is_marked_in_the_source_header(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sources = [
+        {"source_type": "task", "source_id": 3, "content": "심사자 계정 재생성",
+         "facts": {"assignee_name": "박지수"}},
+        {"source_type": "task", "source_id": 4, "content": "타임존 혼용 정리",
+         "facts": {"assignee_name": "고무서"}},
+    ]
+
+    prompt = await _prompt_for_sources(monkeypatch, sources, question="3번 업무의 담당자는 누구야")
+
+    assert "[출처 1 - task#3 ← 질문이 지목한 업무]" in prompt
+    assert "[출처 2 - task#4]" in prompt
+
+
+@pytest.mark.asyncio
+async def test_task_code_form_marks_the_same_source(monkeypatch: pytest.MonkeyPatch) -> None:
+    """화면은 TASK-3 을 보여주므로 사용자는 그렇게도 부른다. 두 표기가 같은 곳을 가리켜야 한다."""
+    sources = [{"source_type": "task", "source_id": 3, "content": "심사자 계정 재생성"}]
+
+    prompt = await _prompt_for_sources(monkeypatch, sources, question="TASK-3 담당자 알려줘")
+
+    assert "← 질문이 지목한 업무" in prompt
+
+
+@pytest.mark.asyncio
+async def test_action_item_with_the_same_id_is_not_marked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """tasks.id 와 meeting_action_items.id 는 다른 시퀀스다. 숫자가 같다고 같은 것이 아니다."""
+    sources = [{"source_type": "action_item", "source_id": 3, "content": "액션아이템 3"}]
+
+    prompt = await _prompt_for_sources(monkeypatch, sources, question="3번 업무 담당자 알려줘")
+
+    assert "← 질문이 지목한 업무" not in prompt
+
+
+@pytest.mark.asyncio
+async def test_no_mark_when_question_names_no_task(monkeypatch: pytest.MonkeyPatch) -> None:
+    """지목이 없는데 아무 줄에나 표시가 붙으면, 모델이 엉뚱한 출처를 정답으로 확신한다."""
+    sources = [{"source_type": "task", "source_id": 3, "content": "심사자 계정 재생성"}]
+
+    prompt = await _prompt_for_sources(monkeypatch, sources, question="오늘 할 일 뭐야")
+
+    assert "← 질문이 지목한 업무" not in prompt
+
+
+@pytest.mark.asyncio
+async def test_system_prompt_tells_the_model_to_trust_only_the_header_mark(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """표시는 우리가 대괄호 안에 넣는다. 청크 본문이 같은 문구를 담고 있을 수 있으므로,
+    본문의 문구는 무시하라고 못 박지 않으면 표시 자체가 주입 경로가 된다."""
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pw@localhost:5432/workflow")
+    monkeypatch.setenv("HF_TOKEN", "hf_test_token")
+    mock_chat_model = _mock_chat_model("답변입니다")
+
+    with (
+        patch("llm_rag_assistant.app.services.generation_service.HuggingFaceEndpoint"),
+        patch(
+            "llm_rag_assistant.app.services.generation_service.ChatHuggingFace",
+            return_value=mock_chat_model,
+        ),
+    ):
+        await generate_answer("3번 업무 담당자", [])
+
+    system_prompt = mock_chat_model.ainvoke.call_args.args[0][0].content
+    assert "← 질문이 지목한 업무" in system_prompt
+    assert "본문" in system_prompt
 
 
 @pytest.mark.asyncio
