@@ -6,6 +6,35 @@
 회의록을 올리면 요약·결정사항·To-Do가 자동으로 만들어져 업무 보드와 대시보드에 반영되고,
 그 기록이 그대로 산출물 초안과 심사자용 기여도 근거로 이어집니다.
 
+---
+
+## 팀
+
+| 이름 | 담당 |
+| --- | --- |
+| **고무서 (PM)** | AI 어시스턴트·RAG, 심사자 기여도 분석, 권한 QA |
+| **박지수 (PL)** | 회의록 AI 분석, To-Do 자동 생성 |
+| 박상준 | 인증·RBAC, 프로젝트 관리, 팀원 초대 |
+| 유소은 | 대시보드, 지연 위험도 예측 |
+| 이은주 | ML 모델링 — 업무 편중 점수, 임베딩 파이프라인 |
+| 허영주 | 업무 보드(칸반) |
+
+## 기술 스택
+
+| 영역 | 핵심 기술 |
+| --- | --- |
+| Frontend | React 19 · TypeScript · Vite · Tailwind CSS |
+| Backend | Java 21 · Spring Boot 3.5 · JWT · Flyway |
+| AI Backend | Python 3.12 · FastAPI · LangGraph |
+| LLM / RAG | Ollama · Hugging Face · bge-m3 · pgvector |
+| ML | LightGBM · scikit-learn · MLflow |
+| Database | PostgreSQL 17 + pgvector · Redis 7 |
+| Infra / CI | Docker Compose · nginx · GitHub Actions · OCI |
+
+> 버전과 선정 근거는 아래 [기술 스택 상세](#기술-스택-상세-실제-사용-버전)에 있습니다.
+
+---
+
 ![대시보드](docs/screenshots/01-dashboard.jpg)
 
 ---
@@ -122,7 +151,7 @@ FastAPI      ── LLM·RAG·ML 추론 전담
 역할을 나눈 이유: 인증·권한·트랜잭션은 Spring이 강하고, ML/LLM 생태계는 Python이 강합니다.
 FastAPI는 외부에 직접 열지 않고 Spring이 내부 API 키로만 호출합니다.
 
-### 기술 스택 (실제 사용 버전)
+### 기술 스택 상세 (실제 사용 버전)
 
 | 구성 | 기술 |
 | --- | --- |
