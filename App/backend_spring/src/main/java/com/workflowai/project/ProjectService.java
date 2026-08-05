@@ -42,6 +42,7 @@ public class ProjectService {
     private final TransactionOperations transactionOperations;
     private final RagIngestService ragIngestService;
     private final ActivityService activityService;
+    private final ProjectJoinRole projectJoinRole;
 
     public ProjectService(
         ProjectRepository projectRepository,
@@ -51,7 +52,8 @@ public class ProjectService {
         MilestoneRepository milestoneRepository,
         TransactionOperations transactionOperations,
         RagIngestService ragIngestService,
-        ActivityService activityService
+        ActivityService activityService,
+        ProjectJoinRole projectJoinRole
     ) {
         this.projectRepository = projectRepository;
         this.projectMemberRepository = projectMemberRepository;
@@ -61,6 +63,7 @@ public class ProjectService {
         this.transactionOperations = transactionOperations;
         this.ragIngestService = ragIngestService;
         this.activityService = activityService;
+        this.projectJoinRole = projectJoinRole;
     }
 
     public ProjectResponse create(Long creatorUserId, CreateProjectRequest request) {
@@ -119,14 +122,15 @@ public class ProjectService {
         return code.toString();
     }
 
-    /** 초대 코드로 참여한다. 이미 멤버면 그대로 현재 상태를 반환한다(중복 가입 에러 대신 멱등 처리). */
+    /**
+     * 초대 코드로 참여한다. 이미 멤버면 중복 가입 에러 대신 현재 상태를 그대로 반환하되,
+     * 역할이 틀어져 있으면(팀원으로 저장된 심사자) 바로잡는다 - ProjectJoinRole 참고.
+     */
     @Transactional
     public ProjectResponse joinByCode(Long userId, String code) {
         Project project = projectRepository.findByInviteCode(code == null ? "" : code.trim().toUpperCase())
             .orElseThrow(() -> new IllegalArgumentException("유효하지 않은 초대 코드입니다."));
-        if (!projectMemberRepository.existsByProjectIdAndUserId(project.getId(), userId)) {
-            projectMemberRepository.save(new ProjectMember(project.getId(), userId, ProjectRole.MEMBER));
-        }
+        projectJoinRole.assign(project.getId(), userId, ProjectRole.MEMBER);
         return toResponse(project);
     }
 

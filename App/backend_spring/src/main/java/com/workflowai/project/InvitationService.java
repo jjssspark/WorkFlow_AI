@@ -12,11 +12,11 @@ public class InvitationService {
     private static final ProjectRole LINK_INVITE_ROLE = ProjectRole.MEMBER;
 
     private final InvitationRepository invitationRepository;
-    private final ProjectMemberRepository projectMemberRepository;
+    private final ProjectJoinRole projectJoinRole;
 
-    public InvitationService(InvitationRepository invitationRepository, ProjectMemberRepository projectMemberRepository) {
+    public InvitationService(InvitationRepository invitationRepository, ProjectJoinRole projectJoinRole) {
         this.invitationRepository = invitationRepository;
-        this.projectMemberRepository = projectMemberRepository;
+        this.projectJoinRole = projectJoinRole;
     }
 
     @Transactional
@@ -75,9 +75,7 @@ public class InvitationService {
             throw InvitationException.expired();
         }
 
-        if (!projectMemberRepository.existsByProjectIdAndUserId(invitation.getProjectId(), userId)) {
-            projectMemberRepository.save(new ProjectMember(invitation.getProjectId(), userId, invitation.getRole()));
-        }
+        projectJoinRole.assign(invitation.getProjectId(), userId, invitation.getRole());
         invitation.setStatus(Invitation.Status.accepted.name());
         return invitation.getProjectId();
     }

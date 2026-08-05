@@ -82,6 +82,26 @@ describe("ProjectEntryScreen 초대 URL/코드 입력", () => {
     });
   }
 
+  /**
+   * 참여한 역할은 서버가 정한다 - 심사자 계정은 초대에 팀원이라 적혀 있어도 심사자로 등록된다
+   * (백엔드 ProjectJoinRole). 갱신된 역할을 보지 않고 늘 대시보드로 보내면 심사자가 쓸 수 없는
+   * 팀원 화면에 떨어진다.
+   */
+  it("참여 결과가 심사자면 대시보드가 아니라 기여도 화면으로 보낸다", async () => {
+    vi.mocked(acceptInvitation).mockResolvedValue({ projectId: 26 });
+    refreshMe.mockResolvedValue({
+      user: { id: 1, name: "허영주" },
+      projectRoles: [{ projectId: 26, projectTitle: "심사 대상 프로젝트", role: "심사자" as const }],
+    });
+
+    renderScreen();
+    await userEvent.type(screen.getByPlaceholderText(INVITE_PLACEHOLDER), "gX4mKp");
+    await userEvent.click(screen.getByRole("button", { name: "팀원으로 참여" }));
+
+    await waitFor(() => expect(selectProject).toHaveBeenCalledWith(26));
+    expect(mockNavigate).toHaveBeenCalledWith("/contributors");
+  });
+
   it("링크 복사로 받은 토큰을 붙여넣으면 acceptInvitation으로 수락하고 서버가 알려준 프로젝트를 선택한다", async () => {
     vi.mocked(acceptInvitation).mockResolvedValue({ projectId: 26 });
     refreshMeWithJoinedProject();

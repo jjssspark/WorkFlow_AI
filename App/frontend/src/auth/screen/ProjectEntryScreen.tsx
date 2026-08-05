@@ -160,9 +160,13 @@ export function ProjectEntryScreen() {
         if (!isUnknownToken) throw tokenErr;
         joinedProjectId = (await joinProjectByCode(code)).id;
       }
-      await refreshMe();
+      // 참여한 역할은 서버가 정한다(심사자 계정은 초대에 팀원이라 적혀 있어도 심사자가 된다 -
+      // 백엔드 ProjectJoinRole). 그래서 입력값이 아니라 갱신된 내 역할을 보고 화면을 고른다.
+      // 심사자를 팀원용 대시보드로 보내면 쓸 수 없는 화면에 떨어진다.
+      const me = await refreshMe();
+      const joinedRole = me?.projectRoles.find((role) => role.projectId === joinedProjectId)?.role;
       selectProject(joinedProjectId);
-      navigate("/dashboard");
+      navigate(joinedRole === "심사자" ? "/contributors" : "/dashboard");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "참여에 실패했습니다.");
     } finally {
