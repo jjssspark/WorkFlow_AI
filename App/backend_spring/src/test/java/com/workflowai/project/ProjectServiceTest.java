@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -40,6 +41,7 @@ class ProjectServiceTest {
     @Mock private RagIngestService ragIngestService;
     @Mock private MilestoneRepository milestoneRepository;
     @Mock private ActivityService activityService;
+    @Mock private ProjectJoinRole projectJoinRole;
 
     private ProjectService projectService;
 
@@ -59,7 +61,8 @@ class ProjectServiceTest {
             milestoneRepository,
             transactionOperations,
             ragIngestService,
-            activityService
+            activityService,
+            projectJoinRole
         );
     }
 
@@ -223,19 +226,18 @@ class ProjectServiceTest {
     }
 
     @Test
-    void joinByCode_addsMemberWithMemberRole() {
+    void joinByCode_delegatesRoleAssignmentWithMemberAsTheInvitedRole() {
+        // 어떤 역할로 저장되는지는 ProjectJoinRoleTest가 본다. 참여 코드는 대상을 지정하지
+        // 않으므로 여기서 넘기는 초대 역할은 항상 팀원이다.
         Project project = new Project("제목", "캡스톤디자인", "설명");
+        ReflectionTestUtils.setField(project, "id", 3L);
         when(projectRepository.findByInviteCode("AB12CD34")).thenReturn(Optional.of(project));
-        when(projectMemberRepository.existsByProjectIdAndUserId(any(), any())).thenReturn(false);
         when(taskRepository.findByProjectIdOrderByCreatedAtDesc(any())).thenReturn(List.of());
         when(projectMemberRepository.countByProjectIdAndRoleNot(any(), any())).thenReturn(0L);
 
         projectService.joinByCode(5L, "ab12cd34");
 
-        ArgumentCaptor<ProjectMember> memberCaptor = ArgumentCaptor.forClass(ProjectMember.class);
-        verify(projectMemberRepository).save(memberCaptor.capture());
-        assertThat(memberCaptor.getValue().getUserId()).isEqualTo(5L);
-        assertThat(memberCaptor.getValue().getRole()).isEqualTo(ProjectRole.MEMBER);
+        verify(projectJoinRole).assign(3L, 5L, ProjectRole.MEMBER);
     }
 
     @Test

@@ -32,8 +32,9 @@ public class InvitationController {
 
     @Operation(
         summary = "링크 공유용 팀원 초대 토큰 발급",
-        description = "팀장만 가능하다. 역할은 항상 팀원으로 고정된다. 아직 아무도 쓰지 않은 유효한 링크 초대가 "
-            + "이미 있으면 새로 만들지 않고 재사용한다."
+        description = "팀장만 가능하다. 초대에 적히는 역할은 항상 팀원으로 고정된다(수락자가 승인된 심사자 계정이면 "
+            + "수락 시점에 심사자로 등록된다). 아직 아무도 쓰지 않은 유효한 링크 초대가 이미 있으면 새로 만들지 않고 "
+            + "재사용한다."
     )
     @PostMapping("/api/v1/projects/{projectId}/invitations/link")
     @PreAuthorize("@projectAccess.hasRole(#projectId, 'LEADER')")

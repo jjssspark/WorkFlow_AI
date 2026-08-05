@@ -1,8 +1,10 @@
 package com.workflowai.project;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -20,13 +22,13 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class InvitationServiceTest {
 
     @Mock private InvitationRepository invitationRepository;
-    @Mock private ProjectMemberRepository projectMemberRepository;
+    @Mock private ProjectJoinRole projectJoinRole;
 
     private InvitationService invitationService;
 
     @BeforeEach
     void setUp() {
-        invitationService = new InvitationService(invitationRepository, projectMemberRepository);
+        invitationService = new InvitationService(invitationRepository, projectJoinRole);
     }
 
     @Test
@@ -73,4 +75,30 @@ class InvitationServiceTest {
         assertThat(response.token()).isNotEqualTo("EXPIRED-TOKEN");
         verify(invitationRepository).save(any(Invitation.class));
     }
+
+    @Test
+    void acceptDelegatesRoleAssignmentWithTheInvitedRole() {
+        // 어떤 역할로 저장되는지는 ProjectJoinRoleTest가 본다. 여기서는 수락 흐름이
+        // 초대에 적힌 역할을 그대로 넘기는지만 확인한다.
+        Invitation invitation = new Invitation(1L, null, ProjectRole.MEMBER, "TOKEN", LocalDateTime.now().plusDays(3));
+        when(invitationRepository.findByToken("TOKEN")).thenReturn(Optional.of(invitation));
+
+        invitationService.accept("TOKEN", 9L);
+
+        verify(projectJoinRole).assign(1L, 9L, ProjectRole.MEMBER);
+        assertThat(invitation.getStatus()).isEqualTo(Invitation.Status.accepted.name());
+    }
+
+    @Test
+    void acceptDoesNotConsumeTheInvitationWhenRoleAssignmentFails() {
+        // 실패했는데 초대가 소진되면 정상 토큰이 아무 성과 없이 사라진다.
+        Invitation invitation = new Invitation(1L, null, ProjectRole.MEMBER, "TOKEN", LocalDateTime.now().plusDays(3));
+        when(invitationRepository.findByToken("TOKEN")).thenReturn(Optional.of(invitation));
+        doThrow(new IllegalStateException("계정 없음")).when(projectJoinRole).assign(1L, 9L, ProjectRole.MEMBER);
+
+        assertThatThrownBy(() -> invitationService.accept("TOKEN", 9L))
+            .isInstanceOf(IllegalStateException.class);
+        assertThat(invitation.getStatus()).isEqualTo(Invitation.Status.pending.name());
+    }
+
 }
