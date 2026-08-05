@@ -1,6 +1,5 @@
 package com.workflowai.project;
 
-import com.workflowai.user.UserRepository;
 import java.time.LocalDateTime;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
@@ -13,17 +12,11 @@ public class InvitationService {
     private static final ProjectRole LINK_INVITE_ROLE = ProjectRole.MEMBER;
 
     private final InvitationRepository invitationRepository;
-    private final ProjectMemberRepository projectMemberRepository;
-    private final UserRepository userRepository;
+    private final ProjectJoinRole projectJoinRole;
 
-    public InvitationService(
-        InvitationRepository invitationRepository,
-        ProjectMemberRepository projectMemberRepository,
-        UserRepository userRepository
-    ) {
+    public InvitationService(InvitationRepository invitationRepository, ProjectJoinRole projectJoinRole) {
         this.invitationRepository = invitationRepository;
-        this.projectMemberRepository = projectMemberRepository;
-        this.userRepository = userRepository;
+        this.projectJoinRole = projectJoinRole;
     }
 
     @Transactional
@@ -82,16 +75,7 @@ public class InvitationService {
             throw InvitationException.expired();
         }
 
-        ProjectRole role = ProjectJoinRole.resolve(userRepository.findById(userId).orElse(null), invitation.getRole());
-        projectMemberRepository.findByProjectIdAndUserId(invitation.getProjectId(), userId).ifPresentOrElse(
-            existing -> {
-                if (ProjectJoinRole.needsRoleFix(existing, role)) {
-                    existing.setRole(role);
-                    projectMemberRepository.save(existing);
-                }
-            },
-            () -> projectMemberRepository.save(new ProjectMember(invitation.getProjectId(), userId, role))
-        );
+        projectJoinRole.assign(invitation.getProjectId(), userId, invitation.getRole());
         invitation.setStatus(Invitation.Status.accepted.name());
         return invitation.getProjectId();
     }
