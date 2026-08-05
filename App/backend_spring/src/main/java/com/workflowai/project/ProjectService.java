@@ -125,7 +125,8 @@ public class ProjectService {
         Project project = projectRepository.findByInviteCode(code == null ? "" : code.trim().toUpperCase())
             .orElseThrow(() -> new IllegalArgumentException("유효하지 않은 초대 코드입니다."));
         if (!projectMemberRepository.existsByProjectIdAndUserId(project.getId(), userId)) {
-            projectMemberRepository.save(new ProjectMember(project.getId(), userId, ProjectRole.MEMBER));
+            ProjectRole role = ProjectJoinRole.resolve(userRepository.findById(userId).orElse(null), ProjectRole.MEMBER);
+            projectMemberRepository.save(new ProjectMember(project.getId(), userId, role));
         }
         return toResponse(project);
     }

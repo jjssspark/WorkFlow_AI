@@ -1,5 +1,6 @@
 package com.workflowai.project;
 
+import com.workflowai.user.UserRepository;
 import java.time.LocalDateTime;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
@@ -13,10 +14,16 @@ public class InvitationService {
 
     private final InvitationRepository invitationRepository;
     private final ProjectMemberRepository projectMemberRepository;
+    private final UserRepository userRepository;
 
-    public InvitationService(InvitationRepository invitationRepository, ProjectMemberRepository projectMemberRepository) {
+    public InvitationService(
+        InvitationRepository invitationRepository,
+        ProjectMemberRepository projectMemberRepository,
+        UserRepository userRepository
+    ) {
         this.invitationRepository = invitationRepository;
         this.projectMemberRepository = projectMemberRepository;
+        this.userRepository = userRepository;
     }
 
     @Transactional
@@ -76,7 +83,8 @@ public class InvitationService {
         }
 
         if (!projectMemberRepository.existsByProjectIdAndUserId(invitation.getProjectId(), userId)) {
-            projectMemberRepository.save(new ProjectMember(invitation.getProjectId(), userId, invitation.getRole()));
+            ProjectRole role = ProjectJoinRole.resolve(userRepository.findById(userId).orElse(null), invitation.getRole());
+            projectMemberRepository.save(new ProjectMember(invitation.getProjectId(), userId, role));
         }
         invitation.setStatus(Invitation.Status.accepted.name());
         return invitation.getProjectId();

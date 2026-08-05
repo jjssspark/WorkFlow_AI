@@ -13,6 +13,7 @@ import static org.mockito.Mockito.when;
 import com.workflowai.rag.RagIngestService;
 import com.workflowai.task.Task;
 import com.workflowai.task.TaskRepository;
+import com.workflowai.user.ReviewerStatus;
 import com.workflowai.user.User;
 import com.workflowai.user.UserRepository;
 import java.time.LocalDate;
@@ -236,6 +237,24 @@ class ProjectServiceTest {
         verify(projectMemberRepository).save(memberCaptor.capture());
         assertThat(memberCaptor.getValue().getUserId()).isEqualTo(5L);
         assertThat(memberCaptor.getValue().getRole()).isEqualTo(ProjectRole.MEMBER);
+    }
+
+    @Test
+    void joinByCode_approvedReviewer_addsMemberWithReviewerRole() {
+        Project project = new Project("제목", "캡스톤디자인", "설명");
+        User reviewer = new User("reviewer@example.com", "심사자", "local", "reviewer@example.com", "hash");
+        reviewer.setReviewerStatus(ReviewerStatus.APPROVED);
+        when(projectRepository.findByInviteCode("AB12CD34")).thenReturn(Optional.of(project));
+        when(projectMemberRepository.existsByProjectIdAndUserId(any(), any())).thenReturn(false);
+        when(userRepository.findById(5L)).thenReturn(Optional.of(reviewer));
+        when(taskRepository.findByProjectIdOrderByCreatedAtDesc(any())).thenReturn(List.of());
+        when(projectMemberRepository.countByProjectIdAndRoleNot(any(), any())).thenReturn(0L);
+
+        projectService.joinByCode(5L, "ab12cd34");
+
+        ArgumentCaptor<ProjectMember> memberCaptor = ArgumentCaptor.forClass(ProjectMember.class);
+        verify(projectMemberRepository).save(memberCaptor.capture());
+        assertThat(memberCaptor.getValue().getRole()).isEqualTo(ProjectRole.REVIEWER);
     }
 
     @Test

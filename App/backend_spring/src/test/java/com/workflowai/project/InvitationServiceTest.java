@@ -7,6 +7,9 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.workflowai.user.ReviewerStatus;
+import com.workflowai.user.User;
+import com.workflowai.user.UserRepository;
 import java.time.LocalDateTime;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -21,12 +24,13 @@ class InvitationServiceTest {
 
     @Mock private InvitationRepository invitationRepository;
     @Mock private ProjectMemberRepository projectMemberRepository;
+    @Mock private UserRepository userRepository;
 
     private InvitationService invitationService;
 
     @BeforeEach
     void setUp() {
-        invitationService = new InvitationService(invitationRepository, projectMemberRepository);
+        invitationService = new InvitationService(invitationRepository, projectMemberRepository, userRepository);
     }
 
     @Test
@@ -72,5 +76,43 @@ class InvitationServiceTest {
         assertThat(expired.getStatus()).isEqualTo(Invitation.Status.expired.name());
         assertThat(response.token()).isNotEqualTo("EXPIRED-TOKEN");
         verify(invitationRepository).save(any(Invitation.class));
+    }
+
+    @Test
+    void acceptAddsApprovedReviewerAsReviewerEvenWhenInviteSaysMember() {
+        Invitation invitation = new Invitation(1L, null, ProjectRole.MEMBER, "TOKEN", LocalDateTime.now().plusDays(3));
+        when(invitationRepository.findByToken("TOKEN")).thenReturn(Optional.of(invitation));
+        when(projectMemberRepository.existsByProjectIdAndUserId(1L, 9L)).thenReturn(false);
+        when(userRepository.findById(9L)).thenReturn(Optional.of(approvedReviewer()));
+
+        invitationService.accept("TOKEN", 9L);
+
+        ArgumentCaptor<ProjectMember> captor = ArgumentCaptor.forClass(ProjectMember.class);
+        verify(projectMemberRepository).save(captor.capture());
+        assertThat(captor.getValue().getRole()).isEqualTo(ProjectRole.REVIEWER);
+    }
+
+    @Test
+    void acceptKeepsMemberRoleForNormalAccount() {
+        Invitation invitation = new Invitation(1L, null, ProjectRole.MEMBER, "TOKEN", LocalDateTime.now().plusDays(3));
+        when(invitationRepository.findByToken("TOKEN")).thenReturn(Optional.of(invitation));
+        when(projectMemberRepository.existsByProjectIdAndUserId(1L, 9L)).thenReturn(false);
+        when(userRepository.findById(9L)).thenReturn(Optional.of(normalUser()));
+
+        invitationService.accept("TOKEN", 9L);
+
+        ArgumentCaptor<ProjectMember> captor = ArgumentCaptor.forClass(ProjectMember.class);
+        verify(projectMemberRepository).save(captor.capture());
+        assertThat(captor.getValue().getRole()).isEqualTo(ProjectRole.MEMBER);
+    }
+
+    private User approvedReviewer() {
+        User user = normalUser();
+        user.setReviewerStatus(ReviewerStatus.APPROVED);
+        return user;
+    }
+
+    private User normalUser() {
+        return new User("user@example.com", "홍길동", "local", "user@example.com", "hash");
     }
 }
