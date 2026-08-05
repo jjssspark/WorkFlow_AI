@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -227,7 +228,10 @@ class ProjectServiceTest {
     void joinByCode_addsMemberWithMemberRole() {
         Project project = new Project("제목", "캡스톤디자인", "설명");
         when(projectRepository.findByInviteCode("AB12CD34")).thenReturn(Optional.of(project));
-        when(projectMemberRepository.existsByProjectIdAndUserId(any(), any())).thenReturn(false);
+        when(projectMemberRepository.findByProjectIdAndUserId(any(), any())).thenReturn(Optional.empty());
+        when(userRepository.findById(5L)).thenReturn(Optional.of(
+            new User("member@example.com", "팀원", "local", "member@example.com", "hash")
+        ));
         when(taskRepository.findByProjectIdOrderByCreatedAtDesc(any())).thenReturn(List.of());
         when(projectMemberRepository.countByProjectIdAndRoleNot(any(), any())).thenReturn(0L);
 
@@ -240,12 +244,26 @@ class ProjectServiceTest {
     }
 
     @Test
+    void joinByCode_unknownUser_throwsInsteadOfJoiningAsMember() {
+        // 인증을 통과한 userId인데 계정이 없다면 데이터가 깨진 것이다. 팀원으로 넣고 넘어가면
+        // 그 불일치가 정상 참여로 묻힌다. IllegalArgumentException이면 안 된다 - 컨트롤러가
+        // 그걸 잡아 400 INVALID_INVITE_CODE로 바꾸므로 "코드가 틀렸다"로 위장된다.
+        Project project = new Project("제목", "캡스톤디자인", "설명");
+        when(projectRepository.findByInviteCode("AB12CD34")).thenReturn(Optional.of(project));
+        when(userRepository.findById(5L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> projectService.joinByCode(5L, "ab12cd34"))
+            .isInstanceOf(IllegalStateException.class);
+        verify(projectMemberRepository, never()).save(any(ProjectMember.class));
+    }
+
+    @Test
     void joinByCode_approvedReviewer_addsMemberWithReviewerRole() {
         Project project = new Project("제목", "캡스톤디자인", "설명");
         User reviewer = new User("reviewer@example.com", "심사자", "local", "reviewer@example.com", "hash");
         reviewer.setReviewerStatus(ReviewerStatus.APPROVED);
         when(projectRepository.findByInviteCode("AB12CD34")).thenReturn(Optional.of(project));
-        when(projectMemberRepository.existsByProjectIdAndUserId(any(), any())).thenReturn(false);
+        when(projectMemberRepository.findByProjectIdAndUserId(any(), any())).thenReturn(Optional.empty());
         when(userRepository.findById(5L)).thenReturn(Optional.of(reviewer));
         when(taskRepository.findByProjectIdOrderByCreatedAtDesc(any())).thenReturn(List.of());
         when(projectMemberRepository.countByProjectIdAndRoleNot(any(), any())).thenReturn(0L);
@@ -255,6 +273,42 @@ class ProjectServiceTest {
         ArgumentCaptor<ProjectMember> memberCaptor = ArgumentCaptor.forClass(ProjectMember.class);
         verify(projectMemberRepository).save(memberCaptor.capture());
         assertThat(memberCaptor.getValue().getRole()).isEqualTo(ProjectRole.REVIEWER);
+    }
+
+    @Test
+    void joinByCode_approvedReviewerAlreadyStoredAsMember_isUpgraded() {
+        Project project = new Project("제목", "캡스톤디자인", "설명");
+        User reviewer = new User("reviewer@example.com", "심사자", "local", "reviewer@example.com", "hash");
+        reviewer.setReviewerStatus(ReviewerStatus.APPROVED);
+        ProjectMember stored = new ProjectMember(null, 5L, ProjectRole.MEMBER);
+        when(projectRepository.findByInviteCode("AB12CD34")).thenReturn(Optional.of(project));
+        when(projectMemberRepository.findByProjectIdAndUserId(any(), any())).thenReturn(Optional.of(stored));
+        when(userRepository.findById(5L)).thenReturn(Optional.of(reviewer));
+        when(taskRepository.findByProjectIdOrderByCreatedAtDesc(any())).thenReturn(List.of());
+        when(projectMemberRepository.countByProjectIdAndRoleNot(any(), any())).thenReturn(0L);
+
+        projectService.joinByCode(5L, "ab12cd34");
+
+        assertThat(stored.getRole()).isEqualTo(ProjectRole.REVIEWER);
+        verify(projectMemberRepository).save(stored);
+    }
+
+    @Test
+    void joinByCode_normalMemberJoiningTwice_isNotRewritten() {
+        Project project = new Project("제목", "캡스톤디자인", "설명");
+        ProjectMember stored = new ProjectMember(null, 5L, ProjectRole.MEMBER);
+        when(projectRepository.findByInviteCode("AB12CD34")).thenReturn(Optional.of(project));
+        when(projectMemberRepository.findByProjectIdAndUserId(any(), any())).thenReturn(Optional.of(stored));
+        when(userRepository.findById(5L)).thenReturn(Optional.of(
+            new User("member@example.com", "팀원", "local", "member@example.com", "hash")
+        ));
+        when(taskRepository.findByProjectIdOrderByCreatedAtDesc(any())).thenReturn(List.of());
+        when(projectMemberRepository.countByProjectIdAndRoleNot(any(), any())).thenReturn(0L);
+
+        projectService.joinByCode(5L, "ab12cd34");
+
+        assertThat(stored.getRole()).isEqualTo(ProjectRole.MEMBER);
+        verify(projectMemberRepository, never()).save(any(ProjectMember.class));
     }
 
     @Test

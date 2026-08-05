@@ -82,10 +82,16 @@ public class InvitationService {
             throw InvitationException.expired();
         }
 
-        if (!projectMemberRepository.existsByProjectIdAndUserId(invitation.getProjectId(), userId)) {
-            ProjectRole role = ProjectJoinRole.resolve(userRepository.findById(userId).orElse(null), invitation.getRole());
-            projectMemberRepository.save(new ProjectMember(invitation.getProjectId(), userId, role));
-        }
+        ProjectRole role = ProjectJoinRole.resolve(userRepository.findById(userId).orElse(null), invitation.getRole());
+        projectMemberRepository.findByProjectIdAndUserId(invitation.getProjectId(), userId).ifPresentOrElse(
+            existing -> {
+                if (ProjectJoinRole.needsRoleFix(existing, role)) {
+                    existing.setRole(role);
+                    projectMemberRepository.save(existing);
+                }
+            },
+            () -> projectMemberRepository.save(new ProjectMember(invitation.getProjectId(), userId, role))
+        );
         invitation.setStatus(Invitation.Status.accepted.name());
         return invitation.getProjectId();
     }

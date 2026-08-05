@@ -53,7 +53,8 @@ public class ProjectController {
 
     @Operation(
         summary = "초대 코드로 프로젝트 참여",
-        description = "코드가 유효하면 현재 로그인한 사용자를 팀원(MEMBER)으로 project_members에 등록한다."
+        description = "코드가 유효하면 현재 로그인한 사용자를 project_members에 등록한다. 역할은 팀원(MEMBER)이지만, "
+            + "승인된 심사자 계정은 심사자(REVIEWER)로 등록된다."
     )
     @PostMapping("/join")
     public ResponseEntity<ApiResponse<ProjectResponse>> join(@Valid @RequestBody JoinProjectRequest request) {

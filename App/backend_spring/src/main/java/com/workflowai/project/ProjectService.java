@@ -124,10 +124,16 @@ public class ProjectService {
     public ProjectResponse joinByCode(Long userId, String code) {
         Project project = projectRepository.findByInviteCode(code == null ? "" : code.trim().toUpperCase())
             .orElseThrow(() -> new IllegalArgumentException("유효하지 않은 초대 코드입니다."));
-        if (!projectMemberRepository.existsByProjectIdAndUserId(project.getId(), userId)) {
-            ProjectRole role = ProjectJoinRole.resolve(userRepository.findById(userId).orElse(null), ProjectRole.MEMBER);
-            projectMemberRepository.save(new ProjectMember(project.getId(), userId, role));
-        }
+        ProjectRole role = ProjectJoinRole.resolve(userRepository.findById(userId).orElse(null), ProjectRole.MEMBER);
+        projectMemberRepository.findByProjectIdAndUserId(project.getId(), userId).ifPresentOrElse(
+            existing -> {
+                if (ProjectJoinRole.needsRoleFix(existing, role)) {
+                    existing.setRole(role);
+                    projectMemberRepository.save(existing);
+                }
+            },
+            () -> projectMemberRepository.save(new ProjectMember(project.getId(), userId, role))
+        );
         return toResponse(project);
     }
 
