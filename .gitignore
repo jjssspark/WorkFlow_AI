@@ -1,6 +1,10 @@
 # Local-only pnpm override (bypasses minimumReleaseAge supply-chain policy) — never commit
 App/frontend/.npmrc
 
+# Supabase pooler 세션 슬롯 고갈 시 backend-spring을 로컬 db 컨테이너로 임시 전환하기 위한
+# 개인 로컬 전용 오버라이드. .env는 건드리지 않는 일회성 파일이라 커밋 대상 아님.
+App/docker-compose.local-db.override.yml
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
