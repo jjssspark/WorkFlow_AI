@@ -8,6 +8,22 @@
 
 ---
 
+## 목차
+
+1. [팀](#팀)
+2. [기술 스택](#기술-스택)
+3. [시연 영상](#시연-영상)
+4. [왜 만들었나](#왜-만들었나)
+5. [주요 기능](#주요-기능)
+6. [사용자 권한](#사용자-권한)
+7. [시스템 아키텍처](#시스템-아키텍처)
+8. [CI/CD](#cicd)
+9. [회의록 AI 분석 제공자](#회의록-ai-분석-제공자)
+10. [DB 마이그레이션](#db-마이그레이션)
+11. [문서](#문서)
+
+---
+
 ## 팀
 
 | 이름 | 담당 |
@@ -21,21 +37,47 @@
 
 ## 기술 스택
 
-| 영역 | 핵심 기술 |
-| --- | --- |
-| Frontend | React 19 · TypeScript · Vite · Tailwind CSS |
-| Backend | Java 21 · Spring Boot 3.5 · JWT · Flyway |
-| AI Backend | Python 3.12 · FastAPI · LangGraph |
-| LLM / RAG | Ollama · Hugging Face · bge-m3 · pgvector |
-| ML | LightGBM · scikit-learn · MLflow |
-| Database | PostgreSQL 17 + pgvector · Redis 7 |
-| Infra / CI | Docker Compose · nginx · GitHub Actions · OCI |
+**Frontend**
 
-> 버전과 선정 근거는 아래 [기술 스택 상세](#기술-스택-상세-실제-사용-버전)에 있습니다.
+![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=black)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?style=flat-square&logo=typescript&logoColor=white)
+![Vite](https://img.shields.io/badge/Vite-7-646CFF?style=flat-square&logo=vite&logoColor=white)
+![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-4-06B6D4?style=flat-square&logo=tailwindcss&logoColor=white)
 
----
+**Backend**
 
-![대시보드](docs/screenshots/01-dashboard.jpg)
+![Java](https://img.shields.io/badge/Java-21-ED8B00?style=flat-square&logo=openjdk&logoColor=white)
+![Spring Boot](https://img.shields.io/badge/Spring_Boot-3.5-6DB33F?style=flat-square&logo=springboot&logoColor=white)
+![JWT](https://img.shields.io/badge/JWT-000000?style=flat-square&logo=jsonwebtokens&logoColor=white)
+![Flyway](https://img.shields.io/badge/Flyway-CC0200?style=flat-square&logo=flyway&logoColor=white)
+
+**AI Backend · LLM / RAG**
+
+![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white)
+![LangGraph](https://img.shields.io/badge/LangGraph-1C3C3C?style=flat-square&logo=langgraph&logoColor=white)
+![Ollama](https://img.shields.io/badge/Ollama-000000?style=flat-square&logo=ollama&logoColor=white)
+![Hugging Face](https://img.shields.io/badge/Hugging_Face-FFD21E?style=flat-square&logo=huggingface&logoColor=black)
+![bge-m3](https://img.shields.io/badge/bge--m3-임베딩-5A67D8?style=flat-square)
+![pgvector](https://img.shields.io/badge/pgvector-4169E1?style=flat-square&logo=postgresql&logoColor=white)
+
+**ML**
+
+![LightGBM](https://img.shields.io/badge/LightGBM-2E7D32?style=flat-square)
+![scikit-learn](https://img.shields.io/badge/scikit--learn-F7931E?style=flat-square&logo=scikitlearn&logoColor=white)
+![MLflow](https://img.shields.io/badge/MLflow-0194E2?style=flat-square&logo=mlflow&logoColor=white)
+
+**Database**
+
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-4169E1?style=flat-square&logo=postgresql&logoColor=white)
+![Redis](https://img.shields.io/badge/Redis-7-FF4438?style=flat-square&logo=redis&logoColor=white)
+
+**Infra / CI**
+
+![Docker Compose](https://img.shields.io/badge/Docker_Compose-2496ED?style=flat-square&logo=docker&logoColor=white)
+![nginx](https://img.shields.io/badge/nginx-009639?style=flat-square&logo=nginx&logoColor=white)
+![GitHub Actions](https://img.shields.io/badge/GitHub_Actions-2088FF?style=flat-square&logo=githubactions&logoColor=white)
+![Oracle Cloud](https://img.shields.io/badge/Oracle_Cloud-F80000?style=flat-square&logo=oracle&logoColor=white)
 
 ---
 
@@ -130,74 +172,42 @@ LangGraph 기반 그래프가 단순 질의응답과 "업무 만들어줘" 같�
 
 ---
 
-## 어떤 기술을 어디에 썼나
+## 시스템 아키텍처
 
-### 시스템 구성
+### 전체 시스템 구성도
 
-```
-React (Vite, nginx)
-        │  /api/*
-        ▼
-Spring Boot  ── 인증·RBAC·업무/회의록/산출물 도메인·트랜잭션
-        │  내부 API 키 인증
-        ▼
-FastAPI      ── LLM·RAG·ML 추론 전담
-        │
-        ├── PostgreSQL + pgvector  (업무 데이터 + 문서 임베딩)
-        ├── Redis                  (캐시, rag_epoch)
-        └── Ollama / Hugging Face  (LLM 추론)
-```
+![전체 시스템 구성도](docs/screenshots/07-architecture.png)
 
 역할을 나눈 이유: 인증·권한·트랜잭션은 Spring이 강하고, ML/LLM 생태계는 Python이 강합니다.
 FastAPI는 외부에 직접 열지 않고 Spring이 내부 API 키로만 호출합니다.
 
-### 기술 스택 상세 (실제 사용 버전)
+### 계층별 구성 및 역할
 
-| 구성 | 기술 |
-| --- | --- |
-| **Frontend** | React 19, TypeScript 5.9, Vite 7, Tailwind CSS 4, Radix UI + MUI, react-router 7, Recharts, react-dnd |
-| **Backend** | Java 21, Spring Boot 3.5 (Web / Security / Data JPA / Data Redis), JJWT, Flyway, springdoc-openapi, Apache PDFBox·POI, AWS SDK S3 |
-| **AI Backend** | Python 3.12, FastAPI 0.139, Pydantic 2, asyncpg |
-| **LLM / RAG** | LangGraph, LangChain Core, Ollama(로컬) / Hugging Face Inference, sentence-transformers(`bge-m3` 파인튜닝 임베딩), pgvector, LangSmith |
-| **ML** | LightGBM(지연 위험도), scikit-learn, pandas/NumPy, MLflow(실험 추적) |
-| **STT / 파일 처리** | faster-whisper, FFmpeg, pdfplumber, python-docx, python-pptx |
-| **Database** | PostgreSQL 17 + pgvector, Redis 7 |
-| **Infra / CI** | Docker Compose, nginx, GitHub Actions (backend/frontend 테스트, 마이그레이션 가드, OCI 배포), Let's Encrypt |
-| **Test** | JUnit 5 + Testcontainers, pytest + pytest-asyncio, Vitest + Testing Library |
-
-> 기능별 상세 스택과 버전 호환 근거는 [기술 스택 문서](docs/projects/WorkFlow_AI_기술_스택_버전.md)를 참고하세요.
+![계층별 구성 및 역할](docs/screenshots/08-layers.png)
 
 ---
 
-## 실행 방법
+## CI/CD
 
-```bash
-cd App
-cp .env.example .env   # DB 비밀번호, JWT_SECRET, RAG_INTERNAL_API_KEY 등 채우기
-docker compose up -d
+로컬 기능 브랜치 → `dev` 병합 → 검증 통과 시 `main` 승격 → OCI 자동 배포 순서의 3단계 브랜치 승격 파이프라인입니다.
+
+```
+[feature/*] → PR → [dev] → 검증 통과 → [main] → GitHub Actions → OCI 배포
 ```
 
-| 대상 | 주소 |
+| 워크플로 | 역할 |
 | --- | --- |
-| 프론트엔드 | http://localhost:5173 |
-| Spring Boot API | http://localhost:8080/api/v1/health |
-| Swagger UI | http://localhost:8080/swagger-ui/index.html |
-| AI FastAPI | http://localhost:8000/api/v1/health |
+| `backend-tests` | Spring Boot 빌드·단위 테스트 |
+| `frontend-tests` | React 빌드·테스트 |
+| `fastapi-tests` | AI 백엔드(FastAPI) 테스트 |
+| `migration-guard` | 이미 배포된 Flyway 마이그레이션 파일 수정 차단 |
+| `redis-acl-tests` | Redis ACL 설정 검증 |
+| `deploy-oci` | `main` 병합 시 OCI 운영 서버 자동 배포 및 헬스체크 |
 
-프론트엔드 컨테이너는 dev 서버가 아니라 빌드된 `dist`를 nginx로 서빙합니다.
-프론트 코드를 고쳤다면 `docker compose up -d --build frontend`로 다시 빌드해야 화면에 반영됩니다.
-자세한 내용은 [App/DOCKER.md](App/DOCKER.md), 배포는 [App/DEPLOY_OCI.md](App/DEPLOY_OCI.md)를 참고하세요.
+- `main` 직접 push 금지 — 배포는 항상 `dev` → `main` PR 병합으로만 트리거됩니다.
+- 배포 실패나 배포 후 이상 발견 시 직전 정상 커밋으로 롤백 후 재배포합니다.
 
-### 로컬 시연용 테스트 계정
-
-아이디/비밀번호 테스트 로그인은 운영 노출을 막기 위해 기본 비활성화되어 있습니다. 로컬 시연에서만 `.env`에 아래 값을 명시해 켭니다.
-
-```env
-WORKFLOW_DEMO_DEV_LOGIN_ENABLED=true
-VITE_ENABLE_DEMO_AUTH=true
-```
-
-테스트 계정 비밀번호 `1111`은 중간보고/시연 전용이며, 운영 배포 환경에서는 위 값을 켜지 않습니다.
+자세한 파이프라인 구성은 [CI/CD 구조 문서](docs/projects/WorkFlow_AI_CICD_구조.md), 배포 절차는 [App/DEPLOY_OCI.md](App/DEPLOY_OCI.md)를 참고하세요.
 
 ---
 
