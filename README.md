@@ -183,7 +183,17 @@ FastAPI는 외부에 직접 열지 않고 Spring이 내부 API 키로만 호출�
 
 ### 계층별 구성 및 역할
 
-![계층별 구성 및 역할](docs/screenshots/08-layers.png)
+| 계층 | 컨테이너 | 기술 | 주요 역할 |
+| --- | --- | --- | --- |
+| **프레젠테이션** | Frontend Container | Nginx · React · TypeScript · Vite · Tailwind | 정적 파일 서빙 / HTTPS 종단(TLS termination) / `/api/*` 리버스 프록시 |
+| **인증서 자동화** | Certbot Container | Let's Encrypt certbot | 인증서 발급·자동 갱신 / Nginx와 볼륨 공유 |
+| **애플리케이션** | Backend API Container | Spring Boot 3.5 / Java 21 | 인증·회원·프로젝트 권한(RBAC) / 업무보드·회의록·대시보드 API / 기여도·마이페이지·알림·활동로그 / FastAPI 호출 및 분석 결과 저장 |
+| **AI / ML** | AI/ML Backend Container | FastAPI / Python 3.12 | 회의록 AI 분석·To-Do 후보 추출 / RAG Assistant / 지연위험도 등 ML 모델 추론 / 체크리스트 AI |
+| **데이터** | PostgreSQL Container | PostgreSQL 17 + pgvector | 업무·회의록·기여도 데이터 저장 / RAG 벡터 데이터 저장 |
+| **인프라 / 큐** | Redis | Redis(Stream) | 회의록 분석 비동기 큐(Job enqueue / dequeue) / 세션·헬스체크 |
+| **미사용** | Kafka Container | apache/kafka 3.8 (KRaft) | compose에 구성만 되어 있고 **애플리케이션 코드에서 호출하지 않음** — 확장 대비 선반영이라 서비스 경로에 포함되지 않음 |
+
+> **쓰기 권한 경계** — AI 계층은 **DB 쓰기 권한이 없음**. 추론만 담당하므로 그 컨테이너가 멈춰도 트랜잭션 정합성에는 영향이 없음.
 
 ---
 
