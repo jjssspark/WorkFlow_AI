@@ -11,16 +11,17 @@
 ## 목차
 
 1. [팀](#팀)
-2. [기술 스택](#기술-스택)
-3. [시연 영상](#시연-영상)
-4. [왜 만들었나](#왜-만들었나)
-5. [주요 기능](#주요-기능)
-6. [사용자 권한](#사용자-권한)
-7. [시스템 아키텍처](#시스템-아키텍처)
-8. [CI/CD](#cicd)
-9. [회의록 AI 분석 제공자](#회의록-ai-분석-제공자)
-10. [DB 마이그레이션](#db-마이그레이션)
-11. [문서](#문서)
+2. [시스템 아키텍처](#시스템-아키텍처)
+3. [기술 스택](#기술-스택)
+4. [계층별 구성 및 역할](#계층별-구성-및-역할)
+5. [시연 영상](#시연-영상)
+6. [왜 만들었나](#왜-만들었나)
+7. [주요 기능](#주요-기능)
+8. [사용자 권한](#사용자-권한)
+9. [CI/CD](#cicd)
+10. [회의록 AI 분석 제공자](#회의록-ai-분석-제공자)
+11. [DB 마이그레이션](#db-마이그레이션)
+12. [문서](#문서)
 
 ---
 
@@ -34,6 +35,13 @@
 | 유소은 | 대시보드, 지연 위험도 예측 |
 | 이은주 | ML 모델링 — 업무 편중 점수, 임베딩 파이프라인 |
 | 허영주 | 업무 보드(칸반) |
+
+## 시스템 아키텍처
+
+![전체 시스템 구성도](docs/screenshots/07-architecture.png)
+
+역할을 나눈 이유: 인증·권한·트랜잭션은 Spring이 강하고, ML/LLM 생태계는 Python이 강합니다.
+FastAPI는 외부에 직접 열지 않고 Spring이 내부 API 키로만 호출합니다.
 
 ## 기술 스택
 
@@ -78,6 +86,20 @@
 ![nginx](https://img.shields.io/badge/nginx-009639?style=flat-square&logo=nginx&logoColor=white)
 ![GitHub Actions](https://img.shields.io/badge/GitHub_Actions-2088FF?style=flat-square&logo=githubactions&logoColor=white)
 ![Oracle Cloud](https://img.shields.io/badge/Oracle_Cloud-F80000?style=flat-square&logo=oracle&logoColor=white)
+
+## 계층별 구성 및 역할
+
+| 계층 | 컨테이너 | 기술 | 주요 역할 |
+| --- | --- | --- | --- |
+| **프레젠테이션** | Frontend Container | Nginx · React · TypeScript · Vite · Tailwind | 정적 파일 서빙 / HTTPS 종단(TLS termination) / `/api/*` 리버스 프록시 |
+| **인증서 자동화** | Certbot Container | Let's Encrypt certbot | 인증서 발급·자동 갱신 / Nginx와 볼륨 공유 |
+| **애플리케이션** | Backend API Container | Spring Boot 3.5 / Java 21 | 인증·회원·프로젝트 권한(RBAC) / 업무보드·회의록·대시보드 API / 기여도·마이페이지·알림·활동로그 / FastAPI 호출 및 분석 결과 저장 |
+| **AI / ML** | AI/ML Backend Container | FastAPI / Python 3.12 | 회의록 AI 분석·To-Do 후보 추출 / RAG Assistant / 지연위험도 등 ML 모델 추론 / 체크리스트 AI |
+| **데이터** | PostgreSQL Container | PostgreSQL 17 + pgvector | 업무·회의록·기여도 데이터 저장 / RAG 벡터 데이터 저장 |
+| **인프라 / 큐** | Redis | Redis(Stream) | 회의록 분석 비동기 큐(Job enqueue / dequeue) / 세션·헬스체크 |
+| **미사용** | Kafka Container | apache/kafka 3.8 (KRaft) | compose에 구성만 되어 있고 **애플리케이션 코드에서 호출하지 않음** — 확장 대비 선반영이라 서비스 경로에 포함되지 않음 |
+
+> **쓰기 권한 경계** — AI 계층은 **DB 쓰기 권한이 없음**. 추론만 담당하므로 그 컨테이너가 멈춰도 트랜잭션 정합성에는 영향이 없음.
 
 ---
 
@@ -169,31 +191,6 @@ LangGraph 기반 그래프가 단순 질의응답과 "업무 만들어줘" 같�
 | **팀장** | 프로젝트 생성·초대, 업무 생성/배정, 로드맵 관리, 완료 승인, 회의록 승인, 산출물 검토 |
 | **팀원** | 본인 업무 관리, 회의록 업로드, 블로커 등록, 산출물 작성 |
 | **심사자** | 진행률·산출물·기여도 리포트 조회, AI 평가 근거 확인, 최종 점수 입력 (그 외 화면은 열람 전용) |
-
----
-
-## 시스템 아키텍처
-
-### 전체 시스템 구성도
-
-![전체 시스템 구성도](docs/screenshots/07-architecture.png)
-
-역할을 나눈 이유: 인증·권한·트랜잭션은 Spring이 강하고, ML/LLM 생태계는 Python이 강합니다.
-FastAPI는 외부에 직접 열지 않고 Spring이 내부 API 키로만 호출합니다.
-
-### 계층별 구성 및 역할
-
-| 계층 | 컨테이너 | 기술 | 주요 역할 |
-| --- | --- | --- | --- |
-| **프레젠테이션** | Frontend Container | Nginx · React · TypeScript · Vite · Tailwind | 정적 파일 서빙 / HTTPS 종단(TLS termination) / `/api/*` 리버스 프록시 |
-| **인증서 자동화** | Certbot Container | Let's Encrypt certbot | 인증서 발급·자동 갱신 / Nginx와 볼륨 공유 |
-| **애플리케이션** | Backend API Container | Spring Boot 3.5 / Java 21 | 인증·회원·프로젝트 권한(RBAC) / 업무보드·회의록·대시보드 API / 기여도·마이페이지·알림·활동로그 / FastAPI 호출 및 분석 결과 저장 |
-| **AI / ML** | AI/ML Backend Container | FastAPI / Python 3.12 | 회의록 AI 분석·To-Do 후보 추출 / RAG Assistant / 지연위험도 등 ML 모델 추론 / 체크리스트 AI |
-| **데이터** | PostgreSQL Container | PostgreSQL 17 + pgvector | 업무·회의록·기여도 데이터 저장 / RAG 벡터 데이터 저장 |
-| **인프라 / 큐** | Redis | Redis(Stream) | 회의록 분석 비동기 큐(Job enqueue / dequeue) / 세션·헬스체크 |
-| **미사용** | Kafka Container | apache/kafka 3.8 (KRaft) | compose에 구성만 되어 있고 **애플리케이션 코드에서 호출하지 않음** — 확장 대비 선반영이라 서비스 경로에 포함되지 않음 |
-
-> **쓰기 권한 경계** — AI 계층은 **DB 쓰기 권한이 없음**. 추론만 담당하므로 그 컨테이너가 멈춰도 트랜잭션 정합성에는 영향이 없음.
 
 ---
 
