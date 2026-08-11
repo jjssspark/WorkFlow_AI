@@ -222,10 +222,10 @@ export function AllTasksPage() {
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700">{error}</div>}
 
       <div className="grid grid-cols-4 gap-3">
-        <DetailStatCard label="전체 업무" value={loading ? "..." : counts.total} sub="프로젝트 전체" color="#3B5BDB" icon={Layers} />
-        <DetailStatCard label="완료" value={loading ? "..." : counts.done} sub={loading ? "불러오는 중" : `완료율 ${donePct}%`} color="#10B981" icon={CheckCircle2} />
-        <DetailStatCard label="진행중" value={loading ? "..." : counts.inProgress} sub="활성 업무" color="#3B5BDB" icon={Clock} />
-        <DetailStatCard label="검토 필요" value={loading ? "..." : counts.blocked} sub="즉시 해결 필요" color="#EF4444" icon={AlertTriangle} />
+        <DetailStatCard label="전체 업무" value={loading ? "..." : counts.total} sub="프로젝트 전체" color="var(--chart-1)" icon={Layers} />
+        <DetailStatCard label="완료" value={loading ? "..." : counts.done} sub={loading ? "불러오는 중" : `완료율 ${donePct}%`} color="var(--chart-3)" icon={CheckCircle2} />
+        <DetailStatCard label="진행중" value={loading ? "..." : counts.inProgress} sub="활성 업무" color="var(--status-progress)" icon={Clock} />
+        <DetailStatCard label="검토 필요" value={loading ? "..." : counts.blocked} sub="즉시 해결 필요" color="var(--status-blocked)" icon={AlertTriangle} />
       </div>
 
       <div className="flex items-center gap-2 flex-wrap">

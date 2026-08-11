@@ -31,21 +31,21 @@ export function formatWorkloadCalculatedAt(isoString: string | null): string {
   return parsed.toLocaleString("ko-KR", { dateStyle: "medium", timeStyle: "short" });
 }
 
-// "대기" 계열(#C1C9D9)은 밝아서 기본 툴팁 텍스트로는 눈에 잘 안 띄기 때문에, 항목별로 글자색을 따로 지정한다.
+// "대기" 계열(status-todo)은 밝아서 기본 툴팁 텍스트로는 눈에 잘 안 띄기 때문에, 항목별로 글자색을 따로 지정한다.
 const WORKLOAD_LABEL_TEXT_COLOR: Record<string, string> = {
-  완료: "#10B981",
-  진행중: "#3B5BDB",
-  대기: "#475569",
-  "검토 필요": "#EF4444",
+  완료: "var(--chart-3)",
+  진행중: "var(--status-progress)",
+  대기: "var(--muted-foreground)",
+  "검토 필요": "var(--status-blocked)",
 };
 
 function WorkloadTooltip({ active, payload, label }: { active?: boolean; payload?: { dataKey: string; value: number }[]; label?: string }) {
   if (!active || !payload?.length) return null;
   return (
-    <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "8px 12px", fontSize: 12, boxShadow: "0 4px 12px rgba(0,0,0,0.1)" }}>
-      <div style={{ fontWeight: 600, marginBottom: 4, color: "#1C2333" }}>{label}</div>
+    <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 12px", fontSize: 12, boxShadow: "0 4px 12px rgba(0,0,0,0.1)" }}>
+      <div style={{ fontWeight: 600, marginBottom: 4, color: "var(--foreground)" }}>{label}</div>
       {payload.map(entry => (
-        <div key={entry.dataKey} style={{ display: "flex", justifyContent: "space-between", gap: 12, color: WORKLOAD_LABEL_TEXT_COLOR[entry.dataKey] ?? "#1C2333" }}>
+        <div key={entry.dataKey} style={{ display: "flex", justifyContent: "space-between", gap: 12, color: WORKLOAD_LABEL_TEXT_COLOR[entry.dataKey] ?? "var(--foreground)" }}>
           <span>{entry.dataKey}</span><span style={{ fontWeight: 600 }}>{entry.value}</span>
         </div>
       ))}
@@ -54,15 +54,16 @@ function WorkloadTooltip({ active, payload, label }: { active?: boolean; payload
 }
 
 const ANOMALY_BADGE: Record<string, { label: string; color: string; bg: string }> = {
-  "난이도 편중 의심": { label: "난이도 편중 의심", color: "#DC2626", bg: "#FEF2F2" },
+  // NOTE(A4): 업무량 편중/배정량 불균형은 표에 없는 색(#EA580C, #D97706)이라 그대로 두었다 — task-A4-batch1-report.md 참고.
+  "난이도 편중 의심": { label: "난이도 편중 의심", color: "var(--status-blocked)", bg: "var(--status-blocked-bg)" },
   "업무량 편중 의심": { label: "업무량 편중 의심", color: "#EA580C", bg: "#FFF7ED" },
   "배정량 불균형": { label: "배정량 불균형", color: "#D97706", bg: "#FFFBEB" },
-  "난이도 이상 패턴(방향 불명확)": { label: "난이도 이상 패턴", color: "#64748B", bg: "#F1F5F9" },
-  "업무량 이상 패턴(방향 불명확)": { label: "업무량 이상 패턴", color: "#64748B", bg: "#F1F5F9" },
-  "배정 이상 패턴(방향 불명확)": { label: "배정 이상 패턴", color: "#64748B", bg: "#F1F5F9" },
+  "난이도 이상 패턴(방향 불명확)": { label: "난이도 이상 패턴", color: "var(--muted-foreground)", bg: "var(--muted)" },
+  "업무량 이상 패턴(방향 불명확)": { label: "업무량 이상 패턴", color: "var(--muted-foreground)", bg: "var(--muted)" },
+  "배정 이상 패턴(방향 불명확)": { label: "배정 이상 패턴", color: "var(--muted-foreground)", bg: "var(--muted)" },
 };
 
-const NORMAL_CATEGORY_COLOR = "#16A34A";
+const NORMAL_CATEGORY_COLOR = "var(--chart-3)";
 
 export function WorkloadPage() {
   const { currentProjectId, currentProject } = useAuth();
@@ -178,7 +179,7 @@ export function WorkloadPage() {
             className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-border bg-card text-foreground rounded-lg hover:bg-muted transition-colors disabled:opacity-50"
           ><RefreshCw className={`w-3.5 h-3.5 ${pageRefreshing ? "animate-spin" : ""}`} />{pageRefreshing ? "새로고침 중..." : "새로고침"}</button>
           {isLeader && (
-            <button onClick={() => setShowAssignPicker(true)} className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-white rounded-lg" style={{ background: "linear-gradient(135deg,#7048E8,#4F6EF7)" }}><Plus className="w-3.5 h-3.5" />업무 배정</button>
+            <button onClick={() => setShowAssignPicker(true)} className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-white rounded-lg" style={{ background: "linear-gradient(135deg, var(--primary), var(--sidebar-primary))" }}><Plus className="w-3.5 h-3.5" />업무 배정</button>
           )}
         </div>
       </div>
@@ -186,8 +187,8 @@ export function WorkloadPage() {
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700">{error}</div>}
 
       <div className="grid grid-cols-3 gap-3">
-        <DetailStatCard label="팀원 수" value={summaryLoading || pageRefreshing ? "..." : `${memberCount}명`} sub="프로젝트 멤버" color="#3B5BDB" icon={Users} />
-        <DetailStatCard label="1인 평균 업무" value={summaryLoading || pageRefreshing ? "..." : `${averageInProgressTasks}개`} sub="진행 중 배정 기준" color="#7048E8" icon={Layers} />
+        <DetailStatCard label="팀원 수" value={summaryLoading || pageRefreshing ? "..." : `${memberCount}명`} sub="프로젝트 멤버" color="var(--chart-1)" icon={Users} />
+        <DetailStatCard label="1인 평균 업무" value={summaryLoading || pageRefreshing ? "..." : `${averageInProgressTasks}개`} sub="진행 중 배정 기준" color="var(--primary)" icon={Layers} />
         <DetailStatCard
           label="과부하 위험"
           value={
@@ -202,7 +203,7 @@ export function WorkloadPage() {
                   ? `${topOverloadedName}님`
                   : "위험 팀원 없음"
           }
-          color="#EF4444"
+          color="var(--status-blocked)"
           icon={AlertTriangle}
         />
       </div>
@@ -212,7 +213,7 @@ export function WorkloadPage() {
           <div className="flex items-center justify-between mb-4">
             <div className="text-sm font-semibold text-foreground">팀원별 업무 현황 비교</div>
             <div className="flex items-center gap-3 text-xs text-muted-foreground">
-              {[{ color: "#10B981", label: "완료" }, { color: "#3B5BDB", label: "진행중" }, { color: "#C1C9D9", label: "대기", textColor: "#475569" }, { color: "#EF4444", label: "검토 필요" }].map(item => (
+              {[{ color: "var(--chart-3)", label: "완료" }, { color: "var(--status-progress)", label: "진행중" }, { color: "var(--status-todo)", label: "대기", textColor: "var(--muted-foreground)" }, { color: "var(--status-blocked)", label: "검토 필요" }].map(item => (
                 <span key={item.label} className="flex items-center gap-1" style={item.textColor ? { color: item.textColor } : undefined}><div className="w-2 h-2 rounded-full" style={{ background: item.color }} />{item.label}</span>
               ))}
             </div>
@@ -224,13 +225,13 @@ export function WorkloadPage() {
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={barData} margin={{ top: 0, right: 0, left: -28, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.05)" />
-                  <XAxis dataKey="name" tick={{ fontSize: 10, fill: "#8892A4" }} />
-                  <YAxis tick={{ fontSize: 10, fill: "#8892A4" }} />
+                  <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--muted-foreground)" }} />
+                  <YAxis tick={{ fontSize: 10, fill: "var(--muted-foreground)" }} />
                   <Tooltip content={<WorkloadTooltip />} />
-                  <Bar dataKey="완료" stackId="a" fill="#10B981" radius={[0, 0, 0, 0]} />
-                  <Bar dataKey="진행중" stackId="a" fill="#3B5BDB" radius={[0, 0, 0, 0]} />
-                  <Bar dataKey="대기" stackId="a" fill="#C1C9D9" radius={[0, 0, 0, 0]} />
-                  <Bar dataKey="검토 필요" stackId="a" fill="#EF4444" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="완료" stackId="a" fill="var(--chart-3)" radius={[0, 0, 0, 0]} />
+                  <Bar dataKey="진행중" stackId="a" fill="var(--status-progress)" radius={[0, 0, 0, 0]} />
+                  <Bar dataKey="대기" stackId="a" fill="var(--status-todo)" radius={[0, 0, 0, 0]} />
+                  <Bar dataKey="검토 필요" stackId="a" fill="var(--status-blocked)" radius={[3, 3, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
@@ -325,7 +326,7 @@ export function WorkloadPage() {
                 </div>
               )}
               <div className="grid grid-cols-4 gap-2 mb-3">
-                {[{ label: "전체", value: entry.total, color: "#64748B" }, { label: "완료", value: entry.done, color: "#10B981" }, { label: "진행", value: entry.inProgress, color: "#3B5BDB" }, { label: "검토 필요", value: entry.blocked, color: "#EF4444" }].map(item => (
+                {[{ label: "전체", value: entry.total, color: "var(--muted-foreground)" }, { label: "완료", value: entry.done, color: "var(--chart-3)" }, { label: "진행", value: entry.inProgress, color: "var(--status-progress)" }, { label: "검토 필요", value: entry.blocked, color: "var(--status-blocked)" }].map(item => (
                   <div key={item.label} className="text-center p-1.5 rounded-lg bg-muted">
                     <div className="text-sm font-bold" style={{ color: item.color }}>{item.value}</div>
                     <div className="text-[9px] text-muted-foreground">{item.label}</div>
