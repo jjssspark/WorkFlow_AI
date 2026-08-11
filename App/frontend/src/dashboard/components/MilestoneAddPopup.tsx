@@ -94,7 +94,7 @@ export function MilestoneAddPopup({ projectId, editTarget, onClose, onCreated }:
                 onClick={handleSubmit}
                 disabled={submitting}
                 className="px-5 py-2 text-sm font-semibold text-white rounded-xl disabled:opacity-40 hover:opacity-90 transition-opacity"
-                style={{ background: "linear-gradient(135deg,#3B5BDB,#4F6EF7)" }}
+                style={{ background: "linear-gradient(135deg, var(--primary), var(--sidebar-primary))" }}
               >
                 {submitting ? (isEdit ? "수정 중..." : "추가 중...") : (isEdit ? "수정" : "추가")}
               </button>

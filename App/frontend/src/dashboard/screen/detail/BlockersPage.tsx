@@ -131,9 +131,9 @@ export function BlockersPage() {
       {actionError && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700">{actionError}</div>}
 
       <div className="grid grid-cols-3 gap-3">
-        <DetailStatCard label="현재 검토 필요" value={loading ? "..." : blockedTasks.length} sub="해결 대기" color="#EF4444" icon={AlertTriangle} />
-        <DetailStatCard label="심각도 높음" value={loading ? "..." : highPriorityCount} sub="즉시 조치 필요" color="#EF4444" icon={AlertCircle} />
-        <DetailStatCard label="평균 지연" value={loading ? "..." : `${averageDelayDays}일`} sub={overdueRiskDelayDays.length === 0 ? "지연 대상 없음" : `주의·위험 ${overdueRiskDelayDays.length}건 기준`} color="#F59E0B" icon={Clock} />
+        <DetailStatCard label="현재 검토 필요" value={loading ? "..." : blockedTasks.length} sub="해결 대기" color="var(--status-blocked)" icon={AlertTriangle} />
+        <DetailStatCard label="심각도 높음" value={loading ? "..." : highPriorityCount} sub="즉시 조치 필요" color="var(--status-blocked)" icon={AlertCircle} />
+        <DetailStatCard label="평균 지연" value={loading ? "..." : `${averageDelayDays}일`} sub={overdueRiskDelayDays.length === 0 ? "지연 대상 없음" : `주의·위험 ${overdueRiskDelayDays.length}건 기준`} color="var(--status-due)" icon={Clock} />
       </div>
 
       <div className="flex items-center justify-end">

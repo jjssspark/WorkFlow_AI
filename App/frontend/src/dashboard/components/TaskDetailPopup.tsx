@@ -139,7 +139,7 @@ export function TaskDetailPopup({ task, projectId, onClose, focusComments = fals
                   onClick={handleAddComment}
                   disabled={submitting || !newComment.trim()}
                   className="w-8 h-8 rounded-lg flex items-center justify-center text-white disabled:opacity-40 transition-opacity"
-                  style={{ background: "linear-gradient(135deg,#3B5BDB,#4F6EF7)" }}
+                  style={{ background: "linear-gradient(135deg, var(--primary), var(--sidebar-primary))" }}
                 >
                   <Send className="w-3.5 h-3.5" />
                 </button>
