@@ -8,13 +8,13 @@
   --card-foreground: #1C2333;
   --popover: #FFFFFF;
   --popover-foreground: #1C2333;
-  --primary: #3B5BDB;
+  --primary: #7048E8;
   --primary-foreground: #FFFFFF;
   --secondary: #EEF1FB;
-  --secondary-foreground: #3B5BDB;
+  --secondary-foreground: #7048E8;
   --muted: #EEF1F8;
   --muted-foreground: #8892A4;
-  --accent: #7048E8;
+  --accent: #3B5BDB;
   --accent-foreground: #FFFFFF;
   --destructive: #E03131;
   --destructive-foreground: #ffffff;
@@ -24,7 +24,7 @@
   --switch-background: #C1C9D9;
   --font-weight-medium: 500;
   --font-weight-normal: 400;
-  --ring: #3B5BDB;
+  --ring: #7048E8;
   --chart-1: #3B5BDB;
   --chart-2: #7048E8;
   --chart-3: #10B981;
@@ -39,6 +39,32 @@
   --sidebar-accent-foreground: #E8ECF4;
   --sidebar-border: rgba(255, 255, 255, 0.07);
   --sidebar-ring: #4F6EF7;
+
+  /* 상태색 — 의미 전달용. 이 5개 외의 색으로 상태를 표현하지 않는다. */
+  --status-done: #7048E8;
+  --status-done-bg: #F1ECFD;
+  --status-progress: #3B5BDB;
+  --status-progress-bg: #E9EDFB;
+  --status-blocked: #E03131;
+  --status-blocked-bg: #FDECEC;
+  --status-due: #F59E0B;
+  --status-due-bg: #FEF6E7;
+  --status-todo: #C9C7D6;
+  --status-todo-bg: #F4F4F8;
+
+  /* 사람색 — 식별용. 상태색보다 채도가 낮아야 하므로 이 6개 외에는 쓰지 않는다. */
+  --person-1: #0F6B63;
+  --person-1-bg: #E6F2F1;
+  --person-2: #A6376A;
+  --person-2-bg: #FBEAF1;
+  --person-3: #7A5B2E;
+  --person-3-bg: #F2EDE4;
+  --person-4: #5B6B33;
+  --person-4-bg: #EEF0E3;
+  --person-5: #5A5470;
+  --person-5-bg: #EDEBF3;
+  --person-6: #3E6076;
+  --person-6-bg: #E7EFF4;
 }
 
 .dark {
@@ -117,6 +143,28 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  --color-status-done: var(--status-done);
+  --color-status-done-bg: var(--status-done-bg);
+  --color-status-progress: var(--status-progress);
+  --color-status-progress-bg: var(--status-progress-bg);
+  --color-status-blocked: var(--status-blocked);
+  --color-status-blocked-bg: var(--status-blocked-bg);
+  --color-status-due: var(--status-due);
+  --color-status-due-bg: var(--status-due-bg);
+  --color-status-todo: var(--status-todo);
+  --color-status-todo-bg: var(--status-todo-bg);
+  --color-person-1: var(--person-1);
+  --color-person-1-bg: var(--person-1-bg);
+  --color-person-2: var(--person-2);
+  --color-person-2-bg: var(--person-2-bg);
+  --color-person-3: var(--person-3);
+  --color-person-3-bg: var(--person-3-bg);
+  --color-person-4: var(--person-4);
+  --color-person-4-bg: var(--person-4-bg);
+  --color-person-5: var(--person-5);
+  --color-person-5-bg: var(--person-5-bg);
+  --color-person-6: var(--person-6);
+  --color-person-6-bg: var(--person-6-bg);
 }
 
 @layer base {
