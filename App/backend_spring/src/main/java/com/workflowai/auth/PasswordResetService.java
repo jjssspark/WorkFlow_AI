@@ -14,6 +14,7 @@ import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -34,6 +35,7 @@ public class PasswordResetService {
     private final UserRepository userRepository;
     private final PasswordResetTokenRepository tokenRepository;
     private final MailSender mailSender;
+    private final PasswordEncoder passwordEncoder;
     private final String frontendBaseUrl;
     private final SecureRandom secureRandom = new SecureRandom();
 
@@ -41,11 +43,13 @@ public class PasswordResetService {
         UserRepository userRepository,
         PasswordResetTokenRepository tokenRepository,
         MailSender mailSender,
+        PasswordEncoder passwordEncoder,
         @Value("${workflow.frontend.base-url}") String frontendBaseUrl
     ) {
         this.userRepository = userRepository;
         this.tokenRepository = tokenRepository;
         this.mailSender = mailSender;
+        this.passwordEncoder = passwordEncoder;
         this.frontendBaseUrl = frontendBaseUrl;
     }
 
@@ -95,6 +99,45 @@ public class PasswordResetService {
             // 여기서 예외를 던지면 500이 나가고, 그 500이 곧 "이 계정은 존재한다"는 신호가 된다.
             log.error("비밀번호 재설정 메일 발송 실패: userId={}", user.getId());
         }
+    }
+
+    private static final int MIN_PASSWORD_LENGTH = 8;
+    private static final int MAX_PASSWORD_LENGTH = 128;
+
+    @Transactional
+    public void confirmReset(String rawToken, String newPassword) {
+        if (rawToken == null || rawToken.isBlank()) {
+            throw new InvalidResetTokenException("재설정 링크가 올바르지 않습니다.");
+        }
+        PasswordResetToken token = tokenRepository.findByTokenHash(sha256Hex(rawToken))
+            .orElseThrow(() -> new InvalidResetTokenException(
+                "재설정 링크가 만료되었거나 이미 사용되었습니다. 다시 요청해 주세요."));
+
+        if (!token.isUsable(LocalDateTime.now())) {
+            throw new InvalidResetTokenException(
+                "재설정 링크가 만료되었거나 이미 사용되었습니다. 다시 요청해 주세요.");
+        }
+
+        // 정책 위반은 토큰을 소모하기 전에 막는다. 오타 한 번에 메일을 다시 받게 하지 않는다.
+        if (newPassword == null
+            || newPassword.length() < MIN_PASSWORD_LENGTH
+            || newPassword.length() > MAX_PASSWORD_LENGTH) {
+            throw new InvalidSignupInputException(
+                "비밀번호는 " + MIN_PASSWORD_LENGTH + "자 이상 " + MAX_PASSWORD_LENGTH + "자 이하로 입력해주세요.");
+        }
+
+        User user = userRepository.findById(token.getUserId())
+            .orElseThrow(() -> new InvalidResetTokenException(
+                "재설정 링크가 만료되었거나 이미 사용되었습니다. 다시 요청해 주세요."));
+
+        user.setPasswordHash(passwordEncoder.encode(newPassword));
+        // saveAndFlush: 아래 invalidateAllUnusedByUserId가 clearAutomatically=true라 영속성
+        // 컨텍스트를 비운다. 그 전에 이 변경을 먼저 DB에 흘려보내지 않으면 커밋 없이 사라진다.
+        userRepository.saveAndFlush(user);
+
+        // 재설정에 성공한 시점에 유효한 다른 토큰이 남아 있으면 안 된다.
+        tokenRepository.invalidateAllUnusedByUserId(user.getId());
+        log.info("비밀번호 재설정 완료: userId={}", user.getId());
     }
 
     private String generateRawToken() {
