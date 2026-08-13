@@ -54,6 +54,14 @@ spring:
     baseline-on-migrate: ${SPRING_FLYWAY_BASELINE_ON_MIGRATE:true}
     baseline-version: ${SPRING_FLYWAY_BASELINE_VERSION:20260721.1}
     locations: classpath:db/migration
+  mail:
+    host: ${WORKFLOW_MAIL_HOST:}
+    port: ${WORKFLOW_MAIL_PORT:587}
+    username: ${WORKFLOW_MAIL_USERNAME:}
+    password: ${WORKFLOW_MAIL_PASSWORD:}
+    properties:
+      mail.smtp.auth: true
+      mail.smtp.starttls.enable: true
 
 workflow:
   ai:
@@ -98,3 +106,6 @@ workflow:
     # 가상 호스팅 스타일(bucket.endpoint/…) 대신 경로 스타일(endpoint/bucket/…) 사용 여부.
     # Supabase/OCI/MinIO 등 커스텀 S3 호환 엔드포인트에서는 대체로 true가 안전하다.
     path-style-access: ${STORAGE_PATH_STYLE_ACCESS:true}
+  mail:
+    enabled: ${WORKFLOW_MAIL_ENABLED:false}
+    from: ${WORKFLOW_MAIL_FROM:}
