@@ -6,6 +6,11 @@
 회의록을 올리면 요약·결정사항·To-Do가 자동으로 만들어져 업무 보드와 대시보드에 반영되고,
 그 기록이 그대로 심사자용 기여도 근거로 이어집니다.
 
+[![WorkFlow AI 시연 영상](https://img.youtube.com/vi/D5jy2qbKh7g/maxresdefault.jpg)](https://youtu.be/D5jy2qbKh7g)
+
+**🌐 배포: https://t3-workflow-ai.site**
+데모 계정: `1234@naver.com` / `park!6443` — 로그인하면 시딩된 팀 프로젝트를 바로 볼 수 있습니다.
+
 > 산출물 자동 생성과 GitHub 연동은 최종 범위에서 빠졌습니다.
 > 어디까지가 실제 동작인지는 [미구현 · 임시처리 현황](#미구현--임시처리-현황)에 정리해 두었습니다.
 
@@ -13,122 +18,20 @@
 
 ## 목차
 
-1. [팀](#팀)
-2. [시스템 아키텍처](#시스템-아키텍처)
-3. [기술 스택](#기술-스택)
-4. [계층별 구성 및 역할](#계층별-구성-및-역할)
-5. [시연 영상](#시연-영상)
-6. [왜 만들었나](#왜-만들었나)
-7. [주요 기능](#주요-기능)
-8. [미구현 · 임시처리 현황](#미구현--임시처리-현황)
+1. [주요 기능](#주요-기능)
+2. [미구현 · 임시처리 현황](#미구현--임시처리-현황)
+3. [기술 스택 — 왜 이걸 골랐나](#기술-스택--왜-이걸-골랐나)
+4. [시스템 아키텍처](#시스템-아키텍처)
+5. [로컬 실행](#로컬-실행)
+6. [트러블슈팅 하이라이트](#트러블슈팅-하이라이트)
+7. [왜 만들었나](#왜-만들었나)
+8. [팀](#팀)
 9. [사용자 권한](#사용자-권한)
 10. [CI/CD](#cicd)
 11. [회의록 AI 분석 제공자](#회의록-ai-분석-제공자)
 12. [DB 마이그레이션](#db-마이그레이션)
 13. [문서](#문서)
 14. [라이선스](#라이선스)
-
----
-
-## 팀
-
-| 이름 | 담당 |
-| --- | --- |
-| **고무서 (PM)** | AI 어시스턴트·RAG — LangGraph 분기 그래프, pgvector 검색 / 심사자 기여도 분석 / 권한 QA |
-| **박지수 (PL)** | 회의록 AI 분석 — Redis 큐 기반 비동기 처리, LLM 요약 / To-Do 자동 생성 |
-| 박상준 | 인증·RBAC — Spring Security + JWT / 프로젝트 관리 / 팀원 초대 |
-| 유소은 | 대시보드 / 지연 위험도 예측 — LightGBM |
-| 이은주 | ML 모델링 — 업무 편중 점수(scikit-learn), 임베딩 파이프라인 |
-| 허영주 | 업무 보드(칸반) |
-
-## 시스템 아키텍처
-
-![전체 시스템 구성도](docs/screenshots/07-architecture.png)
-
-역할을 나눈 이유: 인증·권한·트랜잭션은 Spring이 강하고, ML/LLM 생태계는 Python이 강합니다.
-FastAPI는 외부에 직접 열지 않고 Spring이 내부 API 키로만 호출합니다.
-
-## 기술 스택
-
-**Frontend**
-
-![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=black)
-![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?style=flat-square&logo=typescript&logoColor=white)
-![Vite](https://img.shields.io/badge/Vite-7-646CFF?style=flat-square&logo=vite&logoColor=white)
-![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-4-06B6D4?style=flat-square&logo=tailwindcss&logoColor=white)
-
-**Backend**
-
-![Java](https://img.shields.io/badge/Java-21-ED8B00?style=flat-square&logo=openjdk&logoColor=white)
-![Spring Boot](https://img.shields.io/badge/Spring_Boot-3.5-6DB33F?style=flat-square&logo=springboot&logoColor=white)
-![JWT](https://img.shields.io/badge/JWT-000000?style=flat-square&logo=jsonwebtokens&logoColor=white)
-![Flyway](https://img.shields.io/badge/Flyway-CC0200?style=flat-square&logo=flyway&logoColor=white)
-
-**AI Backend · LLM / RAG**
-
-![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)
-![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white)
-![LangGraph](https://img.shields.io/badge/LangGraph-1C3C3C?style=flat-square&logo=langgraph&logoColor=white)
-![Ollama](https://img.shields.io/badge/Ollama-000000?style=flat-square&logo=ollama&logoColor=white)
-![Hugging Face](https://img.shields.io/badge/Hugging_Face-FFD21E?style=flat-square&logo=huggingface&logoColor=black)
-![bge-m3](https://img.shields.io/badge/bge--m3-임베딩-5A67D8?style=flat-square)
-![pgvector](https://img.shields.io/badge/pgvector-4169E1?style=flat-square&logo=postgresql&logoColor=white)
-
-**ML**
-
-![LightGBM](https://img.shields.io/badge/LightGBM-2E7D32?style=flat-square)
-![scikit-learn](https://img.shields.io/badge/scikit--learn-F7931E?style=flat-square&logo=scikitlearn&logoColor=white)
-![MLflow](https://img.shields.io/badge/MLflow-0194E2?style=flat-square&logo=mlflow&logoColor=white)
-
-**Database**
-
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-4169E1?style=flat-square&logo=postgresql&logoColor=white)
-![Redis](https://img.shields.io/badge/Redis-7-FF4438?style=flat-square&logo=redis&logoColor=white)
-
-**Infra / CI**
-
-![Docker Compose](https://img.shields.io/badge/Docker_Compose-2496ED?style=flat-square&logo=docker&logoColor=white)
-![nginx](https://img.shields.io/badge/nginx-009639?style=flat-square&logo=nginx&logoColor=white)
-![GitHub Actions](https://img.shields.io/badge/GitHub_Actions-2088FF?style=flat-square&logo=githubactions&logoColor=white)
-![Oracle Cloud](https://img.shields.io/badge/Oracle_Cloud-F80000?style=flat-square&logo=oracle&logoColor=white)
-
-## 계층별 구성 및 역할
-
-| 계층 | 컨테이너 | 기술 | 주요 역할 |
-| --- | --- | --- | --- |
-| **프레젠테이션** | Frontend Container | Nginx · React · TypeScript · Vite · Tailwind | 정적 파일 서빙 / HTTPS 종단(TLS termination) / `/api/*` 리버스 프록시 |
-| **인증서 자동화** | Certbot Container | Let's Encrypt certbot | 인증서 발급·자동 갱신 / Nginx와 볼륨 공유 |
-| **애플리케이션** | Backend API Container | Spring Boot 3.5 / Java 21 | 인증·회원·프로젝트 권한(RBAC) / 업무보드·회의록·대시보드 API / 기여도·마이페이지·알림·활동로그 / FastAPI 호출 및 분석 결과 저장 |
-| **AI / ML** | AI/ML Backend Container | FastAPI / Python 3.12 | 회의록 AI 분석·To-Do 후보 추출 / RAG Assistant / 지연위험도 등 ML 모델 추론 / 체크리스트 AI |
-| **데이터** | PostgreSQL Container | PostgreSQL 17 + pgvector | 업무·회의록·기여도 데이터 저장 / RAG 벡터 데이터 저장 |
-| **인프라 / 큐** | Redis | Redis(Stream) | 회의록 분석 비동기 큐(Job enqueue / dequeue) / 세션·헬스체크 |
-| **미사용** | Kafka Container | apache/kafka 3.8 (KRaft) | compose에 구성만 되어 있고 **애플리케이션 코드에서 호출하지 않음** — 확장 대비 선반영이라 서비스 경로에 포함되지 않음 |
-
-> **쓰기 권한 경계** — AI 계층은 **DB 쓰기 권한이 없음**. 추론만 담당하므로 그 컨테이너가 멈춰도 트랜잭션 정합성에는 영향이 없음.
-
----
-
-## 시연 영상
-
-[![WorkFlow AI 시연 영상](https://img.youtube.com/vi/D5jy2qbKh7g/maxresdefault.jpg)](https://youtu.be/D5jy2qbKh7g)
-
-썸네일을 클릭하면 YouTube에서 시연 영상을 볼 수 있습니다. → https://youtu.be/D5jy2qbKh7g
-
----
-
-## 왜 만들었나
-
-팀프로젝트에서 실제로 시간을 잡아먹는 건 개발이 아니라 **기록과 기록 사이의 단절**이었습니다.
-
-| 문제 | 현장에서 일어나는 일 |
-| --- | --- |
-| 회의록 정리 부담 | 회의가 끝나면 요약·결정사항·담당자·마감일을 사람이 다시 옮겨 적어야 함 |
-| 역할 분배 불명확 | 회의에서 정한 일이 업무 보드로 넘어가지 않아 "누가 뭐 하기로 했더라"가 반복됨 |
-| 진행 상황 파악 어려움 | 마감 임박·지연 업무·업무 편중을 한눈에 볼 방법이 없음 |
-| 기여도 판단 어려움 | 교수·심사자가 팀원별 실제 활동 근거를 확인할 방법이 없음 |
-
-그래서 **회의록 → 업무 → 진행률 → 기여도**를 하나의 데이터 흐름으로 묶고,
-각 단계마다 사람이 반복하던 판단을 LLM·RAG·ML이 대신하도록 만들었습니다.
 
 ---
 
@@ -156,6 +59,8 @@ FastAPI는 외부에 직접 열지 않고 Spring이 내부 API 키로만 호출�
 
 - **지연 위험도 예측** — 마감일·진행률·체크리스트·담당자 업무량을 피처로 LightGBM 분류기가 미완료 업무의 지연 위험을 산정
 - **업무 편중 점수** — 팀원별 업무 수·난이도·완료율로 과부하/저활동 팀원을 탐지 (라벨이 없어 룰 기반 점수로 부트스트랩 후 학습)
+
+![대시보드](docs/screenshots/01-dashboard.jpg)
 
 ### 4. AI 어시스턴트 (RAG)
 
@@ -192,6 +97,196 @@ LangGraph 기반 그래프가 단순 질의응답과 "업무 만들어줘" 같�
 
 ---
 
+## 기술 스택 — 왜 이걸 골랐나
+
+| 기술 | 선택 이유 |
+| --- | --- |
+| **React 19 + TypeScript 5.9 + Vite 7** | 화면 10개·상태가 얽힌 SPA. 타입으로 API 계약을 프론트까지 강제하고, Vite 7은 Node 24 LTS 기준으로 빌드가 가장 빨랐음 |
+| **Tailwind CSS 4** | v4의 CSS-first 방식(`@theme`)으로 색·간격 토큰을 CSS 한 파일에 모아 단일 출처로 관리 — `tailwind.config.js` 없음 |
+| **Spring Boot 3.5 · Java 21** | 인증·권한(RBAC)·트랜잭션이 서비스의 뼈대라 이 부분이 가장 단단한 스택을 선택. 모든 외부 요청은 Spring만 받음 |
+| **FastAPI · Python 3.12** | LLM·ML 생태계가 Python에 있음. 외부에 직접 열지 않고 Spring이 내부 API 키로만 호출하는 추론 전용 서버 |
+| **PostgreSQL 17 + pgvector** | RAG 벡터 검색을 위해 Chroma/FAISS 같은 별도 벡터 DB를 두는 대신 pgvector로 통합 — 운영할 DB가 하나 줄고, 업무·회의록과 벡터를 한 트랜잭션 경계 안에서 다룸 |
+| **Redis (Stream)** | 회의록 분석은 수십 초 걸리는 작업이라 HTTP 요청-응답으로 못 묶음. Stream 큐로 넘기고 워커가 소비 — Kafka는 이 규모에 과함 (compose에 구성만 있고 코드에서 미사용) |
+| **LightGBM** | 지연 위험도는 소규모 테이블 데이터 분류 문제 — 딥러닝보다 부스팅 트리가 데이터 효율·추론 속도에서 유리 |
+| **Ollama / HF Inference (auto)** | LLM 호출은 `HF Inference → 로컬 Ollama → 규칙 기반` 순서로 자동 폴백 — 외부 API 장애나 토큰 없는 환경에서도 기능이 완전히 죽지 않게 |
+| **Flyway** | 스키마 변경 경로를 마이그레이션 파일 하나로 일원화. 이미 배포된 파일은 CI(`migration-guard`)가 수정을 차단 |
+| **Docker Compose + nginx** | 서비스 5개(프론트·API·AI·DB·Redis)를 한 명령으로 재현. nginx가 TLS 종단과 `/api/*` 리버스 프록시 담당 |
+
+세부 버전과 호환성 근거는 [기술 스택 버전 문서](docs/projects/WorkFlow_AI_기술_스택_버전.md)에 있습니다.
+
+**Frontend**
+![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=black)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?style=flat-square&logo=typescript&logoColor=white)
+![Vite](https://img.shields.io/badge/Vite-7-646CFF?style=flat-square&logo=vite&logoColor=white)
+![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-4-06B6D4?style=flat-square&logo=tailwindcss&logoColor=white)
+
+**Backend**
+![Java](https://img.shields.io/badge/Java-21-ED8B00?style=flat-square&logo=openjdk&logoColor=white)
+![Spring Boot](https://img.shields.io/badge/Spring_Boot-3.5-6DB33F?style=flat-square&logo=springboot&logoColor=white)
+![JWT](https://img.shields.io/badge/JWT-000000?style=flat-square&logo=jsonwebtokens&logoColor=white)
+![Flyway](https://img.shields.io/badge/Flyway-CC0200?style=flat-square&logo=flyway&logoColor=white)
+
+**AI Backend · LLM / RAG**
+![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white)
+![LangGraph](https://img.shields.io/badge/LangGraph-1C3C3C?style=flat-square&logo=langgraph&logoColor=white)
+![Ollama](https://img.shields.io/badge/Ollama-000000?style=flat-square&logo=ollama&logoColor=white)
+![Hugging Face](https://img.shields.io/badge/Hugging_Face-FFD21E?style=flat-square&logo=huggingface&logoColor=black)
+![bge-m3](https://img.shields.io/badge/bge--m3-임베딩-5A67D8?style=flat-square)
+![pgvector](https://img.shields.io/badge/pgvector-4169E1?style=flat-square&logo=postgresql&logoColor=white)
+
+**ML**
+![LightGBM](https://img.shields.io/badge/LightGBM-2E7D32?style=flat-square)
+![scikit-learn](https://img.shields.io/badge/scikit--learn-F7931E?style=flat-square&logo=scikitlearn&logoColor=white)
+![MLflow](https://img.shields.io/badge/MLflow-0194E2?style=flat-square&logo=mlflow&logoColor=white)
+
+**Database**
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-4169E1?style=flat-square&logo=postgresql&logoColor=white)
+![Redis](https://img.shields.io/badge/Redis-7-FF4438?style=flat-square&logo=redis&logoColor=white)
+
+**Infra / CI**
+![Docker Compose](https://img.shields.io/badge/Docker_Compose-2496ED?style=flat-square&logo=docker&logoColor=white)
+![nginx](https://img.shields.io/badge/nginx-009639?style=flat-square&logo=nginx&logoColor=white)
+![GitHub Actions](https://img.shields.io/badge/GitHub_Actions-2088FF?style=flat-square&logo=githubactions&logoColor=white)
+![Oracle Cloud](https://img.shields.io/badge/Oracle_Cloud-F80000?style=flat-square&logo=oracle&logoColor=white)
+
+---
+
+## 시스템 아키텍처
+
+```mermaid
+flowchart LR
+    Browser["브라우저"] --> Nginx["Nginx<br/>정적 서빙 · TLS 종단<br/>/api/* 리버스 프록시"]
+    Nginx -->|"/api/*"| Spring["Spring Boot 3.5 · Java 21<br/>인증 · RBAC · 업무 · 회의록<br/>대시보드 · 기여도 · 알림"]
+    Spring -->|"내부 API 키"| FastAPI["FastAPI · Python 3.12<br/>회의록 LLM 분석 · RAG<br/>지연위험도 ML 추론"]
+    Spring --> PG[("PostgreSQL 17<br/>+ pgvector")]
+    FastAPI -.->|"조회 전용"| PG
+    Spring <--> Redis[("Redis Stream<br/>회의록 분석 큐")]
+    FastAPI <--> Redis
+    FastAPI --> LLM["LLM 제공자 (auto)<br/>HF Inference → Ollama → 규칙 기반"]
+```
+
+역할을 나눈 이유: 인증·권한·트랜잭션은 Spring이 강하고, ML/LLM 생태계는 Python이 강합니다.
+FastAPI는 외부에 직접 열지 않고 Spring이 내부 API 키로만 호출합니다.
+
+> **쓰기 권한 경계** — AI 계층은 **DB 쓰기 권한이 없음**. 추론만 담당하므로 그 컨테이너가 멈춰도 트랜잭션 정합성에는 영향이 없음.
+
+### 개발 환경과 배포 환경은 경로가 다릅니다
+
+| | 로컬 (docker-compose.yml) | 운영 (OCI, docker-compose.prod.yml) |
+| --- | --- | --- |
+| **DB 스키마 반영** | Flyway 기본 **꺼짐** — 빈 DB를 새로 만들 때만 1회 켠다 | Flyway **켜짐** — 배포 파이프라인이 마이그레이션 적용 |
+| **LLM 호출** | `HF_TOKEN` 없으면 Ollama → 규칙 기반 | HF Inference 우선, 실패 시 폴백 |
+| **프론트엔드** | nginx가 **빌드 결과물** 서빙 — dev 서버가 아니라 HMR 없음, 수정 후 `--build frontend` 재빌드 필요 | 동일 + certbot이 Let's Encrypt 인증서 자동 갱신 |
+| **HTTPS** | 없음 (http://localhost) | nginx TLS 종단 |
+
+이 차이를 모르면 두 가지 사고가 납니다: 로컬에서 Flyway를 켠 채 원격 공유 DB를 바라보면 스키마 이력이 오염되고, 프론트를 고치고 재빌드를 빼먹으면 "컨테이너는 떠 있는데 예전 화면"이 나옵니다. 둘 다 실제로 겪었습니다 — [트러블슈팅 하이라이트](#트러블슈팅-하이라이트) 참고.
+
+계층별 컨테이너 구성 상세는 아래와 같습니다.
+
+| 계층 | 컨테이너 | 기술 | 주요 역할 |
+| --- | --- | --- | --- |
+| **프레젠테이션** | Frontend Container | Nginx · React · TypeScript · Vite · Tailwind | 정적 파일 서빙 / HTTPS 종단(TLS termination) / `/api/*` 리버스 프록시 |
+| **인증서 자동화** | Certbot Container | Let's Encrypt certbot | 인증서 발급·자동 갱신 / Nginx와 볼륨 공유 |
+| **애플리케이션** | Backend API Container | Spring Boot 3.5 / Java 21 | 인증·회원·프로젝트 권한(RBAC) / 업무보드·회의록·대시보드 API / 기여도·마이페이지·알림·활동로그 / FastAPI 호출 및 분석 결과 저장 |
+| **AI / ML** | AI/ML Backend Container | FastAPI / Python 3.12 | 회의록 AI 분석·To-Do 후보 추출 / RAG Assistant / 지연위험도 등 ML 모델 추론 / 체크리스트 AI |
+| **데이터** | PostgreSQL Container | PostgreSQL 17 + pgvector | 업무·회의록·기여도 데이터 저장 / RAG 벡터 데이터 저장 |
+| **인프라 / 큐** | Redis | Redis(Stream) | 회의록 분석 비동기 큐(Job enqueue / dequeue) / 세션·헬스체크 |
+| **미사용** | Kafka Container | apache/kafka 3.8 (KRaft) | compose에 구성만 되어 있고 **애플리케이션 코드에서 호출하지 않음** — 확장 대비 선반영이라 서비스 경로에 포함되지 않음 |
+
+---
+
+## 로컬 실행
+
+Docker Desktop만 있으면 됩니다. (FastAPI 이미지에 ML 라이브러리가 포함돼 첫 빌드는 10분 이상 걸립니다.)
+
+```bash
+git clone https://github.com/rhantj/work-flow.git
+cd work-flow/App
+
+# 1) 환경변수 준비 — 필수값 2개만 채우면 뜬다
+cp .env.example .env
+# .env에서 아래 두 값을 32바이트 이상 랜덤 문자열로 교체 (openssl rand -hex 32)
+#   JWT_SECRET=...
+#   RAG_INTERNAL_API_KEY=...   ← 비워두면 FastAPI가 RAG 요청을 전부 거부한다(fail-closed)
+
+# 2) 최초 1회 — 빈 DB에 스키마를 구축하며 기동
+SPRING_FLYWAY_ENABLED=true docker compose up -d --build
+
+# 3) 이후에는
+docker compose up -d
+```
+
+| 접속 | 주소 |
+| --- | --- |
+| 프론트엔드 | http://localhost:5173 |
+| Spring API 헬스 | http://localhost:8080/api/v1/health |
+| Swagger UI | http://localhost:8080/swagger-ui/index.html |
+| AI FastAPI 헬스 | http://localhost:8000/api/v1/health |
+
+> 이 절차는 2026-08-13에 빈 폴더 클론 → 빈 볼륨 상태에서 실제로 검증했습니다.
+> Flyway 마이그레이션 37개가 전부 적용되고(최신 `20260801.1`), 테이블 30개와 pgvector 확장이 생성되며,
+> Spring 헬스가 `{"status":"UP"}`, 프론트엔드가 200을 반환하는 것까지 확인했습니다.
+
+**알아둘 것**
+
+- 첫 빌드 중 `backend-fastapi`가 `pip ... ReadTimeoutError`로 실패할 수 있습니다. PyPI에서 PyTorch·transformers 등 수 GB를 받는 단계라 회선이 흔들리면 끊깁니다. 그대로 재실행하면 이번엔 **`Expected sha256 ... Got ...`** 로 실패할 수 있는데, 끊긴 다운로드가 pip 캐시에 반쪽짜리로 남았기 때문입니다. 이때는 캐시 마운트를 비우고 다시 받아야 합니다:
+
+  ```bash
+  docker builder prune --filter type=exec.cachemount -f
+  SPRING_FLYWAY_ENABLED=true docker compose up -d --build
+  ```
+
+- `SPRING_FLYWAY_ENABLED=true`는 **compose 안의 로컬 DB를 쓸 때만** 최초 1회 켭니다. `.env`의 `SPRING_DATASOURCE_URL`을 원격 공유 DB로 바꾼 상태에서 켜면 그 DB의 마이그레이션 이력을 오염시킵니다 — [DB 마이그레이션](#db-마이그레이션) 참고.
+- 프론트 코드를 수정했다면 `docker compose up -d --build frontend` — dev 서버가 아니라서 재빌드 없이는 예전 화면이 계속 보입니다.
+- 로컬 5432 포트에 이미 PostgreSQL이 있다면 `.env`에 `DB_HOST_PORT=5433`을 추가합니다.
+- **선택 기능용 환경변수** (없어도 기동에는 지장 없음): `HF_TOKEN`(회의록 분석을 HF Inference로) · Ollama 설치(로컬 LLM — [회의록 AI 분석 제공자](#회의록-ai-분석-제공자)) · `GOOGLE_CLIENT_ID/SECRET`(구글 로그인) · `STORAGE_*`(첨부파일·아바타 업로드)
+
+---
+
+## 트러블슈팅 하이라이트
+
+전체 기록은 [docs/trouble-shooting/](docs/trouble-shooting/)에 있습니다. 그중 사고 과정이 드러나는 것들:
+
+| 기록 | 한 줄 요약 |
+| --- | --- |
+| [Flyway checksum crashloop](docs/trouble-shooting/2026-07-26-flyway-checksum-crashloop.md) | 배포된 마이그레이션 파일을 수정하면 전체 스택이 기동 불능 — 운영 API가 41분 중단됐고, 이 사고로 CI에 `migration-guard`가 생겼다 |
+| [빈 볼륨 스키마 갭](docs/trouble-shooting/2026-07-27-dev-compose-fresh-volume-schema-gap.md) | 새로 합류한 사람만 밟는 지뢰 — 팀 전원이 공유 DB를 써서 아무도 몰랐다. 위 로컬 실행법의 `SPRING_FLYWAY_ENABLED=true`가 그 결론 |
+| [Spring context crashloop과 죽은 롤백](docs/trouble-shooting/2026-07-23-spring-context-crashloop-and-dead-rollback.md) | 프론트만 살아 있어 겉보기엔 정상이던 18분 장애. 롤백 절차가 한 번도 동작한 적 없었다는 걸 이때 알았다 |
+| [Redis protected-mode 접속 거부](docs/trouble-shooting/2026-07-24-redis-stack-protected-mode-denied.md) | 컨테이너 안에서는 되는데 밖에서는 안 되는 고전적 네트워크 문제 |
+| [임베딩 모델 재다운로드 정체](docs/trouble-shooting/2026-07-24-fastapi-임베딩모델-재다운로드-정체.md) | 컨테이너 재시작마다 수 GB 모델을 다시 받던 문제 — HF 캐시 볼륨으로 해결 |
+
+---
+
+## 왜 만들었나
+
+팀프로젝트에서 실제로 시간을 잡아먹는 건 개발이 아니라 **기록과 기록 사이의 단절**이었습니다.
+
+| 문제 | 현장에서 일어나는 일 |
+| --- | --- |
+| 회의록 정리 부담 | 회의가 끝나면 요약·결정사항·담당자·마감일을 사람이 다시 옮겨 적어야 함 |
+| 역할 분배 불명확 | 회의에서 정한 일이 업무 보드로 넘어가지 않아 "누가 뭐 하기로 했더라"가 반복됨 |
+| 진행 상황 파악 어려움 | 마감 임박·지연 업무·업무 편중을 한눈에 볼 방법이 없음 |
+| 기여도 판단 어려움 | 교수·심사자가 팀원별 실제 활동 근거를 확인할 방법이 없음 |
+
+그래서 **회의록 → 업무 → 진행률 → 기여도**를 하나의 데이터 흐름으로 묶고,
+각 단계마다 사람이 반복하던 판단을 LLM·RAG·ML이 대신하도록 만들었습니다.
+
+---
+
+## 팀
+
+| 이름 | 담당 |
+| --- | --- |
+| **고무서 (PM)** | AI 어시스턴트·RAG — LangGraph 분기 그래프, pgvector 검색 / 심사자 기여도 분석 / 권한 QA |
+| **박지수 (PL)** | 회의록 AI 분석 — Redis 큐 기반 비동기 처리, LLM 요약 / To-Do 자동 생성 |
+| 박상준 | 인증·RBAC — Spring Security + JWT / 프로젝트 관리 / 팀원 초대 |
+| 유소은 | 대시보드 / 지연 위험도 예측 — LightGBM |
+| 이은주 | ML 모델링 — 업무 편중 점수(scikit-learn), 임베딩 파이프라인 |
+| 허영주 | 업무 보드(칸반) |
+
+---
+
 ## 사용자 권한
 
 | 역할 | 할 수 있는 일 |
@@ -205,10 +300,6 @@ LangGraph 기반 그래프가 단순 질의응답과 "업무 만들어줘" 같�
 ## CI/CD
 
 로컬 기능 브랜치 → `dev` 병합 → 검증 통과 시 `main` 승격 → OCI 자동 배포 순서의 3단계 브랜치 승격 파이프라인입니다.
-
-```
-[feature/*] → PR → [dev] → 검증 통과 → [main] → GitHub Actions → OCI 배포
-```
 
 | 워크플로 | 역할 |
 | --- | --- |
@@ -236,15 +327,9 @@ LangGraph 기반 그래프가 단순 질의응답과 "업무 만들어줘" 같�
 
 - Ollama 설치: https://ollama.com
 - 빠른 분석용 모델(기본값): `qwen2.5:1.5b` (로컬에 없으면 `ollama pull qwen2.5:1.5b`)
-- 품질 우선 모델: `ollama pull llama3.2:3b` 또는 `ollama pull qwen3:8b` (`MEETING_ANALYSIS_MODEL=모델명`으로 전환)
+- Docker Compose 사용 시 컨테이너에서 호스트의 Ollama에 접근하므로 별도 설정이 필요 없습니다.
 - FastAPI 직접 실행 시: `OLLAMA_HOST=http://localhost:11434`
-- Docker Compose 사용 시: `OLLAMA_HOST=http://host.docker.internal:11434`
-- Ollama만 강제로 쓰려면: `MEETING_ANALYSIS_PROVIDER=ollama`
-- Ollama를 끄고 기존 규칙 기반 분석만 쓰려면: `MEETING_ANALYSIS_PROVIDER=rule`
-- 로컬 모델 응답이 느리면 `MEETING_ANALYSIS_TIMEOUT_SECONDS`, `MEETING_ANALYSIS_MAX_CHARS`, `MEETING_ANALYSIS_NUM_PREDICT` 값을 낮춰 fallback을 더 빨리 태울 수 있습니다.
-- 환경변수 변경 후에는 `backend-fastapi`를 재시작해야 반영됩니다.
-- 기존에 업로드된 회의록은 새 분석 로직이 소급 적용되지 않으므로 재분석/재업로드가 필요합니다.
-- Ollama 서버가 꺼져 있거나 모델이 없거나 응답 파싱에 실패하면 자동으로 기존 규칙 기반 분석으로 대체됩니다.
+- 어시스턴트 첫 응답이 느리면: 모델이 메모리에서 내려간 상태라 로드에 10초 이상 걸립니다. `RAG_OLLAMA_KEEP_ALIVE`(기본 30m)로 조절합니다.
 
 ### Hugging Face Inference
 
@@ -263,7 +348,7 @@ LangGraph 기반 그래프가 단순 질의응답과 "업무 만들어줘" 같�
 스키마 변경은 Flyway(`App/backend_spring/src/main/resources/db/migration/V*.sql`)로 관리합니다.
 
 - **새 스키마 변경은 새 `V*.sql` 파일을 추가**합니다. 이미 배포되어 적용된 `V*.sql`은 CI가 수정을 차단하므로 절대 고치지 말 것 — 바꿀 게 있으면 그 변경을 되돌리거나 보완하는 새 버전 파일을 추가합니다.
-- **로컬 개발 환경은 Flyway를 자동으로 켜지 않습니다** (`SPRING_FLYWAY_ENABLED` 기본값 `false`). 로컬 `.env`에 `SPRING_FLYWAY_ENABLED=true`나 `SPRING_FLYWAY_OUT_OF_ORDER`가 남아있다면 지울 것 — 로컬 compose에서 이 값들을 켜두면 로컬 실행이 공유 DB의 `flyway_schema_history`에 영향을 줄 수 있습니다.
+- **로컬 개발 환경은 Flyway를 자동으로 켜지 않습니다** (`SPRING_FLYWAY_ENABLED` 기본값 `false`). 켜는 경우는 [로컬 실행](#로컬-실행)의 빈 DB 최초 구축 1회뿐이며, 그때 `SPRING_DATASOURCE_URL`이 compose 안의 로컬 DB(`db:5432`)를 가리키는지 반드시 확인합니다. 원격 공유 DB를 바라보는 상태에서 켜면 그 DB의 `flyway_schema_history`가 오염됩니다.
 - **공유 DB에 대한 마이그레이션 적용은 배포 파이프라인만 수행**합니다. 로컬 앱이 스키마 불일치(schema validation 오류)로 기동하지 못해도, psql·DBeaver 등으로 공유 DB에 직접 SQL을 실행하지 않습니다 — 새 `V*.sql`을 추가해 배포 파이프라인을 통해 반영합니다.
 - 신규 빈 DB에서 엄격하게 검증하려면 `SPRING_FLYWAY_BASELINE_ON_MIGRATE=false`로 override할 수 있습니다(기본값은 `true`).
 
