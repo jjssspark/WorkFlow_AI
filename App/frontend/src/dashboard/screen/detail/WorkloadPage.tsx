@@ -54,10 +54,9 @@ function WorkloadTooltip({ active, payload, label }: { active?: boolean; payload
 }
 
 const ANOMALY_BADGE: Record<string, { label: string; color: string; bg: string }> = {
-  // NOTE(A4): 업무량 편중/배정량 불균형은 표에 없는 색(#EA580C, #D97706)이라 그대로 두었다 — task-A4-batch1-report.md 참고.
   "난이도 편중 의심": { label: "난이도 편중 의심", color: "var(--status-blocked)", bg: "var(--status-blocked-bg)" },
-  "업무량 편중 의심": { label: "업무량 편중 의심", color: "#EA580C", bg: "#FFF7ED" },
-  "배정량 불균형": { label: "배정량 불균형", color: "#D97706", bg: "#FFFBEB" },
+  "업무량 편중 의심": { label: "업무량 편중 의심", color: "var(--status-due)", bg: "var(--status-due-bg)" },
+  "배정량 불균형": { label: "배정량 불균형", color: "var(--status-due)", bg: "var(--status-due-bg)" },
   "난이도 이상 패턴(방향 불명확)": { label: "난이도 이상 패턴", color: "var(--muted-foreground)", bg: "var(--muted)" },
   "업무량 이상 패턴(방향 불명확)": { label: "업무량 이상 패턴", color: "var(--muted-foreground)", bg: "var(--muted)" },
   "배정 이상 패턴(방향 불명확)": { label: "배정 이상 패턴", color: "var(--muted-foreground)", bg: "var(--muted)" },

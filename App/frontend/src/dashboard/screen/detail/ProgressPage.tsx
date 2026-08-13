@@ -25,8 +25,7 @@ import {
 } from "../../libs/utils/dashboardTaskUtils";
 import { resolveMemberDisplay, stableColorForId } from "../../libs/utils/memberDisplay";
 
-// NOTE(A4): 마지막 항목(#06B6D4)은 표에 없는 색이고 대응하는 chart-N 토큰이 없어 그대로 두었다 — task-A4-batch1-report.md 참고.
-const CATEGORY_COLORS = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)", "#06B6D4"];
+const CATEGORY_COLORS = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)", "var(--person-1)"];
 
 export function ProgressPage() {
   const { currentProjectId, currentProject } = useAuth();

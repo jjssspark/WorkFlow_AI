@@ -21,12 +21,10 @@ import {
 } from "../../libs/utils/dashboardTaskUtils";
 import type { DashboardTaskDto } from "../../libs/types/dashboard";
 
-// NOTE(A4): "3일 이내"(#F97316)는 표에 없는 색이고, 블로커/마감임박 사이 별도 등급이라
-// 다른 상태색으로 합치면 4단계 구분이 사라져 그대로 두었다 — task-A4-batch1-report.md 참고.
 const GROUPS = [
   { label: "이미 지연", key: "overdue", color: "var(--muted-foreground)", bg: "bg-slate-50 border-slate-200" },
   { label: "오늘 마감", key: "today", color: "var(--status-blocked)", bg: "bg-red-50 border-red-200" },
-  { label: "3일 이내", key: "3day", color: "#F97316", bg: "bg-orange-50 border-orange-200" },
+  { label: "3일 이내", key: "3day", color: "var(--status-due)", bg: "bg-status-due-bg border-status-due" },
   { label: "7일 이내", key: "week", color: "var(--status-due)", bg: "bg-amber-50 border-amber-200" },
 ] as const;
 
@@ -203,7 +201,7 @@ export function UrgentTasksPage() {
 
       <div className="grid grid-cols-4 gap-3 shrink-0">
         <DetailStatCard label="오늘 마감" value={loading ? "..." : counts.today} sub="즉시 확인 필요" color="var(--status-blocked)" icon={AlertCircle} />
-        <DetailStatCard label="3일 이내" value={loading ? "..." : counts["3day"]} sub="긴급 처리 필요" color="#F97316" icon={AlertTriangle} />
+        <DetailStatCard label="3일 이내" value={loading ? "..." : counts["3day"]} sub="긴급 처리 필요" color="var(--status-due)" icon={AlertTriangle} />
         <DetailStatCard label="7일 이내" value={loading ? "..." : counts.week} sub="이번 주 완료 목표" color="var(--status-due)" icon={Clock} />
         <DetailStatCard label="이미 지연" value={loading ? "..." : counts.overdue} sub="즉시 담당자 확인" color="var(--muted-foreground)" icon={AlertTriangle} />
       </div>
