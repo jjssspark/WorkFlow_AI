@@ -392,6 +392,7 @@ CI/CD 배포 게이트입니다. dev 브랜치 기준 개인 커밋은 357개이
 | [PRD](docs/projects/WorkFlow_AI_PRD.md) | 기능 범위, 요구사항, 권한, AI 적용 범위 |
 | [최종 기능정리](docs/projects/WorkFlow_AI_최종_기능정리.md) | 화면·기능별 최종 정의와 차별점 |
 | [API 명세서](docs/projects/WorkFlow_AI_API_명세서.md) | REST 경로, 응답 형식, 권한, AI 백엔드 계약 |
+| [DB 스키마](docs/DB_스키마.md) | 테이블 29개, 관계·삭제 정책, 인덱스 판단 근거. DDL 원문은 [`docs/db/schema.sql`](docs/db/schema.sql) |
 | [어시스턴트 RAG 구조](docs/projects/WorkFlow_AI_어시스턴트_RAG_구조.md) | 임베딩·검색·생성 파이프라인 |
 | [인증/RBAC 구현](docs/projects/WorkFlow_AI_인증_RBAC_구현_파일.md) | 로그인·권한 처리 파일 맵 |
 | [CI/CD 구조](docs/projects/WorkFlow_AI_CICD_구조.md) | GitHub Actions 워크플로 구성 |
