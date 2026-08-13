@@ -12,7 +12,9 @@ public class LoggingMailSender implements MailSender {
         if (to == null || to.isBlank()) {
             return false;
         }
-        log.info("[MAIL:DRY-RUN] to={} subject={}\n{}", to, subject, body);
+        // 본문에 재설정 링크가 들어 있어 INFO로 남기면 로그가 곧 자격증명이 된다. 링크가 필요한 개발자는 DEBUG를 켠다.
+        log.info("[MAIL:DRY-RUN] to={} subject={}", to, subject);
+        log.debug("[MAIL:DRY-RUN] body:\n{}", body);
         return true;
     }
 }
