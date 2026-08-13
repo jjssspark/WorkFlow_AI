@@ -206,7 +206,7 @@ FastAPI는 외부에 직접 열지 않고 Spring이 내부 API 키로만 호출�
 Docker Desktop만 있으면 됩니다. (FastAPI 이미지에 ML 라이브러리가 포함돼 첫 빌드는 10분 이상 걸립니다.)
 
 ```bash
-git clone https://github.com/jjssspark/work-flow.git
+git clone https://github.com/jjssspark/WorkFlow_AI.git
 cd work-flow/App
 
 # 1) 환경변수 준비 — 필수값 2개만 채우면 뜬다
@@ -304,11 +304,11 @@ CI/CD 배포 게이트입니다. dev 브랜치 기준 개인 커밋은 357개이
 
 | 작업 | 커밋 |
 | --- | --- |
-| 실시간 알림이 13곳에서 통째로 발송되지 않던 문제 — 호출부 교체 + SSE 비동기 디스패치에서 SecurityContext가 비던 문제 | [`982edb83`](https://github.com/jjssspark/work-flow/commit/982edb83) |
-| 알림의 소속 프로젝트를 파생 계산으로 갔다가 컬럼으로 뒤집은 결정, 그리고 백필이 남긴 사각지대 정리 | [`7945d7b0`](https://github.com/jjssspark/work-flow/commit/7945d7b0) → [`fd582b1e`](https://github.com/jjssspark/work-flow/commit/fd582b1e) → [`885408a7`](https://github.com/jjssspark/work-flow/commit/885408a7) |
-| 부수 작업(활동 로그) 실패가 본 작업의 트랜잭션을 무너뜨리던 문제 — TransactionTemplate으로 격리 | [`7aab8dd7`](https://github.com/jjssspark/work-flow/commit/7aab8dd7) |
-| 회의록 STT를 업로드 요청 안의 동기 처리에서 비동기 분석 큐로 이전 | [`73e6e2bd`](https://github.com/jjssspark/work-flow/commit/73e6e2bd) |
-| 녹음 복구 경로가 실제 브라우저에서는 한 번도 동작하지 않던 문제 — MediaRecorder timeslice | [`173a90a0`](https://github.com/jjssspark/work-flow/commit/173a90a0) |
+| 실시간 알림이 13곳에서 통째로 발송되지 않던 문제 — 호출부 교체 + SSE 비동기 디스패치에서 SecurityContext가 비던 문제 | [`982edb83`](https://github.com/jjssspark/WorkFlow_AI/commit/982edb83) |
+| 알림의 소속 프로젝트를 파생 계산으로 갔다가 컬럼으로 뒤집은 결정, 그리고 백필이 남긴 사각지대 정리 | [`7945d7b0`](https://github.com/jjssspark/WorkFlow_AI/commit/7945d7b0) → [`fd582b1e`](https://github.com/jjssspark/WorkFlow_AI/commit/fd582b1e) → [`885408a7`](https://github.com/jjssspark/WorkFlow_AI/commit/885408a7) |
+| 부수 작업(활동 로그) 실패가 본 작업의 트랜잭션을 무너뜨리던 문제 — TransactionTemplate으로 격리 | [`7aab8dd7`](https://github.com/jjssspark/WorkFlow_AI/commit/7aab8dd7) |
+| 회의록 STT를 업로드 요청 안의 동기 처리에서 비동기 분석 큐로 이전 | [`73e6e2bd`](https://github.com/jjssspark/WorkFlow_AI/commit/73e6e2bd) |
+| 녹음 복구 경로가 실제 브라우저에서는 한 번도 동작하지 않던 문제 — MediaRecorder timeslice | [`173a90a0`](https://github.com/jjssspark/WorkFlow_AI/commit/173a90a0) |
 
 | 문서 | 내용 |
 | --- | --- |
