@@ -56,6 +56,18 @@ class AccountRecoveryServiceTest {
             .containsExactly("ab*@naver.com");
     }
 
+    @Test
+    @DisplayName("이름이 null이면 예외가 아니라 빈 목록")
+    void findMaskedEmails_nullName_returnsEmpty() {
+        assertThat(service.findMaskedEmails(null, "컴퓨터공학과")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("소속이 null이면 예외가 아니라 빈 목록")
+    void findMaskedEmails_nullAffiliation_returnsEmpty() {
+        assertThat(service.findMaskedEmails("홍길동", null)).isEmpty();
+    }
+
     private User user(String email) {
         return new User(email, "홍길동", "local", email, "hash");
     }
