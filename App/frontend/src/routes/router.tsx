@@ -26,7 +26,6 @@ import { CompletionApprovalsView } from "../board/screen/CompletionApprovalsView
 import { LeaderPage } from "../leader/screen/LeaderPage";
 import { RoadmapView } from "../roadmap/screen/RoadmapView";
 import { MeetingsView } from "../meetings/screen/MeetingsView";
-import { DeliverablesView } from "../deliverables/screen/DeliverablesView";
 import { ContributorsView } from "../contributors/screen/ContributorsView";
 import { MyPageRoute } from "../mypage/screen/MyPageRoute";
 import { ProfileSettingsScreen } from "../mypage/screen/ProfileSettingsScreen";
@@ -95,7 +94,6 @@ const appRoutes: RouteObject[] = [
           { path: "completion-approvals", element: <Navigate to="/leader/completion-approvals" replace /> },
           { path: "roadmap", element: <Navigate to="/leader/roadmap" replace /> },
           { path: "meetings", element: <MeetingsView /> },
-          { path: "deliverables", element: <DeliverablesView /> },
           {
             element: <RequireRole allow={["심사자"]} />,
             children: [
