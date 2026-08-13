@@ -42,6 +42,7 @@ public class AuthController {
     private final TestLoginService testLoginService;
     private final PresenceService presenceService;
     private final AccountRecoveryService accountRecoveryService;
+    private final PasswordResetService passwordResetService;
     private final String frontendBaseUrl;
     private final boolean forceSecureCookies;
     private final boolean devLoginEnabled;
@@ -52,6 +53,7 @@ public class AuthController {
         TestLoginService testLoginService,
         PresenceService presenceService,
         AccountRecoveryService accountRecoveryService,
+        PasswordResetService passwordResetService,
         @Value("${workflow.frontend.base-url}") String frontendBaseUrl,
         @Value("${workflow.security.force-secure-cookies:false}") boolean forceSecureCookies,
         @Value("${workflow.demo.dev-login-enabled:false}") boolean devLoginEnabled
@@ -61,6 +63,7 @@ public class AuthController {
         this.testLoginService = testLoginService;
         this.presenceService = presenceService;
         this.accountRecoveryService = accountRecoveryService;
+        this.passwordResetService = passwordResetService;
         this.frontendBaseUrl = frontendBaseUrl;
         this.forceSecureCookies = forceSecureCookies;
         this.devLoginEnabled = devLoginEnabled;
@@ -315,6 +318,41 @@ public class AuthController {
         return ApiResponse.ok(new FindEmailResponse(
             accountRecoveryService.findMaskedEmails(request.name(), request.affiliation())
         ));
+    }
+
+    @Operation(
+        summary = "비밀번호 재설정 요청",
+        description = "계정 존재 여부와 무관하게 항상 200과 같은 문구를 반환한다. 이메일을 넣어보며 "
+            + "가입 여부를 알아내는 것을 막기 위해서다. 실제 분기는 발송되는 메일 내용에서만 일어난다."
+    )
+    @PostMapping("/password-reset/request")
+    public ApiResponse<Void> requestPasswordReset(
+        @Valid @RequestBody PasswordResetRequestDto request,
+        HttpServletRequest httpRequest
+    ) {
+        passwordResetService.requestReset(request.email(), httpRequest.getRemoteAddr());
+        return ApiResponse.ok(null);
+    }
+
+    @Operation(
+        summary = "비밀번호 재설정 확인",
+        description = "메일 링크의 토큰으로 새 비밀번호를 설정한다. 이 단계는 이미 메일 수신자로 "
+            + "확인된 사용자만 도달하므로 실패 사유를 그대로 알려준다."
+    )
+    @PostMapping("/password-reset/confirm")
+    public ResponseEntity<ApiResponse<Void>> confirmPasswordReset(
+        @Valid @RequestBody PasswordResetConfirmDto request
+    ) {
+        try {
+            passwordResetService.confirmReset(request.token(), request.newPassword());
+            return ResponseEntity.ok(ApiResponse.ok(null));
+        } catch (InvalidResetTokenException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.fail("INVALID_RESET_TOKEN", e.getMessage()));
+        } catch (InvalidSignupInputException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.fail("INVALID_SIGNUP_INPUT", e.getMessage()));
+        }
     }
 
     private ResponseEntity<Void> redirectToFrontend(String path, ResponseCookie cookie) {
