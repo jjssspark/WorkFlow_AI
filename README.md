@@ -1,5 +1,9 @@
 # WorkFlow AI
 
+> **이 저장소는 팀 저장소 [rhantj/work-flow](https://github.com/rhantj/work-flow)의 포크입니다.**
+> 6인 팀 프로젝트이고 저는 PL로 참여한 **박지수**입니다. 코드 전체가 제 작업물이 아니며,
+> 제가 맡은 범위는 [내 기여 범위](#내-기여-범위)에 적어 두었습니다.
+
 > 팀 프로젝트의 회의, 업무, 진행 상황, 평가 근거를 AI가 하나의 흐름으로 연결하는 협업·평가 보조 웹 플랫폼
 
 대학생 팀프로젝트, 캡스톤디자인, 해커톤, AI 경진대회, 공모전 팀을 위한 서비스입니다.
@@ -26,12 +30,13 @@
 6. [트러블슈팅 하이라이트](#트러블슈팅-하이라이트)
 7. [왜 만들었나](#왜-만들었나)
 8. [팀](#팀)
-9. [사용자 권한](#사용자-권한)
-10. [CI/CD](#cicd)
-11. [회의록 AI 분석 제공자](#회의록-ai-분석-제공자)
-12. [DB 마이그레이션](#db-마이그레이션)
-13. [문서](#문서)
-14. [라이선스](#라이선스)
+9. [내 기여 범위](#내-기여-범위)
+10. [사용자 권한](#사용자-권한)
+11. [CI/CD](#cicd)
+12. [회의록 AI 분석 제공자](#회의록-ai-분석-제공자)
+13. [DB 마이그레이션](#db-마이그레이션)
+14. [문서](#문서)
+15. [라이선스](#라이선스)
 
 ---
 
@@ -201,7 +206,7 @@ FastAPI는 외부에 직접 열지 않고 Spring이 내부 API 키로만 호출�
 Docker Desktop만 있으면 됩니다. (FastAPI 이미지에 ML 라이브러리가 포함돼 첫 빌드는 10분 이상 걸립니다.)
 
 ```bash
-git clone https://github.com/rhantj/work-flow.git
+git clone https://github.com/jjssspark/work-flow.git
 cd work-flow/App
 
 # 1) 환경변수 준비 — 필수값 2개만 채우면 뜬다
@@ -284,6 +289,32 @@ docker compose up -d
 | 유소은 | 대시보드 / 지연 위험도 예측 — LightGBM |
 | 이은주 | ML 모델링 — 업무 편중 점수(scikit-learn), 임베딩 파이프라인 |
 | 허영주 | 업무 보드(칸반) |
+
+---
+
+## 내 기여 범위
+
+위 표의 **박지수 (PL)** 가 접니다. 나머지 5명의 작업은 제 것이 아닙니다.
+
+맡은 영역은 실시간 알림(SSE), 회의록 AI 분석 파이프라인, 심사자 기여도 평가, 마이페이지,
+CI/CD 배포 게이트입니다. dev 브랜치 기준 개인 커밋은 357개이고, 기간은 2026-07-06부터
+2026-08-13까지입니다.
+
+대표적인 작업 몇 가지입니다. 자세한 경위는 아래 문서에 있습니다.
+
+| 작업 | 커밋 |
+| --- | --- |
+| 실시간 알림이 13곳에서 통째로 발송되지 않던 문제 — 호출부 교체 + SSE 비동기 디스패치에서 SecurityContext가 비던 문제 | [`982edb83`](https://github.com/jjssspark/work-flow/commit/982edb83) |
+| 알림의 소속 프로젝트를 파생 계산으로 갔다가 컬럼으로 뒤집은 결정, 그리고 백필이 남긴 사각지대 정리 | [`7945d7b0`](https://github.com/jjssspark/work-flow/commit/7945d7b0) → [`fd582b1e`](https://github.com/jjssspark/work-flow/commit/fd582b1e) → [`885408a7`](https://github.com/jjssspark/work-flow/commit/885408a7) |
+| 부수 작업(활동 로그) 실패가 본 작업의 트랜잭션을 무너뜨리던 문제 — TransactionTemplate으로 격리 | [`7aab8dd7`](https://github.com/jjssspark/work-flow/commit/7aab8dd7) |
+| 회의록 STT를 업로드 요청 안의 동기 처리에서 비동기 분석 큐로 이전 | [`73e6e2bd`](https://github.com/jjssspark/work-flow/commit/73e6e2bd) |
+| 녹음 복구 경로가 실제 브라우저에서는 한 번도 동작하지 않던 문제 — MediaRecorder timeslice | [`173a90a0`](https://github.com/jjssspark/work-flow/commit/173a90a0) |
+
+| 문서 | 내용 |
+| --- | --- |
+| [회고](document_박지수/회고.md) | 다시 만든다면 다르게 할 것, 알면서 남긴 기술 부채, 가장 오래 붙잡은 문제 |
+| [ADR](document_박지수/ADR.md) | 되돌린 결정을 포함한 설계 결정 8건 |
+| [트러블슈팅](document_박지수/트러블슈팅.md) | 증상·원인·실패한 시도·해결까지 12건 |
 
 ---
 
