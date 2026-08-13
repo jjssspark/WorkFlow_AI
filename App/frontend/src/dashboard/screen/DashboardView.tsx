@@ -138,15 +138,14 @@ export function DashboardView() {
 
   const myTasks = user == null ? [] : tasks.filter(task => task.assigneeId === String(user.id));
 
-  // NOTE(A4): "산출물"(#0F766E)과 "업무 보드"(#0EA5E9)는 표에 없는 색이라 그대로 두었다 — task-A4-batch1-report.md 참고.
   const quickActions = [
     ...(isLeader
       ? [{ label: "업무 추가", icon: Plus, color: "var(--chart-1)", onClick: () => setShowAddTask(true) }]
       : [{ label: "내업무 조회", icon: Plus, color: "var(--chart-1)", onClick: () => setShowMyTasks(true) }]),
     { label: "회의록 업로드", icon: Upload, color: "var(--primary)", onClick: () => setShowUploadMeeting(true) },
-    ...(deliverablesActive ? [{ label: "산출물", icon: Package, color: "#0F766E", onClick: () => navigate("/deliverables") }] : []),
+    ...(deliverablesActive ? [{ label: "산출물", icon: Package, color: "var(--person-1)", onClick: () => navigate("/deliverables") }] : []),
     { label: "AI Assistant", icon: Sparkles, color: "var(--status-due)", onClick: () => openAIAssistant() },
-    { label: "업무 보드", icon: Columns3, color: "#0EA5E9", onClick: () => navigate("/board") },
+    { label: "업무 보드", icon: Columns3, color: "var(--person-6)", onClick: () => navigate("/board") },
   ];
 
   if (currentProjectId == null) {

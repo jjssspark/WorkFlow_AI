@@ -158,7 +158,7 @@ export function RecordingSaveModal() {
               <button type="button" onClick={handleConfirm}
                 disabled={isSubmitting || !title.trim() || participantIds.length === 0}
                 className="px-4 py-2 text-sm font-semibold text-white rounded-lg disabled:opacity-40"
-                style={{ background: "linear-gradient(135deg,#7048E8,#4F6EF7)" }}>
+                style={{ background: "linear-gradient(135deg,var(--primary),var(--sidebar-primary))" }}>
                 {isSubmitting ? "분석 요청 중..." : "저장 및 분석 시작"}
               </button>
             </div>

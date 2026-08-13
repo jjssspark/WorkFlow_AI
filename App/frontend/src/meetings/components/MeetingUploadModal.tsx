@@ -8,12 +8,12 @@ import type { MemberResponse } from "../../global/api/projectsApi";
 type UploadType = "document" | "audio";
 
 const UPLOAD_TYPES = [
-  { id: "document" as const, label: "문서 업로드", desc: "PDF, Word, PPT, TXT, HWP 등 회의록 문서", icon: FileText, accept: ".pdf,.doc,.docx,.ppt,.pptx,.txt,.hwp", color: "#3B5BDB", bg: "rgba(59,91,219,0.1)", note: "텍스트를 추출해 AI가 분석합니다." },
-  { id: "audio" as const, label: "음성파일 업로드", desc: "mp3, wav, m4a 등 녹음파일", icon: Radio, accept: ".mp3,.wav,.m4a,.ogg", color: "#7048E8", bg: "rgba(112,72,232,0.1)", note: "음성을 텍스트로 변환한 뒤 분석합니다." },
+  { id: "document" as const, label: "문서 업로드", desc: "PDF, Word, PPT, TXT, HWP 등 회의록 문서", icon: FileText, accept: ".pdf,.doc,.docx,.ppt,.pptx,.txt,.hwp", color: "var(--chart-1)", bg: "rgba(59,91,219,0.1)", note: "텍스트를 추출해 AI가 분석합니다." },
+  { id: "audio" as const, label: "음성파일 업로드", desc: "mp3, wav, m4a 등 녹음파일", icon: Radio, accept: ".mp3,.wav,.m4a,.ogg", color: "var(--primary)", bg: "rgba(112,72,232,0.1)", note: "음성을 텍스트로 변환한 뒤 분석합니다." },
 ];
 
 const MEET_KINDS = ["정기회의", "중간점검", "발표준비", "개발회의", "기타"];
-const PARTICIPANT_COLORS = ["#3B5BDB", "#7048E8", "#10B981", "#F59E0B", "#EC4899", "#0EA5E9"];
+const PARTICIPANT_COLORS = ["var(--chart-1)", "var(--primary)", "var(--chart-3)", "var(--status-due)", "var(--person-2)", "var(--person-6)"];
 
 const getTodayIsoDate = () => {
   const date = new Date();
@@ -122,7 +122,7 @@ export function MeetingUploadModal({ projectId, projectMembers, onClose, onUploa
                       }}
                         className={`min-h-[180px] flex flex-col items-center justify-center gap-3 p-6 rounded-xl border-2 transition-all hover:shadow-sm ${sel ? "shadow-sm" : "border-border hover:border-slate-300"}`}
                         style={sel ? { borderColor: t.color, background: t.bg } : {}}>
-                        <div className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{ background: sel ? t.bg : "#F4F6FA" }}>
+                        <div className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{ background: sel ? t.bg : "var(--muted)" }}>
                           <Icon className="w-6 h-6" style={{ color: t.color }} />
                         </div>
                         <div className="text-center">
@@ -160,7 +160,7 @@ export function MeetingUploadModal({ projectId, projectMembers, onClose, onUploa
                       className="flex items-center gap-3 rounded-xl border border-blue-200 bg-blue-50/60 px-4 py-3 transition-colors hover:bg-blue-50"
                     >
                       <div className="w-9 h-9 rounded-lg bg-white flex items-center justify-center shrink-0">
-                        <Download className="w-4 h-4" style={{ color: "#3B5BDB" }} />
+                        <Download className="w-4 h-4" style={{ color: "var(--primary)" }} />
                       </div>
                       <div className="min-w-0">
                         <div className="text-sm font-semibold text-foreground">회의록 양식 다운로드 (.docx)</div>
@@ -263,14 +263,14 @@ export function MeetingUploadModal({ projectId, projectMembers, onClose, onUploa
             {modalStep === 0 ? (
               <button onClick={() => setModalStep(1)} disabled={!uploadType}
                 className="flex items-center gap-1.5 px-5 py-2 text-sm font-semibold text-white rounded-xl disabled:opacity-40 hover:opacity-90 transition-opacity"
-                style={{ background: "linear-gradient(135deg,#3B5BDB,#4F6EF7)" }}>
+                style={{ background: "linear-gradient(135deg,var(--primary),var(--sidebar-primary))" }}>
                 다음<ArrowRight className="w-4 h-4" />
               </button>
             ) : (
               <button onClick={handleSubmit}
                 disabled={!selectedFile || submitting}
                 className="flex items-center gap-1.5 px-5 py-2 text-sm font-semibold text-white rounded-xl disabled:opacity-40 hover:opacity-90 transition-opacity"
-                style={{ background: "linear-gradient(135deg,#7048E8,#4F6EF7)" }}>
+                style={{ background: "linear-gradient(135deg,var(--primary),var(--sidebar-primary))" }}>
                 <Sparkles className="w-4 h-4" />{submitting ? "업로드 중..." : "업로드 및 AI 분석 시작"}
               </button>
             )}

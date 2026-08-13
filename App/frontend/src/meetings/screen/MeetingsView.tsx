@@ -59,7 +59,7 @@ export function deriveCurrentUserRole(role: ProjectRoleKo | null | undefined): C
   return "member";
 }
 
-const PARTICIPANT_COLORS = ["#3B5BDB", "#7048E8", "#10B981", "#F59E0B", "#EC4899", "#0EA5E9"];
+const PARTICIPANT_COLORS = ["var(--chart-1)", "var(--primary)", "var(--chart-3)", "var(--status-due)", "var(--person-2)", "var(--person-6)"];
 const MEETING_STATUS_POLL_INTERVAL_MS = 2000;
 const MEETING_STATUS_MAX_POLL_ATTEMPTS = 60;
 const MEETING_STATUS_MAX_NETWORK_FAILURES = 5;
@@ -787,8 +787,8 @@ export function MeetingsView() {
 
   // ── Upload type metadata ─────────────────────────────────────────────────────
   const UPLOAD_TYPES = [
-    { id:"document", label:"문서 업로드", desc:"PDF, Word, PPT, TXT, HWP 등 회의록 문서", icon:FileText, accept:".pdf,.doc,.docx,.ppt,.pptx,.txt,.hwp", color:"#3B5BDB", bg:"rgba(59,91,219,0.1)", note:"텍스트를 추출해 AI가 분석합니다." },
-    { id:"audio",    label:"음성파일 업로드", desc:"mp3, wav, m4a 등 녹음파일", icon:Radio,    accept:".mp3,.wav,.m4a,.ogg", color:"#7048E8", bg:"rgba(112,72,232,0.1)", note:"음성을 텍스트로 변환한 뒤 분석합니다." },
+    { id:"document", label:"문서 업로드", desc:"PDF, Word, PPT, TXT, HWP 등 회의록 문서", icon:FileText, accept:".pdf,.doc,.docx,.ppt,.pptx,.txt,.hwp", color:"var(--chart-1)", bg:"rgba(59,91,219,0.1)", note:"텍스트를 추출해 AI가 분석합니다." },
+    { id:"audio",    label:"음성파일 업로드", desc:"mp3, wav, m4a 등 녹음파일", icon:Radio,    accept:".mp3,.wav,.m4a,.ogg", color:"var(--primary)", bg:"rgba(112,72,232,0.1)", note:"음성을 텍스트로 변환한 뒤 분석합니다." },
   ] as const;
 
   const MEET_KINDS = ["정기회의","중간점검","발표준비","개발회의","기타"];
@@ -1036,6 +1036,7 @@ export function MeetingsView() {
       return;
     }
     try {
+      // NOTE(A4): html2canvas는 var()를 파싱하지 못해 배경이 검게 깨진다(아래 renderPdfCaptureArea 주석 참고) — 리터럴 유지. task-A4-2-report.md 참고.
       const canvas = await html2canvas(target, { scale: 2, backgroundColor: "#ffffff", useCORS: true });
       const imgData = canvas.toDataURL("image/png");
       const pdf = new jsPDF({ unit: "pt", format: "a4" });
@@ -1526,7 +1527,7 @@ export function MeetingsView() {
                 disabled={!deleteTarget.hasGeneratedTodos}
                 onClick={() => void handleDeleteAnalysisResult(deleteTarget, true)}
                 className="px-4 py-2 text-sm font-semibold text-white rounded-xl hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:opacity-40"
-                style={{ background: "linear-gradient(135deg,#EF4444,#DC2626)" }}
+                style={{ background: "var(--status-blocked)" }}
                 title={deleteTarget.hasGeneratedTodos ? undefined : "이 분석 결과는 생성된 To-Do가 없습니다."}
               >
                 분석 결과 + To-Do 삭제
@@ -1551,7 +1552,7 @@ export function MeetingsView() {
                 type="button"
                 onClick={() => void handleDeleteMeeting(deleteTarget, false)}
                 className="px-4 py-2 text-sm font-semibold text-white rounded-xl hover:opacity-90 transition-opacity"
-                style={{ background: "linear-gradient(135deg,#EF4444,#DC2626)" }}
+                style={{ background: "var(--status-blocked)" }}
               >
                 삭제
               </button>
@@ -1611,7 +1612,7 @@ export function MeetingsView() {
             type="button"
             onClick={confirmReregister}
             className="px-4 py-2 text-sm font-semibold text-white rounded-xl hover:opacity-90 transition-opacity"
-            style={{ background: "linear-gradient(135deg,#3B5BDB,#4F6EF7)" }}
+            style={{ background: "linear-gradient(135deg,var(--primary),var(--sidebar-primary))" }}
           >
             한번 더 등록
           </button>
@@ -1634,11 +1635,11 @@ export function MeetingsView() {
         {/* Spinner */}
         <div className="relative w-28 h-28 mx-auto mb-8">
           <svg className="w-28 h-28 -rotate-90" viewBox="0 0 112 112">
-            <circle cx="56" cy="56" r="48" fill="none" stroke="#EEF1F8" strokeWidth="8" />
+            <circle cx="56" cy="56" r="48" fill="none" stroke="var(--muted)" strokeWidth="8" />
             <circle cx="56" cy="56" r="48" fill="none" strokeWidth="8" strokeLinecap="round"
               strokeDasharray={`${(analyzeProgress / 100) * 301} 301`} stroke="url(#ag)" />
             <defs><linearGradient id="ag" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="#7048E8" /><stop offset="100%" stopColor="#4F6EF7" />
+              <stop offset="0%" stopColor="var(--primary)" /><stop offset="100%" stopColor="var(--sidebar-primary)" />
             </linearGradient></defs>
           </svg>
           <div className="absolute inset-0 flex flex-col items-center justify-center">
@@ -1665,7 +1666,7 @@ export function MeetingsView() {
           <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
             <div
               className="h-full rounded-full transition-all duration-500"
-              style={{ width: `${analyzeProgress}%`, background: "linear-gradient(135deg,#3B5BDB,#7048E8)" }}
+              style={{ width: `${analyzeProgress}%`, background: "linear-gradient(135deg,var(--chart-1),var(--primary))" }}
             />
           </div>
         </div>
@@ -1753,7 +1754,7 @@ export function MeetingsView() {
             </p>
             <div className="flex gap-3 justify-center">
               {analysisError && activeMeetingId && (
-                <button onClick={handleRetryAnalysis} className="px-5 py-2.5 text-sm font-semibold text-white rounded-xl hover:opacity-90 transition-opacity" style={{ background:"linear-gradient(135deg,#3B5BDB,#4F6EF7)" }}>
+                <button onClick={handleRetryAnalysis} className="px-5 py-2.5 text-sm font-semibold text-white rounded-xl hover:opacity-90 transition-opacity" style={{ background:"linear-gradient(135deg,var(--primary),var(--sidebar-primary))" }}>
                   다시 분석
                 </button>
               )}
@@ -1815,7 +1816,7 @@ export function MeetingsView() {
           {currentUserRole === "leader" && (
             <button onClick={() => setUploadFlow("review")}
               className="w-full py-2.5 text-sm font-semibold text-white rounded-xl flex items-center justify-center gap-2 hover:opacity-90 transition-opacity"
-              style={{ background:"linear-gradient(135deg,#3B5BDB,#4F6EF7)" }}>
+              style={{ background:"linear-gradient(135deg,var(--primary),var(--sidebar-primary))" }}>
               <ListChecks className="w-4 h-4" />역할 분배 검토 →
             </button>
           )}
@@ -1907,7 +1908,7 @@ export function MeetingsView() {
               <div className="text-sm font-semibold text-foreground">생성된 To-Do <span className="text-muted-foreground font-normal">({generatedTodos.length}개)</span></div>
               {currentUserRole === "leader" && (
                 <button onClick={() => setUploadFlow("review")} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white rounded-lg hover:opacity-90"
-                  style={{ background:"linear-gradient(135deg,#3B5BDB,#4F6EF7)" }}>
+                  style={{ background:"linear-gradient(135deg,var(--primary),var(--sidebar-primary))" }}>
                   <ListChecks className="w-3.5 h-3.5" />역할 분배 검토
                 </button>
               )}
@@ -2029,14 +2030,14 @@ export function MeetingsView() {
                 {currentUserRole === "leader" && (isReviewBatchAlreadyRegistered ? (
                   <button onClick={() => { setUploadFlow(null); navigate("/board"); }}
                     className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white rounded-xl hover:opacity-90 transition-opacity"
-                    style={{ background:"linear-gradient(135deg,#10B981,#059669)" }}>
+                    style={{ background:"var(--chart-3)" }}>
                     <CheckCircle2 className="w-4 h-4" />등록 완료 · 업무보드 확인
                   </button>
                 ) : (
                   <button onClick={registerSelectedTodos}
                     disabled={approvedCount === 0 || isRegisteringTasks}
                     className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white rounded-xl hover:opacity-90 transition-opacity disabled:opacity-50"
-                    style={{ background:"linear-gradient(135deg,#3B5BDB,#4F6EF7)" }}>
+                    style={{ background:"linear-gradient(135deg,var(--primary),var(--sidebar-primary))" }}>
                     {isRegisteringTasks ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
                     {isRegisteringTasks ? "업무보드 등록 중" : `${approvedCount}개 업무 보드에 등록`}
                   </button>
@@ -2200,7 +2201,7 @@ export function MeetingsView() {
   const renderDone = () => (
     <div className="h-full flex items-center justify-center bg-background" style={{ fontFamily:"'Inter','Noto Sans KR',sans-serif" }}>
       <div className="text-center max-w-md px-6">
-        <div className="w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-6" style={{ background:"linear-gradient(135deg,#10B981,#059669)" }}>
+        <div className="w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-6" style={{ background:"var(--chart-3)" }}>
           <CheckCircle2 className="w-10 h-10 text-white" />
         </div>
         <h1 className="text-2xl font-bold text-foreground mb-2">업무 등록 완료!</h1>
@@ -2210,15 +2211,15 @@ export function MeetingsView() {
         {/* Where registered */}
         <div className="grid grid-cols-2 gap-3 text-left mb-8">
           {[
-            { icon:Columns3, label:"업무 보드", desc:"'할 일' 컬럼에 추가됨", color:"#3B5BDB" },
-            { icon:Users, label:"담당자 할 일", desc:"개인 업무 목록에 반영", color:"#7048E8" },
-            { icon:LayoutDashboard, label:"대시보드", desc:"전체 업무 수 업데이트", color:"#10B981" },
-            { icon:Calendar, label:"캘린더", desc:"마감일 기반 일정 등록", color:"#F59E0B" },
+            { icon:Columns3, label:"업무 보드", desc:"'할 일' 컬럼에 추가됨", color:"var(--chart-1)" },
+            { icon:Users, label:"담당자 할 일", desc:"개인 업무 목록에 반영", color:"var(--primary)" },
+            { icon:LayoutDashboard, label:"대시보드", desc:"전체 업무 수 업데이트", color:"var(--chart-3)" },
+            { icon:Calendar, label:"캘린더", desc:"마감일 기반 일정 등록", color:"var(--status-due)" },
           ].map(item => {
             const Icon = item.icon;
             return (
               <div key={item.label} className="flex items-center gap-2.5 p-3 rounded-xl bg-card border border-border shadow-sm">
-                <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background:`${item.color}15` }}>
+                <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background:`color-mix(in srgb, ${item.color} 15%, transparent)` }}>
                   <Icon className="w-4 h-4" style={{ color:item.color }} />
                 </div>
                 <div>
@@ -2234,7 +2235,7 @@ export function MeetingsView() {
           <button onClick={() => setUploadFlow(null)} className="px-5 py-2.5 text-sm font-medium border border-border rounded-xl hover:bg-muted transition-colors">
             회의록으로 돌아가기
           </button>
-          <button onClick={() => { setUploadFlow(null); navigate("/board"); }} className="px-5 py-2.5 text-sm font-semibold text-white rounded-xl hover:opacity-90 transition-opacity" style={{ background:"linear-gradient(135deg,#3B5BDB,#4F6EF7)" }}>
+          <button onClick={() => { setUploadFlow(null); navigate("/board"); }} className="px-5 py-2.5 text-sm font-semibold text-white rounded-xl hover:opacity-90 transition-opacity" style={{ background:"linear-gradient(135deg,var(--primary),var(--sidebar-primary))" }}>
             업무 보드 확인하기
           </button>
         </div>
@@ -2309,7 +2310,7 @@ export function MeetingsView() {
                           }}
                             className={`min-h-[180px] flex flex-col items-center justify-center gap-3 p-6 rounded-xl border-2 transition-all hover:shadow-sm ${sel ? "shadow-sm" : "border-border hover:border-slate-300"}`}
                             style={sel ? { borderColor:t.color, background:t.bg } : {}}>
-                            <div className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{ background:sel ? t.bg : "#F4F6FA" }}>
+                            <div className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{ background:sel ? t.bg : "var(--muted)" }}>
                               <Icon className="w-6 h-6" style={{ color:t.color }} />
                             </div>
                             <div className="text-center">
@@ -2447,14 +2448,14 @@ export function MeetingsView() {
                 {modalStep === 0 ? (
                   <button onClick={() => setModalStep(1)} disabled={!uploadType}
                     className="flex items-center gap-1.5 px-5 py-2 text-sm font-semibold text-white rounded-xl disabled:opacity-40 hover:opacity-90 transition-opacity"
-                    style={{ background:"linear-gradient(135deg,#3B5BDB,#4F6EF7)" }}>
+                    style={{ background:"linear-gradient(135deg,var(--primary),var(--sidebar-primary))" }}>
                     다음<ArrowRight className="w-4 h-4" />
                   </button>
                 ) : (
                   <button onClick={startAnalysis}
                     disabled={!selectedFile}
                     className="flex items-center gap-1.5 px-5 py-2 text-sm font-semibold text-white rounded-xl disabled:opacity-40 hover:opacity-90 transition-opacity"
-                    style={{ background:"linear-gradient(135deg,#7048E8,#4F6EF7)" }}>
+                    style={{ background:"linear-gradient(135deg,var(--primary),var(--sidebar-primary))" }}>
                     <Sparkles className="w-4 h-4" />AI 분석 시작
                   </button>
                 )}
@@ -2480,7 +2481,7 @@ export function MeetingsView() {
           <div className="flex items-center gap-2">
           <button onClick={() => { setUploadFlow("modal"); setModalStep(0); setUploadType(null); setUploadFileName(""); setUploadFileSize(""); setSelectedFile(null); setAnalysisSource(null); setAnalysisError(null); }}
             className="flex-1 flex items-center justify-center gap-2 py-2 px-4 rounded-lg text-white text-sm font-medium transition-opacity hover:opacity-90"
-            style={{ background:"linear-gradient(135deg,#7048E8 0%,#4F6EF7 100%)" }}>
+            style={{ background:"linear-gradient(135deg,var(--primary) 0%,var(--sidebar-primary) 100%)" }}>
             <Upload className="w-4 h-4" />회의록 업로드
           </button>
           <button
@@ -2504,7 +2505,7 @@ export function MeetingsView() {
               <div className="text-xs leading-relaxed mb-4">문서 또는 음성 파일을 업로드하면 AI 분석 결과가 이곳에 자동으로 쌓입니다.</div>
               <button onClick={() => { setUploadFlow("modal"); setModalStep(0); setUploadType(null); setUploadFileName(""); setUploadFileSize(""); setSelectedFile(null); setAnalysisError(null); }}
                 className="px-4 py-2 rounded-xl text-xs font-semibold text-white hover:opacity-90 transition-opacity"
-                style={{ background:"linear-gradient(135deg,#7048E8,#4F6EF7)" }}>
+                style={{ background:"linear-gradient(135deg,var(--primary),var(--sidebar-primary))" }}>
                 회의록 업로드
               </button>
             </div>
@@ -2661,7 +2662,7 @@ export function MeetingsView() {
                 type="button"
                 onClick={() => handleRetryFromList(meeting)}
                 className="px-5 py-2.5 text-sm font-semibold text-white rounded-xl hover:opacity-90 transition-opacity"
-                style={{ background: "linear-gradient(135deg,#3B5BDB,#4F6EF7)" }}
+                style={{ background: "linear-gradient(135deg,var(--primary),var(--sidebar-primary))" }}
               >
                 재분석하기
               </button>
@@ -2685,7 +2686,7 @@ export function MeetingsView() {
             {meetings.length === 0 && (
               <button onClick={() => { setUploadFlow("modal"); setModalStep(0); setUploadType(null); setUploadFileName(""); setUploadFileSize(""); setSelectedFile(null); setAnalysisError(null); }}
                 className="mt-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-white hover:opacity-90 transition-opacity"
-                style={{ background:"linear-gradient(135deg,#7048E8,#4F6EF7)" }}>
+                style={{ background:"linear-gradient(135deg,var(--primary),var(--sidebar-primary))" }}>
                 회의록 업로드
               </button>
             )}
