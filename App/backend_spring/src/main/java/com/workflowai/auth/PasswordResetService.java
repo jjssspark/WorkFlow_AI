@@ -126,6 +126,14 @@ public class PasswordResetService {
                 "비밀번호는 " + MIN_PASSWORD_LENGTH + "자 이상 " + MAX_PASSWORD_LENGTH + "자 이하로 입력해주세요.");
         }
 
+        // isUsable 확인과 실제 소비 사이에 동시에 같은 토큰이 들어오면 둘 다 통과할 수 있다.
+        // DB 조건부 갱신으로 그 틈을 닫는다 — 늦게 도착한 쪽은 0을 받고, 이는 뒤늦게 도착한 것과
+        // 구분할 수 없으므로 동일하게 처리한다.
+        if (tokenRepository.consumeIfUnused(token.getId()) == 0) {
+            throw new InvalidResetTokenException(
+                "재설정 링크가 만료되었거나 이미 사용되었습니다. 다시 요청해 주세요.");
+        }
+
         User user = userRepository.findById(token.getUserId())
             .orElseThrow(() -> new InvalidResetTokenException(
                 "재설정 링크가 만료되었거나 이미 사용되었습니다. 다시 요청해 주세요."));

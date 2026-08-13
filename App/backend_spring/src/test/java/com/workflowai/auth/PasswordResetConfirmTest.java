@@ -107,4 +107,19 @@ class PasswordResetConfirmTest extends PostgresRedisIntegrationTest {
         assertThat(tokenRepository.findByTokenHash(PasswordResetService.sha256Hex("raw-token-6"))
             .orElseThrow().getUsedAt()).isNull();
     }
+
+    @Test
+    @DisplayName("같은 토큰을 동시에 소비하려 하면 한쪽만 성공한다")
+    void consumeIfUnused_sameTokenTwice_onlyFirstClaimsIt() {
+        saveToken("raw-token-7", LocalDateTime.now().plusMinutes(30));
+        PasswordResetToken token = tokenRepository
+            .findByTokenHash(PasswordResetService.sha256Hex("raw-token-7"))
+            .orElseThrow();
+
+        int firstClaim = tokenRepository.consumeIfUnused(token.getId());
+        int secondClaim = tokenRepository.consumeIfUnused(token.getId());
+
+        assertThat(firstClaim).isEqualTo(1);
+        assertThat(secondClaim).isEqualTo(0);
+    }
 }
