@@ -41,6 +41,7 @@ public class AuthController {
     private final AuthService authService;
     private final TestLoginService testLoginService;
     private final PresenceService presenceService;
+    private final AccountRecoveryService accountRecoveryService;
     private final String frontendBaseUrl;
     private final boolean forceSecureCookies;
     private final boolean devLoginEnabled;
@@ -50,6 +51,7 @@ public class AuthController {
         AuthService authService,
         TestLoginService testLoginService,
         PresenceService presenceService,
+        AccountRecoveryService accountRecoveryService,
         @Value("${workflow.frontend.base-url}") String frontendBaseUrl,
         @Value("${workflow.security.force-secure-cookies:false}") boolean forceSecureCookies,
         @Value("${workflow.demo.dev-login-enabled:false}") boolean devLoginEnabled
@@ -58,6 +60,7 @@ public class AuthController {
         this.authService = authService;
         this.testLoginService = testLoginService;
         this.presenceService = presenceService;
+        this.accountRecoveryService = accountRecoveryService;
         this.frontendBaseUrl = frontendBaseUrl;
         this.forceSecureCookies = forceSecureCookies;
         this.devLoginEnabled = devLoginEnabled;
@@ -300,6 +303,18 @@ public class AuthController {
     @PostMapping("/logout")
     public ApiResponse<Void> logout() {
         return ApiResponse.ok(null);
+    }
+
+    @Operation(
+        summary = "아이디(이메일) 찾기",
+        description = "이름과 소속이 모두 일치하는 계정의 이메일을 마스킹해서 반환한다. "
+            + "일치 항목이 없어도 200과 빈 배열을 반환한다 — 계정 존재 여부를 알려주지 않는다."
+    )
+    @PostMapping("/find-email")
+    public ApiResponse<FindEmailResponse> findEmail(@Valid @RequestBody FindEmailRequest request) {
+        return ApiResponse.ok(new FindEmailResponse(
+            accountRecoveryService.findMaskedEmails(request.name(), request.affiliation())
+        ));
     }
 
     private ResponseEntity<Void> redirectToFrontend(String path, ResponseCookie cookie) {
