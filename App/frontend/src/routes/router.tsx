@@ -7,6 +7,7 @@ import { LandingScreenB } from "../landing/screen/LandingScreenB";
 import { LoginScreen } from "../auth/screen/LoginScreen";
 import { SignupScreen } from "../auth/screen/SignupScreen";
 import { FindEmailScreen } from "../auth/screen/FindEmailScreen";
+import { PasswordResetRequestScreen } from "../auth/screen/PasswordResetRequestScreen";
 import { TermsScreen } from "../auth/screen/TermsScreen";
 import { OnboardingScreen } from "../auth/screen/OnboardingScreen";
 import { ProjectEntryScreen } from "../auth/screen/ProjectEntryScreen";
@@ -53,6 +54,7 @@ const appRoutes: RouteObject[] = [
   { path: "/login", element: <LoginScreen /> },
   { path: "/signup", element: <SignupScreen /> },
   { path: "/find-email", element: <FindEmailScreen /> },
+  { path: "/password-reset", element: <PasswordResetRequestScreen /> },
   { path: "/terms", element: <TermsScreen /> },
   { path: "/auth/callback", element: <GoogleCallbackScreen /> },
   {
