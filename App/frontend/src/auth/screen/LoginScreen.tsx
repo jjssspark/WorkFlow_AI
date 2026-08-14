@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate, useSearchParams } from "react-router";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import { User, Lock, Eye, EyeOff, ArrowRight, Check, Clock } from "lucide-react";
 import { AuthBrandPanel } from "../components/AuthBrandPanel";
 import { AuthInput } from "../components/AuthInput";
@@ -197,7 +197,10 @@ export function LoginScreen() {
                 </div>
                 <span className="text-xs text-muted-foreground">로그인 유지</span>
               </label>
-              <button type="button" className="text-xs font-medium text-blue-600 hover:text-blue-700 transition-colors">비밀번호 찾기</button>
+              <div className="flex items-center gap-3">
+                <Link to="/find-email" className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors">아이디 찾기</Link>
+                <Link to="/password-reset" className="text-xs font-medium text-blue-600 hover:text-blue-700 transition-colors">비밀번호 찾기</Link>
+              </div>
             </div>
 
             {loginError && (
