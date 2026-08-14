@@ -47,10 +47,10 @@ const MILESTONE_STATUS_MAP: Record<TaskStatus, { cls: string; label: string }> =
 const DAILY_CHART_HEIGHT = 160;
 
 const STATUS_LEGEND = [
-  { label: "완료·양호", color: "#10B981" },
-  { label: "진행 중", color: "#3B5BDB" },
-  { label: "지연 위험", color: "#F59E0B" },
-  { label: "미시작", color: "#C1C9D9" },
+  { label: "완료·양호", color: "var(--chart-3)" },
+  { label: "진행 중", color: "var(--status-progress)" },
+  { label: "지연 위험", color: "var(--status-due)" },
+  { label: "미시작", color: "var(--status-todo)" },
 ];
 
 /** 카테고리 상태 4단계 분류 기준.
@@ -61,16 +61,16 @@ const STATUS_LEGEND = [
  */
 function categoryStatusColor(params: { total: number; done: number; riskRatio: number }): string {
   // 1) 미시작
-  if (params.total === 0) return "#C1C9D9"; 
-  
+  if (params.total === 0) return "var(--status-todo)";
+
   // 2-1) 전체 완료 (우선순위 상향)
-  if (params.done === params.total) return "#10B981"; 
-  
+  if (params.done === params.total) return "var(--chart-3)";
+
   // 2-2) 지연 위험
-  if (params.riskRatio >= 0.5) return "#F59E0B"; 
-  
+  if (params.riskRatio >= 0.5) return "var(--status-due)";
+
   // 3) 진행 중
-  return "#3B5BDB"; 
+  return "var(--status-progress)";
 }
 
 function normalizeMilestoneStatus(status: string): TaskStatus {
@@ -391,9 +391,9 @@ export function DashProgressPage() {
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700">{error}</div>}
 
       <div className="grid grid-cols-3 gap-3">
-        <DetailStatCard label="전체 완료율" value={loading ? "..." : `${progressPercent}%`} sub={loading ? "불러오는 중" : `${doneTasks} / ${totalTasks} 완료`} color="#3B5BDB" icon={Target} />
-        <DetailStatCard label="지연 업무" value={loading || tasksLoading ? "..." : `${overdueTaskCount}개`} sub="마감일 경과 · 미완료" color="#EF4444" icon={Clock} />
-        <DetailStatCard label="마감 D-day" value={loading ? "..." : projectDDay} sub={formatDashboardDueDate(projectDeadline)} color="#F59E0B" icon={Calendar} />
+        <DetailStatCard label="전체 완료율" value={loading ? "..." : `${progressPercent}%`} sub={loading ? "불러오는 중" : `${doneTasks} / ${totalTasks} 완료`} color="var(--chart-1)" icon={Target} />
+        <DetailStatCard label="지연 업무" value={loading || tasksLoading ? "..." : `${overdueTaskCount}개`} sub="마감일 경과 · 미완료" color="var(--status-blocked)" icon={Clock} />
+        <DetailStatCard label="마감 D-day" value={loading ? "..." : projectDDay} sub={formatDashboardDueDate(projectDeadline)} color="var(--status-due)" icon={Calendar} />
       </div>
 
       <div className="grid grid-cols-3 gap-4">
@@ -499,7 +499,7 @@ export function DashProgressPage() {
                                       <rect key={member.key} x={cx - barWidth / 2} y={y1} width={barWidth} height={Math.max(y0 - y1, 0)} fill={member.color} rx={2} />
                                     );
                                   })}
-                                  <text x={cx} y={bottomY + 14} textAnchor="middle" fontSize={10} fill="#8892A4">{point.label}</text>
+                                  <text x={cx} y={bottomY + 14} textAnchor="middle" fontSize={10} fill="var(--muted-foreground)">{point.label}</text>
                                 </g>
                               );
                             })}
@@ -507,7 +507,7 @@ export function DashProgressPage() {
                               <rect x={dailyHoverIndex * bandWidth} y={CHART_MARGIN_TOP} width={bandWidth} height={plotHeight} fill="rgba(59,91,219,0.05)" />
                             )}
                             {/* x축 라인 — 항상 플롯 영역의 진짜 바닥(bottomY)에 고정 */}
-                            <line x1={0} x2={viewBoxWidth} y1={bottomY} y2={bottomY} stroke="#94A3B8" vectorEffect="non-scaling-stroke" />
+                            <line x1={0} x2={viewBoxWidth} y1={bottomY} y2={bottomY} stroke="var(--muted-foreground)" vectorEffect="non-scaling-stroke" />
                           </svg>
                           {hoverPoint && dailyHoverPos && createPortal(
                             <div
@@ -706,7 +706,7 @@ export function DashProgressPage() {
             <button onClick={exitBulkEditMode} disabled={bulkSubmitting} className="px-4 py-2 text-xs font-medium text-muted-foreground border border-border rounded-lg hover:bg-muted transition-colors disabled:opacity-50">
               취소
             </button>
-            <button onClick={submitBulkEdit} disabled={bulkSubmitting} className="px-4 py-2 text-xs font-semibold text-white rounded-lg disabled:opacity-50" style={{ background: "linear-gradient(135deg,#3B5BDB,#4F6EF7)" }}>
+            <button onClick={submitBulkEdit} disabled={bulkSubmitting} className="px-4 py-2 text-xs font-semibold text-white rounded-lg disabled:opacity-50" style={{ background: "linear-gradient(135deg, var(--primary), var(--sidebar-primary))" }}>
               {bulkSubmitting ? "처리 중..." : "수정"}
             </button>
             <button onClick={submitBulkDelete} disabled={bulkSubmitting} className="px-4 py-2 text-xs font-semibold text-white rounded-lg bg-red-500 hover:bg-red-600 transition-colors disabled:opacity-50">

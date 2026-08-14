@@ -189,8 +189,8 @@ export function ProgressFrequencyChart({
           >
             <defs>
               <linearGradient id="frequencyGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#7048E8" stopOpacity={0.35} />
-                <stop offset="100%" stopColor="#7048E8" stopOpacity={0} />
+                <stop offset="0%" stopColor="var(--primary)" stopOpacity={0.35} />
+                <stop offset="100%" stopColor="var(--primary)" stopOpacity={0} />
               </linearGradient>
             </defs>
             {yTicks.map(tick => (
@@ -206,24 +206,24 @@ export function ProgressFrequencyChart({
               />
             ))}
             <path d={areaD} fill="url(#frequencyGradient)" stroke="none" />
-            <path d={lineD} fill="none" stroke="#7048E8" strokeWidth={2} vectorEffect="non-scaling-stroke" />
+            <path d={lineD} fill="none" stroke="var(--primary)" strokeWidth={2} vectorEffect="non-scaling-stroke" />
             {coords.map(c => (
-              <circle key={c.point.dateKey} cx={c.x} cy={c.y} r={3} fill="#7048E8" />
+              <circle key={c.point.dateKey} cx={c.x} cy={c.y} r={3} fill="var(--primary)" />
             ))}
             {hoverIndex != null && (
-              <line x1={coords[hoverIndex].x} x2={coords[hoverIndex].x} y1={CHART_MARGIN_TOP} y2={bottomY} stroke="#94A3B8" strokeDasharray="3 3" vectorEffect="non-scaling-stroke" />
+              <line x1={coords[hoverIndex].x} x2={coords[hoverIndex].x} y1={CHART_MARGIN_TOP} y2={bottomY} stroke="var(--muted-foreground)" strokeDasharray="3 3" vectorEffect="non-scaling-stroke" />
             )}
             {/* x축 라인 — 항상 플롯 영역의 진짜 바닥(bottomY)에 고정 */}
-            <line x1={0} x2={viewBoxWidth} y1={bottomY} y2={bottomY} stroke="#94A3B8" vectorEffect="non-scaling-stroke" />
+            <line x1={0} x2={viewBoxWidth} y1={bottomY} y2={bottomY} stroke="var(--muted-foreground)" vectorEffect="non-scaling-stroke" />
             {coords.map(c => (
-              <text key={c.point.dateKey} x={c.x} y={bottomY + 14} textAnchor="middle" fontSize={10} fill="#8892A4">
+              <text key={c.point.dateKey} x={c.x} y={bottomY + 14} textAnchor="middle" fontSize={10} fill="var(--muted-foreground)">
                 {c.point.label}
               </text>
             ))}
           </svg>
           {hoverPoint && hoverPos && createPortal(
             <div
-              className="fixed rounded-lg bg-white shadow-lg border border-border px-3 py-2 text-[11px] space-y-0.5 pointer-events-none"
+              className="fixed rounded-lg bg-card shadow-lg border border-border px-3 py-2 text-[11px] space-y-0.5 pointer-events-none"
               style={{ left: hoverPos.x, top: hoverPos.y, transform: "translateX(-50%)", zIndex: 9999 }}
             >
               <div className="font-semibold text-foreground whitespace-nowrap">

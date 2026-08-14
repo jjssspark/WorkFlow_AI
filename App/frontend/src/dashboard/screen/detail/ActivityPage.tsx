@@ -126,10 +126,10 @@ export function ActivityPage() {
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700">{error}</div>}
 
       <div className="grid grid-cols-4 gap-3">
-        <DetailStatCard label="오늘 활동" value={loading ? "..." : todayCount} sub="오늘 기준" color="#3B5BDB" icon={Zap} />
-        <DetailStatCard label="이번 주 전체" value={loading ? "..." : weekCount} sub="최근 7일 기준" color="#7048E8" icon={TrendingUp} />
-        <DetailStatCard label="업무 활동" value={loading ? "..." : taskCount} sub="생성/변경/삭제" color="#10B981" icon={RefreshCw} />
-        <DetailStatCard label="체크리스트 활동" value={loading ? "..." : checklistCount} sub="생성/완료" color="#059669" icon={CheckCircle2} />
+        <DetailStatCard label="오늘 활동" value={loading ? "..." : todayCount} sub="오늘 기준" color="var(--chart-1)" icon={Zap} />
+        <DetailStatCard label="이번 주 전체" value={loading ? "..." : weekCount} sub="최근 7일 기준" color="var(--primary)" icon={TrendingUp} />
+        <DetailStatCard label="업무 활동" value={loading ? "..." : taskCount} sub="생성/변경/삭제" color="var(--chart-3)" icon={RefreshCw} />
+        <DetailStatCard label="체크리스트 활동" value={loading ? "..." : checklistCount} sub="생성/완료" color="var(--chart-3)" icon={CheckCircle2} />
       </div>
 
       <div className="flex items-center gap-2 flex-wrap">

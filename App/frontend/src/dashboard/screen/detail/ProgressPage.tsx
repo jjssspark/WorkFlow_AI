@@ -25,7 +25,7 @@ import {
 } from "../../libs/utils/dashboardTaskUtils";
 import { resolveMemberDisplay, stableColorForId } from "../../libs/utils/memberDisplay";
 
-const CATEGORY_COLORS = ["#3B5BDB", "#7048E8", "#10B981", "#F59E0B", "#EF4444", "#06B6D4"];
+const CATEGORY_COLORS = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)", "var(--person-1)"];
 
 export function ProgressPage() {
   const { currentProjectId, currentProject } = useAuth();
@@ -130,10 +130,10 @@ export function ProgressPage() {
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700">{error}</div>}
 
       <div className="grid grid-cols-4 gap-3">
-        <DetailStatCard label="전체 완료율" value={loading ? "..." : `${progressPercent}%`} sub={loading ? "불러오는 중" : `${doneTasks} / ${totalTasks} 완료`} color="#3B5BDB" icon={TrendingUp} />
-        <DetailStatCard label="완료" value={loading ? "..." : `${doneTasks}개`} sub="완료 상태 업무" color="#10B981" icon={CheckCircle2} />
-        <DetailStatCard label="목표 완료율" value="100%" sub={progress?.projectDeadline ? formatDashboardDueDate(progress.projectDeadline) : "마감일 미정"} color="#7048E8" icon={CheckSquare} />
-        <DetailStatCard label="D-day" value={loading ? "..." : projectDDay} sub={formatDashboardDueDate(progress?.projectDeadline)} color="#F59E0B" icon={Calendar} />
+        <DetailStatCard label="전체 완료율" value={loading ? "..." : `${progressPercent}%`} sub={loading ? "불러오는 중" : `${doneTasks} / ${totalTasks} 완료`} color="var(--chart-1)" icon={TrendingUp} />
+        <DetailStatCard label="완료" value={loading ? "..." : `${doneTasks}개`} sub="완료 상태 업무" color="var(--chart-3)" icon={CheckCircle2} />
+        <DetailStatCard label="목표 완료율" value="100%" sub={progress?.projectDeadline ? formatDashboardDueDate(progress.projectDeadline) : "마감일 미정"} color="var(--primary)" icon={CheckSquare} />
+        <DetailStatCard label="D-day" value={loading ? "..." : projectDDay} sub={formatDashboardDueDate(progress?.projectDeadline)} color="var(--status-due)" icon={Calendar} />
       </div>
 
       <div className="grid grid-cols-3 gap-4">
@@ -143,9 +143,9 @@ export function ProgressPage() {
               pct={loading ? 0 : progressPercent}
               size={156}
               segments={loading ? undefined : [
-                { value: doneTasks, color: "#3B5BDB" },
-                { value: blockedCount, color: "#EF4444" },
-                { value: Math.max(openTasks - blockedCount, 0), color: "#C1C9D9" },
+                { value: doneTasks, color: "var(--chart-1)" },
+                { value: blockedCount, color: "var(--status-blocked)" },
+                { value: Math.max(openTasks - blockedCount, 0), color: "var(--muted-foreground)" },
               ]}
             />
             <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
@@ -155,9 +155,9 @@ export function ProgressPage() {
           </div>
           <div className="w-full border-t border-border pt-3 space-y-2">
             {[
-              { label: "완료", count: doneTasks, color: "#3B5BDB" },
-              { label: "미완료", count: openTasks, color: "#C1C9D9" },
-              { label: "검토 필요", count: blockedCount, color: "#EF4444" },
+              { label: "완료", count: doneTasks, color: "var(--chart-1)" },
+              { label: "미완료", count: openTasks, color: "var(--muted-foreground)" },
+              { label: "검토 필요", count: blockedCount, color: "var(--status-blocked)" },
             ].map(item => (
               <div key={item.label} className="flex items-center justify-between text-xs">
                 <div className="flex items-center gap-1.5">

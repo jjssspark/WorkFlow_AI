@@ -25,9 +25,9 @@ import {
 } from "../../libs/utils/dashboardTaskUtils";
 
 const LEGEND = [
-  { label: "지연 예상(주의/위험)", color: "#EF4444" },
-  { label: "업데이트 필요 (3일↑)", color: "#F59E0B" },
-  { label: "정상 진행", color: "#ccc" },
+  { label: "지연 예상(주의/위험)", color: "var(--status-blocked)" },
+  { label: "업데이트 필요 (3일↑)", color: "var(--status-due)" },
+  { label: "정상 진행", color: "var(--muted-foreground)" },
 ];
 
 const STATUS_CHANGE_LABEL: Record<"done" | "blocked", string> = {
@@ -144,10 +144,10 @@ export function InProgressPage() {
       {actionError && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700">{actionError}</div>}
 
       <div className="grid grid-cols-4 gap-3">
-        <DetailStatCard label="진행 중" value={loading ? "..." : inProgressTasks.length} sub="활성 업무" color="#3B5BDB" icon={Clock} />
-        <DetailStatCard label="업데이트 필요" value={loading ? "..." : updateNeededCount} sub="3일 이상 미업데이트" color="#F59E0B" icon={RefreshCw} />
-        <DetailStatCard label="지연 예상" value={loading ? "..." : riskCount} sub="주의/위험 단계 업무" color="#EF4444" icon={AlertTriangle} />
-        <DetailStatCard label="D-Day" value={loading ? "..." : projectDDay} sub={formatDashboardDueDate(progress?.projectDeadline)} color="#7048E8" icon={Calendar} />
+        <DetailStatCard label="진행 중" value={loading ? "..." : inProgressTasks.length} sub="활성 업무" color="var(--status-progress)" icon={Clock} />
+        <DetailStatCard label="업데이트 필요" value={loading ? "..." : updateNeededCount} sub="3일 이상 미업데이트" color="var(--status-due)" icon={RefreshCw} />
+        <DetailStatCard label="지연 예상" value={loading ? "..." : riskCount} sub="주의/위험 단계 업무" color="var(--status-blocked)" icon={AlertTriangle} />
+        <DetailStatCard label="D-Day" value={loading ? "..." : projectDDay} sub={formatDashboardDueDate(progress?.projectDeadline)} color="var(--primary)" icon={Calendar} />
       </div>
 
       <div className="flex items-center gap-4 px-1">
@@ -165,8 +165,8 @@ export function InProgressPage() {
           const statusDays = daysSince(task.updatedAt) ?? 0;
           const isRisk = riskTaskIds.has(task.id);
           const isUpdateNeeded = statusDays >= 3;
-          const borderColor = isRisk ? "#EF4444" : isUpdateNeeded ? "#F59E0B" : "#ccc";
-          const bgColor = isRisk ? "rgba(239,68,68,0.03)" : isUpdateNeeded ? "rgba(245,158,11,0.03)" : "#fff";
+          const borderColor = isRisk ? "var(--status-blocked)" : isUpdateNeeded ? "var(--status-due)" : "var(--border)";
+          const bgColor = isRisk ? "rgba(239,68,68,0.03)" : isUpdateNeeded ? "rgba(245,158,11,0.03)" : "var(--card)";
 
           return (
             <div key={task.id} className="rounded-xl shadow-sm overflow-hidden border" style={{ borderColor, borderLeftWidth: 4, background: bgColor }}>

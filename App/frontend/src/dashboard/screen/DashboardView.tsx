@@ -64,7 +64,7 @@ function WorkloadTooltip({ active, payload, label }: { active?: boolean; payload
     <div className="rounded-lg bg-white shadow-lg border border-border px-3 py-2 text-[11px] space-y-1">
       <div className="font-semibold text-foreground">{label}</div>
       {payload.map(entry => {
-        const color = entry.dataKey === "전체" ? "#6B7280" : entry.color;
+        const color = entry.dataKey === "전체" ? "var(--muted-foreground)" : entry.color;
         return (
           <div key={entry.dataKey} className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full shrink-0" style={{ background: color }} />
@@ -140,12 +140,12 @@ export function DashboardView() {
 
   const quickActions = [
     ...(isLeader
-      ? [{ label: "업무 추가", icon: Plus, color: "#3B5BDB", onClick: () => setShowAddTask(true) }]
-      : [{ label: "내업무 조회", icon: Plus, color: "#3B5BDB", onClick: () => setShowMyTasks(true) }]),
-    { label: "회의록 업로드", icon: Upload, color: "#7048E8", onClick: () => setShowUploadMeeting(true) },
-    ...(deliverablesActive ? [{ label: "산출물", icon: Package, color: "#0F766E", onClick: () => navigate("/deliverables") }] : []),
-    { label: "AI Assistant", icon: Sparkles, color: "#F59E0B", onClick: () => openAIAssistant() },
-    { label: "업무 보드", icon: Columns3, color: "#0EA5E9", onClick: () => navigate("/board") },
+      ? [{ label: "업무 추가", icon: Plus, color: "var(--chart-1)", onClick: () => setShowAddTask(true) }]
+      : [{ label: "내업무 조회", icon: Plus, color: "var(--chart-1)", onClick: () => setShowMyTasks(true) }]),
+    { label: "회의록 업로드", icon: Upload, color: "var(--primary)", onClick: () => setShowUploadMeeting(true) },
+    ...(deliverablesActive ? [{ label: "산출물", icon: Package, color: "var(--person-1)", onClick: () => navigate("/deliverables") }] : []),
+    { label: "AI Assistant", icon: Sparkles, color: "var(--status-due)", onClick: () => openAIAssistant() },
+    { label: "업무 보드", icon: Columns3, color: "var(--person-6)", onClick: () => navigate("/board") },
   ];
 
   if (currentProjectId == null) {
@@ -181,7 +181,7 @@ export function DashboardView() {
             const Icon = action.icon;
             return (
               <button key={action.label} onClick={action.onClick} className="flex items-center gap-2 px-3 py-2.5 rounded-lg border border-border bg-card hover:shadow-sm hover:border-slate-300 transition-all text-left">
-                <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" style={{ background: `${action.color}18` }}>
+                <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" style={{ background: `color-mix(in srgb, ${action.color} 18%, transparent)` }}>
                   <Icon className="w-3.5 h-3.5" style={{ color: action.color }} />
                 </div>
                 <span className="text-xs font-medium text-foreground leading-tight">{action.label}</span>
@@ -192,10 +192,10 @@ export function DashboardView() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <StatCard icon={Layers} label="전체 업무" value={isSummaryPending ? "..." : totalTasks} sub={isSummaryPending ? "불러오는 중" : `완료 ${doneTasks}개`} color="#3B5BDB" onClick={() => onCardClick("all-tasks")} />
-        <StatCard icon={TrendingUp} label="완료율" value={isSummaryPending ? "..." : `${progressPct}%`} sub={isSummaryPending ? "불러오는 중" : "실제 업무 기준"} color="#10B981" onClick={() => onCardClick("progress")} />
-        <StatCard icon={AlertTriangle} label="검토 필요" value={isSummaryPending ? "..." : blockedTasks} sub={isSummaryPending ? "불러오는 중" : "즉시 해결 필요"} color="#EF4444" onClick={() => onCardClick("blockers")} />
-        <StatCard icon={Clock} label="진행 중" value={isSummaryPending ? "..." : inProgressTasks} sub={isSummaryPending ? "불러오는 중" : "활성 업무"} color="#F59E0B" onClick={() => onCardClick("inprogress")} />
+        <StatCard icon={Layers} label="전체 업무" value={isSummaryPending ? "..." : totalTasks} sub={isSummaryPending ? "불러오는 중" : `완료 ${doneTasks}개`} color="var(--chart-1)" onClick={() => onCardClick("all-tasks")} />
+        <StatCard icon={TrendingUp} label="완료율" value={isSummaryPending ? "..." : `${progressPct}%`} sub={isSummaryPending ? "불러오는 중" : "실제 업무 기준"} color="var(--chart-3)" onClick={() => onCardClick("progress")} />
+        <StatCard icon={AlertTriangle} label="검토 필요" value={isSummaryPending ? "..." : blockedTasks} sub={isSummaryPending ? "불러오는 중" : "즉시 해결 필요"} color="var(--status-blocked)" onClick={() => onCardClick("blockers")} />
+        <StatCard icon={Clock} label="진행 중" value={isSummaryPending ? "..." : inProgressTasks} sub={isSummaryPending ? "불러오는 중" : "활성 업무"} color="var(--status-due)" onClick={() => onCardClick("inprogress")} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -208,7 +208,7 @@ export function DashboardView() {
             <div className="text-2xl font-bold" style={{ color: "var(--primary)" }}>{summaryLoading ? "..." : progressPct}%</div>
           </div>
           <div className="w-full bg-muted rounded-full h-2 mb-4">
-            <div className="h-2 rounded-full transition-all" style={{ width: `${Math.min(Math.max(progressPct, 0), 100)}%`, background: "linear-gradient(90deg, #3B5BDB, #7048E8)" }} />
+            <div className="h-2 rounded-full transition-all" style={{ width: `${Math.min(Math.max(progressPct, 0), 100)}%`, background: "linear-gradient(90deg, var(--sidebar-primary), var(--primary))" }} />
           </div>
           <div className="h-40" onClick={e => e.stopPropagation()}>
             <ProgressFrequencyChart
@@ -285,11 +285,11 @@ export function DashboardView() {
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={memberWorkloadChart} margin={{ top: 4, right: 4, left: -30, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.05)" />
-                  <XAxis dataKey="name" tick={{ fontSize: 10, fill: "#8892A4" }} />
-                  <YAxis tick={{ fontSize: 10, fill: "#8892A4" }} allowDecimals={false} />
+                  <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--muted-foreground)" }} />
+                  <YAxis tick={{ fontSize: 10, fill: "var(--muted-foreground)" }} allowDecimals={false} />
                   <Tooltip content={<WorkloadTooltip />} />
-                  <Bar dataKey="전체" fill="#C1C9D9" radius={[3, 3, 0, 0]} />
-                  <Bar dataKey="완료" fill="#3B5BDB" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="전체" fill="var(--muted-foreground)" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="완료" fill="var(--chart-1)" radius={[3, 3, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
