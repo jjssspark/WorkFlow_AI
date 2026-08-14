@@ -1,0 +1,25 @@
+package com.workflowai.auth;
+
+/** 아이디 찾기 결과에서 이메일 유출 폭을 제한한다. 로컬 파트 앞 2자만 남긴다. */
+final class EmailMasker {
+    private static final String FULLY_MASKED = "****";
+    private static final int VISIBLE_PREFIX = 2;
+
+    private EmailMasker() {
+    }
+
+    static String mask(String email) {
+        if (email == null || email.isBlank()) {
+            return "";
+        }
+        int at = email.indexOf('@');
+        if (at <= 0) {
+            return FULLY_MASKED;
+        }
+        String local = email.substring(0, at);
+        String domain = email.substring(at);
+        // 로컬파트 길이와 무관하게 최소 한 글자는 가린다. 1자 로컬파트는 visible=0이 되어 통째로 별표 처리된다.
+        int visible = local.length() <= VISIBLE_PREFIX ? local.length() - 1 : VISIBLE_PREFIX;
+        return local.substring(0, visible) + "*".repeat(local.length() - visible) + domain;
+    }
+}
