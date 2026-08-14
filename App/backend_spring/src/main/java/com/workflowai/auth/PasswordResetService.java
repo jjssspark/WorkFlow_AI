@@ -10,6 +10,7 @@ import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.Base64;
 import java.util.HexFormat;
+import java.util.Locale;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -58,7 +59,7 @@ public class PasswordResetService {
         if (email == null || email.isBlank()) {
             return;
         }
-        String normalized = email.trim().toLowerCase();
+        String normalized = email.trim().toLowerCase(Locale.ROOT);
         Optional<User> found = userRepository.findByEmail(normalized);
         if (found.isEmpty()) {
             log.info("비밀번호 재설정 요청 - 미존재 계정 (응답은 동일하게 나간다)");
@@ -67,7 +68,7 @@ public class PasswordResetService {
 
         User user = found.get();
         if (!PROVIDER_LOCAL.equalsIgnoreCase(user.getProvider())) {
-            mailSender.send(
+            boolean googleNoticeSent = mailSender.send(
                 user.getEmail(),
                 "[Work-Flow] 비밀번호 재설정 안내",
                 user.getName() + "님,\n\n"
@@ -75,6 +76,9 @@ public class PasswordResetService {
                     + "로그인 화면에서 'Google로 계속하기'를 이용해 주세요.\n\n"
                     + frontendBaseUrl + "/login\n"
             );
+            if (!googleNoticeSent) {
+                log.error("비밀번호 재설정 Google 계정 안내 메일 발송 실패: userId={}", user.getId());
+            }
             return;
         }
 
