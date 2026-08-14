@@ -6,6 +6,7 @@ import { NotificationProvider } from "../global/hooks/useNotifications";
 import { LandingScreenB } from "../landing/screen/LandingScreenB";
 import { LoginScreen } from "../auth/screen/LoginScreen";
 import { SignupScreen } from "../auth/screen/SignupScreen";
+import { FindEmailScreen } from "../auth/screen/FindEmailScreen";
 import { TermsScreen } from "../auth/screen/TermsScreen";
 import { OnboardingScreen } from "../auth/screen/OnboardingScreen";
 import { ProjectEntryScreen } from "../auth/screen/ProjectEntryScreen";
@@ -51,6 +52,7 @@ const appRoutes: RouteObject[] = [
   { path: "/", element: <LandingScreenB /> }, // B안
   { path: "/login", element: <LoginScreen /> },
   { path: "/signup", element: <SignupScreen /> },
+  { path: "/find-email", element: <FindEmailScreen /> },
   { path: "/terms", element: <TermsScreen /> },
   { path: "/auth/callback", element: <GoogleCallbackScreen /> },
   {

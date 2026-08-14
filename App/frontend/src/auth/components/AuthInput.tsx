@@ -1,16 +1,18 @@
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 
 export function AuthInput({ label, type = "text", placeholder, value, onChange, icon: Icon, right }: {
   label: string; type?: string; placeholder: string;
   value: string; onChange: (v: string) => void;
   icon?: any; right?: ReactNode;
 }) {
+  const inputId = useId();
   return (
     <div className="flex flex-col gap-1.5">
-      <label className="text-xs font-semibold text-foreground">{label}</label>
+      <label htmlFor={inputId} className="text-xs font-semibold text-foreground">{label}</label>
       <div className="relative">
         {Icon && <Icon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />}
         <input
+          id={inputId}
           type={type}
           placeholder={placeholder}
           value={value}
