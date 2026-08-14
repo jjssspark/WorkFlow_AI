@@ -12,6 +12,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Duration;
+import java.util.Locale;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,6 +37,10 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
     private static final Logger log = LoggerFactory.getLogger(AuthController.class);
     private static final String STATE_COOKIE = "oauth_state";
+    private static final int EMAIL_RESET_LIMIT = 3;
+    private static final Duration EMAIL_RESET_WINDOW = Duration.ofMinutes(5);
+    private static final int IP_RECOVERY_LIMIT = 10;
+    private static final Duration IP_RECOVERY_WINDOW = Duration.ofMinutes(15);
 
     private final GoogleOAuthService googleOAuthService;
     private final AuthService authService;
@@ -43,6 +48,7 @@ public class AuthController {
     private final PresenceService presenceService;
     private final AccountRecoveryService accountRecoveryService;
     private final PasswordResetService passwordResetService;
+    private final AccountRecoveryRateLimiter rateLimiter;
     private final String frontendBaseUrl;
     private final boolean forceSecureCookies;
     private final boolean devLoginEnabled;
@@ -54,6 +60,7 @@ public class AuthController {
         PresenceService presenceService,
         AccountRecoveryService accountRecoveryService,
         PasswordResetService passwordResetService,
+        AccountRecoveryRateLimiter rateLimiter,
         @Value("${workflow.frontend.base-url}") String frontendBaseUrl,
         @Value("${workflow.security.force-secure-cookies:false}") boolean forceSecureCookies,
         @Value("${workflow.demo.dev-login-enabled:false}") boolean devLoginEnabled
@@ -64,6 +71,7 @@ public class AuthController {
         this.presenceService = presenceService;
         this.accountRecoveryService = accountRecoveryService;
         this.passwordResetService = passwordResetService;
+        this.rateLimiter = rateLimiter;
         this.frontendBaseUrl = frontendBaseUrl;
         this.forceSecureCookies = forceSecureCookies;
         this.devLoginEnabled = devLoginEnabled;
@@ -314,10 +322,17 @@ public class AuthController {
             + "일치 항목이 없어도 200과 빈 배열을 반환한다 — 계정 존재 여부를 알려주지 않는다."
     )
     @PostMapping("/find-email")
-    public ApiResponse<FindEmailResponse> findEmail(@Valid @RequestBody FindEmailRequest request) {
-        return ApiResponse.ok(new FindEmailResponse(
+    public ResponseEntity<ApiResponse<FindEmailResponse>> findEmail(
+        @Valid @RequestBody FindEmailRequest request,
+        HttpServletRequest httpRequest
+    ) {
+        if (!rateLimiter.tryAcquire("find-email-ip", httpRequest.getRemoteAddr(),
+                IP_RECOVERY_LIMIT, IP_RECOVERY_WINDOW)) {
+            return rateLimited();
+        }
+        return ResponseEntity.ok(ApiResponse.ok(new FindEmailResponse(
             accountRecoveryService.findMaskedEmails(request.name(), request.affiliation())
-        ));
+        )));
     }
 
     @Operation(
@@ -326,12 +341,20 @@ public class AuthController {
             + "가입 여부를 알아내는 것을 막기 위해서다. 실제 분기는 발송되는 메일 내용에서만 일어난다."
     )
     @PostMapping("/password-reset/request")
-    public ApiResponse<Void> requestPasswordReset(
+    public ResponseEntity<ApiResponse<Void>> requestPasswordReset(
         @Valid @RequestBody PasswordResetRequestDto request,
         HttpServletRequest httpRequest
     ) {
+        String normalizedEmail = request.email().trim().toLowerCase(Locale.ROOT);
+        boolean allowed =
+            rateLimiter.tryAcquire("reset-email", normalizedEmail, EMAIL_RESET_LIMIT, EMAIL_RESET_WINDOW)
+                && rateLimiter.tryAcquire("reset-ip", httpRequest.getRemoteAddr(),
+                    IP_RECOVERY_LIMIT, IP_RECOVERY_WINDOW);
+        if (!allowed) {
+            return rateLimited();
+        }
         passwordResetService.requestReset(request.email(), httpRequest.getRemoteAddr());
-        return ApiResponse.ok(null);
+        return ResponseEntity.ok(ApiResponse.ok(null));
     }
 
     @Operation(
@@ -353,6 +376,12 @@ public class AuthController {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(ApiResponse.fail("INVALID_SIGNUP_INPUT", e.getMessage()));
         }
+    }
+
+    // 429는 계정 존재 여부와 무관하게 나가므로 계정 열거에 쓰이지 않는다.
+    private <T> ResponseEntity<ApiResponse<T>> rateLimited() {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+            .body(ApiResponse.fail("RATE_LIMITED", "요청이 너무 잦습니다. 잠시 후 다시 시도해주세요."));
     }
 
     private ResponseEntity<Void> redirectToFrontend(String path, ResponseCookie cookie) {
