@@ -5,6 +5,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.workflowai.support.PostgresRedisIntegrationTest;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -23,6 +24,11 @@ class AccountRecoveryRateLimitApiTest extends PostgresRedisIntegrationTest {
 
     @BeforeEach
     void clearCounters() {
+        redisTemplate.keys("ratelimit:*").forEach(redisTemplate::delete);
+    }
+
+    @AfterEach
+    void clearCountersAfter() {
         redisTemplate.keys("ratelimit:*").forEach(redisTemplate::delete);
     }
 
