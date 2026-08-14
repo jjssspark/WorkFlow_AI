@@ -71,6 +71,13 @@ public class PasswordResetToken {
         return usedAt;
     }
 
+    /**
+     * 테스트 픽스처 전용. 프로덕션 코드에서 토큰을 소비할 때는 이 메서드를 쓰지 말고
+     * {@link PasswordResetTokenRepository#consumeIfUnused(Long)}를 써야 한다 — 여기서
+     * 엔티티 필드만 바꾸고 저장하면 조회와 저장 사이에 동시 요청이 끼어들어 같은 토큰이
+     * 두 번 소비되는 레이스를 막지 못한다. consumeIfUnused는 조건부 UPDATE 한 번으로
+     * 그 틈을 없앤다.
+     */
     public void markUsed() {
         this.usedAt = LocalDateTime.now();
     }
