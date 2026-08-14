@@ -3,7 +3,7 @@ import { Link } from "react-router";
 import { Mail } from "lucide-react";
 import { AuthBrandPanel } from "../components/AuthBrandPanel";
 import { AuthInput } from "../components/AuthInput";
-import { apiFetch, ApiRequestError } from "../../global/api/apiClient";
+import { apiFetch } from "../../global/api/apiClient";
 import { Button } from "../../global/component/ui/button";
 
 const SENT_NOTICE = "가입된 계정이면 비밀번호 재설정 메일을 보냈습니다.";
@@ -29,12 +29,8 @@ export function PasswordResetRequestScreen() {
       });
       // 서버가 계정 존재 여부를 알려주지 않으므로 화면도 항상 같은 문구를 보여준다.
       setSent(true);
-    } catch (err) {
-      setError(
-        err instanceof ApiRequestError
-          ? err.message
-          : "요청에 실패했습니다. 잠시 후 다시 시도해주세요.",
-      );
+    } catch {
+      setError("요청에 실패했습니다. 잠시 후 다시 시도해주세요.");
     } finally {
       setSubmitting(false);
     }
