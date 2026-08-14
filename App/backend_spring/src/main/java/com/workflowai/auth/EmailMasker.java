@@ -18,10 +18,8 @@ final class EmailMasker {
         }
         String local = email.substring(0, at);
         String domain = email.substring(at);
-        int visible = local.length() <= VISIBLE_PREFIX ? 1 : VISIBLE_PREFIX;
-        if (local.length() <= visible) {
-            return local + domain;
-        }
+        // 로컬파트 길이와 무관하게 최소 한 글자는 가린다. 1자 로컬파트는 visible=0이 되어 통째로 별표 처리된다.
+        int visible = local.length() <= VISIBLE_PREFIX ? local.length() - 1 : VISIBLE_PREFIX;
         return local.substring(0, visible) + "*".repeat(local.length() - visible) + domain;
     }
 }

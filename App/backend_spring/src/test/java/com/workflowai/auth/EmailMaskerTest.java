@@ -14,7 +14,7 @@ class EmailMaskerTest {
         "kimchulsoo@gmail.com, ki********@gmail.com",
         "abc@naver.com,        ab*@naver.com",
         "ab@naver.com,         a*@naver.com",
-        "a@naver.com,          a@naver.com",
+        "a@naver.com,          *@naver.com",
         "user.name@sub.co.kr,  us*******@sub.co.kr"
     })
     void mask_variousLocalParts(String input, String expected) {
