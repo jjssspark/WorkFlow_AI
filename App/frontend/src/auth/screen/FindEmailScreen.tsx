@@ -3,7 +3,7 @@ import { Link } from "react-router";
 import { User, Building2, Search } from "lucide-react";
 import { AuthBrandPanel } from "../components/AuthBrandPanel";
 import { AuthInput } from "../components/AuthInput";
-import { apiFetch, ApiRequestError } from "../../global/api/apiClient";
+import { apiFetch } from "../../global/api/apiClient";
 import { Button } from "../../global/component/ui/button";
 
 interface FindEmailResponse {
@@ -31,12 +31,10 @@ export function FindEmailScreen() {
         body: JSON.stringify({ name: name.trim(), affiliation: affiliation.trim() }),
       });
       setResult(data.maskedEmails);
-    } catch (err) {
-      setError(
-        err instanceof ApiRequestError
-          ? err.message
-          : "조회에 실패했습니다. 잠시 후 다시 시도해주세요.",
-      );
+    } catch {
+      // 이 화면의 존재 이유가 계정 열거 차단이므로, 서버 메시지를 그대로 보여주지 않고
+      // 항상 같은 고정 문구만 노출한다.
+      setError("조회에 실패했습니다. 잠시 후 다시 시도해주세요.");
     } finally {
       setSubmitting(false);
     }

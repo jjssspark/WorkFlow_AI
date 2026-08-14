@@ -3,7 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { FindEmailScreen } from "./FindEmailScreen";
-import { apiFetch } from "../../global/api/apiClient";
+import { apiFetch, ApiRequestError } from "../../global/api/apiClient";
 
 vi.mock("../../global/api/apiClient", async () => {
   const actual = await vi.importActual<typeof import("../../global/api/apiClient")>(
@@ -78,5 +78,25 @@ describe("FindEmailScreen", () => {
     await userEvent.click(screen.getByRole("button", { name: "아이디 찾기" }));
 
     expect(apiFetch).not.toHaveBeenCalled();
+  });
+
+  it("서버가 에러 메시지로 계정 존재 여부를 흘려도 화면에는 고정 문구만 보여준다", async () => {
+    vi.mocked(apiFetch).mockRejectedValue(
+      new ApiRequestError("해당 이름과 소속의 계정이 3건 있습니다", 400, "ACCOUNT_FOUND"),
+    );
+    renderScreen();
+
+    await userEvent.type(screen.getByLabelText("이름"), "홍길동");
+    await userEvent.type(screen.getByLabelText("소속"), "컴퓨터공학과");
+    await userEvent.click(screen.getByRole("button", { name: "아이디 찾기" }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("조회에 실패했습니다. 잠시 후 다시 시도해주세요."),
+      ).toBeInTheDocument();
+    });
+    expect(
+      screen.queryByText("해당 이름과 소속의 계정이 3건 있습니다"),
+    ).not.toBeInTheDocument();
   });
 });
