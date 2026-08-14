@@ -49,4 +49,16 @@ class AccountRecoveryRateLimiterTest extends PostgresRedisIntegrationTest {
         Long ttl = redisTemplate.getExpire("ratelimit:test-bucket:key-4");
         assertThat(ttl).isNotNull().isPositive();
     }
+
+    @Test
+    @DisplayName("TTL 없이 남아있는 키를 만나면 자가 복구로 TTL을 다시 건다")
+    void tryAcquire_selfHealsMissingTtl() {
+        redisTemplate.delete("ratelimit:test-bucket:key-5");
+        redisTemplate.opsForValue().set("ratelimit:test-bucket:key-5", "5");
+
+        rateLimiter.tryAcquire("test-bucket", "key-5", 3, Duration.ofMinutes(5));
+
+        Long ttl = redisTemplate.getExpire("ratelimit:test-bucket:key-5");
+        assertThat(ttl).isNotNull().isPositive();
+    }
 }

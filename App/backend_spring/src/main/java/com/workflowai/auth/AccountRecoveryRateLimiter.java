@@ -1,9 +1,11 @@
 package com.workflowai.auth;
 
 import java.time.Duration;
+import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
 
 /**
@@ -16,6 +18,22 @@ import org.springframework.stereotype.Component;
 public class AccountRecoveryRateLimiter {
     private static final Logger log = LoggerFactory.getLogger(AccountRecoveryRateLimiter.class);
 
+    // INCR 이후 PEXPIRE가 별도 왕복이면 그 사이 프로세스가 죽었을 때 TTL 없는 키가 남는다.
+    // 하나의 Lua 스크립트로 묶어 원자화하고, TTL이 없는 키를 만나면 자가 복구한다.
+    private static final DefaultRedisScript<Long> INCREMENT_AND_EXPIRE_SCRIPT;
+
+    static {
+        DefaultRedisScript<Long> script = new DefaultRedisScript<>();
+        script.setScriptText(
+                "local c = redis.call('INCR', KEYS[1])\n"
+                        + "if c == 1 or redis.call('PTTL', KEYS[1]) < 0 then\n"
+                        + "  redis.call('PEXPIRE', KEYS[1], ARGV[1])\n"
+                        + "end\n"
+                        + "return c");
+        script.setResultType(Long.class);
+        INCREMENT_AND_EXPIRE_SCRIPT = script;
+    }
+
     private final StringRedisTemplate redisTemplate;
 
     public AccountRecoveryRateLimiter(StringRedisTemplate redisTemplate) {
@@ -25,12 +43,13 @@ public class AccountRecoveryRateLimiter {
     public boolean tryAcquire(String bucket, String key, int limit, Duration window) {
         String redisKey = "ratelimit:" + bucket + ":" + key;
         try {
-            Long count = redisTemplate.opsForValue().increment(redisKey);
+            Long count =
+                    redisTemplate.execute(
+                            INCREMENT_AND_EXPIRE_SCRIPT,
+                            List.of(redisKey),
+                            String.valueOf(window.toMillis()));
             if (count == null) {
                 return true;
-            }
-            if (count == 1L) {
-                redisTemplate.expire(redisKey, window);
             }
             return count <= limit;
         } catch (org.springframework.dao.DataAccessException e) {
