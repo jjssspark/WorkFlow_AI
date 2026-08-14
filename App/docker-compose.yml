@@ -120,6 +120,19 @@ services:
       STORAGE_SECRET_KEY: ${STORAGE_SECRET_KEY:-}
       STORAGE_BUCKET: ${STORAGE_BUCKET:-task-results}
       STORAGE_PATH_STYLE_ACCESS: ${STORAGE_PATH_STYLE_ACCESS:-true}
+      # 비밀번호 재설정 메일 발송(SMTP). compose가 읽는 .env는 이 파일 안의 ${VAR} 치환에만 쓰이고
+      # 컨테이너 환경으로 자동 주입되지 않는다 — 여기 선언하지 않으면 .env에 값을 채워도 JVM이 못 본다.
+      # 이게 빠져 있어서 운영에서 workflow.mail.enabled가 기본값 false로 떨어졌고, MailConfig가
+      # LoggingMailSender를 골라 재설정 메일이 로그에만 남고 실제로는 한 통도 나가지 않았다.
+      # 기본은 꺼짐(application.yml과 동일) — 자격증명 없이 뜬 환경이 메일을 흘리면 안 되므로
+      # 켜는 쪽이 명시적이어야 한다. 운영 서버는 .env에 WORKFLOW_MAIL_ENABLED=true를 명시해 켠다.
+      WORKFLOW_MAIL_ENABLED: ${WORKFLOW_MAIL_ENABLED:-false}
+      WORKFLOW_MAIL_HOST: ${WORKFLOW_MAIL_HOST:-}
+      WORKFLOW_MAIL_PORT: ${WORKFLOW_MAIL_PORT:-587}
+      WORKFLOW_MAIL_USERNAME: ${WORKFLOW_MAIL_USERNAME:-}
+      WORKFLOW_MAIL_PASSWORD: ${WORKFLOW_MAIL_PASSWORD:-}
+      # from이 비어 있으면 enabled=true여도 MailConfig가 LoggingMailSender로 떨어진다.
+      WORKFLOW_MAIL_FROM: ${WORKFLOW_MAIL_FROM:-}
     ports:
       - '8080:8080'
     depends_on:
