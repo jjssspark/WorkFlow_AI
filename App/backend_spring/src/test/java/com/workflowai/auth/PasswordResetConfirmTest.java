@@ -3,6 +3,8 @@ package com.workflowai.auth;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.workflowai.security.InvalidTokenException;
+import com.workflowai.security.JwtService;
 import com.workflowai.support.PostgresRedisIntegrationTest;
 import com.workflowai.user.User;
 import com.workflowai.user.UserRepository;
@@ -26,6 +28,12 @@ class PasswordResetConfirmTest extends PostgresRedisIntegrationTest {
 
     @Autowired
     private PasswordEncoder passwordEncoder;
+
+    @Autowired
+    private AuthService authService;
+
+    @Autowired
+    private JwtService jwtService;
 
     private Long userId;
 
@@ -54,6 +62,35 @@ class PasswordResetConfirmTest extends PostgresRedisIntegrationTest {
         User updated = userRepository.findById(userId).orElseThrow();
         assertThat(passwordEncoder.matches("newPassword123", updated.getPasswordHash())).isTrue();
         assertThat(passwordEncoder.matches("oldPassword123", updated.getPasswordHash())).isFalse();
+    }
+
+    @Test
+    @DisplayName("비밀번호 변경 성공 시 passwordChangedAt이 세팅된다")
+    void confirmReset_validToken_setsPasswordChangedAt() {
+        User before = userRepository.findById(userId).orElseThrow();
+        assertThat(before.getPasswordChangedAt()).isNull();
+
+        LocalDateTime beforeConfirm = LocalDateTime.now();
+        saveToken("raw-token-8", LocalDateTime.now().plusMinutes(30));
+
+        passwordResetService.confirmReset("raw-token-8", "newPassword123");
+
+        User updated = userRepository.findById(userId).orElseThrow();
+        assertThat(updated.getPasswordChangedAt()).isNotNull();
+        assertThat(updated.getPasswordChangedAt()).isAfterOrEqualTo(beforeConfirm);
+    }
+
+    @Test
+    @DisplayName("[E2E] 재설정으로 비밀번호를 바꾸면 그 이전에 발급된 리프레시 토큰은 더 이상 통하지 않는다")
+    void confirmReset_invalidatesRefreshTokensIssuedBeforeReset() {
+        User user = userRepository.findById(userId).orElseThrow();
+        String oldRefreshToken = jwtService.issueRefreshToken(user);
+
+        saveToken("raw-token-e2e", LocalDateTime.now().plusMinutes(30));
+        passwordResetService.confirmReset("raw-token-e2e", "newPassword123");
+
+        assertThatThrownBy(() -> authService.refresh(oldRefreshToken))
+            .isInstanceOf(InvalidTokenException.class);
     }
 
     @Test

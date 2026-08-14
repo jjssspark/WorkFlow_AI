@@ -136,6 +136,9 @@ public class PasswordResetService {
                 "재설정 링크가 만료되었거나 이미 사용되었습니다. 다시 요청해 주세요."));
 
         user.setPasswordHash(passwordEncoder.encode(newPassword));
+        // 리프레시 토큰 무효화(AuthService.refresh) 판단 기준. 여기서 세팅해야 이전에 발급된
+        // 리프레시 토큰이 이 시각 이후로는 거부된다.
+        user.setPasswordChangedAt(LocalDateTime.now());
         // saveAndFlush: 아래 invalidateAllUnusedByUserId가 clearAutomatically=true라 영속성
         // 컨텍스트를 비운다. 그 전에 이 변경을 먼저 DB에 흘려보내지 않으면 커밋 없이 사라진다.
         userRepository.saveAndFlush(user);

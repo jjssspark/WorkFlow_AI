@@ -1,12 +1,16 @@
 package com.workflowai.auth;
 
+import com.workflowai.security.InvalidTokenException;
 import com.workflowai.security.JwtService;
 import com.workflowai.task.S3StorageClient;
 import com.workflowai.user.ReviewerStatus;
 import com.workflowai.user.User;
 import com.workflowai.user.UserRepository;
 import io.jsonwebtoken.Claims;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -216,7 +220,35 @@ public class AuthService {
         Long userId = Long.valueOf(claims.getSubject());
         User user = userRepository.findById(userId)
             .orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다."));
+        rejectIfIssuedBeforePasswordChange(claims, user);
         return issueTokens(user);
+    }
+
+    /**
+     * 리프레시 토큰은 서버에 저장되지 않는 stateless 토큰이라 비밀번호를 바꿔도 자동으로 무효화되지
+     * 않는다. passwordChangedAt이 세팅된 계정은 그 시각 이전에 발급된(iat 기준) 리프레시 토큰을 거부해
+     * "비밀번호를 바꿨는데도 예전 토큰으로 계속 갱신되는" 구멍을 막는다.
+     *
+     * <p>iat은 JWT 스펙상 초 단위(NumericDate)라 밀리초 미만 오차가 없다. passwordChangedAt은
+     * LocalDateTime.now()라 나노초까지 갖고 있으므로 초 단위로 절삭해 비교한다 - 그렇지 않으면 같은
+     * 초 안에서 비밀번호 변경 "직전"에 발급된 토큰이 통과하는 좁은 창이 남는다. 그래서 경계는
+     * "이전(&lt;)"이 아니라 "이하(&lt;=)"다: iat이 passwordChangedAt과 같은 초여도 거부한다.
+     * confirmReset은 토큰을 발급하지 않으므로 이 규칙이 정상적으로 로그인해서 받은 토큰을 잘못
+     * 막을 일은 없다 - 로그인은 반드시 비밀번호 변경 이후, 최소 1초 뒤에 일어난다.
+     *
+     * <p>거부는 서명 검증 실패(만료·위조)와 동일한 {@link InvalidTokenException}·메시지를 쓴다.
+     * 별도 예외를 두면 "이 계정은 방금 비밀번호를 바꿨다"는 사실이 응답으로 새어나간다.
+     */
+    private void rejectIfIssuedBeforePasswordChange(Claims claims, User user) {
+        LocalDateTime passwordChangedAt = user.getPasswordChangedAt();
+        if (passwordChangedAt == null) {
+            return;
+        }
+        Instant issuedAt = claims.getIssuedAt().toInstant();
+        Instant changedAt = passwordChangedAt.atZone(ZoneId.systemDefault()).toInstant().truncatedTo(ChronoUnit.SECONDS);
+        if (!issuedAt.isAfter(changedAt)) {
+            throw new InvalidTokenException("유효하지 않은 토큰입니다.");
+        }
     }
 
     private AuthTokenResponse issueTokens(User user) {
