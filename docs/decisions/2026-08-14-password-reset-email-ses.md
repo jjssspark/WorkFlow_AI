@@ -2,7 +2,9 @@
 
 - 날짜: 2026-08-14
 - 대상 브랜치: `fix/nginx-xff-dev-config`
-- 상태: **진행 중** — SES 도메인 인증 대기. 남은 작업은 아래 "다음에 할 일" 참고.
+- 상태: **진행 중** — DNS(DKIM·SPF) 전파 확인 완료(2026-08-14). 다음 관문은 **SES 프로덕션 액세스
+  신청**이다. 승인 전까지는 샌드박스라 인증된 주소로만 발송되므로 실사용자는 메일을 받지 못한다.
+  남은 작업은 아래 "다음에 할 일" 참고.
 
 ## 맥락
 
@@ -104,8 +106,16 @@ DNS 관리처는 Route 53이 아니라 **가비아**(`ns.gabia.co.kr`)라 자동
 
 ## 다음에 할 일
 
-1. **DKIM 인증 완료 확인.** AWS가 DNS를 탐지할 때까지 대기(보통 수십 분, 최대 72시간).
-   확인: SES 콘솔 자격 증명 페이지, 또는 `dig +short CNAME <selector>._domainkey.t3-workflow-ai.site`
+1. ~~**DKIM 인증 완료 확인.**~~ **DNS 전파 확인 완료(2026-08-14).** DKIM CNAME 3개와 SPF TXT가
+   모두 공개 리졸버에서 조회된다. A 레코드 2개도 그대로다.
+   ```
+   dig +short CNAME <selector>._domainkey.t3-workflow-ai.site
+   → <selector>.dkim.amazonses.com.   (3개 전부)
+   dig +short TXT t3-workflow-ai.site
+   → "v=spf1 include:amazonses.com ~all"
+   ```
+   남은 건 SES 콘솔 자격 증명 페이지에서 도메인이 **Verified**로 바뀌었는지 눈으로 확인하는 것뿐이다.
+   DNS가 이미 보이므로 아직 Pending이면 AWS 탐지 주기를 기다리면 된다(추가 작업 없음).
 
 2. **프로덕션 액세스 신청.** 지금 계정은 샌드박스라 **인증된 주소로만** 발송된다.
    즉 실사용자는 재설정 메일을 받지 못한다. 이게 해제돼야 기능이 실제로 동작한다.
@@ -125,9 +135,20 @@ DNS 관리처는 Route 53이 아니라 **가비아**(`ns.gabia.co.kr`)라 자동
    WORKFLOW_MAIL_FROM=no-reply@t3-workflow-ai.site
    ```
 
-5. **바운스·불만 처리 붙이기.** 아직 없다. SES 계정 수준 억제 목록은 기본 활성이지만,
-   SNS로 바운스/불만 알림을 받아 처리하는 경로가 없다. 프로덕션 액세스 신청서에
-   "will subscribe"라고 적을 예정이므로 실제로 붙여야 한다.
+5. **바운스·불만 처리 — 보류(2026-08-14 결정).** 코드로 붙이지 않는다.
+
+   현재 방어선은 **SES 계정 수준 억제 목록**뿐이다. 이건 기본 활성이고, 하드 바운스나 불만이
+   발생한 주소를 계정 전체에서 자동 차단하므로 "문제 주소가 이후 발송에서 빠진다"는 요구는
+   이미 충족한다. 부족한 건 **우리가 그 사실을 알 방법**이다.
+
+   웹훅(SNS → 백엔드 엔드포인트)을 붙이려면 인증 없는 공개 POST 경로, SNS 서명 검증,
+   `SubscriptionConfirmation` 처리, 억제 주소 테이블, 발송 전 조회까지 필요하다. 월 100통 미만
+   규모에 비해 공격 면적과 작업량이 과하다고 판단했다. 발송이 실제로 동작하는 것(2·3·4번)이
+   먼저다.
+
+   **되살릴 조건**: 발송량이 늘어 억제 목록만으로 관리가 안 되거나, 바운스율이 SES 경고
+   임계치(5%)에 근접할 때. 그전까지는 SNS 토픽을 만들어 **운영자 메일 주소로 구독**만 걸어두면
+   코드 없이 가시성은 확보된다(콘솔 작업 5분). 신청서 문구도 여기에 맞춰 두었다(부록 참고).
 
 6. **배포.** `deploy-oci.yml`은 `main` push에만 동작한다. dev → main 경로를 거쳐야 반영된다.
 
@@ -162,7 +183,7 @@ DNS 관리처는 Route 53이 아니라 **가비아**(`ns.gabia.co.kr`)라 자동
 > Expected volume is low: fewer than 100 messages per month, with a peak of roughly 20 per day. We
 > are requesting a modest sending limit rather than a high one.
 >
-> For bounces and complaints, we keep the SES account-level suppression list enabled and will
-> subscribe to SES bounce and complaint notifications via Amazon SNS so that problematic addresses
-> are removed from future sends. Our reset endpoint is rate-limited per email address and per client
-> IP to prevent abuse of the send path.
+> For bounces and complaints, we keep the SES account-level suppression list enabled, which removes
+> problematic addresses from future sends automatically. We also monitor bounce and complaint
+> notifications through an Amazon SNS topic delivered to our operations mailbox. Our reset endpoint
+> is rate-limited per email address and per client IP to prevent abuse of the send path.
