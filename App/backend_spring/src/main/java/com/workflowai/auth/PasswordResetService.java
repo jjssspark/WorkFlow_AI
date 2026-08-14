@@ -1,6 +1,6 @@
 package com.workflowai.auth;
 
-import com.workflowai.common.mail.MailSender;
+import com.workflowai.common.mail.AsyncMailDispatcher;
 import com.workflowai.user.User;
 import com.workflowai.user.UserRepository;
 import java.nio.charset.StandardCharsets;
@@ -35,7 +35,7 @@ public class PasswordResetService {
 
     private final UserRepository userRepository;
     private final PasswordResetTokenRepository tokenRepository;
-    private final MailSender mailSender;
+    private final AsyncMailDispatcher asyncMailDispatcher;
     private final PasswordEncoder passwordEncoder;
     private final String frontendBaseUrl;
     private final SecureRandom secureRandom = new SecureRandom();
@@ -43,13 +43,13 @@ public class PasswordResetService {
     public PasswordResetService(
         UserRepository userRepository,
         PasswordResetTokenRepository tokenRepository,
-        MailSender mailSender,
+        AsyncMailDispatcher asyncMailDispatcher,
         PasswordEncoder passwordEncoder,
         @Value("${workflow.frontend.base-url}") String frontendBaseUrl
     ) {
         this.userRepository = userRepository;
         this.tokenRepository = tokenRepository;
-        this.mailSender = mailSender;
+        this.asyncMailDispatcher = asyncMailDispatcher;
         this.passwordEncoder = passwordEncoder;
         this.frontendBaseUrl = frontendBaseUrl;
     }
@@ -68,7 +68,7 @@ public class PasswordResetService {
 
         User user = found.get();
         if (!PROVIDER_LOCAL.equalsIgnoreCase(user.getProvider())) {
-            boolean googleNoticeSent = mailSender.send(
+            asyncMailDispatcher.sendAfterCommit(
                 user.getEmail(),
                 "[Work-Flow] 비밀번호 재설정 안내",
                 user.getName() + "님,\n\n"
@@ -76,9 +76,6 @@ public class PasswordResetService {
                     + "로그인 화면에서 'Google로 계속하기'를 이용해 주세요.\n\n"
                     + frontendBaseUrl + "/login\n"
             );
-            if (!googleNoticeSent) {
-                log.error("비밀번호 재설정 Google 계정 안내 메일 발송 실패: userId={}", user.getId());
-            }
             return;
         }
 
@@ -90,7 +87,7 @@ public class PasswordResetService {
             requestedIp
         ));
 
-        boolean sent = mailSender.send(
+        asyncMailDispatcher.sendAfterCommit(
             user.getEmail(),
             "[Work-Flow] 비밀번호 재설정",
             user.getName() + "님,\n\n"
@@ -99,10 +96,6 @@ public class PasswordResetService {
                 + frontendBaseUrl + "/reset-password?token=" + rawToken + "\n\n"
                 + "본인이 요청하지 않았다면 이 메일을 무시하셔도 됩니다.\n"
         );
-        if (!sent) {
-            // 여기서 예외를 던지면 500이 나가고, 그 500이 곧 "이 계정은 존재한다"는 신호가 된다.
-            log.error("비밀번호 재설정 메일 발송 실패: userId={}", user.getId());
-        }
     }
 
     private static final int MIN_PASSWORD_LENGTH = 8;
