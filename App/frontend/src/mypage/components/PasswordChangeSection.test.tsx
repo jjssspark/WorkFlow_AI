@@ -45,8 +45,37 @@ describe("PasswordChangeSection", () => {
     await fill(CURRENT, "1234567", "1234567");
     await submit();
 
-    expect(screen.getByText("비밀번호는 8자 이상 128자 이하로 입력해주세요.")).toBeInTheDocument();
+    expect(screen.getByText("비밀번호는 8자 이상으로 입력해주세요.")).toBeInTheDocument();
     expect(apiFetch).not.toHaveBeenCalled();
+  });
+
+  it("새 비밀번호가 72바이트를 넘으면 왕복 없이 막는다", async () => {
+    // bcrypt가 72바이트를 넘는 입력에 예외를 던진다. 서버도 막지만, 글자 수만 세면
+    // 한글 25자짜리 비밀번호가 통과한 것처럼 보였다가 서버에서 거절당한다.
+    render(<PasswordChangeSection />);
+    const korean25 = "가".repeat(25); // 75 bytes
+
+    await fill(CURRENT, korean25, korean25);
+    await submit();
+
+    expect(screen.getByRole("alert")).toHaveTextContent("72바이트");
+    expect(apiFetch).not.toHaveBeenCalled();
+  });
+
+  it("한글 24자(72바이트)는 통과시킨다", async () => {
+    vi.mocked(apiFetch).mockResolvedValue({
+      accessToken: "a",
+      refreshToken: "r",
+      expiresIn: 1800,
+      user: null,
+    });
+    render(<PasswordChangeSection />);
+    const korean24 = "가".repeat(24); // 정확히 72 bytes — 경계는 허용해야 한다
+
+    await fill(CURRENT, korean24, korean24);
+    await submit();
+
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(1));
   });
 
   it("새 비밀번호가 현재와 같으면 왕복 없이 막는다", async () => {

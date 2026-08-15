@@ -133,6 +133,37 @@ class AuthServiceChangePasswordTest {
             .isInstanceOf(InvalidSignupInputException.class);
     }
 
+    /**
+     * BCryptPasswordEncoder는 72바이트를 넘는 입력을 자르지 않고 IllegalArgumentException을 던진다
+     * ("password cannot be more than 72 bytes"). 글자 수만 세면 정책을 통과한 입력이 encode()에서
+     * 터져 500이 난다. 한글은 UTF-8 3바이트라 25자만 되어도 걸린다 — 글자 수가 아니라 바이트로 봐야 한다.
+     */
+    @Test
+    void changePassword_newPasswordOver72Bytes_isRejectedAsInputNotServerError() {
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(localUser()));
+        String korean25 = "가".repeat(25); // 75 bytes
+
+        assertThatThrownBy(() -> authService.changePassword(USER_ID, CURRENT_PASSWORD, korean25))
+            .isInstanceOf(InvalidSignupInputException.class);
+    }
+
+    @Test
+    void changePassword_asciiNewPasswordOver72Bytes_isRejectedAsInputNotServerError() {
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(localUser()));
+
+        assertThatThrownBy(() -> authService.changePassword(USER_ID, CURRENT_PASSWORD, "a".repeat(73)))
+            .isInstanceOf(InvalidSignupInputException.class);
+    }
+
+    /** 현재 비밀번호 쪽도 bcrypt로 넘어가므로 같은 한계에 걸린다. matches() 앞에서 막아야 한다. */
+    @Test
+    void changePassword_currentPasswordOver72Bytes_isRejectedAsCredentialsNotServerError() {
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(localUser()));
+
+        assertThatThrownBy(() -> authService.changePassword(USER_ID, "가".repeat(25), "new-password-1234"))
+            .isInstanceOf(InvalidCredentialsException.class);
+    }
+
     @Test
     void changePassword_newPasswordSameAsCurrent_isRejected() {
         when(userRepository.findById(USER_ID)).thenReturn(Optional.of(localUser()));

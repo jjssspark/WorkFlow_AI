@@ -7,6 +7,7 @@ import com.workflowai.user.ReviewerStatus;
 import com.workflowai.user.User;
 import com.workflowai.user.UserRepository;
 import io.jsonwebtoken.Claims;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -31,7 +32,8 @@ public class AuthService {
     private static final String ROLE_TYPE_MEMBER = "MEMBER";
     private static final String ROLE_TYPE_REVIEWER = "REVIEWER";
     private static final int MIN_PASSWORD_LENGTH = 8;
-    private static final int MAX_PASSWORD_LENGTH = 128;
+    // BCrypt 자체의 한계. 이 값을 넘으면 encode()가 예외를 던진다(자르지 않는다).
+    private static final int MAX_PASSWORD_BYTES = 72;
     private static final int AVATAR_SIGNED_URL_EXPIRES_SECONDS = 24 * 60 * 60;
     private static final int MAX_AFFILIATION_LENGTH = 100;
     private static final int MAX_FACULTY_ID_LENGTH = 50;
@@ -258,11 +260,18 @@ public class AuthService {
         if (currentPassword == null || !passwordEncoder.matches(currentPassword, user.getPasswordHash())) {
             throw new InvalidCredentialsException("현재 비밀번호가 올바르지 않습니다.");
         }
-        if (newPassword == null
-            || newPassword.length() < MIN_PASSWORD_LENGTH
-            || newPassword.length() > MAX_PASSWORD_LENGTH) {
+        if (newPassword == null || newPassword.length() < MIN_PASSWORD_LENGTH) {
             throw new InvalidSignupInputException(
-                "비밀번호는 " + MIN_PASSWORD_LENGTH + "자 이상 " + MAX_PASSWORD_LENGTH + "자 이하로 입력해주세요.");
+                "비밀번호는 " + MIN_PASSWORD_LENGTH + "자 이상으로 입력해주세요.");
+        }
+        // 상한은 글자 수가 아니라 UTF-8 바이트다. BCryptPasswordEncoder는 72바이트를 넘는 입력을
+        // 자르지 않고 IllegalArgumentException을 던지므로, 글자 수로만 재면 정책을 통과한 입력이
+        // encode()에서 터져 500이 된다. 한글은 3바이트라 25자면 이미 걸린다.
+        // 글자 수 상한을 따로 두지 않는 이유는 안내가 어긋나기 때문이다 — "128자 이하"라고 했다가
+        // 100자로 줄여 온 사용자에게 다시 "72바이트"라고 말하게 된다.
+        if (newPassword.getBytes(StandardCharsets.UTF_8).length > MAX_PASSWORD_BYTES) {
+            throw new InvalidSignupInputException(
+                "비밀번호가 너무 깁니다. 영문·숫자는 " + MAX_PASSWORD_BYTES + "자, 한글은 24자까지 쓸 수 있습니다.");
         }
         if (passwordEncoder.matches(newPassword, user.getPasswordHash())) {
             throw new InvalidSignupInputException("새 비밀번호는 현재 비밀번호와 다르게 설정해주세요.");

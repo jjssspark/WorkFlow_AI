@@ -4,7 +4,12 @@ import { tokenStore } from "../../global/api/tokenStore";
 import { changePassword } from "../libs/utils/passwordApi";
 
 const MIN_PASSWORD_LENGTH = 8;
-const MAX_PASSWORD_LENGTH = 128;
+// bcrypt는 72바이트를 넘는 입력을 자르지 않고 거부한다. 글자 수가 아니라 UTF-8 바이트가 기준이라
+// 한글(3바이트)은 24자가 상한이다. 서버도 같은 값으로 막지만, 여기서 걸러야 왕복이 줄고
+// 사용자가 "통과한 줄 알았다가 거절당하는" 경험을 하지 않는다.
+const MAX_PASSWORD_BYTES = 72;
+
+const utf8Bytes = (value: string) => new TextEncoder().encode(value).length;
 
 const inputClass =
   "w-full rounded-xl border border-border bg-input-background px-3 py-2.5 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100";
@@ -14,8 +19,11 @@ const inputClass =
  * 여기서 판단하지 않는다. 반환값이 있으면 그것이 사용자에게 보여줄 문구다.
  */
 function localValidationError(current: string, next: string, confirm: string): string | null {
-  if (next.length < MIN_PASSWORD_LENGTH || next.length > MAX_PASSWORD_LENGTH) {
-    return `비밀번호는 ${MIN_PASSWORD_LENGTH}자 이상 ${MAX_PASSWORD_LENGTH}자 이하로 입력해주세요.`;
+  if (next.length < MIN_PASSWORD_LENGTH) {
+    return `비밀번호는 ${MIN_PASSWORD_LENGTH}자 이상으로 입력해주세요.`;
+  }
+  if (utf8Bytes(next) > MAX_PASSWORD_BYTES) {
+    return `비밀번호가 너무 깁니다. ${MAX_PASSWORD_BYTES}바이트까지 쓸 수 있습니다(영문·숫자 ${MAX_PASSWORD_BYTES}자, 한글 24자).`;
   }
   if (next !== confirm) {
     return "두 비밀번호가 일치하지 않습니다.";
@@ -106,7 +114,7 @@ export function PasswordChangeSection() {
           className={inputClass}
         />
         <span className="text-xs text-muted-foreground">
-          {MIN_PASSWORD_LENGTH}자 이상 {MAX_PASSWORD_LENGTH}자 이하
+          {MIN_PASSWORD_LENGTH}자 이상, 영문·숫자 {MAX_PASSWORD_BYTES}자까지 (한글은 24자까지)
         </span>
       </div>
 
