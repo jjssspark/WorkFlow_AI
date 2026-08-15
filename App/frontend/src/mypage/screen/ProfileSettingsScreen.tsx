@@ -4,6 +4,7 @@ import { ArrowLeft, Camera, Plus, X } from "lucide-react";
 import { useAuth } from "../../global/hooks/useAuth";
 import { updateProfile, uploadAvatar } from "../libs/utils/profileApi";
 import { ApiRequestError } from "../../global/api/apiClient";
+import { PasswordChangeSection } from "../components/PasswordChangeSection";
 
 const AVATAR_MAX_BYTES = 10 * 1024 * 1024;
 const AVATAR_MAX_DIMENSION = 2000;
@@ -272,6 +273,8 @@ export function ProfileSettingsScreen() {
             {saving ? "저장 중..." : "저장"}
           </button>
         </div>
+
+        <PasswordChangeSection />
       </div>
     </div>
   );

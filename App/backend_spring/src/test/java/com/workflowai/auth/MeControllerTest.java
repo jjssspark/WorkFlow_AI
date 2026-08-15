@@ -75,6 +75,12 @@ class MeControllerTest {
     @MockitoBean
     private PersonalCommentRepository personalCommentRepository;
 
+    @MockitoBean
+    private AuthService authService;
+
+    @MockitoBean
+    private AccountRecoveryRateLimiter rateLimiter;
+
     @AfterEach
     void clearSecurityContext() {
         SecurityContextHolder.clearContext();
