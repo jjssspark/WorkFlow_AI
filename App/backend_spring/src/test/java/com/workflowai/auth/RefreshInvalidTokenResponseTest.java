@@ -52,4 +52,22 @@ class RefreshInvalidTokenResponseTest {
             .andExpect(jsonPath("$.error.code").value("INVALID_TOKEN"))
             .andExpect(jsonPath("$.error.message").value("유효하지 않은 토큰입니다."));
     }
+
+    /**
+     * JwtService는 거부 사유마다 다른 메시지를 던진다("토큰 타입이 올바르지 않습니다." 등).
+     * 예외 메시지를 그대로 흘리면 응답이 사유별로 갈려, 사유를 구분하지 않는다는 전제가 깨진다.
+     * 응답 문구는 예외가 뭐라고 하든 하나로 고정한다.
+     */
+    @Test
+    void refresh_rejectionReasonIsNotLeakedThroughTheMessage() throws Exception {
+        when(authService.refresh(anyString()))
+            .thenThrow(new InvalidTokenException("토큰 타입이 올바르지 않습니다."));
+
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"refreshToken\":\"an-access-token-not-a-refresh-one\"}"))
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.error.code").value("INVALID_TOKEN"))
+            .andExpect(jsonPath("$.error.message").value("유효하지 않은 토큰입니다."));
+    }
 }
