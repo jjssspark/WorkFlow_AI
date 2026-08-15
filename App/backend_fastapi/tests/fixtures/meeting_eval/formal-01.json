@@ -1,0 +1,41 @@
+{
+  "case_id": "formal-01",
+  "scenario": "양식 준수",
+  "input": {
+    "title": "RAG 재색인 점검 회의",
+    "meeting_date": "2026-08-10",
+    "meeting_kind": "개발회의",
+    "source_type": "document",
+    "participants": ["박지수", "유소은"],
+    "sections": {
+      "discussion": "박지수: 임베딩 모델을 바꾸고 나서 검색 정확도가 떨어졌습니다.\n유소은: 기존 청크가 예전 모델 기준이라 재색인이 필요해 보입니다.",
+      "decisions": "임베딩 모델을 교체하고 전체 문서를 재색인하기로 한다.",
+      "todos": "[v] 긴급    [ ] 보통    [ ] 낮음\n박지수 · 임베딩 모델 교체 · 8/14\n[ ] 긴급    [v] 보통    [ ] 낮음\n유소은 · 재색인 스크립트 점검 · 8/18",
+      "issues": "재색인 도중 검색 품질이 일시적으로 낮아질 수 있다."
+    }
+  },
+  "golden": {
+    "todos": [
+      {
+        "evidence_id": "T1",
+        "title": "임베딩 모델 교체",
+        "assignee": "박지수",
+        "due_date": "2026-08-14",
+        "priority": "HIGH",
+        "evidence_snippet": "임베딩 모델 교체"
+      },
+      {
+        "evidence_id": "T2",
+        "title": "재색인 스크립트 점검",
+        "assignee": "유소은",
+        "due_date": "2026-08-18",
+        "priority": "MEDIUM",
+        "evidence_snippet": "재색인 스크립트 점검"
+      }
+    ],
+    "summary_checklist": [
+      "임베딩 모델 교체와 재색인 결정이 요약에 담겼는가",
+      "회의록 원문에 없는 날짜나 이름이 요약에 없는가"
+    ]
+  }
+}
