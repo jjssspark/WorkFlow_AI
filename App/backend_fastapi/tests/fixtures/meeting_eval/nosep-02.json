@@ -1,0 +1,41 @@
+{
+  "case_id": "nosep-02",
+  "scenario": "구분자 생략",
+  "input": {
+    "title": "회의록 분석 폴백 회의",
+    "meeting_date": "2026-08-12",
+    "meeting_kind": "개발회의",
+    "source_type": "document",
+    "participants": ["이은주", "허영주"],
+    "sections": {
+      "discussion": "이은주: OpenAI 호출이 실패했을 때 지금은 결과가 비어서 나갑니다.\n허영주: 실패 시에는 규칙 기반 추출로 넘어가는 폴백이 있어야 할 것 같습니다.",
+      "decisions": "OpenAI 호출 실패 시 규칙 기반 폴백 로직을 붙이기로 한다.",
+      "todos": "[ ] 긴급    [v] 보통    [ ] 낮음\n이은주가 회의록 분석 폴백 로직을 8/19까지 정리하기로 했다\n[v] 긴급    [ ] 보통    [ ] 낮음\n허영주는 폴백 발생 로그를 확인한다",
+      "issues": "폴백이 자주 발생하면 분석 품질이 낮아질 수 있어 모니터링이 필요하다."
+    }
+  },
+  "golden": {
+    "todos": [
+      {
+        "evidence_id": "T1",
+        "title": "회의록 분석 폴백 로직 정리",
+        "assignee": "이은주",
+        "due_date": "2026-08-19",
+        "priority": "MEDIUM",
+        "evidence_snippet": "회의록 분석 폴백 로직"
+      },
+      {
+        "evidence_id": "T2",
+        "title": "폴백 발생 로그 확인",
+        "assignee": "허영주",
+        "due_date": null,
+        "priority": "HIGH",
+        "evidence_snippet": "폴백 발생 로그"
+      }
+    ],
+    "summary_checklist": [
+      "폴백 로직 정리와 로그 확인이 요약에 담겼는가",
+      "회의록 원문에 없는 날짜나 이름이 요약에 없는가"
+    ]
+  }
+}

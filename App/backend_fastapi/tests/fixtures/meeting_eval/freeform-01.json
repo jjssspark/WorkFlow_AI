@@ -1,0 +1,36 @@
+{
+  "case_id": "freeform-01",
+  "scenario": "자유 서술",
+  "input": {
+    "title": "회의록 분석 폴백 논의",
+    "meeting_date": "2026-08-12",
+    "meeting_kind": "개발회의",
+    "source_type": "document",
+    "participants": ["이은주", "허영주"],
+    "text": "오늘은 회의록 분석 폴백 로직 회의였습니다. 이은주: OpenAI 호출이 실패하면 규칙 기반 추출로 넘어가야 합니다. 지금은 실패 시 빈 결과만 반환하고 있습니다. 허영주: 제가 폴백 로직을 8월 19일까지 구현하겠습니다. 이은주: 저는 폴백 발생 여부를 로그에 남기는 작업을 맡겠습니다. 언제까지 할지는 아직 못 정했습니다."
+  },
+  "golden": {
+    "todos": [
+      {
+        "evidence_id": "T1",
+        "title": "폴백 로직 구현",
+        "assignee": "허영주",
+        "due_date": "2026-08-19",
+        "priority": "MEDIUM",
+        "evidence_snippet": "폴백 로직을 8월 19일까지 구현하겠습니다"
+      },
+      {
+        "evidence_id": "T2",
+        "title": "폴백 발생 여부 로그 기록",
+        "assignee": "이은주",
+        "due_date": null,
+        "priority": "MEDIUM",
+        "evidence_snippet": "폴백 발생 여부를 로그에 남기는 작업을 맡겠습니다"
+      }
+    ],
+    "summary_checklist": [
+      "폴백 로직 구현과 로그 기록 작업이 요약에 담겼는가",
+      "완료 시점이 정해지지 않았다고 말한 부분이 특정 날짜로 지어내지지 않았는가"
+    ]
+  }
+}

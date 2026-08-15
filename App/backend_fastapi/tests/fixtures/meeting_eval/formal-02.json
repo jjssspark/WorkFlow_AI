@@ -1,0 +1,41 @@
+{
+  "case_id": "formal-02",
+  "scenario": "양식 준수",
+  "input": {
+    "title": "OCI 배포 자동화 회의",
+    "meeting_date": "2026-08-11",
+    "meeting_kind": "개발회의",
+    "source_type": "document",
+    "participants": ["이은주", "허영주"],
+    "sections": {
+      "discussion": "이은주: OCI 인스턴스 배포가 아직 수동 스크립트로 진행되고 있습니다.\n허영주: 배포 실수를 줄이려면 파이프라인을 자동화하는 게 맞을 것 같습니다.",
+      "decisions": "배포 파이프라인을 GitHub Actions 기반으로 자동화하기로 한다.",
+      "todos": "[v] 긴급    [ ] 보통    [ ] 낮음\n이은주 · 배포 파이프라인 자동화 스크립트 작성 · 8/16\n[ ] 긴급    [ ] 보통    [v] 낮음\n허영주 · 배포 문서 정리 · 8/22",
+      "issues": "자동화 전환 중 배포가 실패하면 롤백 절차가 아직 없다."
+    }
+  },
+  "golden": {
+    "todos": [
+      {
+        "evidence_id": "T1",
+        "title": "배포 파이프라인 자동화 스크립트 작성",
+        "assignee": "이은주",
+        "due_date": "2026-08-16",
+        "priority": "HIGH",
+        "evidence_snippet": "배포 파이프라인 자동화 스크립트 작성"
+      },
+      {
+        "evidence_id": "T2",
+        "title": "배포 문서 정리",
+        "assignee": "허영주",
+        "due_date": "2026-08-22",
+        "priority": "LOW",
+        "evidence_snippet": "배포 문서 정리"
+      }
+    ],
+    "summary_checklist": [
+      "배포 파이프라인 자동화 결정이 요약에 담겼는가",
+      "회의록 원문에 없는 날짜나 이름이 요약에 없는가"
+    ]
+  }
+}

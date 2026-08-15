@@ -1,0 +1,41 @@
+{
+  "case_id": "nopriority-01",
+  "scenario": "우선순위 미체크",
+  "input": {
+    "title": "업무 보드 담당자 표시 회의",
+    "meeting_date": "2026-08-13",
+    "meeting_kind": "개발회의",
+    "source_type": "document",
+    "participants": ["박상준", "박지수"],
+    "sections": {
+      "discussion": "박상준: 업무 보드에서 담당자 아바타가 안 보인다는 피드백이 있었습니다.\n박지수: 담당자가 미표시되는 케이스를 먼저 재현해봐야 할 것 같습니다.",
+      "decisions": "담당자 미표시 버그를 재현한 뒤 아바타 표시 기능을 붙이기로 한다.",
+      "todos": "[ ] 긴급    [ ] 보통    [ ] 낮음\n박상준 · 업무 보드 담당자 아바타 표시 · 8/20\n[ ] 긴급    [ ] 보통    [ ] 낮음\n박지수 · 담당자 미표시 버그 재현 · 8/17",
+      "issues": "담당자 미표시가 특정 브라우저에서만 재현돼 원인이 명확하지 않다."
+    }
+  },
+  "golden": {
+    "todos": [
+      {
+        "evidence_id": "T1",
+        "title": "업무 보드 담당자 아바타 표시",
+        "assignee": "박상준",
+        "due_date": "2026-08-20",
+        "priority": "MEDIUM",
+        "evidence_snippet": "업무 보드 담당자 아바타 표시"
+      },
+      {
+        "evidence_id": "T2",
+        "title": "담당자 미표시 버그 재현",
+        "assignee": "박지수",
+        "due_date": "2026-08-17",
+        "priority": "MEDIUM",
+        "evidence_snippet": "담당자 미표시 버그 재현"
+      }
+    ],
+    "summary_checklist": [
+      "담당자 표시 버그 재현과 아바타 기능 적용이 요약에 담겼는가",
+      "우선순위를 체크하지 않은 항목이 임의로 긴급·낮음으로 바뀌지 않았는가"
+    ]
+  }
+}
