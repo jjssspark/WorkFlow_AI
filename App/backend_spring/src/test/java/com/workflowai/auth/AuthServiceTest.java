@@ -1,6 +1,7 @@
 package com.workflowai.auth;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.ArgumentMatchers.any;
@@ -182,6 +183,37 @@ class AuthServiceTest {
     void signup_shortPassword_throws() {
         assertThatThrownBy(() -> authService.signup("short@example.com", "1234", "이름", "MEMBER", true, true, null, null))
             .isInstanceOf(InvalidSignupInputException.class);
+    }
+
+    /**
+     * BCrypt는 72바이트를 넘는 입력을 자르지 않고 IllegalArgumentException을 던진다. 가입에는 상한이
+     * 아예 없어서 그대로 encode()까지 흘러가 500이 됐다. 한글은 UTF-8 3바이트라 25자면 걸린다.
+     */
+    @Test
+    void signup_passwordOver72Bytes_isRejectedAsInputNotServerError() {
+        assertThatThrownBy(() -> authService.signup(
+            "long@example.com", "가".repeat(25), "이름", "MEMBER", true, true, null, null))
+            .isInstanceOf(InvalidSignupInputException.class);
+
+        verify(userRepository, org.mockito.Mockito.never()).saveAndFlush(any());
+    }
+
+    @Test
+    void signup_asciiPasswordOver72Bytes_isRejectedAsInputNotServerError() {
+        assertThatThrownBy(() -> authService.signup(
+            "long2@example.com", "a".repeat(73), "이름", "MEMBER", true, true, null, null))
+            .isInstanceOf(InvalidSignupInputException.class);
+    }
+
+    /** 경계는 통과해야 한다 — 한글 24자가 정확히 72바이트다. */
+    @Test
+    void signup_passwordExactly72Bytes_isAccepted() {
+        when(userRepository.existsByEmail("edge@example.com")).thenReturn(false);
+        when(userRepository.saveAndFlush(any(User.class))).thenAnswer(call -> call.getArgument(0));
+
+        assertThatCode(() -> authService.signup(
+            "edge@example.com", "가".repeat(24), "이름", "MEMBER", true, true, null, null))
+            .doesNotThrowAnyException();
     }
 
     @Test
