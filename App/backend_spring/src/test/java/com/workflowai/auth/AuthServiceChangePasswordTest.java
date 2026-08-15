@@ -155,7 +155,17 @@ class AuthServiceChangePasswordTest {
             .isInstanceOf(InvalidSignupInputException.class);
     }
 
-    /** 현재 비밀번호 쪽도 bcrypt로 넘어가므로 같은 한계에 걸린다. matches() 앞에서 막아야 한다. */
+    /**
+     * 현재 비밀번호는 길이를 따로 막지 않는다. 72바이트 한계는 encode()에만 있고 matches()에는 없어서,
+     * 초과 입력은 예외가 아니라 그냥 false로 돌아오기 때문이다(확인함). 그래서 새 비밀번호 쪽과 달리
+     * 여기서는 바이트 검사가 필요 없다.
+     *
+     * <p>일부러 막지 않는 이유도 있다. checkpw는 72바이트에서 잘라서 비교하므로, "초과 = 무조건 오답"으로
+     * 처리하면 자르던 시절의 인코더로 만들어진 해시를 쓰는 계정이 자기 비밀번호로 로그인하지 못하게 된다.
+     *
+     * <p>이 테스트는 그 전제가 깨지는 순간을 잡는 회귀 방지선이다. Spring Security가 encode()처럼
+     * matches()에도 검사를 넣으면 여기서 IllegalArgumentException이 나면서 빨개진다 — 그때 막으면 된다.
+     */
     @Test
     void changePassword_currentPasswordOver72Bytes_isRejectedAsCredentialsNotServerError() {
         when(userRepository.findById(USER_ID)).thenReturn(Optional.of(localUser()));
