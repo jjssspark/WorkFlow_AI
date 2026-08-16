@@ -98,9 +98,6 @@ public class PasswordResetService {
         );
     }
 
-    private static final int MIN_PASSWORD_LENGTH = 8;
-    private static final int MAX_PASSWORD_LENGTH = 128;
-
     @Transactional
     public void confirmReset(String rawToken, String newPassword) {
         if (rawToken == null || rawToken.isBlank()) {
@@ -116,12 +113,18 @@ public class PasswordResetService {
         }
 
         // 정책 위반은 토큰을 소모하기 전에 막는다. 오타 한 번에 메일을 다시 받게 하지 않는다.
-        if (newPassword == null
-            || newPassword.length() < MIN_PASSWORD_LENGTH
-            || newPassword.length() > MAX_PASSWORD_LENGTH) {
-            throw new InvalidSignupInputException(
-                "비밀번호는 " + MIN_PASSWORD_LENGTH + "자 이상 " + MAX_PASSWORD_LENGTH + "자 이하로 입력해주세요.");
-        }
+        // 상한을 글자 수로 재던 시절엔 한글 25자가 여기를 빠져나가 아래 encode()에서 터졌고,
+        // 그때는 이미 토큰이 소모된 뒤라 이 약속이 바이트 위반에서만 깨져 있었다.
+        PasswordPolicy.validateNewPassword(newPassword);
+
+        // 사용자 행을 배타 잠금으로 먼저 잡는다. 이유는 두 가지다.
+        // (1) 아래 passwordChangedAt이 커밋되기 전에 도착한 재발급이 옛 값을 읽고 통과하면, 재설정
+        //     후에도 살아남는 토큰이 만들어진다(AuthService.refresh의 공유 잠금과 짝을 이룬다).
+        // (2) 잠금 순서를 changePassword와 같은 "사용자 → 토큰"으로 맞춘다. 토큰을 먼저 잠그면
+        //     두 흐름이 서로 반대 순서로 잠가 교착이 난다.
+        User user = userRepository.findByIdForUpdate(token.getUserId())
+            .orElseThrow(() -> new InvalidResetTokenException(
+                "재설정 링크가 만료되었거나 이미 사용되었습니다. 다시 요청해 주세요."));
 
         // isUsable 확인과 실제 소비 사이에 동시에 같은 토큰이 들어오면 둘 다 통과할 수 있다.
         // DB 조건부 갱신으로 그 틈을 닫는다 — 늦게 도착한 쪽은 0을 받고, 이는 뒤늦게 도착한 것과
@@ -130,10 +133,6 @@ public class PasswordResetService {
             throw new InvalidResetTokenException(
                 "재설정 링크가 만료되었거나 이미 사용되었습니다. 다시 요청해 주세요.");
         }
-
-        User user = userRepository.findById(token.getUserId())
-            .orElseThrow(() -> new InvalidResetTokenException(
-                "재설정 링크가 만료되었거나 이미 사용되었습니다. 다시 요청해 주세요."));
 
         user.setPasswordHash(passwordEncoder.encode(newPassword));
         // 리프레시 토큰 무효화(AuthService.refresh) 판단 기준. 여기서 세팅해야 이전에 발급된

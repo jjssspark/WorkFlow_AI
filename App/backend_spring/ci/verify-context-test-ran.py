@@ -30,6 +30,9 @@ SUITES = (
     "com.workflowai.auth.AuthLifecycleIntegrationTest",
     "com.workflowai.auth.GoogleOAuthLoginIntegrationTest",
     "com.workflowai.auth.TestAccountConcurrentLoginIntegrationTest",
+    # 세션 폐기의 원자성(행 잠금). 잠금이 풀리면 "비밀번호를 바꿔도 탈취된 토큰이 살아남는"
+    # 상태로 조용히 돌아가는데, 이 테스트가 건너뛰어지면 그 사실을 알 방법이 없다.
+    "com.workflowai.auth.PasswordChangeConcurrencyTest",
     # 프로젝트 인가 경로(IT-008~011). project_members에 쓴 역할이 ProjectAccess의 판정에
     # 즉시 반영되는지는 요청 두 개를 실제로 태워야만 보인다.
     "com.workflowai.project.ProjectMembershipIntegrationTest",
