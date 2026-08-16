@@ -30,11 +30,12 @@ def judge_summary(
     decisions: Sequence[str],
     checklist: Sequence[str],
     ask: Callable[[str], str],
+    source_text: str = "",
 ) -> SummaryScore:
     verdicts = [
         JudgeVerdict(
             checklist_item=item,
-            passed=_is_affirmative(ask(_build_prompt(summary, decisions, item))),
+            passed=_is_affirmative(ask(_build_prompt(summary, decisions, item, source_text))),
         )
         for item in checklist
     ]
@@ -46,10 +47,18 @@ def judge_summary(
     )
 
 
-def _build_prompt(summary: str, decisions: Sequence[str], item: str) -> str:
+def _build_prompt(summary: str, decisions: Sequence[str], item: str, source_text: str = "") -> str:
+    """원문이 있으면 함께 넘긴다.
+
+    체크리스트의 절반이 "회의록 원문에 없는 날짜나 이름이 요약에 없는가" 형태인데,
+    원문 없이는 심사기가 대조할 대상이 없어 원리상 답할 수 없다. 원문 없이 측정했을 때
+    1.5B와 4B 모델이 정확히 이 문항에서만 반복해서 틀린 것이 그 증거다.
+    """
     decision_lines = "\n".join(f"- {decision}" for decision in decisions) or "(없음)"
+    source_block = f"[회의록 원문]\n{source_text}\n\n" if source_text.strip() else ""
     return (
-        "아래 회의 요약과 결정사항을 읽고 질문에 '예' 또는 '아니오' 한 단어로만 답하세요.\n\n"
+        "아래 회의록 원문과 요약, 결정사항을 읽고 질문에 '예' 또는 '아니오' 한 단어로만 답하세요.\n\n"
+        f"{source_block}"
         f"[요약]\n{summary}\n\n"
         f"[결정사항]\n{decision_lines}\n\n"
         f"[질문]\n{item}"

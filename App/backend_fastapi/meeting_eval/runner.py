@@ -80,7 +80,11 @@ def _run_case(case: EvalCase, analyze, judge_ask) -> CaseResult:
 
     try:
         summary = judge_summary(
-            result.summary, result.decisions, case.golden.summary_checklist, judge_ask
+            result.summary,
+            result.decisions,
+            case.golden.summary_checklist,
+            judge_ask,
+            source_text=_source_text_of(case.request),
         )
     except Exception:
         logger.warning("요약 심사 실패로 0점 처리. case_id=%s", case.case_id, exc_info=True)
@@ -89,6 +93,24 @@ def _run_case(case: EvalCase, analyze, judge_ask) -> CaseResult:
     return CaseResult(
         case.case_id, case.scenario, score_todos(result.todos, case.golden.todos), summary
     )
+
+
+def _source_text_of(request: AnalyzeRequest) -> str:
+    """심사기에게 넘길 회의록 원문을 만든다.
+
+    원문이 `text`(자유 서술)와 `sections`(양식 문서) 두 자리로 나뉘어 있어 한쪽만 보면
+    양식 케이스에서 원문이 통째로 비어버린다. 채워진 쪽을 모아 넘긴다.
+    """
+    parts = [request.text or ""]
+    sections = request.sections
+    if sections is not None:
+        parts += [
+            sections.discussion or "",
+            sections.decisions or "",
+            sections.todos or "",
+            sections.issues or "",
+        ]
+    return "\n".join(part.strip() for part in parts if part and part.strip())
 
 
 def _mean(values: List[float]) -> float:
