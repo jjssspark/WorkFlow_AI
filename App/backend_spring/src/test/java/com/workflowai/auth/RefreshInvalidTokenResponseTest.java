@@ -40,6 +40,13 @@ class RefreshInvalidTokenResponseTest {
     @MockitoBean private PasswordResetService passwordResetService;
     @MockitoBean private AccountRecoveryRateLimiter rateLimiter;
 
+    /** 재발급에도 레이트리밋이 걸려 있다. 여기서 보려는 건 한도가 아니라 거부 응답이므로 통과시킨다. */
+    @org.junit.jupiter.api.BeforeEach
+    void allowRateLimiter() {
+        when(rateLimiter.tryAcquire(anyString(), anyString(), org.mockito.ArgumentMatchers.anyInt(),
+            org.mockito.ArgumentMatchers.any())).thenReturn(true);
+    }
+
     @Test
     void refresh_withRejectedToken_returns401NotServerError() throws Exception {
         when(authService.refresh(anyString()))
