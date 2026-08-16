@@ -26,6 +26,19 @@ public interface UserRepository extends JpaRepository<User, Long> {
     Page<User> findAllByReviewerStatus(ReviewerStatus reviewerStatus, Pageable pageable);
 
     /**
+     * 이 트랜잭션에서만 유효한 잠금 대기 상한을 건다. 잠금을 잡기 <em>전에</em> 불러야 한다.
+     *
+     * <p>PostgreSQL 기본값은 무기한 대기다. 그대로 두면 잠금을 기다리는 요청이 커넥션을 붙든 채
+     * 멈춰 있고, 커넥션 풀이 작아서(4) 소수의 동시 요청만으로 무관한 사용자까지 커넥션을 못 받는다.
+     *
+     * <p>SET LOCAL이 아니라 set_config(..., true)를 쓰는 이유는 두 가지다. SET은 값에 바인드
+     * 파라미터를 못 쓰고, 세 번째 인자 true가 "이 트랜잭션에서만"을 뜻한다. 트랜잭션 범위여야
+     * Supavisor 같은 트랜잭션 풀러에서 다른 클라이언트로 설정이 새지 않는다.
+     */
+    @Query(value = "SELECT set_config('lock_timeout', :timeout, true)", nativeQuery = true)
+    String applyLockTimeout(@Param("timeout") String timeout);
+
+    /**
      * 비밀번호를 바꾸는 쪽이 잡는 배타 잠금.
      *
      * <p>리프레시 토큰 폐기는 "passwordChangedAt보다 이전에 발급된 토큰을 거부한다"는 시각 비교로

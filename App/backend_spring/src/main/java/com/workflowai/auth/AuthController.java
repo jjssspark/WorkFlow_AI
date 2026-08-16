@@ -41,6 +41,11 @@ public class AuthController {
     private static final Duration EMAIL_RESET_WINDOW = Duration.ofMinutes(5);
     private static final int IP_RECOVERY_LIMIT = 10;
     private static final Duration IP_RECOVERY_WINDOW = Duration.ofMinutes(15);
+    // 재발급과 재설정 확인은 사용자 행에 잠금을 잡는다. 상한이 없으면 잠금을 기다리는 요청이
+    // 커넥션을 붙든 채 쌓여, 풀이 작아서(4) 무관한 사용자까지 커넥션을 못 받는다.
+    // 정상 사용자는 액세스 토큰 만료(30분)마다 한 번 재발급하므로 이 한도에 닿지 않는다.
+    private static final int REFRESH_LIMIT = 60;
+    private static final Duration REFRESH_WINDOW = Duration.ofMinutes(1);
 
     private final GoogleOAuthService googleOAuthService;
     private final AuthService authService;
@@ -302,8 +307,13 @@ public class AuthController {
 
     @Operation(summary = "Refresh Token으로 Access Token 재발급")
     @PostMapping("/refresh")
-    public ApiResponse<AuthTokenResponse> refresh(@Valid @RequestBody RefreshRequest request) {
-        return ApiResponse.ok(authService.refresh(request.refreshToken()));
+    public ResponseEntity<ApiResponse<AuthTokenResponse>> refresh(
+        @Valid @RequestBody RefreshRequest request, HttpServletRequest httpRequest
+    ) {
+        if (!rateLimiter.tryAcquire("refresh-ip", httpRequest.getRemoteAddr(), REFRESH_LIMIT, REFRESH_WINDOW)) {
+            return rateLimited();
+        }
+        return ResponseEntity.ok(ApiResponse.ok(authService.refresh(request.refreshToken())));
     }
 
     @Operation(
@@ -364,8 +374,13 @@ public class AuthController {
     )
     @PostMapping("/password-reset/confirm")
     public ResponseEntity<ApiResponse<Void>> confirmPasswordReset(
-        @Valid @RequestBody PasswordResetConfirmDto request
+        @Valid @RequestBody PasswordResetConfirmDto request, HttpServletRequest httpRequest
     ) {
+        // 요청 단계에만 상한이 있었다. 이 단계도 사용자 행에 배타 잠금을 잡으므로 상한이 필요하다.
+        if (!rateLimiter.tryAcquire("reset-confirm-ip", httpRequest.getRemoteAddr(),
+                IP_RECOVERY_LIMIT, IP_RECOVERY_WINDOW)) {
+            return rateLimited();
+        }
         try {
             passwordResetService.confirmReset(request.token(), request.newPassword());
             return ResponseEntity.ok(ApiResponse.ok(null));

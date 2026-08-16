@@ -17,6 +17,7 @@ import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -46,8 +47,9 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final S3StorageClient storageClient;
     private final PasswordResetTokenRepository passwordResetTokenRepository;
+    /** 잠금 대기 상한. {@link UserRepository#applyLockTimeout} 참고. */
+    private final String lockTimeout;
 
-    @Autowired
     public AuthService(
         GoogleOAuthService googleOAuthService,
         UserRepository userRepository,
@@ -56,12 +58,27 @@ public class AuthService {
         S3StorageClient storageClient,
         PasswordResetTokenRepository passwordResetTokenRepository
     ) {
+        this(googleOAuthService, userRepository, jwtService, passwordEncoder, storageClient,
+            passwordResetTokenRepository, "3s");
+    }
+
+    @Autowired
+    public AuthService(
+        GoogleOAuthService googleOAuthService,
+        UserRepository userRepository,
+        JwtService jwtService,
+        PasswordEncoder passwordEncoder,
+        S3StorageClient storageClient,
+        PasswordResetTokenRepository passwordResetTokenRepository,
+        @Value("${workflow.db.lock-timeout:3s}") String lockTimeout
+    ) {
         this.googleOAuthService = googleOAuthService;
         this.userRepository = userRepository;
         this.jwtService = jwtService;
         this.passwordEncoder = passwordEncoder;
         this.storageClient = storageClient;
         this.passwordResetTokenRepository = passwordResetTokenRepository;
+        this.lockTimeout = lockTimeout;
     }
 
     /**
@@ -247,6 +264,7 @@ public class AuthService {
         }
         // 배타 잠금으로 읽는다. 이 잠금이 없으면 아래 changedAt을 찍은 뒤 커밋되기 전에 도착한
         // 재발급이 옛 passwordChangedAt을 읽고 통과해, 변경 후에도 살아남는 토큰을 만들어낸다.
+        userRepository.applyLockTimeout(lockTimeout);
         User user = userRepository.findByIdForUpdate(userId)
             .orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다."));
         if (user.getPasswordHash() == null) {
@@ -295,6 +313,7 @@ public class AuthService {
     public AuthTokenResponse refresh(String refreshToken) {
         Claims claims = jwtService.parseRefreshToken(refreshToken);
         Long userId = Long.valueOf(claims.getSubject());
+        userRepository.applyLockTimeout(lockTimeout);
         User user = userRepository.findByIdForShare(userId)
             .orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다."));
         rejectIfIssuedBeforePasswordChange(claims, user);
