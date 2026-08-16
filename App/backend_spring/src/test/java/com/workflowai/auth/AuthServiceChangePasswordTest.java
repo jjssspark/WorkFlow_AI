@@ -67,7 +67,7 @@ class AuthServiceChangePasswordTest {
     void changePassword_googleAccountWithoutPassword_isRejected() {
         User googleUser = new User("g@example.com", "홍길동", "google", "google-sub-1");
         ReflectionTestUtils.setField(googleUser, "id", USER_ID);
-        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(googleUser));
+        when(userRepository.findByIdForUpdate(USER_ID)).thenReturn(Optional.of(googleUser));
 
         assertThatThrownBy(() -> authService.changePassword(USER_ID, "anything", "new-password-1234"))
             .isInstanceOf(GoogleAccountRequiredException.class);
@@ -75,7 +75,7 @@ class AuthServiceChangePasswordTest {
 
     @Test
     void changePassword_wrongCurrentPassword_isRejected() {
-        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(localUser()));
+        when(userRepository.findByIdForUpdate(USER_ID)).thenReturn(Optional.of(localUser()));
 
         assertThatThrownBy(() -> authService.changePassword(USER_ID, "wrong-password", "new-password-1234"))
             .isInstanceOf(InvalidCredentialsException.class);
@@ -83,7 +83,7 @@ class AuthServiceChangePasswordTest {
 
     @Test
     void changePassword_wrongCurrentPassword_doesNotTouchTheAccount() {
-        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(localUser()));
+        when(userRepository.findByIdForUpdate(USER_ID)).thenReturn(Optional.of(localUser()));
 
         assertThatThrownBy(() -> authService.changePassword(USER_ID, "wrong-password", "new-password-1234"))
             .isInstanceOf(InvalidCredentialsException.class);
@@ -98,7 +98,7 @@ class AuthServiceChangePasswordTest {
         // 설정 화면에 들어와 있는 사용자에게 로그인하라고 말하는 꼴이 된다.
         User googleUser = new User("g@example.com", "홍길동", "google", "google-sub-1");
         ReflectionTestUtils.setField(googleUser, "id", USER_ID);
-        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(googleUser));
+        when(userRepository.findByIdForUpdate(USER_ID)).thenReturn(Optional.of(googleUser));
 
         assertThatThrownBy(() -> authService.changePassword(USER_ID, "anything", "new-password-1234"))
             .hasMessageContaining("비밀번호")
@@ -109,7 +109,7 @@ class AuthServiceChangePasswordTest {
     void changePassword_wrongCurrentPassword_saysCurrentPasswordNotEmail() {
         // 이 화면에는 이메일 입력란이 없다. 로그인용 문구("이메일 또는 비밀번호가...")를 그대로
         // 흘리면 사용자가 어느 칸을 고쳐야 하는지 알 수 없다.
-        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(localUser()));
+        when(userRepository.findByIdForUpdate(USER_ID)).thenReturn(Optional.of(localUser()));
 
         assertThatThrownBy(() -> authService.changePassword(USER_ID, "wrong-password", "new-password-1234"))
             .hasMessageContaining("현재 비밀번호")
@@ -118,7 +118,7 @@ class AuthServiceChangePasswordTest {
 
     @Test
     void changePassword_newPasswordShorterThanMinimum_isRejected() {
-        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(localUser()));
+        when(userRepository.findByIdForUpdate(USER_ID)).thenReturn(Optional.of(localUser()));
 
         assertThatThrownBy(() -> authService.changePassword(USER_ID, CURRENT_PASSWORD, "1234567"))
             .isInstanceOf(InvalidSignupInputException.class);
@@ -126,7 +126,7 @@ class AuthServiceChangePasswordTest {
 
     @Test
     void changePassword_newPasswordLongerThanMaximum_isRejected() {
-        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(localUser()));
+        when(userRepository.findByIdForUpdate(USER_ID)).thenReturn(Optional.of(localUser()));
         String tooLong = "a".repeat(129);
 
         assertThatThrownBy(() -> authService.changePassword(USER_ID, CURRENT_PASSWORD, tooLong))
@@ -140,7 +140,7 @@ class AuthServiceChangePasswordTest {
      */
     @Test
     void changePassword_newPasswordOver72Bytes_isRejectedAsInputNotServerError() {
-        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(localUser()));
+        when(userRepository.findByIdForUpdate(USER_ID)).thenReturn(Optional.of(localUser()));
         String korean25 = "가".repeat(25); // 75 bytes
 
         assertThatThrownBy(() -> authService.changePassword(USER_ID, CURRENT_PASSWORD, korean25))
@@ -149,7 +149,7 @@ class AuthServiceChangePasswordTest {
 
     @Test
     void changePassword_asciiNewPasswordOver72Bytes_isRejectedAsInputNotServerError() {
-        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(localUser()));
+        when(userRepository.findByIdForUpdate(USER_ID)).thenReturn(Optional.of(localUser()));
 
         assertThatThrownBy(() -> authService.changePassword(USER_ID, CURRENT_PASSWORD, "a".repeat(73)))
             .isInstanceOf(InvalidSignupInputException.class);
@@ -168,7 +168,7 @@ class AuthServiceChangePasswordTest {
      */
     @Test
     void changePassword_currentPasswordOver72Bytes_isRejectedAsCredentialsNotServerError() {
-        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(localUser()));
+        when(userRepository.findByIdForUpdate(USER_ID)).thenReturn(Optional.of(localUser()));
 
         assertThatThrownBy(() -> authService.changePassword(USER_ID, "가".repeat(25), "new-password-1234"))
             .isInstanceOf(InvalidCredentialsException.class);
@@ -176,7 +176,7 @@ class AuthServiceChangePasswordTest {
 
     @Test
     void changePassword_newPasswordSameAsCurrent_isRejected() {
-        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(localUser()));
+        when(userRepository.findByIdForUpdate(USER_ID)).thenReturn(Optional.of(localUser()));
 
         assertThatThrownBy(() -> authService.changePassword(USER_ID, CURRENT_PASSWORD, CURRENT_PASSWORD))
             .isInstanceOf(InvalidSignupInputException.class);
@@ -185,7 +185,7 @@ class AuthServiceChangePasswordTest {
     @Test
     void changePassword_success_storesNewHashAndStampsPasswordChangedAt() {
         User user = localUser();
-        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
+        when(userRepository.findByIdForUpdate(USER_ID)).thenReturn(Optional.of(user));
         when(userRepository.saveAndFlush(any(User.class))).thenAnswer(call -> call.getArgument(0));
         LocalDateTime before = LocalDateTime.now();
 
@@ -199,7 +199,7 @@ class AuthServiceChangePasswordTest {
     @Test
     void changePassword_success_invalidatesPendingResetLinks() {
         User user = localUser();
-        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
+        when(userRepository.findByIdForUpdate(USER_ID)).thenReturn(Optional.of(user));
         when(userRepository.saveAndFlush(any(User.class))).thenAnswer(call -> call.getArgument(0));
 
         authService.changePassword(USER_ID, CURRENT_PASSWORD, "new-password-1234");
@@ -219,7 +219,9 @@ class AuthServiceChangePasswordTest {
     @Test
     void changePassword_issuedRefreshToken_survivesTheStaleTokenCheck() {
         User user = localUser();
-        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
+        when(userRepository.findByIdForUpdate(USER_ID)).thenReturn(Optional.of(user));
+        // 변경은 배타 잠금, 재발급은 공유 잠금으로 읽는다(경쟁 조건 차단). 여기선 같은 사용자다.
+        when(userRepository.findByIdForShare(USER_ID)).thenReturn(Optional.of(user));
         when(userRepository.saveAndFlush(any(User.class))).thenAnswer(call -> call.getArgument(0));
 
         AuthTokenResponse issued = authService.changePassword(USER_ID, CURRENT_PASSWORD, "new-password-1234");
@@ -230,7 +232,8 @@ class AuthServiceChangePasswordTest {
     @Test
     void changePassword_refreshTokenIssuedBeforeTheChange_isStillRejected() {
         User user = localUser();
-        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
+        when(userRepository.findByIdForUpdate(USER_ID)).thenReturn(Optional.of(user));
+        when(userRepository.findByIdForShare(USER_ID)).thenReturn(Optional.of(user));
         when(userRepository.saveAndFlush(any(User.class))).thenAnswer(call -> call.getArgument(0));
         String tokenFromOtherDevice = jwtService.issueRefreshToken(user);
 

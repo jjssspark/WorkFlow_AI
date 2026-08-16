@@ -245,7 +245,9 @@ public class AuthService {
             throw new IllegalStateException(
                 "passwordResetTokenRepository 없이 만들어진 AuthService로는 비밀번호를 변경할 수 없다.");
         }
-        User user = userRepository.findById(userId)
+        // 배타 잠금으로 읽는다. 이 잠금이 없으면 아래 changedAt을 찍은 뒤 커밋되기 전에 도착한
+        // 재발급이 옛 passwordChangedAt을 읽고 통과해, 변경 후에도 살아남는 토큰을 만들어낸다.
+        User user = userRepository.findByIdForUpdate(userId)
             .orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다."));
         if (user.getPasswordHash() == null) {
             throw new GoogleAccountRequiredException(
@@ -280,10 +282,20 @@ public class AuthService {
         );
     }
 
+    /**
+     * 공유 잠금으로 읽는 이유는 {@link UserRepository#findByIdForShare} 참고. 일반 SELECT는 비밀번호
+     * 변경이 커밋되기 전이어도 막히지 않고 옛 값을 읽어, 폐기됐어야 할 세션이 새 토큰을 받아간다.
+     * 잠금에는 트랜잭션이 필요해 @Transactional을 붙인다.
+     *
+     * <p><strong>readOnly = true를 붙이면 안 된다.</strong> 조회만 하는 것처럼 보이지만, PostgreSQL은
+     * 읽기 전용 트랜잭션에서 SELECT ... FOR SHARE를 거부한다("cannot execute ... in a read-only
+     * transaction"). 붙이는 순간 재발급 전체가 죽는다.
+     */
+    @Transactional
     public AuthTokenResponse refresh(String refreshToken) {
         Claims claims = jwtService.parseRefreshToken(refreshToken);
         Long userId = Long.valueOf(claims.getSubject());
-        User user = userRepository.findById(userId)
+        User user = userRepository.findByIdForShare(userId)
             .orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다."));
         rejectIfIssuedBeforePasswordChange(claims, user);
         return issueTokens(user);
