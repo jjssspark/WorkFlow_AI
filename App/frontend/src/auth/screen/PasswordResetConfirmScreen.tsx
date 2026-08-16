@@ -7,7 +7,11 @@ import { apiFetch, ApiRequestError } from "../../global/api/apiClient";
 import { Button } from "../../global/component/ui/button";
 
 const MIN_PASSWORD_LENGTH = 8;
-const MAX_PASSWORD_LENGTH = 128;
+// bcrypt는 72바이트를 넘는 입력을 자르지 않고 거부한다. 글자 수가 아니라 UTF-8 바이트가 기준이라
+// 한글(3바이트)은 24자가 상한이다. 서버(PasswordPolicy)도 같은 값으로 막는다.
+const MAX_PASSWORD_BYTES = 72;
+
+const utf8Bytes = (value: string) => new TextEncoder().encode(value).length;
 
 export function PasswordResetConfirmScreen() {
   const [searchParams] = useSearchParams();
@@ -22,8 +26,14 @@ export function PasswordResetConfirmScreen() {
 
   const handleSubmit = async () => {
     if (submitting || !token) return;
-    if (password.length < MIN_PASSWORD_LENGTH || password.length > MAX_PASSWORD_LENGTH) {
-      setError(`비밀번호는 ${MIN_PASSWORD_LENGTH}자 이상 ${MAX_PASSWORD_LENGTH}자 이하로 입력해주세요.`);
+    if (password.length < MIN_PASSWORD_LENGTH) {
+      setError(`비밀번호는 ${MIN_PASSWORD_LENGTH}자 이상으로 입력해주세요.`);
+      return;
+    }
+    if (utf8Bytes(password) > MAX_PASSWORD_BYTES) {
+      setError(
+        `비밀번호가 너무 깁니다. ${MAX_PASSWORD_BYTES}바이트까지 쓸 수 있습니다(영문·숫자 ${MAX_PASSWORD_BYTES}자, 한글 24자).`,
+      );
       return;
     }
     if (password !== confirmPassword) {
@@ -115,7 +125,7 @@ export function PasswordResetConfirmScreen() {
                   <AuthInput
                     label="새 비밀번호"
                     type="password"
-                    placeholder="8자 이상 128자 이하"
+                    placeholder="8자 이상 (한글은 24자까지)"
                     value={password}
                     onChange={setPassword}
                     icon={Lock}

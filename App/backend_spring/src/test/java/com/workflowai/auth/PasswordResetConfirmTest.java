@@ -145,6 +145,35 @@ class PasswordResetConfirmTest extends PostgresRedisIntegrationTest {
             .orElseThrow().getUsedAt()).isNull();
     }
 
+    /**
+     * 글자 수만 세면 한글 25자(75바이트)가 정책을 통과해 encode()까지 간다. BCrypt는 72바이트 초과를
+     * 자르지 않고 던지므로 500이 나는데, 그 시점엔 이미 토큰이 소모된 뒤라 사용자는 메일을 다시 받아야
+     * 한다. "정책 위반은 토큰을 소모하기 전에 막는다"는 약속이 바이트 위반에서만 깨져 있었다.
+     */
+    @Test
+    @DisplayName("72바이트를 넘는 비밀번호는 거부하고 토큰을 소모하지 않는다")
+    void confirmReset_passwordOver72Bytes_rejectedAndTokenSurvives() {
+        saveToken("raw-token-8", LocalDateTime.now().plusMinutes(30));
+
+        assertThatThrownBy(() -> passwordResetService.confirmReset("raw-token-8", "가".repeat(25)))
+            .isInstanceOf(InvalidSignupInputException.class);
+
+        assertThat(tokenRepository.findByTokenHash(PasswordResetService.sha256Hex("raw-token-8"))
+            .orElseThrow().getUsedAt()).isNull();
+    }
+
+    @Test
+    @DisplayName("한글 24자(정확히 72바이트)는 재설정에 쓸 수 있다")
+    void confirmReset_passwordExactly72Bytes_isAccepted() {
+        saveToken("raw-token-9", LocalDateTime.now().plusMinutes(30));
+        String korean24 = "가".repeat(24);
+
+        passwordResetService.confirmReset("raw-token-9", korean24);
+
+        assertThat(passwordEncoder.matches(korean24, userRepository.findById(userId)
+            .orElseThrow().getPasswordHash())).isTrue();
+    }
+
     @Test
     @DisplayName("같은 토큰을 동시에 소비하려 하면 한쪽만 성공한다")
     void consumeIfUnused_sameTokenTwice_onlyFirstClaimsIt() {

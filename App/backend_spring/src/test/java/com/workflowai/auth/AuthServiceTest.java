@@ -1,6 +1,7 @@
 package com.workflowai.auth;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.ArgumentMatchers.any;
@@ -184,6 +185,37 @@ class AuthServiceTest {
             .isInstanceOf(InvalidSignupInputException.class);
     }
 
+    /**
+     * BCrypt는 72바이트를 넘는 입력을 자르지 않고 IllegalArgumentException을 던진다. 가입에는 상한이
+     * 아예 없어서 그대로 encode()까지 흘러가 500이 됐다. 한글은 UTF-8 3바이트라 25자면 걸린다.
+     */
+    @Test
+    void signup_passwordOver72Bytes_isRejectedAsInputNotServerError() {
+        assertThatThrownBy(() -> authService.signup(
+            "long@example.com", "가".repeat(25), "이름", "MEMBER", true, true, null, null))
+            .isInstanceOf(InvalidSignupInputException.class);
+
+        verify(userRepository, org.mockito.Mockito.never()).saveAndFlush(any());
+    }
+
+    @Test
+    void signup_asciiPasswordOver72Bytes_isRejectedAsInputNotServerError() {
+        assertThatThrownBy(() -> authService.signup(
+            "long2@example.com", "a".repeat(73), "이름", "MEMBER", true, true, null, null))
+            .isInstanceOf(InvalidSignupInputException.class);
+    }
+
+    /** 경계는 통과해야 한다 — 한글 24자가 정확히 72바이트다. */
+    @Test
+    void signup_passwordExactly72Bytes_isAccepted() {
+        when(userRepository.existsByEmail("edge@example.com")).thenReturn(false);
+        when(userRepository.saveAndFlush(any(User.class))).thenAnswer(call -> call.getArgument(0));
+
+        assertThatCode(() -> authService.signup(
+            "edge@example.com", "가".repeat(24), "이름", "MEMBER", true, true, null, null))
+            .doesNotThrowAnyException();
+    }
+
     @Test
     void signup_invalidEmail_throws() {
         assertThatThrownBy(() -> authService.signup("not-an-email", "12345678", "이름", "MEMBER", true, true, null, null))
@@ -355,7 +387,7 @@ class AuthServiceTest {
         org.springframework.test.util.ReflectionTestUtils.setField(user, "id", 1L);
         when(jwtService.parseRefreshToken("refresh-token")).thenReturn(claims);
         when(claims.getSubject()).thenReturn("1");
-        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(userRepository.findByIdForShare(1L)).thenReturn(Optional.of(user));
         when(jwtService.issueAccessToken(user)).thenReturn("new-access-token");
         when(jwtService.issueRefreshToken(user)).thenReturn("new-refresh-token");
         when(jwtService.accessTokenTtlSeconds()).thenReturn(1800L);
@@ -376,7 +408,7 @@ class AuthServiceTest {
         // 변경 시각보다 1초 전에 발급된 토큰 - 반드시 거부돼야 한다.
         when(claims.getIssuedAt()).thenReturn(
             Date.from(changedAt.minusSeconds(1).atZone(ZoneId.systemDefault()).toInstant()));
-        when(userRepository.findById(2L)).thenReturn(Optional.of(user));
+        when(userRepository.findByIdForShare(2L)).thenReturn(Optional.of(user));
 
         assertThatThrownBy(() -> authService.refresh("stale-refresh-token"))
             .isInstanceOf(InvalidTokenException.class);
@@ -393,7 +425,7 @@ class AuthServiceTest {
         when(claims.getSubject()).thenReturn("3");
         when(claims.getIssuedAt()).thenReturn(
             Date.from(LocalDateTime.of(2026, 8, 14, 12, 0, 30).atZone(ZoneId.systemDefault()).toInstant()));
-        when(userRepository.findById(3L)).thenReturn(Optional.of(user));
+        when(userRepository.findByIdForShare(3L)).thenReturn(Optional.of(user));
 
         assertThatThrownBy(() -> authService.refresh("same-second-refresh-token"))
             .isInstanceOf(InvalidTokenException.class);
@@ -409,7 +441,7 @@ class AuthServiceTest {
         when(claims.getSubject()).thenReturn("4");
         when(claims.getIssuedAt()).thenReturn(
             Date.from(changedAt.plusSeconds(1).atZone(ZoneId.systemDefault()).toInstant()));
-        when(userRepository.findById(4L)).thenReturn(Optional.of(user));
+        when(userRepository.findByIdForShare(4L)).thenReturn(Optional.of(user));
         when(jwtService.issueAccessToken(user)).thenReturn("access-token");
         when(jwtService.issueRefreshToken(user)).thenReturn("refresh-token");
         when(jwtService.accessTokenTtlSeconds()).thenReturn(1800L);
@@ -435,7 +467,7 @@ class AuthServiceTest {
         when(claims.getSubject()).thenReturn("5");
         when(claims.getIssuedAt()).thenReturn(
             Date.from(changedAt.minusSeconds(1).atZone(ZoneId.systemDefault()).toInstant()));
-        when(userRepository.findById(5L)).thenReturn(Optional.of(user));
+        when(userRepository.findByIdForShare(5L)).thenReturn(Optional.of(user));
 
         Throwable passwordChangeFailure = catchThrowable(() -> authService.refresh("stale-refresh-token-2"));
 
