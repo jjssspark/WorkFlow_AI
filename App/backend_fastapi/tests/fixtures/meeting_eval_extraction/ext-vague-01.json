@@ -1,6 +1,6 @@
 {
   "case_id": "ext-vague-01",
-  "scenario": "추출: 기한 미확정",
+  "scenario": "구어체:기한 미확정",
   "input": {
     "title": "재색인 스크립트 진행 상황",
     "meeting_date": "2026-08-14",

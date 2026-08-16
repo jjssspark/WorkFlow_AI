@@ -1,6 +1,6 @@
 {
   "case_id": "ext-request-01",
-  "scenario": "추출: 확인 요청",
+  "scenario": "구어체:확인 요청",
   "input": {
     "title": "결제 연동 문서 보완",
     "meeting_date": "2026-08-14",

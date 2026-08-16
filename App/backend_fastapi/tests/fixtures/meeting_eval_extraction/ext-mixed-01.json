@@ -1,6 +1,6 @@
 {
   "case_id": "ext-mixed-01",
-  "scenario": "추출: 잡담 혼재",
+  "scenario": "구어체:잡담 혼재",
   "input": {
     "title": "업무 보드 아바타 표시 논의",
     "meeting_date": "2026-08-14",

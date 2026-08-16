@@ -1,6 +1,6 @@
 {
   "case_id": "ext-assign-01",
-  "scenario": "추출: 지시형 배정",
+  "scenario": "구어체:지시형 배정",
   "input": {
     "title": "로그인 실패율 대응 회의",
     "meeting_date": "2026-08-14",

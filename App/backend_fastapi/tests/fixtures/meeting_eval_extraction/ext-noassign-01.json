@@ -1,6 +1,6 @@
 {
   "case_id": "ext-noassign-01",
-  "scenario": "추출: 담당자 미정",
+  "scenario": "구어체:담당자 미정",
   "input": {
     "title": "배포 스크립트 점검 논의",
     "meeting_date": "2026-08-14",

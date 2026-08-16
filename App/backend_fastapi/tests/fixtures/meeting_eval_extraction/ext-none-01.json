@@ -1,6 +1,6 @@
 {
   "case_id": "ext-none-01",
-  "scenario": "추출: 할 일 없음",
+  "scenario": "구어체:할 일 없음",
   "input": {
     "title": "스프린트 지표 공유",
     "meeting_date": "2026-08-14",

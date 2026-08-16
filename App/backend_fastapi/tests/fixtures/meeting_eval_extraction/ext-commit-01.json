@@ -1,6 +1,6 @@
 {
   "case_id": "ext-commit-01",
-  "scenario": "추출: 명시적 자원",
+  "scenario": "구어체:명시적 자원",
   "input": {
     "title": "검색 색인 중복 논의",
     "meeting_date": "2026-08-14",

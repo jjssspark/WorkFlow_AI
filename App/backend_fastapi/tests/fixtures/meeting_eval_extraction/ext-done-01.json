@@ -1,6 +1,6 @@
 {
   "case_id": "ext-done-01",
-  "scenario": "추출: 완료 보고",
+  "scenario": "구어체:완료 보고",
   "input": {
     "title": "폴백 로직 완료 보고",
     "meeting_date": "2026-08-14",

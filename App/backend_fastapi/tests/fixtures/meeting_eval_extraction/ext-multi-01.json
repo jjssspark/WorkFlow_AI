@@ -1,6 +1,6 @@
 {
   "case_id": "ext-multi-01",
-  "scenario": "추출: 다건",
+  "scenario": "구어체:다건",
   "input": {
     "title": "비밀번호 재설정 메일 개선",
     "meeting_date": "2026-08-14",
