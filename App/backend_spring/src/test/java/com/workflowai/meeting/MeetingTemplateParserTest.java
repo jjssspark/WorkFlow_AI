@@ -225,4 +225,23 @@ class MeetingTemplateParserTest {
         assertThat(MeetingTemplateParser.parse(null)).isEqualTo(Optional.empty());
         assertThat(MeetingTemplateParser.parse("   ")).isEqualTo(Optional.empty());
     }
+
+    @Test
+    void 예시_행과_안내_문구는_실행항목으로_잡히지_않는다() {
+        String text = String.join("\n",
+            "회의내용", "로그인 오류를 논의했다.",
+            "결정사항", "원인 파악을 우선한다.",
+            "실행항목",
+            "우선순위", "내용 (누가 · 무엇을 · 언제까지)",
+            "[ ] 긴급    [ ] 보통    [ ] 낮음", "(예시) 박지수 · 로그인 오류 원인 파악 · 8/20",
+            "[v] 긴급    [ ] 보통    [ ] 낮음", "유소은 · 세션 만료 확인 · 8/22",
+            "※ 항목이 더 필요하면 표에서 행을 추가하세요.",
+            "비고", "없음");
+
+        MeetingSections sections = MeetingTemplateParser.parse(text).orElseThrow();
+
+        assertThat(sections.todos()).doesNotContain("(예시)");
+        assertThat(sections.todos()).doesNotContain("항목이 더 필요하면");
+        assertThat(sections.todos()).contains("유소은 · 세션 만료 확인 · 8/22");
+    }
 }
