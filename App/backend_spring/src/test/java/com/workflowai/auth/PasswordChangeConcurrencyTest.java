@@ -33,6 +33,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * <p>다만 1.1초 대기 하나는 필요하다. {@code iat}은 JWT 스펙상 초 단위라, 기준 시각과 같은 초에
  * 발급된 토큰은 경계 규칙(&lt;=)이 이미 거부한다. 초를 넘겨야 "살아남는 토큰"이 실제로 만들어진다.
  */
+@org.springframework.test.context.TestPropertySource(properties = "workflow.db.lock-timeout=1s")
 class PasswordChangeConcurrencyTest extends PostgresRedisIntegrationTest {
 
     private static final String OLD_PASSWORD = "OldPassword!123";
@@ -113,6 +114,52 @@ class PasswordChangeConcurrencyTest extends PostgresRedisIntegrationTest {
         assertThat(minted)
             .as("변경이 진행 중이면 옛 리프레시 토큰의 재발급은 거부돼야 한다")
             .isNull();
+    }
+
+    /**
+     * 잠금을 도입한 대가로 생긴 위험을 막는다. 대기에 상한이 없으면 잠금을 기다리는 재발급 요청이
+     * 커넥션을 붙든 채 무기한 멈춰 있고, 커넥션 풀이 4개뿐이라 무관한 사용자까지 커넥션을 못 받는다.
+     *
+     * <p>여기서는 변경 트랜잭션이 잠금을 오래 쥐고 있게 만든 뒤, 재발급이 <em>커밋을 기다리지 않고</em>
+     * 상한 시간 안에 끊기는지를 본다. 상한이 없으면 이 스레드는 커밋까지 계속 붙들려 있다.
+     */
+    @Test
+    @DisplayName("잠금이 오래 잡혀 있으면 재발급은 커밋을 기다리지 않고 상한 시간 안에 끊긴다")
+    void refresh_whenLockHeldTooLong_failsFastInsteadOfWaitingForCommit() throws InterruptedException {
+        User user = seedUser("race-timeout@workflow.test");
+        String oldRefreshToken = jwtService.issueRefreshToken(user);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        AtomicReference<Long> waitedMs = new AtomicReference<>();
+
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            authService.changePassword(user.getId(), OLD_PASSWORD, NEW_PASSWORD);
+            Thread waiter = new Thread(() -> {
+                long start = System.nanoTime();
+                try {
+                    authService.refresh(oldRefreshToken);
+                } catch (Throwable t) {
+                    failure.set(t);
+                } finally {
+                    waitedMs.set((System.nanoTime() - start) / 1_000_000);
+                }
+            });
+            waiter.start();
+            try {
+                // 상한(테스트 설정 1초)보다 넉넉히 오래 잠금을 쥐고 있는다.
+                waiter.join(6000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(e);
+            }
+        });
+
+        assertThat(waitedMs.get())
+            .as("커밋을 기다렸다면 이 값이 잠금 보유 시간만큼 커진다 - 상한 안에서 끊겨야 한다")
+            .isNotNull()
+            .isLessThan(5000L);
+        assertThat(failure.get())
+            .as("무기한 대기 대신 잠금 획득 실패로 끊겨야 한다")
+            .isNotNull();
     }
 
     @Test

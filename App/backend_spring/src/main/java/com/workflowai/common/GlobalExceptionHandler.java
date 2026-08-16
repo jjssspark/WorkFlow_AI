@@ -5,6 +5,7 @@ import com.workflowai.project.ProjectScheduleException;
 import com.workflowai.security.InvalidTokenException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -50,6 +51,18 @@ public class GlobalExceptionHandler {
         log.debug("토큰 거부: {}", e.getMessage());
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
             .body(ApiResponse.fail("INVALID_TOKEN", "유효하지 않은 토큰입니다."));
+    }
+
+    /**
+     * 잠금 대기 상한(UserRepository#applyLockTimeout)에 걸린 경우다. 같은 계정에 대한 비밀번호
+     * 변경이 진행 중이라 잠깐 못 읽은 것이지 서버 결함이 아니므로, 500이 아니라 "잠시 후 다시"로
+     * 안내한다. 상한이 없으면 이 요청은 커넥션을 붙든 채 무기한 멈춰 있었을 것이다.
+     */
+    @ExceptionHandler(PessimisticLockingFailureException.class)
+    public ResponseEntity<ApiResponse<Void>> handleLockTimeout(PessimisticLockingFailureException e) {
+        log.warn("행 잠금 획득 실패: {}", e.getMessage());
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+            .body(ApiResponse.fail("RESOURCE_BUSY", "처리 중입니다. 잠시 후 다시 시도해주세요."));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

@@ -14,6 +14,7 @@ import java.util.Locale;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -38,6 +39,8 @@ public class PasswordResetService {
     private final AsyncMailDispatcher asyncMailDispatcher;
     private final PasswordEncoder passwordEncoder;
     private final String frontendBaseUrl;
+    /** 잠금 대기 상한. UserRepository#applyLockTimeout 참고. */
+    private final String lockTimeout;
     private final SecureRandom secureRandom = new SecureRandom();
 
     public PasswordResetService(
@@ -47,11 +50,24 @@ public class PasswordResetService {
         PasswordEncoder passwordEncoder,
         @Value("${workflow.frontend.base-url}") String frontendBaseUrl
     ) {
+        this(userRepository, tokenRepository, asyncMailDispatcher, passwordEncoder, frontendBaseUrl, "3s");
+    }
+
+    @Autowired
+    public PasswordResetService(
+        UserRepository userRepository,
+        PasswordResetTokenRepository tokenRepository,
+        AsyncMailDispatcher asyncMailDispatcher,
+        PasswordEncoder passwordEncoder,
+        @Value("${workflow.frontend.base-url}") String frontendBaseUrl,
+        @Value("${workflow.db.lock-timeout:3s}") String lockTimeout
+    ) {
         this.userRepository = userRepository;
         this.tokenRepository = tokenRepository;
         this.asyncMailDispatcher = asyncMailDispatcher;
         this.passwordEncoder = passwordEncoder;
         this.frontendBaseUrl = frontendBaseUrl;
+        this.lockTimeout = lockTimeout;
     }
 
     @Transactional
@@ -122,6 +138,7 @@ public class PasswordResetService {
         //     후에도 살아남는 토큰이 만들어진다(AuthService.refresh의 공유 잠금과 짝을 이룬다).
         // (2) 잠금 순서를 changePassword와 같은 "사용자 → 토큰"으로 맞춘다. 토큰을 먼저 잠그면
         //     두 흐름이 서로 반대 순서로 잠가 교착이 난다.
+        userRepository.applyLockTimeout(lockTimeout);
         User user = userRepository.findByIdForUpdate(token.getUserId())
             .orElseThrow(() -> new InvalidResetTokenException(
                 "재설정 링크가 만료되었거나 이미 사용되었습니다. 다시 요청해 주세요."));
