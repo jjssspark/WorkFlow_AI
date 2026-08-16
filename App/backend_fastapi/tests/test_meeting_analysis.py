@@ -4,6 +4,7 @@ import json
 import logging
 from unittest.mock import patch
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -766,6 +767,39 @@ def test_analyze_json_fallback_warnings_do_not_expose_exception_details(monkeypa
     assert "credential-sentinel" not in caplog.text
     assert "private.example" not in caplog.text
     assert "민감한 회의 원문" not in caplog.text
+
+
+def test_analyze_json_fallback_warning_logs_http_status_code(monkeypatch, caplog):
+    # errorType 만으로는 401(토큰/권한)과 404(모델), 429(레이트리밋), 5xx(서버)를 구분할 수
+    # 없어, HF 티어가 상시로 0점을 내도 운영에서 원인을 알 방법이 없었다. 상태 코드가
+    # 로그에 남는지 검증한다. 본문은 토큰을 에코할 수 있으므로 로그에 남으면 안 된다.
+    monkeypatch.setenv("MEETING_ANALYSIS_PROVIDER", "huggingface")
+    monkeypatch.setenv("HF_TOKEN", "configured-test-token")
+    request = AnalyzeRequest(
+        title="정기회의",
+        meeting_date="2026-07-23",
+        text="회의 내용",
+        participants=["김민준"],
+    )
+    fake_request = httpx.Request("POST", "https://router.huggingface.co/v1/chat/completions")
+    fake_response = httpx.Response(
+        401,
+        request=fake_request,
+        text="BODY-MUST-NOT-BE-LOGGED",
+    )
+    http_error = httpx.HTTPStatusError("401 Unauthorized", request=fake_request, response=fake_response)
+
+    with (
+        patch("app.main.analyze_meeting_with_huggingface", side_effect=http_error),
+        patch("app.main.analyze_meeting_with_ollama", return_value=analyze_meeting(request)),
+        caplog.at_level(logging.WARNING),
+    ):
+        result = _analyze_json_uncached(request)
+
+    assert result.summary
+    assert "errorType=HTTPStatusError" in caplog.text
+    assert "httpStatus=401" in caplog.text
+    assert "BODY-MUST-NOT-BE-LOGGED" not in caplog.text
 
 
 def test_analyze_meeting_with_ollama_uses_fast_default_model_and_bounded_options(monkeypatch):

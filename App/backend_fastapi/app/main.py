@@ -323,9 +323,15 @@ def _analyze_by_provider(request: AnalyzeRequest) -> MeetingAnalysisResult:
         try:
             return analyze_meeting_with_huggingface(request)
         except Exception as exception:
+            # errorType 만으로는 401(토큰/권한)·404(모델)·429(레이트리밋)·5xx(서버) 를 구분할 수
+            # 없어 운영에서 원인을 알 수 없었다(HF 티어가 12케이스 전부 0점이었는데도 미검출).
+            # httpx.HTTPStatusError 는 response 를 들고 있으므로 상태 코드만 꺼낸다 - 본문은
+            # 토큰을 에코할 수 있어 절대 로그에 남기지 않는다.
+            status_code = getattr(getattr(exception, "response", None), "status_code", None)
             logger.warning(
-                "Hugging Face 회의록 분석 실패, Ollama/규칙 기반 분석으로 대체합니다. errorType=%s",
+                "Hugging Face 회의록 분석 실패, Ollama/규칙 기반 분석으로 대체합니다. errorType=%s httpStatus=%s",
                 type(exception).__name__,
+                status_code if status_code is not None else "N/A",
             )
     elif provider in {"huggingface", "hf"}:
         logger.warning("MEETING_ANALYSIS_PROVIDER=%s 이지만 HF_TOKEN이 없어 Ollama/규칙 기반 분석으로 대체합니다.", provider)
