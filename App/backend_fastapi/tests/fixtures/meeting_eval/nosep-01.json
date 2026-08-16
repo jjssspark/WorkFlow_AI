@@ -1,0 +1,41 @@
+{
+  "case_id": "nosep-01",
+  "scenario": "구분자 생략",
+  "input": {
+    "title": "알림 중복 제거 회의",
+    "meeting_date": "2026-08-12",
+    "meeting_kind": "개발회의",
+    "source_type": "document",
+    "participants": ["박지수", "유소은"],
+    "sections": {
+      "discussion": "박지수: 최근 사용자들이 같은 알림을 여러 번 받는다는 문의가 늘고 있습니다.\n유소은: 알림 발송 큐에서 중복 삽입이 일어나는 것 같습니다.",
+      "decisions": "알림 중복 발송 원인을 먼저 파악하고 중복 제거 로직을 적용하기로 한다.",
+      "todos": "[v] 긴급    [ ] 보통    [ ] 낮음\n박지수가 알림 중복 원인을 8월 14일까지 파악하기로 했다\n[ ] 긴급    [v] 보통    [ ] 낮음\n유소은은 중복 제거 쿼리를 검토한다",
+      "issues": "알림 발송 로그가 짧게 보관되어 있어 원인 분석이 오래 걸릴 수 있다."
+    }
+  },
+  "golden": {
+    "todos": [
+      {
+        "evidence_id": "T1",
+        "title": "알림 중복 원인 파악",
+        "assignee": "박지수",
+        "due_date": "2026-08-14",
+        "priority": "HIGH",
+        "evidence_snippet": "알림 중복 원인"
+      },
+      {
+        "evidence_id": "T2",
+        "title": "중복 제거 쿼리 검토",
+        "assignee": "유소은",
+        "due_date": null,
+        "priority": "MEDIUM",
+        "evidence_snippet": "중복 제거 쿼리"
+      }
+    ],
+    "summary_checklist": [
+      "알림 중복 원인 파악과 쿼리 검토가 요약에 담겼는가",
+      "회의록 원문에 없는 날짜나 이름이 요약에 없는가"
+    ]
+  }
+}

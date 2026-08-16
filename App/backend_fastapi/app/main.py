@@ -58,12 +58,16 @@ DEFAULT_OLLAMA_HOST = "http://localhost:11434"
 DEFAULT_MEETING_ANALYSIS_MODEL = "qwen2.5:1.5b"
 DEFAULT_MEETING_ANALYSIS_TIMEOUT_SECONDS = 20.0
 DEFAULT_MEETING_ANALYSIS_MAX_CHARS = 6000
-DEFAULT_MEETING_ANALYSIS_NUM_PREDICT = 650
+# To-Do 1건이 늘 때마다 완성 길이가 대략 90토큰씩 늘어난다. 실측하면 To-Do 6건짜리 회의가
+# 924토큰을 썼는데, 예전 상한(HF 900 / Ollama 650)은 그 지점에서 JSON을 문자열 중간에 끊었다.
+# 잘린 JSON은 파싱에서 죽고 폴백이 조용히 규칙 기반까지 떨어져, 사용자에게는 기계 문구 요약이
+# 나갔다. 실사용 회의는 To-Do가 더 많을 수 있으므로 여유를 크게 둔다.
+DEFAULT_MEETING_ANALYSIS_NUM_PREDICT = 2048
 DEFAULT_MEETING_ANALYSIS_KEEP_ALIVE = "5m"
 DEFAULT_OLLAMA_ANALYSIS_TEMPERATURE = 0.1
 DEFAULT_HF_MEETING_ANALYSIS_MODEL = "Qwen/Qwen3-4B-Instruct-2507"
 DEFAULT_HF_MEETING_ANALYSIS_TIMEOUT_SECONDS = 35.0
-DEFAULT_HF_MEETING_ANALYSIS_MAX_TOKENS = 900
+DEFAULT_HF_MEETING_ANALYSIS_MAX_TOKENS = 2048  # 사유는 NUM_PREDICT 주석 참조
 DEFAULT_HF_MEETING_ANALYSIS_TEMPERATURE = 0.1
 HF_CHAT_COMPLETIONS_URL = "https://router.huggingface.co/v1/chat/completions"
 # v2: 요청에 sections(양식 기반 섹션 본문)가 추가됐다. 올리지 않으면 같은 텍스트의 기존 캐시가
@@ -323,9 +327,15 @@ def _analyze_by_provider(request: AnalyzeRequest) -> MeetingAnalysisResult:
         try:
             return analyze_meeting_with_huggingface(request)
         except Exception as exception:
+            # errorType 만으로는 401(토큰/권한)·404(모델)·429(레이트리밋)·5xx(서버) 를 구분할 수
+            # 없어 운영에서 원인을 알 수 없었다(HF 티어가 12케이스 전부 0점이었는데도 미검출).
+            # httpx.HTTPStatusError 는 response 를 들고 있으므로 상태 코드만 꺼낸다 - 본문은
+            # 토큰을 에코할 수 있어 절대 로그에 남기지 않는다.
+            status_code = getattr(getattr(exception, "response", None), "status_code", None)
             logger.warning(
-                "Hugging Face 회의록 분석 실패, Ollama/규칙 기반 분석으로 대체합니다. errorType=%s",
+                "Hugging Face 회의록 분석 실패, Ollama/규칙 기반 분석으로 대체합니다. errorType=%s httpStatus=%s",
                 type(exception).__name__,
+                status_code if status_code is not None else "N/A",
             )
     elif provider in {"huggingface", "hf"}:
         logger.warning("MEETING_ANALYSIS_PROVIDER=%s 이지만 HF_TOKEN이 없어 Ollama/규칙 기반 분석으로 대체합니다.", provider)
@@ -578,11 +588,14 @@ def analyze_meeting_with_ollama(request: AnalyzeRequest) -> MeetingAnalysisResul
         format="json",
         options={
             "temperature": temperature,
-            "num_ctx": 4096,
+            # 프롬프트만 1,400토큰대이므로, num_predict를 늘려도 컨텍스트 창이 4096이면
+            # 이번엔 창 쪽에서 잘린다. 출력 상한과 함께 올려야 상한 상향이 실제로 먹는다.
+            "num_ctx": 8192,
             "num_predict": num_predict,
         },
         keep_alive=keep_alive,
     )
+    _warn_if_truncated(response.get("done_reason"), "Ollama", "MEETING_ANALYSIS_NUM_PREDICT", num_predict)
     raw = response["message"]["content"]
     result = parse_ollama_analysis_response(raw, request)
     logger.info("Ollama 회의록 분석 성공. model=%s", model)
@@ -619,10 +632,28 @@ def analyze_meeting_with_huggingface(request: AnalyzeRequest) -> MeetingAnalysis
         response.raise_for_status()
         body = response.json()
 
-    raw = body["choices"][0]["message"]["content"]
+    choice = body["choices"][0]
+    _warn_if_truncated(choice.get("finish_reason"), "Hugging Face", "HF_MEETING_ANALYSIS_MAX_TOKENS", max_tokens)
+    raw = choice["message"]["content"]
     result = parse_ollama_analysis_response(raw, request)
     logger.info("Hugging Face 회의록 분석 성공. model=%s", model)
     return result
+
+
+def _warn_if_truncated(reason: Optional[str], provider: str, setting: str, limit: int) -> None:
+    """출력 상한에 걸려 잘린 응답을 로그에 남긴다.
+
+    잘린 JSON은 곧이어 파싱에서 죽는데, 그 예외는 'Unterminated string'만 남겨서
+    상한 문제인지 모델이 망가진 것인지 구분되지 않는다. 파싱 전에 여기서 한 줄 남긴다.
+    """
+    if reason != "length":
+        return
+    logger.warning(
+        "%s 응답이 잘렸습니다. 출력 상한에 걸려 JSON이 완성되지 않았습니다. setting=%s limit=%d",
+        provider,
+        setting,
+        limit,
+    )
 
 
 def _huggingface_configured() -> bool:

@@ -4,6 +4,7 @@ import json
 import logging
 from unittest.mock import patch
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -149,13 +150,13 @@ def test_analyze_json_cache_key_sorts_participant_copy_without_mutating_request(
         ("MEETING_ANALYSIS_MODEL", "model-a", "model-b"),
         ("MEETING_ANALYSIS_TIMEOUT_SECONDS", "20", "21"),
         ("MEETING_ANALYSIS_MAX_CHARS", "6000", "5000"),
-        ("MEETING_ANALYSIS_NUM_PREDICT", "650", "700"),
+        ("MEETING_ANALYSIS_NUM_PREDICT", "2048", "2049"),
         ("MEETING_ANALYSIS_KEEP_ALIVE", "5m", "10m"),
         ("OLLAMA_ANALYSIS_TEMPERATURE", "0.1", "0.2"),
         ("HF_MEETING_ANALYSIS_ENDPOINT", "https://hf-a.example/v1", "https://hf-b.example/v1"),
         ("HF_MEETING_ANALYSIS_MODEL", "hf-model-a", "hf-model-b"),
         ("HF_MEETING_ANALYSIS_TIMEOUT_SECONDS", "35", "36"),
-        ("HF_MEETING_ANALYSIS_MAX_TOKENS", "900", "901"),
+        ("HF_MEETING_ANALYSIS_MAX_TOKENS", "2048", "2049"),
         ("HF_MEETING_ANALYSIS_TEMPERATURE", "0.1", "0.2"),
         ("HF_TOKEN", "", "configured-test-token"),
     ],
@@ -768,6 +769,39 @@ def test_analyze_json_fallback_warnings_do_not_expose_exception_details(monkeypa
     assert "민감한 회의 원문" not in caplog.text
 
 
+def test_analyze_json_fallback_warning_logs_http_status_code(monkeypatch, caplog):
+    # errorType 만으로는 401(토큰/권한)과 404(모델), 429(레이트리밋), 5xx(서버)를 구분할 수
+    # 없어, HF 티어가 상시로 0점을 내도 운영에서 원인을 알 방법이 없었다. 상태 코드가
+    # 로그에 남는지 검증한다. 본문은 토큰을 에코할 수 있으므로 로그에 남으면 안 된다.
+    monkeypatch.setenv("MEETING_ANALYSIS_PROVIDER", "huggingface")
+    monkeypatch.setenv("HF_TOKEN", "configured-test-token")
+    request = AnalyzeRequest(
+        title="정기회의",
+        meeting_date="2026-07-23",
+        text="회의 내용",
+        participants=["김민준"],
+    )
+    fake_request = httpx.Request("POST", "https://router.huggingface.co/v1/chat/completions")
+    fake_response = httpx.Response(
+        401,
+        request=fake_request,
+        text="BODY-MUST-NOT-BE-LOGGED",
+    )
+    http_error = httpx.HTTPStatusError("401 Unauthorized", request=fake_request, response=fake_response)
+
+    with (
+        patch("app.main.analyze_meeting_with_huggingface", side_effect=http_error),
+        patch("app.main.analyze_meeting_with_ollama", return_value=analyze_meeting(request)),
+        caplog.at_level(logging.WARNING),
+    ):
+        result = _analyze_json_uncached(request)
+
+    assert result.summary
+    assert "errorType=HTTPStatusError" in caplog.text
+    assert "httpStatus=401" in caplog.text
+    assert "BODY-MUST-NOT-BE-LOGGED" not in caplog.text
+
+
 def test_analyze_meeting_with_ollama_uses_fast_default_model_and_bounded_options(monkeypatch):
     monkeypatch.delenv("MEETING_ANALYSIS_MODEL", raising=False)
     monkeypatch.delenv("MEETING_ANALYSIS_TIMEOUT_SECONDS", raising=False)
@@ -807,7 +841,7 @@ def test_analyze_meeting_with_ollama_uses_fast_default_model_and_bounded_options
     assert result.summary == "요약"
     assert fake_client.timeout == 20.0
     assert fake_client.chat_kwargs["model"] == "qwen2.5:1.5b"
-    assert fake_client.chat_kwargs["options"]["num_predict"] == 650
+    assert fake_client.chat_kwargs["options"]["num_predict"] == 2048
     assert fake_client.chat_kwargs["keep_alive"] == "5m"
 
 
@@ -883,9 +917,68 @@ def test_analyze_meeting_with_huggingface_uses_openai_compatible_router(monkeypa
     assert captured["endpoint"] == "https://router.huggingface.co/v1/chat/completions"
     assert captured["headers"]["Authorization"] == "Bearer hf_test_token"
     assert captured["json"]["model"] == "Qwen/Qwen3-4B-Instruct-2507"
-    assert captured["json"]["max_tokens"] == 900
+    assert captured["json"]["max_tokens"] == 2048
     assert captured["json"]["stream"] is False
     assert captured["timeout"] == 35.0
+
+
+def test_analyze_meeting_with_huggingface_warns_when_output_is_truncated(monkeypatch, caplog):
+    """상한에 걸려 잘린 응답은 JSON 파싱에서 죽는데, 그 예외만으로는 원인을 알 수 없다.
+
+    실제로 To-Do 6건짜리 회의가 완성에 924토큰을 써서 상한 900을 넘겼고, 남은 단서는
+    'Unterminated string' 뿐이라 상한 문제인지 모델이 망가진 것인지 구분되지 않았다.
+    """
+    monkeypatch.setenv("HF_TOKEN", "hf_test_token")
+    request = AnalyzeRequest(title="정기회의", meeting_date="2026-07-20", text="내용", participants=[])
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"choices": [{"message": {"content": '{"summary": "잘린'}, "finish_reason": "length"}]}
+
+    class FakeClient:
+        def __init__(self, timeout: float):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        def post(self, endpoint: str, headers: dict, json: dict):
+            return FakeResponse()
+
+    with caplog.at_level(logging.WARNING, logger="app.main"):
+        with patch("app.main.httpx.Client", FakeClient):
+            with pytest.raises(Exception):
+                analyze_meeting_with_huggingface(request)
+
+    assert any("응답이 잘렸습니다" in record.message for record in caplog.records)
+
+
+def test_analyze_meeting_with_ollama_warns_when_output_is_truncated(monkeypatch, caplog):
+    monkeypatch.setenv("MEETING_ANALYSIS_MODEL", "qwen2.5:1.5b")
+    request = AnalyzeRequest(title="정기회의", meeting_date="2026-07-20", text="내용", participants=[])
+
+    class FakeClient:
+        def __init__(self, host: str, timeout: float):
+            pass
+
+        def list(self):
+            return {"models": [{"name": "qwen2.5:1.5b"}]}
+
+        def chat(self, **kwargs):
+            return {"message": {"content": '{"summary": "잘린'}, "done_reason": "length"}
+
+    with caplog.at_level(logging.WARNING, logger="app.main"):
+        with patch("app.main.ollama.Client", return_value=FakeClient("http://localhost:11434", 20)):
+            with pytest.raises(Exception):
+                analyze_meeting_with_ollama(request)
+
+    assert any("응답이 잘렸습니다" in record.message for record in caplog.records)
 
 
 def test_analyze_meeting_with_huggingface_requires_token(monkeypatch):
