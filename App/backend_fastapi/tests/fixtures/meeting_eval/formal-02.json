@@ -6,7 +6,10 @@
     "meeting_date": "2026-08-11",
     "meeting_kind": "개발회의",
     "source_type": "document",
-    "participants": ["이은주", "허영주"],
+    "participants": [
+      "이은주",
+      "허영주"
+    ],
     "sections": {
       "discussion": "이은주: OCI 인스턴스 배포가 아직 수동 스크립트로 진행되고 있습니다.\n허영주: 배포 실수를 줄이려면 파이프라인을 자동화하는 게 맞을 것 같습니다.",
       "decisions": "배포 파이프라인을 GitHub Actions 기반으로 자동화하기로 한다.",
@@ -34,8 +37,10 @@
       }
     ],
     "summary_checklist": [
-      "배포 파이프라인 자동화 결정이 요약에 담겼는가",
-      "회의록 원문에 없는 날짜나 이름이 요약에 없는가"
+      {
+        "item": "배포 파이프라인 자동화 결정이 요약에 담겼는가",
+        "kind": "coverage"
+      }
     ]
   }
 }

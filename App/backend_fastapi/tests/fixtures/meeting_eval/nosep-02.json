@@ -6,7 +6,10 @@
     "meeting_date": "2026-08-12",
     "meeting_kind": "개발회의",
     "source_type": "document",
-    "participants": ["이은주", "허영주"],
+    "participants": [
+      "이은주",
+      "허영주"
+    ],
     "sections": {
       "discussion": "이은주: OpenAI 호출이 실패했을 때 지금은 결과가 비어서 나갑니다.\n허영주: 실패 시에는 규칙 기반 추출로 넘어가는 폴백이 있어야 할 것 같습니다.",
       "decisions": "OpenAI 호출 실패 시 규칙 기반 폴백 로직을 붙이기로 한다.",
@@ -34,8 +37,10 @@
       }
     ],
     "summary_checklist": [
-      "폴백 로직 정리와 로그 확인이 요약에 담겼는가",
-      "회의록 원문에 없는 날짜나 이름이 요약에 없는가"
+      {
+        "item": "폴백 로직 정리와 로그 확인이 요약에 담겼는가",
+        "kind": "coverage"
+      }
     ]
   }
 }

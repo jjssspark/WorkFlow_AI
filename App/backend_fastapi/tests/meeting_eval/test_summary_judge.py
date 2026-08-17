@@ -1,6 +1,58 @@
 from __future__ import annotations
 
-from meeting_eval.summary_judge import judge_summary
+from meeting_eval.summary_judge import COVERAGE, SAFETY, ChecklistItem, judge_summary
+
+
+def _vacuous_checklist():
+    return [
+        ChecklistItem("임베딩 모델 교체 결정이 요약에 담겼는가", COVERAGE),
+        ChecklistItem("요약에 적힌 날짜가 모두 회의록 원문에 나오는가", SAFETY),
+    ]
+
+
+def test_vacuous_summary_scores_zero():
+    """아무 말도 안 한 요약은 안전성 문항을 거저 통과한다.
+
+    두 축을 평균하던 시절에는 그것만으로 바닥값이 0.5였고, 날짜와 이름을 아예 쓰지 않는
+    규칙 기반 요약이 측정에서 1위(0.792)를 했다. 지어내지 않은 것은 담아낸 것이 아니다.
+    """
+    score = judge_summary(
+        "회의를 진행했습니다.",
+        [],
+        _vacuous_checklist(),
+        ask=lambda prompt: "아니오" if "담겼는가" in prompt else "예",
+    )
+
+    assert score.coverage == 0.0
+    assert score.safety == 1.0
+    assert score.score == 0.0
+
+
+def test_hallucinated_summary_forfeits_its_coverage():
+    """담아낸 내용이 아무리 많아도 지어낸 요약은 쓸 수 없다."""
+    score = judge_summary(
+        "임베딩 모델을 교체하기로 했다. 8월 30일까지 끝낸다.",
+        [],
+        _vacuous_checklist(),
+        ask=lambda prompt: "예" if "담겼는가" in prompt else "아니오",
+    )
+
+    assert score.coverage == 1.0
+    assert score.safety == 0.0
+    assert score.score == 0.0
+
+
+def test_safety_defaults_to_one_when_no_safety_item_is_declared():
+    """안전성 문항이 없다는 것은 '어길 제약이 없다'는 뜻이라 충실도가 그대로 점수가 된다.
+
+    충실도 쪽은 반대로 0.0이 기본값이다. 잰 것이 없으면 점수를 줄 근거도 없다.
+    """
+    score = judge_summary(
+        "요약", [], [ChecklistItem("항목1", COVERAGE)], ask=lambda prompt: "예"
+    )
+
+    assert score.safety == 1.0
+    assert score.score == 1.0
 
 
 def test_all_pass_scores_one():
