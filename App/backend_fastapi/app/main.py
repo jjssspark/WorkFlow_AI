@@ -14,7 +14,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from io import BytesIO
 from datetime import date
-from typing import List, Optional
+from typing import List, NamedTuple, Optional
 
 import httpx
 import ollama
@@ -416,42 +416,99 @@ def section_sentences(section_text: str, limit: int) -> List[str]:
     return results
 
 
-# 양식의 액션 아이템 표에서 사용자가 체크한 우선순위. "[v] 긴급" 처럼 대괄호 안에 표시한다.
+# 양식의 액션 아이템 표에서 사용자가 고른 우선순위.
+# 구양식(2열)은 "[v] 긴급"처럼 대괄호 안에 체크한다. 신양식(4열)은 우선순위 칸에 값만 적는다.
 _PRIORITY_LABELS = {"긴급": "HIGH", "보통": "MEDIUM", "낮음": "LOW"}
 _CHECKED_PRIORITY_PATTERN = re.compile(r"\[\s*[vVxXoO✓√]\s*\]\s*(긴급|보통|낮음)")
 _PRIORITY_ROW_PATTERN = re.compile(r"\[[^\]]*\]\s*(?:긴급|보통|낮음)")
 
 
-def parse_action_items(todos_section: str) -> List[tuple]:
-    """액션 아이템 표를 (체크된 우선순위, 내용) 쌍으로 읽는다.
+class ActionItem(NamedTuple):
+    """양식의 실행항목 한 행. 담당자·기한은 신양식의 지정 칸에서만 채워진다."""
 
-    docx 표는 행 순서대로 셀마다 한 줄로 풀리므로 "우선순위 줄 → 내용 줄" 순으로 나온다.
-    내용을 안 적은 빈 행은 우선순위 줄만 남으므로 버린다. 우선순위 줄 없이 그냥 적은
-    문장도 내용으로 받아준다(체크를 안 했을 뿐 할 일은 할 일이다).
+    priority: Optional[str]
+    content: str
+    assignee: str = ""
+    due_date: str = ""
+
+
+def parse_action_items(todos_section: str) -> List[ActionItem]:
+    """액션 아이템 표를 행 단위로 읽는다. 구양식과 신양식을 모두 받는다.
+
+    docx 추출기는 표를 셀마다 한 줄로 풀어내고 빈 셀은 줄 자체를 남기지 않는다.
+    그래서 열 위치로는 칸을 구분할 수 없고, 행 경계를 알려주는 표시가 따로 있어야 한다.
+
+    구양식(2열)은 "[ ] 긴급 [ ] 보통 [ ] 낮음" 체크줄이 그 표시다. 신양식(4열)은
+    우선순위 칸의 값(긴급/보통/낮음)이 행의 끝을 표시한다 - 그래서 양식이 그 칸을
+    비워두지 않고 "보통"을 미리 인쇄해 둔다.
     """
     if not todos_section or not todos_section.strip():
         return []
 
-    items: List[tuple] = []
+    lines = [line.strip() for line in todos_section.split("\n") if line.strip()]
+    if any(_PRIORITY_ROW_PATTERN.search(line) for line in lines):
+        return _parse_checkbox_rows(lines)
+    if any(line in _PRIORITY_LABELS for line in lines):
+        return _parse_four_column_rows(lines)
+    # 우선순위 표시가 하나도 없으면 양식 표가 아니라 자유 서술이다. 내용만 넘긴다.
+    return [ActionItem(None, line) for line in lines]
+
+
+def _parse_checkbox_rows(lines: List[str]) -> List[ActionItem]:
+    """구양식(2열): "우선순위 줄 → 내용 줄" 순으로 나온다.
+
+    내용을 안 적은 빈 행은 우선순위 줄만 남으므로 버린다.
+    """
+    items: List[ActionItem] = []
     pending_priority: Optional[str] = None
-    saw_priority_row = False
 
-    for line in todos_section.split("\n"):
-        stripped = line.strip()
-        if not stripped:
-            continue
-        if _PRIORITY_ROW_PATTERN.search(stripped):
-            checked = _CHECKED_PRIORITY_PATTERN.search(stripped)
+    for line in lines:
+        if _PRIORITY_ROW_PATTERN.search(line):
+            checked = _CHECKED_PRIORITY_PATTERN.search(line)
             pending_priority = _PRIORITY_LABELS[checked.group(1)] if checked else None
-            saw_priority_row = True
             continue
-        items.append((pending_priority, stripped))
+        items.append(ActionItem(pending_priority, line))
         pending_priority = None
-
-    # 우선순위 줄이 하나도 없으면 양식 표가 아니라 자유 서술이다. 그대로 내용만 넘긴다.
-    if not saw_priority_row:
-        return [(None, text) for _, text in items]
     return items
+
+
+def _parse_four_column_rows(lines: List[str]) -> List[ActionItem]:
+    """신양식(4열): 실행 항목 · 담당자 · 완료 기한 · 우선순위. 우선순위 값이 행의 끝이다."""
+    items: List[ActionItem] = []
+    buffer: List[str] = []
+
+    for line in lines:
+        priority = _PRIORITY_LABELS.get(line)
+        if priority is None:
+            buffer.append(line)
+            continue
+        if buffer:
+            items.append(_action_item_from_row(buffer, priority))
+        buffer = []
+
+    # 마지막 행의 우선순위를 사용자가 지웠을 수 있다. 그 행을 버리지 않고 파일 끝으로 닫는다.
+    if buffer:
+        items.append(_action_item_from_row(buffer, None))
+    return items
+
+
+def _action_item_from_row(cells: List[str], priority: Optional[str]) -> ActionItem:
+    """행에서 살아남은 줄들을 (내용, 담당자, 기한)으로 가른다.
+
+    빈 칸은 줄이 통째로 사라지므로 위치로 구분할 수 없다. 첫 줄은 실행 항목 칸이고
+    (그 칸이 비면 행 자체를 쓰지 않은 것이다), 나머지는 기한처럼 보이면 기한, 아니면
+    담당자로 본다. 담당자로 잘못 읽힌 값은 참석자 대조에서 걸러지므로 기한을 놓칠 뿐
+    엉뚱한 사람에게 배정되지는 않는다.
+    """
+    content, rest = cells[0], cells[1:]
+    assignee = ""
+    due_date = ""
+    for cell in rest:
+        if not due_date and _looks_like_due_slot(cell):
+            due_date = cell
+        elif not assignee:
+            assignee = cell
+    return ActionItem(priority, content, assignee, due_date)
 
 
 def build_todos_from_action_items(
@@ -475,8 +532,17 @@ def build_todos_from_action_items(
 
     allowed_names = _allowed_assignee_names(participants or [])
     todos: List[MeetingTodo] = []
-    for priority, sentence in action_items:
-        slot_assignee, title_source, due_slot = split_todo_cell(sentence)
+    for raw_item in action_items:
+        # 구양식 행은 담당자·기한 칸이 따로 없어 (우선순위, 내용) 두 값뿐이다.
+        # ActionItem 의 기본값이 나머지를 빈 칸으로 채운다.
+        item = ActionItem(*raw_item)
+        priority, sentence = item.priority, item.content
+        # 신양식은 담당자·기한이 각자 칸에 있어 문장을 쪼갤 필요가 없다. 구양식은 한 칸에
+        # "누가 · 무엇을 · 언제까지"를 이어 적으므로 그때만 쪼갠다.
+        if item.assignee or item.due_date:
+            slot_assignee, title_source, due_slot = item.assignee, sentence, item.due_date
+        else:
+            slot_assignee, title_source, due_slot = split_todo_cell(sentence)
         # 양식이 정한 "누가" 칸이 문장 추출보다 우선한다. 작성자가 지정 칸에 적은 것이
         # 문장에서 유추한 것보다 확실하고, "담당 미정"이라고 적은 것도 하나의 지정이다.
         assignee = slot_assignee if slot_assignee is not None else extract_assignee_candidate(sentence)
@@ -677,7 +743,7 @@ def build_section_hint(sections: Optional[MeetingSections]) -> str:
     return (
         "\n이 회의록은 정해진 양식으로 작성되어 섹션이 구분되어 있습니다. "
         "각 항목은 반드시 해당 섹션 안에서만 뽑으세요. "
-        "액션 아이템의 '[v] 긴급' 같은 표기는 작성자가 직접 고른 우선순위이니 임의로 바꾸지 말고, "
+        "액션 아이템의 '[v] 긴급'이나 '긴급/보통/낮음' 표기는 작성자가 직접 고른 우선순위이니 임의로 바꾸지 말고, "
         "담당자·기한·업무 내용을 문장에서 정확히 뽑아내는 데 집중하세요.\n\n" + body + "\n"
     )
 

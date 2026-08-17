@@ -18,7 +18,9 @@ def test_loads_case_with_sections_and_golden():
     assert [todo.evidence_id for todo in case.golden.todos] == ["T1", "T2"]
     assert case.golden.todos[0].due_date == "2026-08-14"
     assert case.golden.todos[0].priority == "HIGH"
-    assert len(case.golden.summary_checklist) == 2
+    assert [(item.text, item.kind) for item in case.golden.summary_checklist] == [
+        ("임베딩 모델 교체와 재색인 결정이 요약에 담겼는가", "coverage")
+    ]
 
 
 def test_cases_are_sorted_by_case_id():

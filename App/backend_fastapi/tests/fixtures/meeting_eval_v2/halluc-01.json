@@ -1,6 +1,6 @@
 {
   "case_id": "halluc-01",
-  "scenario": "환각 유도",
+  "scenario": "신양식 · 환각 유도",
   "input": {
     "title": "RAG 재색인 진행 상황 공유",
     "meeting_date": "2026-08-10",
@@ -13,7 +13,7 @@
     "sections": {
       "discussion": "박지수: 재색인 스크립트는 제가 마무리하겠습니다.\n유소은: 언제쯤 될까요?\n박지수: 다음 주쯤엔 되겠죠.",
       "decisions": "",
-      "todos": "[ ] 긴급    [v] 보통    [ ] 낮음\n박지수 · 재색인 스크립트 마무리 · 미정",
+      "todos": "재색인 스크립트 마무리\n박지수\n보통",
       "issues": ""
     }
   },

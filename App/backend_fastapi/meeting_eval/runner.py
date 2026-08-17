@@ -14,7 +14,9 @@ from meeting_eval.todo_scorer import TodoScore, score_todos
 logger = logging.getLogger(__name__)
 
 _ZERO_TODO = TodoScore(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0)
-_ZERO_SUMMARY = SummaryScore(verdicts=[], score=0.0)
+# 분석이 터진 케이스는 안전성도 0으로 둔다. 실패한 실행을 "지어내지 않았으니 안전함"
+# 으로 세면 장애가 안전성 평균을 끌어올린다.
+_ZERO_SUMMARY = SummaryScore(verdicts=[], score=0.0, coverage=0.0, safety=0.0)
 
 
 @dataclass(frozen=True)
@@ -38,6 +40,16 @@ class EvalReport:
     def mean_summary_score(self) -> float:
         return _mean([result.summary.score for result in self.results])
 
+    @property
+    def mean_coverage(self) -> float:
+        """담아야 할 것을 담았는가. 무성의한 요약이 떨어지는 축이다."""
+        return _mean([result.summary.coverage for result in self.results])
+
+    @property
+    def mean_safety(self) -> float:
+        """지어내지 않았는가. 아무 말도 안 하면 만점이라 단독으로 읽으면 안 된다."""
+        return _mean([result.summary.safety for result in self.results])
+
     def to_rows(self) -> List[dict]:
         return [
             {
@@ -52,6 +64,11 @@ class EvalReport:
                 "priority_accuracy": result.todo.priority_accuracy,
                 "fallback_matched": result.todo.fallback_matched,
                 "summary_score": result.summary.score,
+                "summary_coverage": result.summary.coverage,
+                "summary_safety": result.summary.safety,
+                # 안전성이 0인 이유를 CSV만 보고 알 수 있어야 한다. 없으면 매번 케이스를
+                # 다시 돌려 요약을 눈으로 확인하게 된다.
+                "invented_dates": " ".join(result.summary.invented_dates),
             }
             for result in self.results
         ]
