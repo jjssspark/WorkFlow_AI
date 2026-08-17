@@ -21,6 +21,7 @@ from app.main import (
     build_todos,
     clean_todo_title,
     extract_speaker_task_candidates,
+    MeetingTodo,
     normalize_text,
     parse_ollama_analysis_response,
     repair_ollama_todos,
@@ -998,6 +999,39 @@ def test_empty_model_result_is_respected_when_there_is_no_task_evidence():
     )
 
     assert repair_ollama_todos([], request) == []
+
+
+def test_model_todos_survive_when_fewer_than_declaration_sentences():
+    """선언 문장 수보다 To-Do가 적다는 이유로 모델 결과를 통째로 버리지 않는다.
+
+    정규식이 세는 '업무 선언 문장' 수는 실제 할 일 개수와 다르다. 문제 보고나 요청 발언이
+    함께 세어져, 정확히 뽑아낸 결과가 제목이 잘린 규칙 기반 결과("8/19까지 확인")로
+    교체됐다. 평가셋에서 이 분기가 걸린 4건은 전부 손해만 봤고 이득 본 건은 없었다.
+    """
+    request = AnalyzeRequest(
+        title="결제 연동 점검",
+        meeting_date="2026-08-14",
+        text=(
+            "김도현: 결제 연동 문서에서 테스트 키 발급 절차가 빠져 있습니다.\n"
+            "이은주: 제가 결제사에 문의해서 절차를 확인하고 8/20까지 공유하겠습니다."
+        ),
+        participants=["김도현", "이은주"],
+    )
+    todos = [
+        MeetingTodo(
+            title="테스트 키 발급 절차 확인",
+            description="결제사에 문의해 절차를 확인하고 공유한다.",
+            assignee_candidate="이은주",
+            due_date="2026-08-20",
+            priority="MEDIUM",
+            category="BACKEND",
+            evidence_text="이은주: 제가 결제사에 문의해서 절차를 확인하고 8/20까지 공유하겠습니다.",
+        )
+    ]
+
+    repaired = repair_ollama_todos(todos, request)
+
+    assert [todo.title for todo in repaired] == ["테스트 키 발급 절차 확인"]
 
 
 def test_analyze_meeting_with_huggingface_warns_when_output_is_truncated(monkeypatch, caplog):

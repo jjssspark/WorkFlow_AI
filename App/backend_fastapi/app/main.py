@@ -1401,10 +1401,13 @@ def repair_ollama_todos(todos: List[MeetingTodo], request: AnalyzeRequest) -> Li
         # 지표 공유 회의처럼 정답이 0건인 자리에 없는 할 일을 채워 넣었다.
         return todos
 
+    # 예전에는 "선언 문장 수보다 To-Do가 적으면 누락"으로 보고 여기서 함께 덮어썼다.
+    # 정규식이 세는 선언 문장에는 문제 보고나 요청 발언도 섞여 실제 할 일 수와 다르고,
+    # 덮어쓰기는 통째 교체라 정확히 뽑은 결과까지 제목이 잘린 규칙 기반 결과로 바뀌었다.
+    # 평가셋에서 이 조건이 걸린 4건은 전부 손해였고 이득 본 건은 없어 조건을 뺐다.
     has_placeholder = any(is_schema_placeholder(todo.title) or is_schema_placeholder(todo.description) for todo in todos)
     all_unassigned = bool(todos) and all(not todo.assignee_candidate for todo in todos)
-    missing_explicit_tasks = len(todos) < len(explicit_candidates)
-    if not todos or has_placeholder or all_unassigned or missing_explicit_tasks:
+    if not todos or has_placeholder or all_unassigned:
         logger.info("Ollama To-Do 결과를 회의록 원문 기반 담당자 추출로 보정합니다.")
         return build_todos(source_text, normalize_text(source_text), request.meeting_date, request.participants)
     return fill_missing_assignees_from_speaker_evidence(todos, explicit_candidates, request.participants)
