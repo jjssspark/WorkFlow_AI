@@ -202,6 +202,34 @@ class MeetingTemplateParserTest {
     }
 
     @Test
+    @DisplayName("신양식 실행항목 표의 열 제목은 실행항목 본문에서 빠진다")
+    void parse_fourColumnActionItemTemplate_dropsColumnHeaders() {
+        // 신양식 실행항목 표는 실행 항목 · 담당자 · 완료 기한 · 우선순위 4열이다.
+        // 추출기는 셀마다 한 줄로 풀고 빈 셀은 줄을 남기지 않으므로, 담당자를 비운 행은 두 줄로 나온다.
+        String filled = String.join("\n",
+            "회의내용",
+            "결제 모듈 진행 상황을 공유했다.",
+            "결정사항",
+            "PG사는 A사로 확정한다.",
+            "실행항목",
+            "실행 항목", "담당자", "완료 기한", "우선순위",
+            "결제 API 연동 마무리", "김민준", "8/10", "긴급",
+            "배포 스크립트 점검", "보통",
+            "※ 우선순위는 긴급 / 보통 / 낮음 중 하나를 적습니다. 비워두면 보통으로 처리됩니다.",
+            "비고",
+            "테스트 계정 발급이 늦어지고 있다."
+        );
+
+        MeetingSections sections = MeetingTemplateParser.parse(filled).orElseThrow();
+
+        assertThat(sections.todos().lines()).containsExactly(
+            "결제 API 연동 마무리", "김민준", "8/10", "긴급",
+            "배포 스크립트 점검", "보통"
+        );
+        assertThat(sections.issues()).isEqualTo("테스트 계정 발급이 늦어지고 있다.");
+    }
+
+    @Test
     @DisplayName("상단 정보란의 회의명·일시·참석자는 분석에 쓰지 않는다 — 업로드 모달 입력값이 단일 출처다")
     void parse_corporateTemplate_ignoresHeaderInfo() {
         String filled = String.join("\n",

@@ -128,8 +128,8 @@ def test_parse_action_items_pairs_priority_with_content():
     items = parse_action_items(TABLE_TODOS)
 
     assert items == [
-        ("HIGH", "김민준이 결제 API 연동을 8/10까지 마무리한다."),
-        ("LOW", "이서연이 테스트 코드를 다음 주까지 작성한다."),
+        ("HIGH", "김민준이 결제 API 연동을 8/10까지 마무리한다.", "", ""),
+        ("LOW", "이서연이 테스트 코드를 다음 주까지 작성한다.", "", ""),
     ]
 
 
@@ -142,7 +142,57 @@ def test_parse_action_items_without_checkboxes_keeps_text():
     """자유 서술로 적은 액션 아이템도 내용은 그대로 살린다."""
     items = parse_action_items("김민준이 문서를 작성한다.")
 
-    assert items == [(None, "김민준이 문서를 작성한다.")]
+    assert items == [(None, "김민준이 문서를 작성한다.", "", "")]
+
+
+# ── 새 양식(실행 항목 · 담당자 · 완료 기한 · 우선순위 4열) ─────────────────────
+
+# docx 추출기는 셀마다 한 줄로 풀고 빈 셀은 줄 자체를 남기지 않는다. 그래서 4열 표라도
+# 담당자를 비운 행은 세 줄이 아니라 두 줄로 나온다. 우선순위 값이 행의 끝을 표시한다.
+NEW_TABLE_TODOS = "\n".join([
+    "결제 API 연동 마무리",
+    "김민준",
+    "8/10",
+    "긴급",
+    "테스트 코드 작성",
+    "다음 주",
+    "보통",
+    "배포 스크립트 점검",
+    "보통",
+])
+
+
+def test_parse_action_items_reads_four_column_rows():
+    items = parse_action_items(NEW_TABLE_TODOS)
+
+    assert items == [
+        ("HIGH", "결제 API 연동 마무리", "김민준", "8/10"),
+        ("MEDIUM", "테스트 코드 작성", "", "다음 주"),
+        ("MEDIUM", "배포 스크립트 점검", "", ""),
+    ]
+
+
+def test_parse_action_items_ignores_untouched_template_rows():
+    """아무것도 안 적고 양식을 그대로 올리면 To-Do가 없다.
+
+    신양식은 빈 행마다 우선순위 "보통"이 미리 인쇄돼 있어, 손대지 않은 표는
+    "보통"만 줄줄이 나온다. 이걸 행으로 세면 빈 할 일이 다섯 개 생긴다.
+    """
+    assert parse_action_items("보통\n보통\n보통\n보통\n보통") == []
+
+
+def test_parse_action_items_keeps_row_without_trailing_priority():
+    """마지막 행의 우선순위를 지워도 그 행을 버리지 않는다.
+
+    우선순위 값이 행의 끝을 표시하는 구조라, 끝 표시가 없는 마지막 묶음은 파일 끝으로 닫는다.
+    (모든 행에서 우선순위를 지우면 자유 서술과 구분할 수 없으므로 그때는 줄마다 할 일로 본다.)
+    """
+    items = parse_action_items("결제 API 연동\n보통\n배포 스크립트 점검\n박지수")
+
+    assert items == [
+        ("MEDIUM", "결제 API 연동", "", ""),
+        (None, "배포 스크립트 점검", "박지수", ""),
+    ]
 
 
 def test_checked_priority_overrides_ai_guess():
