@@ -28,12 +28,21 @@ TEMPLATE = (
     / "frontend" / "public" / "templates" / "meeting-minutes-template.docx"
 )
 
-ACTION_ITEM_ROW = 7          # 실행항목 행
 ACTION_ITEM_MERGED_CELL = 1  # 1~3번 셀은 가로 병합된 동일 셀. 하나만 쓴다
+
+# 상단 정보란에서 참석인원·참석자를 뺀다. 참석자는 업로드 화면에서 고르는 값이 단일
+# 출처라 문서에 적어도 무시된다(MeetingTemplateParser 가 첫 헤딩 앞의 줄을 버리고,
+# 파서 테스트가 그 동작을 못박아 뒀다). 두 곳에 적게 하면 어긋날 때 어느 쪽이 맞는지 모른다.
+MEETING_TITLE_LABEL = "회의 제목"
 
 COLUMN_HEADERS = ["실행 항목", "담당자", "완료 기한", "우선순위"]
 # 기존 2열 표의 전체 폭(3240 x 2 = 6480 twip)을 그대로 나눈다. 표가 넓어지면 셀 밖으로 삐져나온다.
 COLUMN_WIDTHS = [3000, 1100, 1200, 1180]
+
+# 양식이 쓰던 글자 크기(w:sz 는 half-point 단위 - 16=8pt, 18=9pt).
+# 열마다 출신이 달라 그냥 두면 실행 항목 칸만 한 단계 작게 나온다.
+HEADER_FONT_SIZE = "16"
+BODY_FONT_SIZE = "18"
 DEFAULT_PRIORITY = "보통"
 BLANK_ROWS = 5
 
@@ -51,14 +60,24 @@ HINTS = [
 def _set_cell_text(cell, text: str, template_cell=None) -> None:
     """셀 글자를 바꾸되 글꼴은 표가 원래 쓰던 것을 따른다.
 
-    add_run 으로 새 run 을 만들면 기본 글꼴 크기가 적용돼 옆 칸과 크기가 달라진다.
+    양식의 라벨 칸은 "서식 없는 빈 run + 서식을 가진 run" 두 개로 되어 있다. 첫 run 에
+    글자를 쓰면 글꼴 지정이 통째로 빠져 그 칸만 기본 글꼴로 보인다. 서식(rPr)을 가진
+    run 을 찾아 거기에 쓰고, 나머지 run 은 지우지 않고 글자만 비운다 - run 을 지우면
+    문단에 남은 서식 정보까지 함께 사라진다.
     """
     paragraph = cell.paragraphs[0]
-    for run in list(paragraph.runs)[1:]:
-        run._element.getparent().remove(run._element)
-    if paragraph.runs:
-        paragraph.runs[0].text = text
+    runs = list(paragraph.runs)
+    if runs:
+        target = next(
+            (run for run in reversed(runs) if run._element.find(qn("w:rPr")) is not None),
+            runs[-1],
+        )
+        for run in runs:
+            if run is not target:
+                run.text = ""
+        target.text = text
         return
+
     run = paragraph.add_run(text)
     source = template_cell.paragraphs[0].runs if template_cell else []
     if source:
@@ -79,6 +98,7 @@ def _replace_nested_table(nested) -> None:
     _widen_row(header, len(COLUMN_HEADERS))
     for cell, text in zip(header.cells, COLUMN_HEADERS):
         _set_cell_text(cell, text)
+    _normalize_font_size(header, HEADER_FONT_SIZE)
 
     for values in [["", "", "", DEFAULT_PRIORITY] for _ in range(BLANK_ROWS)]:
         nested._tbl.append(copy.deepcopy(template_row))
@@ -86,6 +106,25 @@ def _replace_nested_table(nested) -> None:
         _widen_row(row, len(COLUMN_HEADERS))
         for cell, text in zip(row.cells, values):
             _set_cell_text(cell, text, template_cell=header.cells[0])
+        _normalize_font_size(row, BODY_FONT_SIZE)
+
+
+def _normalize_font_size(row, size: str) -> None:
+    """한 행의 글자 크기를 맞춘다.
+
+    4열은 옛 2열 표의 서로 다른 칸에서 복제돼 나온다. 체크 칸에서 온 열은 8pt,
+    내용 칸에서 온 열은 9pt라 그냥 두면 사용자가 타이핑할 때 열마다 크기가 다르다.
+    """
+    for cell in row.cells:
+        for paragraph in cell.paragraphs:
+            for run in paragraph.runs:
+                properties = run._element.find(qn("w:rPr"))
+                if properties is None:
+                    continue
+                for tag in ("w:sz", "w:szCs"):
+                    element = properties.find(qn(tag))
+                    if element is not None:
+                        element.set(qn("w:val"), size)
 
 
 def _rewrite_grid(nested) -> None:
@@ -133,9 +172,36 @@ def _replace_hints(action_cell) -> None:
         run.font.size = sample.font.size if sample is not None else Pt(9)
 
 
+def _row_index(table, label: str):
+    """라벨 칸으로 행을 찾는다. 행을 지우면 번호가 밀리므로 번호를 박아두지 않는다."""
+    for index, row in enumerate(table.rows):
+        if row.cells[0].text.strip() == label:
+            return index
+    return None
+
+
+def _trim_header_rows(table) -> None:
+    """상단 정보란을 회의 제목 · 작성자 · 일시 · 장소 네 칸으로 줄인다.
+
+    같은 스크립트를 두 번 돌려도 결과가 같도록, 이미 고친 라벨은 건너뛴다.
+    """
+    kind_row = _row_index(table, "회의종류")
+    if kind_row is not None:
+        _set_cell_text(table.rows[kind_row].cells[0], MEETING_TITLE_LABEL)
+
+    attendee_row = _row_index(table, "참석인원")
+    if attendee_row is not None:
+        table.rows[attendee_row]._tr.getparent().remove(table.rows[attendee_row]._tr)
+
+
 def main() -> int:
     document = Document(TEMPLATE)
-    action_cell = document.tables[0].rows[ACTION_ITEM_ROW].cells[ACTION_ITEM_MERGED_CELL]
+    table = document.tables[0]
+
+    _trim_header_rows(table)
+
+    action_row = _row_index(table, "실행항목")
+    action_cell = table.rows[action_row].cells[ACTION_ITEM_MERGED_CELL]
 
     _replace_nested_table(action_cell.tables[0])
     _replace_hints(action_cell)
