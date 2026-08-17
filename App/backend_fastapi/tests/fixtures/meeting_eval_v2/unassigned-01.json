@@ -1,0 +1,36 @@
+{
+  "case_id": "unassigned-01",
+  "scenario": "신양식 · 담당자 미지정",
+  "input": {
+    "title": "OCI 배포 점검 회의",
+    "meeting_date": "2026-08-14",
+    "meeting_kind": "개발회의",
+    "source_type": "document",
+    "participants": [
+      "이은주",
+      "허영주"
+    ],
+    "sections": {
+      "discussion": "이은주: 배포 스크립트가 최근에 몇 번 실패했는데 원인은 아직 못 찾았습니다.\n허영주: 담당자를 정하지 못한 채로 회의가 끝나버렸네요.",
+      "decisions": "배포 스크립트 점검은 다음 회의 전까지 누군가 맡기로 하되, 오늘은 담당자를 정하지 못했다.",
+      "todos": "배포 스크립트 점검\n8/20\n긴급",
+      "issues": "담당자가 없는 채로 마감일만 잡혀 있어 실제로 처리될지 불확실하다."
+    }
+  },
+  "golden": {
+    "todos": [
+      {
+        "evidence_id": "T1",
+        "title": "배포 스크립트 점검",
+        "assignee": "",
+        "due_date": "2026-08-20",
+        "priority": "HIGH",
+        "evidence_snippet": "배포 스크립트 점검"
+      }
+    ],
+    "summary_checklist": [
+      "담당자가 정해지지 않았다는 사실이 요약에서도 드러나는가",
+      "담당 미정 항목에 회의록에 없는 사람 이름이 임의로 채워지지 않았는가"
+    ]
+  }
+}

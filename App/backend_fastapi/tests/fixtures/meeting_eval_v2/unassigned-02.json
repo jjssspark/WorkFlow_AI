@@ -1,0 +1,36 @@
+{
+  "case_id": "unassigned-02",
+  "scenario": "신양식 · 담당자 미지정",
+  "input": {
+    "title": "스프린트 회고 회의",
+    "meeting_date": "2026-08-14",
+    "meeting_kind": "회고",
+    "source_type": "document",
+    "participants": [
+      "유소은",
+      "박상준"
+    ],
+    "sections": {
+      "discussion": "유소은: 이번 스프린트 회고 문서를 정리해서 다음 스프린트 킥오프 때 공유하면 좋겠습니다.\n박상준: 특정 팀원보다는 팀 전체가 돌아가며 작성하는 게 나을 것 같습니다.",
+      "decisions": "회고 문서는 팀 전체가 함께 작성하기로 한다.",
+      "todos": "회고 문서 작성\n팀 전체\n8/25\n보통",
+      "issues": "특정 담당자가 없어 회고 문서 작성이 미뤄질 위험이 있다."
+    }
+  },
+  "golden": {
+    "todos": [
+      {
+        "evidence_id": "T1",
+        "title": "회고 문서 작성",
+        "assignee": "",
+        "due_date": "2026-08-25",
+        "priority": "MEDIUM",
+        "evidence_snippet": "회고 문서 작성"
+      }
+    ],
+    "summary_checklist": [
+      "회고 문서 작성 주체가 개인이 아니라 팀 전체로 정확히 표현되는가",
+      "팀 전체처럼 개인 이름이 아닌 주체가 특정 참석자 이름으로 잘못 배정되지 않았는가"
+    ]
+  }
+}

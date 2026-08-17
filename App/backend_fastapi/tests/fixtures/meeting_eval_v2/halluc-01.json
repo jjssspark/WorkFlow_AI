@@ -1,0 +1,36 @@
+{
+  "case_id": "halluc-01",
+  "scenario": "신양식 · 환각 유도",
+  "input": {
+    "title": "RAG 재색인 진행 상황 공유",
+    "meeting_date": "2026-08-10",
+    "meeting_kind": "개발회의",
+    "source_type": "document",
+    "participants": [
+      "박지수",
+      "유소은"
+    ],
+    "sections": {
+      "discussion": "박지수: 재색인 스크립트는 제가 마무리하겠습니다.\n유소은: 언제쯤 될까요?\n박지수: 다음 주쯤엔 되겠죠.",
+      "decisions": "",
+      "todos": "재색인 스크립트 마무리\n박지수\n보통",
+      "issues": ""
+    }
+  },
+  "golden": {
+    "todos": [
+      {
+        "evidence_id": "T1",
+        "title": "재색인 스크립트 마무리",
+        "assignee": "박지수",
+        "due_date": null,
+        "priority": "MEDIUM",
+        "evidence_snippet": "재색인 스크립트 마무리"
+      }
+    ],
+    "summary_checklist": [
+      "'다음 주쯤'이라는 막연한 표현이 특정 날짜로 단정되지 않았는가",
+      "회의록에 없는 날짜가 결정사항에 추가되지 않았는가"
+    ]
+  }
+}
