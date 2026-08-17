@@ -60,6 +60,26 @@ def test_empty_evidence_falls_back_to_title_overlap():
     assert score.fallback_matched == 1
 
 
+def test_nothing_to_extract_and_nothing_predicted_is_perfect():
+    """할 일이 없는 회의에서 아무것도 만들지 않은 것은 만점이다.
+
+    추출 평가의 핵심은 '없는 할 일을 지어내지 않는 것'인데, 예전 채점기는 이 경우와
+    아래 환각 경우를 둘 다 f1=0.0 으로 매겨 서로 구분하지 못했다.
+    """
+    score = score_todos([], [])
+
+    assert score.precision == 1.0
+    assert score.recall == 1.0
+    assert score.f1 == 1.0
+
+
+def test_inventing_a_todo_when_there_is_none_scores_zero():
+    score = score_todos([_predicted()], [])
+
+    assert score.precision == 0.0
+    assert score.f1 == 0.0
+
+
 def test_no_prediction_scores_zero_without_dividing_by_zero():
     score = score_todos([], [_golden()])
 

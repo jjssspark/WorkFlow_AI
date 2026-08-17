@@ -18,8 +18,13 @@ from app.main import (
     analyze_meeting_with_ollama,
     app,
     build_ollama_prompt,
+    build_todos,
     clean_todo_title,
+    extract_speaker_task_candidates,
+    MeetingTodo,
+    normalize_text,
     parse_ollama_analysis_response,
+    repair_ollama_todos,
 )
 from core.security import verify_internal_api_key
 
@@ -591,6 +596,27 @@ def test_build_ollama_prompt_includes_assignee_rules_and_participants():
     assert "몰아서 배정" in prompt
 
 
+def test_build_ollama_prompt_keeps_tasks_without_owner_or_deadline():
+    """담당자·기한이 없다는 이유로 할 일을 빠뜨리던 문제의 회귀 방어.
+
+    문서형 회의록에서 모델이 `todos: []` 를 내던 원인이 이 지시의 부재였다.
+    반대로 없는 할 일을 지어내지 않도록 제외 조건도 함께 남아 있어야 한다.
+    """
+    request = AnalyzeRequest(
+        title="정기회의",
+        meeting_date="2026-07-15",
+        text="배포 스크립트 점검은 진행하되 담당자는 다음 회의에서 정한다.",
+        participants=["박지수"],
+    )
+
+    prompt = build_ollama_prompt(request)
+
+    assert "담당자나 기한이 없다는 이유로 업무를 빠뜨리지 않는다" in prompt
+    assert "남은 작업이 있고 계속하기로 했으면" in prompt
+    assert "하지 않기로 했거나 보류한 일" in prompt
+    assert "빈 배열([])" in prompt
+
+
 def test_analyze_json_falls_back_to_rule_based_when_ollama_fails(monkeypatch):
     monkeypatch.setenv("MEETING_ANALYSIS_PROVIDER", "ollama")
     client = TestClient(app)
@@ -920,6 +946,92 @@ def test_analyze_meeting_with_huggingface_uses_openai_compatible_router(monkeypa
     assert captured["json"]["max_tokens"] == 2048
     assert captured["json"]["stream"] is False
     assert captured["timeout"] == 35.0
+
+
+def test_acknowledgement_is_not_treated_as_a_task():
+    """'알겠습니다'는 대화 응답이지 업무가 아니다.
+
+    화자 발언 추출이 "겠습니다"가 들어가면 무조건 업무 선언으로 봐서, 제안이 기각된
+    회의에서 '알'(= '알겠습니다'를 제목으로 다듬다 잘린 것)이 To-Do로 나갔다.
+    """
+    text = (
+        "유소은: 회의록에 자동 번역을 붙이면 어떨까요?\n"
+        "박상준: 이번 분기에는 안 하는 걸로 하시죠.\n"
+        "유소은: 알겠습니다. 나중에 다시 이야기하겠습니다."
+    )
+
+    assert extract_speaker_task_candidates(text) == []
+
+
+def test_meeting_closing_remark_is_not_treated_as_a_task():
+    text = (
+        "허영주: 폴백 로직은 8월 12일에 배포 완료했습니다.\n"
+        "이은주: 좋습니다. 이 건은 종료하겠습니다."
+    )
+
+    assert extract_speaker_task_candidates(text) == []
+
+
+def test_meeting_without_action_items_produces_no_todos():
+    """할 일이 없는 회의에는 아무것도 만들지 않는다.
+
+    예전에는 업무 문장을 못 찾으면 이 서비스 자체의 기능 3개를 하드코딩으로 채워
+    사용자 회의록에서 뽑은 것처럼 내보냈다.
+    """
+    text = (
+        "이은주: 이번 스프린트 지표 공유드립니다. 배포 성공률 98%입니다.\n"
+        "박지수: 확인했습니다."
+    )
+
+    assert build_todos(text, normalize_text(text), "2026-08-14", ["이은주", "박지수"]) == []
+
+
+def test_empty_model_result_is_respected_when_there_is_no_task_evidence():
+    """모델이 '할 일 없음'이라고 옳게 답하면 그 결과를 존중한다.
+
+    예전에는 빈 결과를 규칙 기반 추출로 덮어써, 정답을 낸 모델 출력을 코드가 지웠다.
+    """
+    request = AnalyzeRequest(
+        title="스프린트 지표 공유",
+        meeting_date="2026-08-14",
+        text="이은주: 이번 스프린트 지표 공유드립니다.\n박지수: 확인했습니다.",
+        participants=["이은주", "박지수"],
+    )
+
+    assert repair_ollama_todos([], request) == []
+
+
+def test_model_todos_survive_when_fewer_than_declaration_sentences():
+    """선언 문장 수보다 To-Do가 적다는 이유로 모델 결과를 통째로 버리지 않는다.
+
+    정규식이 세는 '업무 선언 문장' 수는 실제 할 일 개수와 다르다. 문제 보고나 요청 발언이
+    함께 세어져, 정확히 뽑아낸 결과가 제목이 잘린 규칙 기반 결과("8/19까지 확인")로
+    교체됐다. 평가셋에서 이 분기가 걸린 4건은 전부 손해만 봤고 이득 본 건은 없었다.
+    """
+    request = AnalyzeRequest(
+        title="결제 연동 점검",
+        meeting_date="2026-08-14",
+        text=(
+            "김도현: 결제 연동 문서에서 테스트 키 발급 절차가 빠져 있습니다.\n"
+            "이은주: 제가 결제사에 문의해서 절차를 확인하고 8/20까지 공유하겠습니다."
+        ),
+        participants=["김도현", "이은주"],
+    )
+    todos = [
+        MeetingTodo(
+            title="테스트 키 발급 절차 확인",
+            description="결제사에 문의해 절차를 확인하고 공유한다.",
+            assignee_candidate="이은주",
+            due_date="2026-08-20",
+            priority="MEDIUM",
+            category="BACKEND",
+            evidence_text="이은주: 제가 결제사에 문의해서 절차를 확인하고 8/20까지 공유하겠습니다.",
+        )
+    ]
+
+    repaired = repair_ollama_todos(todos, request)
+
+    assert [todo.title for todo in repaired] == ["테스트 키 발급 절차 확인"]
 
 
 def test_analyze_meeting_with_huggingface_warns_when_output_is_truncated(monkeypatch, caplog):

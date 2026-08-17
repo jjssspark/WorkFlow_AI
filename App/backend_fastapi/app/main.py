@@ -714,6 +714,22 @@ JSON 스키마:
   "keywords": ["키워드", "..."]
 }}
 
+todos 선정 규칙 - 반드시 지킬 것:
+1. 앞으로 하기로 정해진 일은 담당자나 마감일이 정해지지 않았어도 todos에 넣는다.
+   담당자를 못 정했으면 assignee_candidate를 빈 문자열로, 기한을 못 정했으면 due_date를 null로 두되
+   업무 자체는 반드시 남긴다. 담당자나 기한이 없다는 이유로 업무를 빠뜨리지 않는다.
+   예: "OO 작업은 하기로 했으나 담당자는 아직 정하지 못했다" -> todos 1건, assignee_candidate는 ""
+   예: "OO 작업은 이어서 하되 완료 시점은 정하지 못했다" -> todos 1건, due_date는 null
+2. 이미 시작된 일도 남은 작업이 있고 계속하기로 했으면 todos에 넣는다.
+   예: "OO는 잔여 작업이 남아 있고 계속 진행하기로 했다" -> todos 1건
+3. 다음은 todos에 넣지 않는다.
+   - 남은 작업 없이 끝난 일의 완료 보고
+   - 별도 조치가 결정되지 않은 지표·현황 공유
+   - 하지 않기로 했거나 보류한 일
+   - 의견, 질문, 동의나 맞장구 같은 대화 응답
+4. 하기로 정해진 일을 하나도 찾을 수 없으면 todos는 빈 배열([])로 둔다. 칸을 채우려고 지어내지 않는다.
+5. 같은 일이 논의 내용과 결정 사항에 함께 나오면, 확정된 표현이 담긴 결정 사항 쪽 문장을 evidence_text로 쓴다.
+
 담당자(assignee_candidate) 규칙 - 반드시 지킬 것:
 1. 회의록 내용에서 특정 인물이 명시적으로 담당한다고 말한 업무만 그 사람 이름을 assignee_candidate로 적는다.
    예: "제가 하겠습니다", "저는 OO를 맡겠습니다" -> 발언자 본인. "OO가 맡겠습니다", "OO가 구현합니다", "담당: OO" -> 명시된 OO.
@@ -1380,12 +1396,18 @@ def repair_ollama_todos(todos: List[MeetingTodo], request: AnalyzeRequest) -> Li
     source_text = request.text or request.title
     explicit_candidates = extract_explicit_task_candidates(source_text)
     if not explicit_candidates:
-        return todos or build_todos(source_text, normalize_text(source_text), request.meeting_date, request.participants)
+        # 원문에 업무 선언 문장이 하나도 없다. 모델이 빈 결과를 냈다면 그건 실패가 아니라
+        # "할 일이 없다"는 판단이므로 존중한다. 예전에는 여기서 규칙 기반 추출로 덮어써,
+        # 지표 공유 회의처럼 정답이 0건인 자리에 없는 할 일을 채워 넣었다.
+        return todos
 
+    # 예전에는 "선언 문장 수보다 To-Do가 적으면 누락"으로 보고 여기서 함께 덮어썼다.
+    # 정규식이 세는 선언 문장에는 문제 보고나 요청 발언도 섞여 실제 할 일 수와 다르고,
+    # 덮어쓰기는 통째 교체라 정확히 뽑은 결과까지 제목이 잘린 규칙 기반 결과로 바뀌었다.
+    # 평가셋에서 이 조건이 걸린 4건은 전부 손해였고 이득 본 건은 없어 조건을 뺐다.
     has_placeholder = any(is_schema_placeholder(todo.title) or is_schema_placeholder(todo.description) for todo in todos)
     all_unassigned = bool(todos) and all(not todo.assignee_candidate for todo in todos)
-    missing_explicit_tasks = len(todos) < len(explicit_candidates)
-    if not todos or has_placeholder or all_unassigned or missing_explicit_tasks:
+    if not todos or has_placeholder or all_unassigned:
         logger.info("Ollama To-Do 결과를 회의록 원문 기반 담당자 추출로 보정합니다.")
         return build_todos(source_text, normalize_text(source_text), request.meeting_date, request.participants)
     return fill_missing_assignees_from_speaker_evidence(todos, explicit_candidates, request.participants)
@@ -1430,7 +1452,6 @@ def is_schema_placeholder(value: str) -> bool:
 def build_todos(raw_text: str, normalized_text: str, meeting_date: str, participants: Optional[List[str]] = None) -> List[MeetingTodo]:
     explicit_candidates = extract_explicit_task_candidates(raw_text)
     used_speaker_format = bool(explicit_candidates)
-    is_generic_fallback = False
     if used_speaker_format:
         candidates = explicit_candidates
     else:
@@ -1439,13 +1460,9 @@ def build_todos(raw_text: str, normalized_text: str, meeting_date: str, particip
             ["담당", "작성", "구현", "정리", "검토", "준비", "연결", "테스트", "제출", "설계"],
             6,
         )
-        if not sentences:
-            is_generic_fallback = True
-            sentences = [
-                "회의록 AI 분석 API 구현",
-                "분석 결과 화면과 업무 보드 등록 흐름 연결",
-                "팀장 검토용 To-Do 승인 화면 점검",
-            ]
+        # 업무로 읽히는 문장이 하나도 없으면 할 일이 없는 회의다. 예전에는 여기서 이 서비스
+        # 자체의 기능 3개를 하드코딩으로 채워 사용자 회의록에서 뽑은 것처럼 내보냈다.
+        # 지표 공유나 완료 보고처럼 실제로 할 일이 없는 회의에서 그대로 노출됐다.
         candidates = [(extract_assignee_candidate(sentence), sentence) for sentence in sentences]
 
     try:
@@ -1459,9 +1476,7 @@ def build_todos(raw_text: str, normalized_text: str, meeting_date: str, particip
         display_assignee = assignee
         if allowed_names is not None and display_assignee not in allowed_names:
             display_assignee = ""
-        if is_generic_fallback:
-            evidence_text = ""
-        elif used_speaker_format and assignee:
+        if used_speaker_format and assignee:
             evidence_text = shorten(f"{assignee}: {sentence}", _EVIDENCE_MAX_LEN)
         else:
             evidence_text = shorten(sentence, _EVIDENCE_MAX_LEN)
@@ -1499,6 +1514,19 @@ _FORMAL_TASK_COMMITMENT_HINTS = [
 ]
 _SPEAKER_TASK_LIMIT = 12
 
+# "겠습니다"로 끝나지만 업무가 아닌 발언. 이 판정이 없으면 "알겠습니다"가 업무 선언으로
+# 잡혀 제목을 다듬는 과정에서 '알' 한 글자짜리 To-Do가 나간다. 실제로 제안이 기각된
+# 회의와 완료 보고 회의에서 그대로 관측됐다.
+# 각 항목은 관측된 실패에서 나온 것만 넣는다 — 추측으로 넓히면 진짜 업무를 걸러낸다.
+_NON_TASK_UTTERANCE_HINTS = [
+    "알겠습니다",
+    "알겠어요",
+    "그러겠습니다",
+    "종료하겠습니다",
+    "마치겠습니다",
+    "나중에 다시",
+]
+
 
 def extract_assignee_candidate(sentence: str) -> str:
     """문장에서 "OO가/은/는 ~한다" 또는 "담당: OO" 형태로 적힌 담당자 이름을 추출한다. 없으면 빈 문자열(미배정 후보)."""
@@ -1525,6 +1553,8 @@ def extract_speaker_task_candidates(text: str) -> List[tuple[str, str]]:
         for sentence in re.split(r"[.!?。！？]", utterance):
             s = sentence.strip()
             if len(s) < 4:
+                continue
+            if any(hint in s for hint in _NON_TASK_UTTERANCE_HINTS):
                 continue
             is_commitment = "겠습니다" in s or any(keyword in s for keyword in _TASK_KEYWORDS)
             if is_commitment:

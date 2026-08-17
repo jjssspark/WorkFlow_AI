@@ -36,17 +36,34 @@ def score_todos(predicted: Sequence[MeetingTodo], golden: Sequence[GoldenTodo]) 
     pairs, fallback_matched = _match(predicted, golden)
     matched = len(pairs)
 
-    precision = _ratio(matched, len(predicted))
-    recall = _ratio(matched, len(golden))
+    if not golden:
+        # 뽑을 할 일이 없는 회의. 아무것도 만들지 않으면 만점, 하나라도 지어내면 0점이다.
+        # 두 경우를 구분하지 못하면 "환각을 안 했다"는 것을 점수로 증명할 수 없다.
+        precision = 1.0 if not predicted else 0.0
+        recall = 1.0
+    else:
+        precision = _ratio(matched, len(predicted))
+        recall = _ratio(matched, len(golden))
     f1 = 0.0 if precision + recall == 0 else 2 * precision * recall / (precision + recall)
 
     return TodoScore(
         precision=precision,
         recall=recall,
         f1=f1,
-        assignee_accuracy=_field_accuracy(pairs, lambda p, g: p.assignee_candidate == g.assignee),
-        due_date_accuracy=_field_accuracy(pairs, lambda p, g: p.due_date == g.due_date),
-        priority_accuracy=_field_accuracy(pairs, lambda p, g: p.priority == g.priority),
+        # 정답이 0건이면 틀릴 필드 자체가 없다. 이때 필드 정확도를 0으로 두면 정답을 맞힌
+        # 케이스가 평균을 끌어내린다. 지어내지 않았으면 1.0, 지어냈으면 0.0 으로 precision 을 따른다.
+        assignee_accuracy=(
+            precision if not golden
+            else _field_accuracy(pairs, lambda p, g: p.assignee_candidate == g.assignee)
+        ),
+        due_date_accuracy=(
+            precision if not golden
+            else _field_accuracy(pairs, lambda p, g: p.due_date == g.due_date)
+        ),
+        priority_accuracy=(
+            precision if not golden
+            else _field_accuracy(pairs, lambda p, g: p.priority == g.priority)
+        ),
         matched=matched,
         fallback_matched=fallback_matched,
         predicted_count=len(predicted),
