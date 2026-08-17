@@ -595,6 +595,27 @@ def test_build_ollama_prompt_includes_assignee_rules_and_participants():
     assert "몰아서 배정" in prompt
 
 
+def test_build_ollama_prompt_keeps_tasks_without_owner_or_deadline():
+    """담당자·기한이 없다는 이유로 할 일을 빠뜨리던 문제의 회귀 방어.
+
+    문서형 회의록에서 모델이 `todos: []` 를 내던 원인이 이 지시의 부재였다.
+    반대로 없는 할 일을 지어내지 않도록 제외 조건도 함께 남아 있어야 한다.
+    """
+    request = AnalyzeRequest(
+        title="정기회의",
+        meeting_date="2026-07-15",
+        text="배포 스크립트 점검은 진행하되 담당자는 다음 회의에서 정한다.",
+        participants=["박지수"],
+    )
+
+    prompt = build_ollama_prompt(request)
+
+    assert "담당자나 기한이 없다는 이유로 업무를 빠뜨리지 않는다" in prompt
+    assert "남은 작업이 있고 계속하기로 했으면" in prompt
+    assert "하지 않기로 했거나 보류한 일" in prompt
+    assert "빈 배열([])" in prompt
+
+
 def test_analyze_json_falls_back_to_rule_based_when_ollama_fails(monkeypatch):
     monkeypatch.setenv("MEETING_ANALYSIS_PROVIDER", "ollama")
     client = TestClient(app)
