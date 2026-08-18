@@ -72,7 +72,9 @@ DEFAULT_HF_MEETING_ANALYSIS_TEMPERATURE = 0.1
 HF_CHAT_COMPLETIONS_URL = "https://router.huggingface.co/v1/chat/completions"
 # v2: 요청에 sections(양식 기반 섹션 본문)가 추가됐다. 올리지 않으면 같은 텍스트의 기존 캐시가
 # 섹션을 무시한 분석 결과를 그대로 돌려준다.
-MEETING_ANALYSIS_CACHE_SCHEMA_VERSION = 2
+# v3: 응답에 analysis_provider 가 추가됐다. 올리지 않으면 기존 캐시가 티어를 알 수 없는
+# "unknown" 으로 계속 응답해, 관측성을 붙인 뒤에도 한동안 아무것도 안 보인다.
+MEETING_ANALYSIS_CACHE_SCHEMA_VERSION = 3
 MEETING_ANALYSIS_CACHE_TTL_SECONDS = 86400
 DEFAULT_WHISPER_MODEL_SIZE = "small"
 DEFAULT_WHISPER_DEVICE = "cpu"
@@ -195,6 +197,9 @@ class MeetingAnalysisResult(BaseModel):
     risks: List[str]
     keywords: List[str]
     meeting_meta: MeetingMeta
+    # 어느 티어가 실제로 답했는지. 폴백은 지금까지 로그에만 남아, 사용자가 받은 요약이
+    # HF 것인지 규칙 기반 것인지 응답만 보고는 알 수 없었다.
+    analysis_provider: str = "unknown"
 
 
 class AudioTranscribeResult(BaseModel):
@@ -325,7 +330,7 @@ def _analyze_by_provider(request: AnalyzeRequest) -> MeetingAnalysisResult:
     provider = os.getenv("MEETING_ANALYSIS_PROVIDER", "auto").lower()
     if provider in {"auto", "huggingface", "hf"} and _huggingface_configured():
         try:
-            return analyze_meeting_with_huggingface(request)
+            return _labeled(analyze_meeting_with_huggingface(request), "huggingface")
         except Exception as exception:
             # errorType 만으로는 401(토큰/권한)·404(모델)·429(레이트리밋)·5xx(서버) 를 구분할 수
             # 없어 운영에서 원인을 알 수 없었다(HF 티어가 12케이스 전부 0점이었는데도 미검출).
@@ -342,13 +347,19 @@ def _analyze_by_provider(request: AnalyzeRequest) -> MeetingAnalysisResult:
 
     if provider in {"auto", "huggingface", "hf", "ollama"}:
         try:
-            return analyze_meeting_with_ollama(request)
+            return _labeled(analyze_meeting_with_ollama(request), "ollama")
         except Exception as exception:
             logger.warning(
                 "Ollama 회의록 분석 실패, 규칙 기반 분석으로 대체합니다. errorType=%s",
                 type(exception).__name__,
             )
-    return analyze_meeting(request)
+    return _labeled(analyze_meeting(request), "rule_based")
+
+
+def _labeled(result: MeetingAnalysisResult, provider: str) -> MeetingAnalysisResult:
+    """요약·결정사항을 만든 티어를 붙인다. To-Do는 실행항목 칸이 있으면 뒤에서
+    결정적으로 덮어쓰므로, 이 라벨은 To-Do의 출처가 아니다."""
+    return result.model_copy(update={"analysis_provider": provider})
 
 
 @app.post("/api/v1/meetings/analyze", response_model=MeetingAnalysisResult)

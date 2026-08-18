@@ -10,5 +10,22 @@ public record MeetingAnalysisResult(
     @Schema(description = "AI가 생성한 To-Do 후보 목록") List<MeetingTodo> todos,
     @Schema(description = "위험 요소 목록") List<String> risks,
     @Schema(description = "핵심 키워드 목록", example = "[\"발표자료\", \"API 연동\", \"테스트\"]") List<String> keywords,
-    @Schema(description = "회의 메타 정보 (제목/날짜/참석자)") MeetingMeta meeting_meta
-) {}
+    @Schema(description = "회의 메타 정보 (제목/날짜/참석자)") MeetingMeta meeting_meta,
+    @Schema(
+        description = "요약을 실제로 만든 분석 티어. analysisSource=FASTAPI 안에서도 hf→ollama→규칙 기반으로 강등될 수 있어, 이 값이 없으면 사용자가 받은 요약의 출처를 알 수 없다. 저장된 분석을 다시 읽을 때는 unknown.",
+        example = "huggingface",
+        allowableValues = {"huggingface", "ollama", "rule_based", "spring_fallback", "unknown"}
+    ) String analysis_provider
+) {
+    /** 티어를 알 수 없는 자리(저장분 재구성 등)를 위한 생성자. */
+    public MeetingAnalysisResult(
+        String summary,
+        List<String> decisions,
+        List<MeetingTodo> todos,
+        List<String> risks,
+        List<String> keywords,
+        MeetingMeta meeting_meta
+    ) {
+        this(summary, decisions, todos, risks, keywords, meeting_meta, "unknown");
+    }
+}

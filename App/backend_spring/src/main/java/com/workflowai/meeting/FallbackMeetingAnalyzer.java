@@ -65,7 +65,8 @@ public class FallbackMeetingAnalyzer {
             todos,
             risks,
             keywords(text, request.source_type()),
-            new MeetingMeta(title, date, participants)
+            new MeetingMeta(title, date, participants),
+            "spring_fallback"
         );
     }
 
