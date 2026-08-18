@@ -74,7 +74,9 @@ HF_CHAT_COMPLETIONS_URL = "https://router.huggingface.co/v1/chat/completions"
 # 섹션을 무시한 분석 결과를 그대로 돌려준다.
 # v3: 응답에 analysis_provider 가 추가됐다. 올리지 않으면 기존 캐시가 티어를 알 수 없는
 # "unknown" 으로 계속 응답해, 관측성을 붙인 뒤에도 한동안 아무것도 안 보인다.
-MEETING_ANALYSIS_CACHE_SCHEMA_VERSION = 3
+# v4: summary 규칙을 프롬프트에 넣었다. 캐시 키에 프롬프트가 안 들어가므로, 올리지 않으면
+# 같은 회의록에 대해 규칙 이전의 짧은 요약이 계속 나간다.
+MEETING_ANALYSIS_CACHE_SCHEMA_VERSION = 4
 MEETING_ANALYSIS_CACHE_TTL_SECONDS = 86400
 DEFAULT_WHISPER_MODEL_SIZE = "small"
 DEFAULT_WHISPER_DEVICE = "cpu"
@@ -774,7 +776,7 @@ def build_ollama_prompt(request: AnalyzeRequest) -> str:
 
 JSON 스키마:
 {{
-  "summary": "회의 내용 한두 문장 요약",
+  "summary": "회의 내용 요약 (아래 summary 규칙을 따를 것)",
   "decisions": ["결정사항 문장", "..."],
   "todos": [
     {{
@@ -790,6 +792,20 @@ JSON 스키마:
   "risks": ["위험요소 문장", "..."],
   "keywords": ["키워드", "..."]
 }}
+
+summary 규칙 - 반드시 지킬 것:
+1. 다음 세 가지를 모두 담는다. 하나라도 빠지면 안 된다.
+   - 결정된 것: 이 회의에서 하기로 정해진 방침
+   - 하기로 한 일: 실제 실행 항목. 여러 건이면 빠짐없이 나열한다
+   - 배경: 왜 이 논의를 했는지, 무슨 문제가 있었는지
+2. "OO 회의", "OO에 대해 논의함" 처럼 주제만 되풀이하지 않는다. 무엇을 정했고 무엇을 하기로
+   했는지가 없으면 요약이 아니다.
+   나쁜 예: "사내 위키 이관 회의"
+   좋은 예: "사내 위키의 검색이 느려 이관을 검토했고, 후보 도구 비교를 먼저 하기로 했다."
+3. 실행 항목이 여러 건이면 건수만 세지 말고 각각이 무엇인지 적는다.
+   나쁜 예: "회의 내용을 분석해 결정사항 N건, 업무 후보 N건을 추출했습니다"
+4. 길이는 위 내용을 담을 만큼만 쓴다. 보통 두세 문장이고, 실행 항목이 많으면 더 길어져도 된다.
+5. 회의록에 없는 내용은 넣지 않는다. 특히 원문에 없는 날짜나 이름을 만들지 않는다.
 
 todos 선정 규칙 - 반드시 지킬 것:
 1. 앞으로 하기로 정해진 일은 담당자나 마감일이 정해지지 않았어도 todos에 넣는다.

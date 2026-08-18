@@ -1482,3 +1482,24 @@ def test_analysis_provider_is_returned_over_http(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["analysis_provider"] == "rule_based"
+
+
+def test_build_ollama_prompt_tells_the_model_what_a_summary_must_contain():
+    """summary 만 규칙 블록이 없어 '한두 문장'이라는 길이 제약뿐이었다.
+
+    그 결과 요약이 케이스마다 담아야 할 사실 3~7개 중 절반만 담아 충실도가
+    0.526 에 머물렀다. todos·담당자·title 처럼 무엇을 담을지 명시한다.
+    """
+    prompt = build_ollama_prompt(
+        AnalyzeRequest(
+            title="정기회의",
+            meeting_date="2026-08-18",
+            text="회의 내용",
+            participants=["김민준"],
+        )
+    )
+
+    assert "summary 규칙" in prompt
+    assert "결정된 것" in prompt
+    assert "하기로 한 일" in prompt
+    assert "배경" in prompt
