@@ -52,6 +52,8 @@ class SummaryScore:
     coverage: float = 0.0
     safety: float = 1.0
     invented_dates: List[str] = field(default_factory=list)
+    # 요약이 날짜를 한 번이라도 썼는가. safety 가 1.0 인 이유를 가르는 값이다.
+    dated: bool = False
 
 
 def judge_summary(
@@ -93,6 +95,7 @@ def judge_summary(
         coverage=coverage,
         safety=safety,
         invented_dates=invented.invented_dates,
+        dated=invented.dated,
     )
 
 

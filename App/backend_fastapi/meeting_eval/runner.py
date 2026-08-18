@@ -58,6 +58,15 @@ class EvalReport:
         """지어내지 않았는가. 아무 말도 안 하면 만점이라 단독으로 읽으면 안 된다."""
         return _mean([result.summary.safety for result in self.results])
 
+    @property
+    def dated_summary_count(self) -> int:
+        """요약이 날짜를 한 번이라도 쓴 케이스 수. 안전성 평균과 반드시 같이 읽어야 한다.
+
+        이 값이 0 이면 안전성 1.000 은 '안 지어냈다'가 아니라 '검사할 것이 없었다'는
+        뜻이다. 36건을 재보니 요약이 날짜를 쓴 것은 2건뿐이었다.
+        """
+        return sum(1 for result in self.results if result.summary.dated)
+
     def to_rows(self) -> List[dict]:
         return [
             {
@@ -75,6 +84,7 @@ class EvalReport:
                 "summary_score": result.summary.score,
                 "summary_coverage": result.summary.coverage,
                 "summary_safety": result.summary.safety,
+                "summary_has_date": int(result.summary.dated),
                 # 안전성이 0인 이유를 CSV만 보고 알 수 있어야 한다. 없으면 매번 케이스를
                 # 다시 돌려 요약을 눈으로 확인하게 된다.
                 "invented_dates": " ".join(result.summary.invented_dates),
