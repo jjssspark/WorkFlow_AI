@@ -256,9 +256,9 @@ docker compose up -d
 
 | 계층 | 테스트 | 실행 |
 | --- | --- | --- |
-| Spring | **785건** (파일 120개) | `cd App/backend_spring && ./gradlew test` |
+| Spring | **890건** (파일 138개) | `cd App/backend_spring && ./gradlew test` |
 | FastAPI | **762건** (CI가 강제하는 하한) | `cd App/backend_fastapi && python -m pytest tests -q` |
-| Frontend | **610건** (파일 79개) | `cd App/frontend && pnpm test` |
+| Frontend | **634건** (파일 83개) | `cd App/frontend && pnpm test` |
 
 > Spring·Frontend 수치는 소스에서 `@Test`/`it()`을 센 값이고, FastAPI 수치는 CI가 실제 실행
 > 건수로 검증하는 하한입니다.
@@ -325,8 +325,8 @@ Docker가 없어 pgvector 통합 테스트 5건이 스킵돼도 그대로 통과
 위 표의 **박지수 (부팀장)** 가 접니다. 나머지 5명의 작업은 제 것이 아닙니다.
 
 맡은 영역은 실시간 알림(SSE), 회의록 AI 분석 파이프라인, 심사자 기여도 평가, 마이페이지,
-CI/CD 배포 게이트입니다. dev 브랜치 기준 개인 커밋은 356개이고, 기간은 2026-07-06부터
-2026-08-13까지입니다.
+CI/CD 배포 게이트입니다. dev 브랜치에서 머지 커밋을 뺀 개인 커밋은 342개이고, 기간은
+2026-07-06부터 2026-08-18까지입니다.
 
 대표적인 작업 몇 가지입니다. 자세한 경위는 아래 문서에 있습니다.
 
