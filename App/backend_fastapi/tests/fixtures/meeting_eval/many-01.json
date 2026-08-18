@@ -1,0 +1,105 @@
+{
+  "case_id": "many-01",
+  "scenario": "To-Do 다수",
+  "input": {
+    "title": "비밀번호 재설정 메일 개선 회의",
+    "meeting_date": "2026-08-13",
+    "meeting_kind": "개발회의",
+    "source_type": "document",
+    "participants": [
+      "박지수",
+      "유소은",
+      "이은주",
+      "허영주",
+      "박상준"
+    ],
+    "sections": {
+      "discussion": "박지수: 재설정 메일이 스팸함으로 가는 사례가 늘고 있습니다.\n유소은: 토큰 만료 시간과 재시도 정책도 같이 정리해야 할 것 같습니다.",
+      "decisions": "재설정 메일 신뢰도 개선 작업을 이번 스프린트에서 전부 처리하기로 한다.",
+      "todos": "[v] 긴급    [ ] 보통    [ ] 낮음\n박지수 · 재설정 메일 템플릿 작성 · 8/16\n[ ] 긴급    [v] 보통    [ ] 낮음\n유소은 · 토큰 만료 시간 정책 검토 · 8/17\n[v] 긴급    [ ] 보통    [ ] 낮음\n이은주 · 메일 발송 실패 재시도 로직 구현 · 8/19\n[ ] 긴급    [ ] 보통    [v] 낮음\n허영주 · 스팸 필터 통과 여부 테스트 · 8/20\n[ ] 긴급    [v] 보통    [ ] 낮음\n박상준 · 재설정 링크 만료 안내 문구 작성 · 8/21\n[ ] 긴급    [ ] 보통    [v] 낮음\n박지수 · 발송 로그 대시보드 연동 · 8/25",
+      "issues": "메일 발송 실패가 특정 도메인에서만 발생하는 원인이 아직 불명확하다."
+    }
+  },
+  "golden": {
+    "todos": [
+      {
+        "evidence_id": "T1",
+        "title": "재설정 메일 템플릿 작성",
+        "assignee": "박지수",
+        "due_date": "2026-08-16",
+        "priority": "HIGH",
+        "evidence_snippet": "재설정 메일 템플릿 작성"
+      },
+      {
+        "evidence_id": "T2",
+        "title": "토큰 만료 시간 정책 검토",
+        "assignee": "유소은",
+        "due_date": "2026-08-17",
+        "priority": "MEDIUM",
+        "evidence_snippet": "토큰 만료 시간 정책 검토"
+      },
+      {
+        "evidence_id": "T3",
+        "title": "메일 발송 실패 재시도 로직 구현",
+        "assignee": "이은주",
+        "due_date": "2026-08-19",
+        "priority": "HIGH",
+        "evidence_snippet": "메일 발송 실패 재시도 로직 구현"
+      },
+      {
+        "evidence_id": "T4",
+        "title": "스팸 필터 통과 여부 테스트",
+        "assignee": "허영주",
+        "due_date": "2026-08-20",
+        "priority": "LOW",
+        "evidence_snippet": "스팸 필터 통과 여부 테스트"
+      },
+      {
+        "evidence_id": "T5",
+        "title": "재설정 링크 만료 안내 문구 작성",
+        "assignee": "박상준",
+        "due_date": "2026-08-21",
+        "priority": "MEDIUM",
+        "evidence_snippet": "재설정 링크 만료 안내 문구 작성"
+      },
+      {
+        "evidence_id": "T6",
+        "title": "발송 로그 대시보드 연동",
+        "assignee": "박지수",
+        "due_date": "2026-08-25",
+        "priority": "LOW",
+        "evidence_snippet": "발송 로그 대시보드 연동"
+      }
+    ],
+    "summary_checklist": [
+      {
+        "item": "재설정 메일 신뢰도 개선 작업을 이번 스프린트에서 전부 처리하기로 한 결정이 요약에 담겼는가",
+        "kind": "coverage"
+      },
+      {
+        "item": "재설정 메일 템플릿 작성이 요약에 담겼는가",
+        "kind": "coverage"
+      },
+      {
+        "item": "토큰 만료 시간 정책 검토가 요약에 담겼는가",
+        "kind": "coverage"
+      },
+      {
+        "item": "메일 발송 실패 재시도 로직 구현이 요약에 담겼는가",
+        "kind": "coverage"
+      },
+      {
+        "item": "스팸 필터 통과 여부 테스트가 요약에 담겼는가",
+        "kind": "coverage"
+      },
+      {
+        "item": "재설정 링크 만료 안내 문구 작성이 요약에 담겼는가",
+        "kind": "coverage"
+      },
+      {
+        "item": "발송 로그 대시보드 연동이 요약에 담겼는가",
+        "kind": "coverage"
+      }
+    ]
+  }
+}

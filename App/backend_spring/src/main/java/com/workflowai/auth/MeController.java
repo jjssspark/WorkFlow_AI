@@ -16,8 +16,10 @@ import com.workflowai.user.User;
 import com.workflowai.user.UserRepository;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.time.Duration;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -28,6 +30,7 @@ import javax.imageio.ImageReader;
 import javax.imageio.stream.ImageInputStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -52,6 +55,10 @@ public class MeController {
     private static final int MAX_FIELD_TAGS = 10;
     private static final int MAX_FIELD_TAG_LENGTH = 30;
     private static final String TARGET_TYPE_PERSONAL = "personal";
+    // 현재 비밀번호를 맞힐 때까지 반복해서 던지는 것을 막는다. 세션은 이미 있으므로 IP가 아니라
+    // 계정 단위로 센다 — 탈취한 세션 하나로 비밀번호를 캐내려는 시도가 정확히 이 경로다.
+    private static final int PASSWORD_CHANGE_LIMIT = 5;
+    private static final Duration PASSWORD_CHANGE_WINDOW = Duration.ofMinutes(15);
     // GitHub 아이디 규칙: 영숫자로 시작, 하이픈은 연속/끝에 올 수 없음, 최대 39자.
     private static final java.util.regex.Pattern GITHUB_USERNAME_PATTERN =
         java.util.regex.Pattern.compile("^[a-zA-Z0-9](?:[a-zA-Z0-9]|-(?=[a-zA-Z0-9])){0,38}$");
@@ -62,6 +69,8 @@ public class MeController {
     private final ProjectService projectService;
     private final S3StorageClient storageClient;
     private final PersonalCommentRepository personalCommentRepository;
+    private final AuthService authService;
+    private final AccountRecoveryRateLimiter rateLimiter;
 
     public MeController(
         UserRepository userRepository,
@@ -69,7 +78,9 @@ public class MeController {
         ProjectRepository projectRepository,
         ProjectService projectService,
         S3StorageClient storageClient,
-        PersonalCommentRepository personalCommentRepository
+        PersonalCommentRepository personalCommentRepository,
+        AuthService authService,
+        AccountRecoveryRateLimiter rateLimiter
     ) {
         this.userRepository = userRepository;
         this.projectMemberRepository = projectMemberRepository;
@@ -77,6 +88,8 @@ public class MeController {
         this.projectService = projectService;
         this.storageClient = storageClient;
         this.personalCommentRepository = personalCommentRepository;
+        this.authService = authService;
+        this.rateLimiter = rateLimiter;
     }
 
     private User currentUserOrThrow() {
@@ -174,6 +187,38 @@ public class MeController {
         userRepository.save(user);
 
         return ResponseEntity.ok(ApiResponse.ok(toSummary(user)));
+    }
+
+    @Operation(
+        summary = "내 비밀번호 변경",
+        description = "현재 비밀번호로 본인을 확인한 뒤 새 비밀번호로 바꾼다. 대상 계정은 인증 주체에서만 "
+            + "정해진다. 변경하면 다른 기기의 세션은 다음 토큰 재발급 시점에 끊기고, 요청한 본인은 "
+            + "응답에 담긴 새 토큰으로 세션을 이어간다. Google 계정은 바꿀 비밀번호가 없어 400을 반환한다."
+    )
+    @PutMapping("/password")
+    public ResponseEntity<ApiResponse<AuthTokenResponse>> changePassword(
+        @Valid @RequestBody PasswordChangeRequest request
+    ) {
+        Long userId = CurrentUser.id();
+        if (!rateLimiter.tryAcquire(
+                "password-change", String.valueOf(userId), PASSWORD_CHANGE_LIMIT, PASSWORD_CHANGE_WINDOW)) {
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .body(ApiResponse.fail("RATE_LIMITED", "요청이 너무 잦습니다. 잠시 후 다시 시도해주세요."));
+        }
+        try {
+            return ResponseEntity.ok(ApiResponse.ok(
+                authService.changePassword(userId, request.currentPassword(), request.newPassword())
+            ));
+        } catch (GoogleAccountRequiredException e) {
+            return ResponseEntity.badRequest().body(ApiResponse.fail("GOOGLE_ACCOUNT_REQUIRED", e.getMessage()));
+        } catch (InvalidCredentialsException e) {
+            // 401이 아니라 400이다. 이 요청의 호출자는 이미 인증돼 있고 틀린 것은 본문의 값이다.
+            // 401로 내면 프론트의 apiFetch가 토큰 재발급 후 같은 요청을 한 번 더 보내서(apiClient.ts),
+            // 오타 한 번이 레이트 리밋을 두 번 깎고 사용자에게는 "인증이 만료되었습니다"가 뜬다.
+            return ResponseEntity.badRequest().body(ApiResponse.fail("INVALID_CREDENTIALS", e.getMessage()));
+        } catch (InvalidSignupInputException e) {
+            return ResponseEntity.badRequest().body(ApiResponse.fail("INVALID_SIGNUP_INPUT", e.getMessage()));
+        }
     }
 
     /** null/공백 태그를 걸러내고, 앞뒤 공백을 정리한 뒤 중복을 제거한다(먼저 나온 값을 유지). */

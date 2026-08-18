@@ -1,0 +1,46 @@
+{
+  "case_id": "duedate-01",
+  "scenario": "신양식 · 기한 표현 다양",
+  "input": {
+    "title": "알림 중복 원인 문서화 회의",
+    "meeting_date": "2026-08-09",
+    "meeting_kind": "개발회의",
+    "source_type": "document",
+    "participants": [
+      "박지수",
+      "유소은"
+    ],
+    "sections": {
+      "discussion": "박지수: 알림 중복 원인을 정리해서 다른 팀도 참고할 수 있게 문서로 남겨두면 좋겠습니다.\n유소은: 다음 스프린트 계획 전에는 문서가 있어야 할 것 같습니다.",
+      "decisions": "알림 중복 원인 조사 결과를 문서로 남기기로 한다.",
+      "todos": "알림 중복 원인 문서화\n박지수\n8/10까지\n긴급",
+      "issues": "문서화 전에 원인 조사가 아직 끝나지 않았다."
+    }
+  },
+  "golden": {
+    "todos": [
+      {
+        "evidence_id": "T1",
+        "title": "알림 중복 원인 문서화",
+        "assignee": "박지수",
+        "due_date": "2026-08-10",
+        "priority": "HIGH",
+        "evidence_snippet": "알림 중복 원인 문서화"
+      }
+    ],
+    "summary_checklist": [
+      {
+        "item": "알림 중복 원인 조사 결과를 문서로 남기기로 한 결정이 요약에 담겼는가",
+        "kind": "coverage"
+      },
+      {
+        "item": "'8/10까지'라는 표현이 마감일 8월 10일로 정확히 반영되는가",
+        "kind": "coverage"
+      },
+      {
+        "item": "다음 스프린트 계획 전까지 문서가 필요하다는 배경이 요약에 담겼는가",
+        "kind": "coverage"
+      }
+    ]
+  }
+}

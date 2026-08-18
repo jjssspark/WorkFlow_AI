@@ -1,0 +1,34 @@
+{
+  "case_id": "doc-none-01",
+  "scenario": "문서형: 할 일 없음",
+  "input": {
+    "title": "스프린트 지표 리뷰",
+    "meeting_date": "2026-08-14",
+    "meeting_kind": "개발회의",
+    "source_type": "document",
+    "participants": [
+      "이은주",
+      "박지수"
+    ],
+    "text": "회의내용\n- 이번 스프린트 배포 성공률 98%, 평균 응답 시간 240ms 공유\n- 직전 스프린트 대비 지표 개선 확인\n- 별도 조치가 필요한 항목 없음\n결정사항\n이번 스프린트 지표는 정상 범위로 판단한다.\n실행항목\n비고",
+    "sections": {
+      "discussion": "- 이번 스프린트 배포 성공률 98%, 평균 응답 시간 240ms 공유\n- 직전 스프린트 대비 지표 개선 확인\n- 별도 조치가 필요한 항목 없음",
+      "decisions": "이번 스프린트 지표는 정상 범위로 판단한다.",
+      "todos": "",
+      "issues": ""
+    }
+  },
+  "golden": {
+    "todos": [],
+    "summary_checklist": [
+      {
+        "item": "지표를 공유하고 확인한 회의라는 점이 요약에 담겼는가",
+        "kind": "coverage"
+      },
+      {
+        "item": "회의에서 아무도 맡기로 하지 않은 일이 실행 항목으로 만들어지지 않았는가",
+        "kind": "safety"
+      }
+    ]
+  }
+}

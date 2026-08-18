@@ -1,18 +1,23 @@
 package com.workflowai.auth;
 
+import com.workflowai.security.InvalidTokenException;
 import com.workflowai.security.JwtService;
 import com.workflowai.task.S3StorageClient;
 import com.workflowai.user.ReviewerStatus;
 import com.workflowai.user.User;
 import com.workflowai.user.UserRepository;
 import io.jsonwebtoken.Claims;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -26,7 +31,6 @@ public class AuthService {
     private static final String PROVIDER_LOCAL = "local";
     private static final String ROLE_TYPE_MEMBER = "MEMBER";
     private static final String ROLE_TYPE_REVIEWER = "REVIEWER";
-    private static final int MIN_PASSWORD_LENGTH = 8;
     private static final int AVATAR_SIGNED_URL_EXPIRES_SECONDS = 24 * 60 * 60;
     private static final int MAX_AFFILIATION_LENGTH = 100;
     private static final int MAX_FACULTY_ID_LENGTH = 50;
@@ -42,6 +46,21 @@ public class AuthService {
     private final JwtService jwtService;
     private final PasswordEncoder passwordEncoder;
     private final S3StorageClient storageClient;
+    private final PasswordResetTokenRepository passwordResetTokenRepository;
+    /** 잠금 대기 상한. {@link UserRepository#applyLockTimeout} 참고. */
+    private final String lockTimeout;
+
+    public AuthService(
+        GoogleOAuthService googleOAuthService,
+        UserRepository userRepository,
+        JwtService jwtService,
+        PasswordEncoder passwordEncoder,
+        S3StorageClient storageClient,
+        PasswordResetTokenRepository passwordResetTokenRepository
+    ) {
+        this(googleOAuthService, userRepository, jwtService, passwordEncoder, storageClient,
+            passwordResetTokenRepository, "3s");
+    }
 
     @Autowired
     public AuthService(
@@ -49,27 +68,43 @@ public class AuthService {
         UserRepository userRepository,
         JwtService jwtService,
         PasswordEncoder passwordEncoder,
-        S3StorageClient storageClient
+        S3StorageClient storageClient,
+        PasswordResetTokenRepository passwordResetTokenRepository,
+        @Value("${workflow.db.lock-timeout:3s}") String lockTimeout
     ) {
         this.googleOAuthService = googleOAuthService;
         this.userRepository = userRepository;
         this.jwtService = jwtService;
         this.passwordEncoder = passwordEncoder;
         this.storageClient = storageClient;
+        this.passwordResetTokenRepository = passwordResetTokenRepository;
+        this.lockTimeout = lockTimeout;
     }
 
     /**
-     * storageClient가 추가되기 전 시그니처와의 하위 호환용 생성자. Spring은 위의 @Autowired 생성자로만
-     * 빈을 만들고, 이 생성자는 이 시그니처로 직접 AuthService를 생성하던 기존 코드/테스트가 계속
-     * 동작하도록 남겨둔다. storageClient가 없으면 avatarUrlOrNull()이 null을 반환하도록 방어한다.
+     * storageClient/passwordResetTokenRepository가 추가되기 전 시그니처와의 하위 호환용 생성자.
+     * Spring은 위의 @Autowired 생성자로만 빈을 만들고, 이 생성자들은 옛 시그니처로 직접 AuthService를
+     * 생성하던 기존 테스트가 계속 동작하도록 남겨둔다. storageClient가 없으면 avatarUrlOrNull()이
+     * null을 반환하도록 방어하고, passwordResetTokenRepository가 없으면 changePassword가 조용히
+     * 넘어가지 않고 즉시 실패한다.
      */
+    public AuthService(
+        GoogleOAuthService googleOAuthService,
+        UserRepository userRepository,
+        JwtService jwtService,
+        PasswordEncoder passwordEncoder,
+        S3StorageClient storageClient
+    ) {
+        this(googleOAuthService, userRepository, jwtService, passwordEncoder, storageClient, null);
+    }
+
     public AuthService(
         GoogleOAuthService googleOAuthService,
         UserRepository userRepository,
         JwtService jwtService,
         PasswordEncoder passwordEncoder
     ) {
-        this(googleOAuthService, userRepository, jwtService, passwordEncoder, null);
+        this(googleOAuthService, userRepository, jwtService, passwordEncoder, null, null);
     }
 
     @Transactional
@@ -113,9 +148,7 @@ public class AuthService {
         if (!EMAIL_PATTERN.matcher(normalizedEmail).matches()) {
             throw new InvalidSignupInputException("올바른 이메일 형식으로 입력해주세요.");
         }
-        if (password == null || password.length() < MIN_PASSWORD_LENGTH) {
-            throw new InvalidSignupInputException("비밀번호는 " + MIN_PASSWORD_LENGTH + "자 이상이어야 합니다.");
-        }
+        PasswordPolicy.validateNewPassword(password);
         if (!termsAgreed) {
             throw new InvalidSignupInputException("이용약관에 동의해야 가입할 수 있습니다.");
         }
@@ -211,23 +244,121 @@ public class AuthService {
         return SignupResponse.pendingReviewerApproval();
     }
 
+    /**
+     * 로그인한 사용자가 스스로 비밀번호를 바꾼다. 세션이 탈취된 상태에서 비밀번호까지 갈아치우는 것을
+     * 막기 위해 현재 비밀번호를 반드시 확인한다. Google 전용 계정은 바꿀 비밀번호 자체가 없다.
+     *
+     * <p>바꾼 뒤에는 다른 기기의 세션이 끊겨야 하지만(그게 비밀번호를 바꾸는 이유 중 하나다) 방금
+     * 바꾼 본인은 끊기면 안 된다. 그래서 새 토큰을 함께 발급한다. 여기서 주의할 것이
+     * {@link #rejectIfIssuedBeforePasswordChange}의 경계다 - iat이 passwordChangedAt과 "같은 초"여도
+     * 거부하므로, bcrypt 때문에 수백 ms가 걸리는 이 흐름에서 평범하게 발급하면 방금 만든 토큰이
+     * 즉시 무효가 된다. 리프레시 토큰의 iat을 경계 밖(+1초)으로 밀어내 그 자기모순을 피한다.
+     * 판정 규칙을 "미만"으로 완화하지 않는 이유는, 그렇게 하면 변경 직전 같은 초에 발급된 토큰이
+     * 살아남는 창이 다시 열리기 때문이다.
+     */
+    @Transactional
+    public AuthTokenResponse changePassword(Long userId, String currentPassword, String newPassword) {
+        if (passwordResetTokenRepository == null) {
+            throw new IllegalStateException(
+                "passwordResetTokenRepository 없이 만들어진 AuthService로는 비밀번호를 변경할 수 없다.");
+        }
+        // 배타 잠금으로 읽는다. 이 잠금이 없으면 아래 changedAt을 찍은 뒤 커밋되기 전에 도착한
+        // 재발급이 옛 passwordChangedAt을 읽고 통과해, 변경 후에도 살아남는 토큰을 만들어낸다.
+        userRepository.applyLockTimeout(lockTimeout);
+        User user = userRepository.findByIdForUpdate(userId)
+            .orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다."));
+        if (user.getPasswordHash() == null) {
+            throw new GoogleAccountRequiredException(
+                "Google 계정으로 가입한 계정에는 비밀번호가 없어 변경할 수 없습니다.");
+        }
+        if (currentPassword == null || !passwordEncoder.matches(currentPassword, user.getPasswordHash())) {
+            throw new InvalidCredentialsException("현재 비밀번호가 올바르지 않습니다.");
+        }
+        PasswordPolicy.validateNewPassword(newPassword);
+        if (passwordEncoder.matches(newPassword, user.getPasswordHash())) {
+            throw new InvalidSignupInputException("새 비밀번호는 현재 비밀번호와 다르게 설정해주세요.");
+        }
+
+        LocalDateTime changedAt = LocalDateTime.now();
+        user.setPasswordHash(passwordEncoder.encode(newPassword));
+        user.setPasswordChangedAt(changedAt);
+        // saveAndFlush: 아래 invalidateAllUnusedByUserId가 clearAutomatically=true라 영속성 컨텍스트를
+        // 비운다. 그 전에 이 변경을 DB로 흘려보내지 않으면 커밋 없이 사라진다(confirmReset과 동일).
+        userRepository.saveAndFlush(user);
+        // 비밀번호를 바꿨는데 예전에 메일로 나간 재설정 링크가 살아 있으면 안 된다.
+        passwordResetTokenRepository.invalidateAllUnusedByUserId(user.getId());
+
+        Instant refreshIssuedAt = changedAt.atZone(ZoneId.systemDefault()).toInstant()
+            .truncatedTo(ChronoUnit.SECONDS)
+            .plusSeconds(1);
+        log.info("비밀번호 변경 완료: userId={}", user.getId());
+        return new AuthTokenResponse(
+            jwtService.issueAccessToken(user),
+            jwtService.issueRefreshToken(user, refreshIssuedAt),
+            jwtService.accessTokenTtlSeconds(),
+            toSummary(user)
+        );
+    }
+
+    /**
+     * 공유 잠금으로 읽는 이유는 {@link UserRepository#findByIdForShare} 참고. 일반 SELECT는 비밀번호
+     * 변경이 커밋되기 전이어도 막히지 않고 옛 값을 읽어, 폐기됐어야 할 세션이 새 토큰을 받아간다.
+     * 잠금에는 트랜잭션이 필요해 @Transactional을 붙인다.
+     *
+     * <p><strong>readOnly = true를 붙이면 안 된다.</strong> 조회만 하는 것처럼 보이지만, PostgreSQL은
+     * 읽기 전용 트랜잭션에서 SELECT ... FOR SHARE를 거부한다("cannot execute ... in a read-only
+     * transaction"). 붙이는 순간 재발급 전체가 죽는다.
+     */
+    @Transactional
     public AuthTokenResponse refresh(String refreshToken) {
         Claims claims = jwtService.parseRefreshToken(refreshToken);
         Long userId = Long.valueOf(claims.getSubject());
-        User user = userRepository.findById(userId)
+        userRepository.applyLockTimeout(lockTimeout);
+        User user = userRepository.findByIdForShare(userId)
             .orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다."));
+        rejectIfIssuedBeforePasswordChange(claims, user);
         return issueTokens(user);
+    }
+
+    /**
+     * 리프레시 토큰은 서버에 저장되지 않는 stateless 토큰이라 비밀번호를 바꿔도 자동으로 무효화되지
+     * 않는다. passwordChangedAt이 세팅된 계정은 그 시각 이전에 발급된(iat 기준) 리프레시 토큰을 거부해
+     * "비밀번호를 바꿨는데도 예전 토큰으로 계속 갱신되는" 구멍을 막는다.
+     *
+     * <p>iat은 JWT 스펙상 초 단위(NumericDate)라 밀리초 미만 오차가 없다. passwordChangedAt은
+     * LocalDateTime.now()라 나노초까지 갖고 있으므로 초 단위로 절삭해 비교한다 - 그렇지 않으면 같은
+     * 초 안에서 비밀번호 변경 "직전"에 발급된 토큰이 통과하는 좁은 창이 남는다. 그래서 경계는
+     * "이전(&lt;)"이 아니라 "이하(&lt;=)"다: iat이 passwordChangedAt과 같은 초여도 거부한다.
+     * confirmReset은 토큰을 발급하지 않으므로 이 규칙이 정상적으로 로그인해서 받은 토큰을 잘못
+     * 막을 일은 없다 - 로그인은 반드시 비밀번호 변경 이후, 최소 1초 뒤에 일어난다.
+     *
+     * <p>거부는 서명 검증 실패(만료·위조)와 동일한 {@link InvalidTokenException}·메시지를 쓴다.
+     * 별도 예외를 두면 "이 계정은 방금 비밀번호를 바꿨다"는 사실이 응답으로 새어나간다.
+     */
+    private void rejectIfIssuedBeforePasswordChange(Claims claims, User user) {
+        LocalDateTime passwordChangedAt = user.getPasswordChangedAt();
+        if (passwordChangedAt == null) {
+            return;
+        }
+        Instant issuedAt = claims.getIssuedAt().toInstant();
+        Instant changedAt = passwordChangedAt.atZone(ZoneId.systemDefault()).toInstant().truncatedTo(ChronoUnit.SECONDS);
+        if (!issuedAt.isAfter(changedAt)) {
+            throw new InvalidTokenException("유효하지 않은 토큰입니다.");
+        }
     }
 
     private AuthTokenResponse issueTokens(User user) {
         String accessToken = jwtService.issueAccessToken(user);
         String refreshToken = jwtService.issueRefreshToken(user);
-        UserSummary summary = new UserSummary(
+        return new AuthTokenResponse(accessToken, refreshToken, jwtService.accessTokenTtlSeconds(), toSummary(user));
+    }
+
+    private UserSummary toSummary(User user) {
+        return new UserSummary(
             user.getId(), user.getEmail(), user.getName(),
             user.getAffiliation(), user.getFieldTags(), user.getGithubUsername(), avatarUrlOrNull(user),
             user.isAdmin()
         );
-        return new AuthTokenResponse(accessToken, refreshToken, jwtService.accessTokenTtlSeconds(), summary);
     }
 
     /**

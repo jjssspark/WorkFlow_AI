@@ -14,7 +14,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from io import BytesIO
 from datetime import date
-from typing import List, Optional
+from typing import List, NamedTuple, Optional
 
 import httpx
 import ollama
@@ -58,17 +58,25 @@ DEFAULT_OLLAMA_HOST = "http://localhost:11434"
 DEFAULT_MEETING_ANALYSIS_MODEL = "qwen2.5:1.5b"
 DEFAULT_MEETING_ANALYSIS_TIMEOUT_SECONDS = 20.0
 DEFAULT_MEETING_ANALYSIS_MAX_CHARS = 6000
-DEFAULT_MEETING_ANALYSIS_NUM_PREDICT = 650
+# To-Do 1건이 늘 때마다 완성 길이가 대략 90토큰씩 늘어난다. 실측하면 To-Do 6건짜리 회의가
+# 924토큰을 썼는데, 예전 상한(HF 900 / Ollama 650)은 그 지점에서 JSON을 문자열 중간에 끊었다.
+# 잘린 JSON은 파싱에서 죽고 폴백이 조용히 규칙 기반까지 떨어져, 사용자에게는 기계 문구 요약이
+# 나갔다. 실사용 회의는 To-Do가 더 많을 수 있으므로 여유를 크게 둔다.
+DEFAULT_MEETING_ANALYSIS_NUM_PREDICT = 2048
 DEFAULT_MEETING_ANALYSIS_KEEP_ALIVE = "5m"
 DEFAULT_OLLAMA_ANALYSIS_TEMPERATURE = 0.1
 DEFAULT_HF_MEETING_ANALYSIS_MODEL = "Qwen/Qwen3-4B-Instruct-2507"
 DEFAULT_HF_MEETING_ANALYSIS_TIMEOUT_SECONDS = 35.0
-DEFAULT_HF_MEETING_ANALYSIS_MAX_TOKENS = 900
+DEFAULT_HF_MEETING_ANALYSIS_MAX_TOKENS = 2048  # 사유는 NUM_PREDICT 주석 참조
 DEFAULT_HF_MEETING_ANALYSIS_TEMPERATURE = 0.1
 HF_CHAT_COMPLETIONS_URL = "https://router.huggingface.co/v1/chat/completions"
 # v2: 요청에 sections(양식 기반 섹션 본문)가 추가됐다. 올리지 않으면 같은 텍스트의 기존 캐시가
 # 섹션을 무시한 분석 결과를 그대로 돌려준다.
-MEETING_ANALYSIS_CACHE_SCHEMA_VERSION = 2
+# v3: 응답에 analysis_provider 가 추가됐다. 올리지 않으면 기존 캐시가 티어를 알 수 없는
+# "unknown" 으로 계속 응답해, 관측성을 붙인 뒤에도 한동안 아무것도 안 보인다.
+# v4: summary 규칙을 프롬프트에 넣었다. 캐시 키에 프롬프트가 안 들어가므로, 올리지 않으면
+# 같은 회의록에 대해 규칙 이전의 짧은 요약이 계속 나간다.
+MEETING_ANALYSIS_CACHE_SCHEMA_VERSION = 4
 MEETING_ANALYSIS_CACHE_TTL_SECONDS = 86400
 DEFAULT_WHISPER_MODEL_SIZE = "small"
 DEFAULT_WHISPER_DEVICE = "cpu"
@@ -191,6 +199,9 @@ class MeetingAnalysisResult(BaseModel):
     risks: List[str]
     keywords: List[str]
     meeting_meta: MeetingMeta
+    # 어느 티어가 실제로 답했는지. 폴백은 지금까지 로그에만 남아, 사용자가 받은 요약이
+    # HF 것인지 규칙 기반 것인지 응답만 보고는 알 수 없었다.
+    analysis_provider: str = "unknown"
 
 
 class AudioTranscribeResult(BaseModel):
@@ -321,24 +332,36 @@ def _analyze_by_provider(request: AnalyzeRequest) -> MeetingAnalysisResult:
     provider = os.getenv("MEETING_ANALYSIS_PROVIDER", "auto").lower()
     if provider in {"auto", "huggingface", "hf"} and _huggingface_configured():
         try:
-            return analyze_meeting_with_huggingface(request)
+            return _labeled(analyze_meeting_with_huggingface(request), "huggingface")
         except Exception as exception:
+            # errorType 만으로는 401(토큰/권한)·404(모델)·429(레이트리밋)·5xx(서버) 를 구분할 수
+            # 없어 운영에서 원인을 알 수 없었다(HF 티어가 12케이스 전부 0점이었는데도 미검출).
+            # httpx.HTTPStatusError 는 response 를 들고 있으므로 상태 코드만 꺼낸다 - 본문은
+            # 토큰을 에코할 수 있어 절대 로그에 남기지 않는다.
+            status_code = getattr(getattr(exception, "response", None), "status_code", None)
             logger.warning(
-                "Hugging Face 회의록 분석 실패, Ollama/규칙 기반 분석으로 대체합니다. errorType=%s",
+                "Hugging Face 회의록 분석 실패, Ollama/규칙 기반 분석으로 대체합니다. errorType=%s httpStatus=%s",
                 type(exception).__name__,
+                status_code if status_code is not None else "N/A",
             )
     elif provider in {"huggingface", "hf"}:
         logger.warning("MEETING_ANALYSIS_PROVIDER=%s 이지만 HF_TOKEN이 없어 Ollama/규칙 기반 분석으로 대체합니다.", provider)
 
     if provider in {"auto", "huggingface", "hf", "ollama"}:
         try:
-            return analyze_meeting_with_ollama(request)
+            return _labeled(analyze_meeting_with_ollama(request), "ollama")
         except Exception as exception:
             logger.warning(
                 "Ollama 회의록 분석 실패, 규칙 기반 분석으로 대체합니다. errorType=%s",
                 type(exception).__name__,
             )
-    return analyze_meeting(request)
+    return _labeled(analyze_meeting(request), "rule_based")
+
+
+def _labeled(result: MeetingAnalysisResult, provider: str) -> MeetingAnalysisResult:
+    """요약·결정사항을 만든 티어를 붙인다. To-Do는 실행항목 칸이 있으면 뒤에서
+    결정적으로 덮어쓰므로, 이 라벨은 To-Do의 출처가 아니다."""
+    return result.model_copy(update={"analysis_provider": provider})
 
 
 @app.post("/api/v1/meetings/analyze", response_model=MeetingAnalysisResult)
@@ -406,42 +429,99 @@ def section_sentences(section_text: str, limit: int) -> List[str]:
     return results
 
 
-# 양식의 액션 아이템 표에서 사용자가 체크한 우선순위. "[v] 긴급" 처럼 대괄호 안에 표시한다.
+# 양식의 액션 아이템 표에서 사용자가 고른 우선순위.
+# 구양식(2열)은 "[v] 긴급"처럼 대괄호 안에 체크한다. 신양식(4열)은 우선순위 칸에 값만 적는다.
 _PRIORITY_LABELS = {"긴급": "HIGH", "보통": "MEDIUM", "낮음": "LOW"}
 _CHECKED_PRIORITY_PATTERN = re.compile(r"\[\s*[vVxXoO✓√]\s*\]\s*(긴급|보통|낮음)")
 _PRIORITY_ROW_PATTERN = re.compile(r"\[[^\]]*\]\s*(?:긴급|보통|낮음)")
 
 
-def parse_action_items(todos_section: str) -> List[tuple]:
-    """액션 아이템 표를 (체크된 우선순위, 내용) 쌍으로 읽는다.
+class ActionItem(NamedTuple):
+    """양식의 실행항목 한 행. 담당자·기한은 신양식의 지정 칸에서만 채워진다."""
 
-    docx 표는 행 순서대로 셀마다 한 줄로 풀리므로 "우선순위 줄 → 내용 줄" 순으로 나온다.
-    내용을 안 적은 빈 행은 우선순위 줄만 남으므로 버린다. 우선순위 줄 없이 그냥 적은
-    문장도 내용으로 받아준다(체크를 안 했을 뿐 할 일은 할 일이다).
+    priority: Optional[str]
+    content: str
+    assignee: str = ""
+    due_date: str = ""
+
+
+def parse_action_items(todos_section: str) -> List[ActionItem]:
+    """액션 아이템 표를 행 단위로 읽는다. 구양식과 신양식을 모두 받는다.
+
+    docx 추출기는 표를 셀마다 한 줄로 풀어내고 빈 셀은 줄 자체를 남기지 않는다.
+    그래서 열 위치로는 칸을 구분할 수 없고, 행 경계를 알려주는 표시가 따로 있어야 한다.
+
+    구양식(2열)은 "[ ] 긴급 [ ] 보통 [ ] 낮음" 체크줄이 그 표시다. 신양식(4열)은
+    우선순위 칸의 값(긴급/보통/낮음)이 행의 끝을 표시한다 - 그래서 양식이 그 칸을
+    비워두지 않고 "보통"을 미리 인쇄해 둔다.
     """
     if not todos_section or not todos_section.strip():
         return []
 
-    items: List[tuple] = []
+    lines = [line.strip() for line in todos_section.split("\n") if line.strip()]
+    if any(_PRIORITY_ROW_PATTERN.search(line) for line in lines):
+        return _parse_checkbox_rows(lines)
+    if any(line in _PRIORITY_LABELS for line in lines):
+        return _parse_four_column_rows(lines)
+    # 우선순위 표시가 하나도 없으면 양식 표가 아니라 자유 서술이다. 내용만 넘긴다.
+    return [ActionItem(None, line) for line in lines]
+
+
+def _parse_checkbox_rows(lines: List[str]) -> List[ActionItem]:
+    """구양식(2열): "우선순위 줄 → 내용 줄" 순으로 나온다.
+
+    내용을 안 적은 빈 행은 우선순위 줄만 남으므로 버린다.
+    """
+    items: List[ActionItem] = []
     pending_priority: Optional[str] = None
-    saw_priority_row = False
 
-    for line in todos_section.split("\n"):
-        stripped = line.strip()
-        if not stripped:
-            continue
-        if _PRIORITY_ROW_PATTERN.search(stripped):
-            checked = _CHECKED_PRIORITY_PATTERN.search(stripped)
+    for line in lines:
+        if _PRIORITY_ROW_PATTERN.search(line):
+            checked = _CHECKED_PRIORITY_PATTERN.search(line)
             pending_priority = _PRIORITY_LABELS[checked.group(1)] if checked else None
-            saw_priority_row = True
             continue
-        items.append((pending_priority, stripped))
+        items.append(ActionItem(pending_priority, line))
         pending_priority = None
-
-    # 우선순위 줄이 하나도 없으면 양식 표가 아니라 자유 서술이다. 그대로 내용만 넘긴다.
-    if not saw_priority_row:
-        return [(None, text) for _, text in items]
     return items
+
+
+def _parse_four_column_rows(lines: List[str]) -> List[ActionItem]:
+    """신양식(4열): 실행 항목 · 담당자 · 완료 기한 · 우선순위. 우선순위 값이 행의 끝이다."""
+    items: List[ActionItem] = []
+    buffer: List[str] = []
+
+    for line in lines:
+        priority = _PRIORITY_LABELS.get(line)
+        if priority is None:
+            buffer.append(line)
+            continue
+        if buffer:
+            items.append(_action_item_from_row(buffer, priority))
+        buffer = []
+
+    # 마지막 행의 우선순위를 사용자가 지웠을 수 있다. 그 행을 버리지 않고 파일 끝으로 닫는다.
+    if buffer:
+        items.append(_action_item_from_row(buffer, None))
+    return items
+
+
+def _action_item_from_row(cells: List[str], priority: Optional[str]) -> ActionItem:
+    """행에서 살아남은 줄들을 (내용, 담당자, 기한)으로 가른다.
+
+    빈 칸은 줄이 통째로 사라지므로 위치로 구분할 수 없다. 첫 줄은 실행 항목 칸이고
+    (그 칸이 비면 행 자체를 쓰지 않은 것이다), 나머지는 기한처럼 보이면 기한, 아니면
+    담당자로 본다. 담당자로 잘못 읽힌 값은 참석자 대조에서 걸러지므로 기한을 놓칠 뿐
+    엉뚱한 사람에게 배정되지는 않는다.
+    """
+    content, rest = cells[0], cells[1:]
+    assignee = ""
+    due_date = ""
+    for cell in rest:
+        if not due_date and _looks_like_due_slot(cell):
+            due_date = cell
+        elif not assignee:
+            assignee = cell
+    return ActionItem(priority, content, assignee, due_date)
 
 
 def build_todos_from_action_items(
@@ -465,8 +545,17 @@ def build_todos_from_action_items(
 
     allowed_names = _allowed_assignee_names(participants or [])
     todos: List[MeetingTodo] = []
-    for priority, sentence in action_items:
-        slot_assignee, title_source, due_slot = split_todo_cell(sentence)
+    for raw_item in action_items:
+        # 구양식 행은 담당자·기한 칸이 따로 없어 (우선순위, 내용) 두 값뿐이다.
+        # ActionItem 의 기본값이 나머지를 빈 칸으로 채운다.
+        item = ActionItem(*raw_item)
+        priority, sentence = item.priority, item.content
+        # 신양식은 담당자·기한이 각자 칸에 있어 문장을 쪼갤 필요가 없다. 구양식은 한 칸에
+        # "누가 · 무엇을 · 언제까지"를 이어 적으므로 그때만 쪼갠다.
+        if item.assignee or item.due_date:
+            slot_assignee, title_source, due_slot = item.assignee, sentence, item.due_date
+        else:
+            slot_assignee, title_source, due_slot = split_todo_cell(sentence)
         # 양식이 정한 "누가" 칸이 문장 추출보다 우선한다. 작성자가 지정 칸에 적은 것이
         # 문장에서 유추한 것보다 확실하고, "담당 미정"이라고 적은 것도 하나의 지정이다.
         assignee = slot_assignee if slot_assignee is not None else extract_assignee_candidate(sentence)
@@ -578,11 +667,14 @@ def analyze_meeting_with_ollama(request: AnalyzeRequest) -> MeetingAnalysisResul
         format="json",
         options={
             "temperature": temperature,
-            "num_ctx": 4096,
+            # 프롬프트만 1,400토큰대이므로, num_predict를 늘려도 컨텍스트 창이 4096이면
+            # 이번엔 창 쪽에서 잘린다. 출력 상한과 함께 올려야 상한 상향이 실제로 먹는다.
+            "num_ctx": 8192,
             "num_predict": num_predict,
         },
         keep_alive=keep_alive,
     )
+    _warn_if_truncated(response.get("done_reason"), "Ollama", "MEETING_ANALYSIS_NUM_PREDICT", num_predict)
     raw = response["message"]["content"]
     result = parse_ollama_analysis_response(raw, request)
     logger.info("Ollama 회의록 분석 성공. model=%s", model)
@@ -619,10 +711,28 @@ def analyze_meeting_with_huggingface(request: AnalyzeRequest) -> MeetingAnalysis
         response.raise_for_status()
         body = response.json()
 
-    raw = body["choices"][0]["message"]["content"]
+    choice = body["choices"][0]
+    _warn_if_truncated(choice.get("finish_reason"), "Hugging Face", "HF_MEETING_ANALYSIS_MAX_TOKENS", max_tokens)
+    raw = choice["message"]["content"]
     result = parse_ollama_analysis_response(raw, request)
     logger.info("Hugging Face 회의록 분석 성공. model=%s", model)
     return result
+
+
+def _warn_if_truncated(reason: Optional[str], provider: str, setting: str, limit: int) -> None:
+    """출력 상한에 걸려 잘린 응답을 로그에 남긴다.
+
+    잘린 JSON은 곧이어 파싱에서 죽는데, 그 예외는 'Unterminated string'만 남겨서
+    상한 문제인지 모델이 망가진 것인지 구분되지 않는다. 파싱 전에 여기서 한 줄 남긴다.
+    """
+    if reason != "length":
+        return
+    logger.warning(
+        "%s 응답이 잘렸습니다. 출력 상한에 걸려 JSON이 완성되지 않았습니다. setting=%s limit=%d",
+        provider,
+        setting,
+        limit,
+    )
 
 
 def _huggingface_configured() -> bool:
@@ -646,7 +756,7 @@ def build_section_hint(sections: Optional[MeetingSections]) -> str:
     return (
         "\n이 회의록은 정해진 양식으로 작성되어 섹션이 구분되어 있습니다. "
         "각 항목은 반드시 해당 섹션 안에서만 뽑으세요. "
-        "액션 아이템의 '[v] 긴급' 같은 표기는 작성자가 직접 고른 우선순위이니 임의로 바꾸지 말고, "
+        "액션 아이템의 '[v] 긴급'이나 '긴급/보통/낮음' 표기는 작성자가 직접 고른 우선순위이니 임의로 바꾸지 말고, "
         "담당자·기한·업무 내용을 문장에서 정확히 뽑아내는 데 집중하세요.\n\n" + body + "\n"
     )
 
@@ -666,7 +776,7 @@ def build_ollama_prompt(request: AnalyzeRequest) -> str:
 
 JSON 스키마:
 {{
-  "summary": "회의 내용 한두 문장 요약",
+  "summary": "회의 내용 요약 (아래 summary 규칙을 따를 것)",
   "decisions": ["결정사항 문장", "..."],
   "todos": [
     {{
@@ -682,6 +792,36 @@ JSON 스키마:
   "risks": ["위험요소 문장", "..."],
   "keywords": ["키워드", "..."]
 }}
+
+summary 규칙 - 반드시 지킬 것:
+1. 다음 세 가지를 모두 담는다. 하나라도 빠지면 안 된다.
+   - 결정된 것: 이 회의에서 하기로 정해진 방침
+   - 하기로 한 일: 실제 실행 항목. 여러 건이면 빠짐없이 나열한다
+   - 배경: 왜 이 논의를 했는지, 무슨 문제가 있었는지
+2. "OO 회의", "OO에 대해 논의함" 처럼 주제만 되풀이하지 않는다. 무엇을 정했고 무엇을 하기로
+   했는지가 없으면 요약이 아니다.
+   나쁜 예: "사내 위키 이관 회의"
+   좋은 예: "사내 위키의 검색이 느려 이관을 검토했고, 후보 도구 비교를 먼저 하기로 했다."
+3. 실행 항목이 여러 건이면 건수만 세지 말고 각각이 무엇인지 적는다.
+   나쁜 예: "회의 내용을 분석해 결정사항 N건, 업무 후보 N건을 추출했습니다"
+4. 길이는 위 내용을 담을 만큼만 쓴다. 보통 두세 문장이고, 실행 항목이 많으면 더 길어져도 된다.
+5. 회의록에 없는 내용은 넣지 않는다. 특히 원문에 없는 날짜나 이름을 만들지 않는다.
+
+todos 선정 규칙 - 반드시 지킬 것:
+1. 앞으로 하기로 정해진 일은 담당자나 마감일이 정해지지 않았어도 todos에 넣는다.
+   담당자를 못 정했으면 assignee_candidate를 빈 문자열로, 기한을 못 정했으면 due_date를 null로 두되
+   업무 자체는 반드시 남긴다. 담당자나 기한이 없다는 이유로 업무를 빠뜨리지 않는다.
+   예: "OO 작업은 하기로 했으나 담당자는 아직 정하지 못했다" -> todos 1건, assignee_candidate는 ""
+   예: "OO 작업은 이어서 하되 완료 시점은 정하지 못했다" -> todos 1건, due_date는 null
+2. 이미 시작된 일도 남은 작업이 있고 계속하기로 했으면 todos에 넣는다.
+   예: "OO는 잔여 작업이 남아 있고 계속 진행하기로 했다" -> todos 1건
+3. 다음은 todos에 넣지 않는다.
+   - 남은 작업 없이 끝난 일의 완료 보고
+   - 별도 조치가 결정되지 않은 지표·현황 공유
+   - 하지 않기로 했거나 보류한 일
+   - 의견, 질문, 동의나 맞장구 같은 대화 응답
+4. 하기로 정해진 일을 하나도 찾을 수 없으면 todos는 빈 배열([])로 둔다. 칸을 채우려고 지어내지 않는다.
+5. 같은 일이 논의 내용과 결정 사항에 함께 나오면, 확정된 표현이 담긴 결정 사항 쪽 문장을 evidence_text로 쓴다.
 
 담당자(assignee_candidate) 규칙 - 반드시 지킬 것:
 1. 회의록 내용에서 특정 인물이 명시적으로 담당한다고 말한 업무만 그 사람 이름을 assignee_candidate로 적는다.
@@ -1349,12 +1489,18 @@ def repair_ollama_todos(todos: List[MeetingTodo], request: AnalyzeRequest) -> Li
     source_text = request.text or request.title
     explicit_candidates = extract_explicit_task_candidates(source_text)
     if not explicit_candidates:
-        return todos or build_todos(source_text, normalize_text(source_text), request.meeting_date, request.participants)
+        # 원문에 업무 선언 문장이 하나도 없다. 모델이 빈 결과를 냈다면 그건 실패가 아니라
+        # "할 일이 없다"는 판단이므로 존중한다. 예전에는 여기서 규칙 기반 추출로 덮어써,
+        # 지표 공유 회의처럼 정답이 0건인 자리에 없는 할 일을 채워 넣었다.
+        return todos
 
+    # 예전에는 "선언 문장 수보다 To-Do가 적으면 누락"으로 보고 여기서 함께 덮어썼다.
+    # 정규식이 세는 선언 문장에는 문제 보고나 요청 발언도 섞여 실제 할 일 수와 다르고,
+    # 덮어쓰기는 통째 교체라 정확히 뽑은 결과까지 제목이 잘린 규칙 기반 결과로 바뀌었다.
+    # 평가셋에서 이 조건이 걸린 4건은 전부 손해였고 이득 본 건은 없어 조건을 뺐다.
     has_placeholder = any(is_schema_placeholder(todo.title) or is_schema_placeholder(todo.description) for todo in todos)
     all_unassigned = bool(todos) and all(not todo.assignee_candidate for todo in todos)
-    missing_explicit_tasks = len(todos) < len(explicit_candidates)
-    if not todos or has_placeholder or all_unassigned or missing_explicit_tasks:
+    if not todos or has_placeholder or all_unassigned:
         logger.info("Ollama To-Do 결과를 회의록 원문 기반 담당자 추출로 보정합니다.")
         return build_todos(source_text, normalize_text(source_text), request.meeting_date, request.participants)
     return fill_missing_assignees_from_speaker_evidence(todos, explicit_candidates, request.participants)
@@ -1399,7 +1545,6 @@ def is_schema_placeholder(value: str) -> bool:
 def build_todos(raw_text: str, normalized_text: str, meeting_date: str, participants: Optional[List[str]] = None) -> List[MeetingTodo]:
     explicit_candidates = extract_explicit_task_candidates(raw_text)
     used_speaker_format = bool(explicit_candidates)
-    is_generic_fallback = False
     if used_speaker_format:
         candidates = explicit_candidates
     else:
@@ -1408,13 +1553,9 @@ def build_todos(raw_text: str, normalized_text: str, meeting_date: str, particip
             ["담당", "작성", "구현", "정리", "검토", "준비", "연결", "테스트", "제출", "설계"],
             6,
         )
-        if not sentences:
-            is_generic_fallback = True
-            sentences = [
-                "회의록 AI 분석 API 구현",
-                "분석 결과 화면과 업무 보드 등록 흐름 연결",
-                "팀장 검토용 To-Do 승인 화면 점검",
-            ]
+        # 업무로 읽히는 문장이 하나도 없으면 할 일이 없는 회의다. 예전에는 여기서 이 서비스
+        # 자체의 기능 3개를 하드코딩으로 채워 사용자 회의록에서 뽑은 것처럼 내보냈다.
+        # 지표 공유나 완료 보고처럼 실제로 할 일이 없는 회의에서 그대로 노출됐다.
         candidates = [(extract_assignee_candidate(sentence), sentence) for sentence in sentences]
 
     try:
@@ -1428,9 +1569,7 @@ def build_todos(raw_text: str, normalized_text: str, meeting_date: str, particip
         display_assignee = assignee
         if allowed_names is not None and display_assignee not in allowed_names:
             display_assignee = ""
-        if is_generic_fallback:
-            evidence_text = ""
-        elif used_speaker_format and assignee:
+        if used_speaker_format and assignee:
             evidence_text = shorten(f"{assignee}: {sentence}", _EVIDENCE_MAX_LEN)
         else:
             evidence_text = shorten(sentence, _EVIDENCE_MAX_LEN)
@@ -1468,6 +1607,19 @@ _FORMAL_TASK_COMMITMENT_HINTS = [
 ]
 _SPEAKER_TASK_LIMIT = 12
 
+# "겠습니다"로 끝나지만 업무가 아닌 발언. 이 판정이 없으면 "알겠습니다"가 업무 선언으로
+# 잡혀 제목을 다듬는 과정에서 '알' 한 글자짜리 To-Do가 나간다. 실제로 제안이 기각된
+# 회의와 완료 보고 회의에서 그대로 관측됐다.
+# 각 항목은 관측된 실패에서 나온 것만 넣는다 — 추측으로 넓히면 진짜 업무를 걸러낸다.
+_NON_TASK_UTTERANCE_HINTS = [
+    "알겠습니다",
+    "알겠어요",
+    "그러겠습니다",
+    "종료하겠습니다",
+    "마치겠습니다",
+    "나중에 다시",
+]
+
 
 def extract_assignee_candidate(sentence: str) -> str:
     """문장에서 "OO가/은/는 ~한다" 또는 "담당: OO" 형태로 적힌 담당자 이름을 추출한다. 없으면 빈 문자열(미배정 후보)."""
@@ -1494,6 +1646,8 @@ def extract_speaker_task_candidates(text: str) -> List[tuple[str, str]]:
         for sentence in re.split(r"[.!?。！？]", utterance):
             s = sentence.strip()
             if len(s) < 4:
+                continue
+            if any(hint in s for hint in _NON_TASK_UTTERANCE_HINTS):
                 continue
             is_commitment = "겠습니다" in s or any(keyword in s for keyword in _TASK_KEYWORDS)
             if is_commitment:

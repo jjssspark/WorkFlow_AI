@@ -69,8 +69,12 @@ public final class MeetingTemplateParser {
      * 뒤에 오므로 반드시 걸러야 비고 내용에 섞이지 않는다.
      */
     private static final List<String> BOILERPLATE_LINES = List.of(
-        "회의종류", "작성자", "참석인원", "참석자", "일시", "장소",
+        // "회의종류"·"참석인원"·"참석자"는 신양식에서 뺐지만, 그 양식으로 이미 쓴 문서가 있다.
+        "회의 제목", "회의종류", "작성자", "참석인원", "참석자", "일시", "장소",
         "우선순위", "결재", "팀장", "부서장", "대표",
+        // 신양식 실행항목 표(실행 항목 · 담당자 · 완료 기한 · 우선순위)의 열 제목.
+        // "실행 항목"은 띄어쓰기가 있어 섹션 라벨 "실행항목"과 겹치지 않는다.
+        "실행 항목", "담당자", "완료 기한",
         "회의를 진행하는 목적",
         "다룰 안건",
         "회의 중 나온 논의를 자세히 적어주세요.",
@@ -79,6 +83,13 @@ public final class MeetingTemplateParser {
     );
 
     private static final List<String> BOILERPLATE_PREFIXES = List.of("내용 (", "※");
+
+    /**
+     * 실행항목 예시 행("(예시) 박지수 · ...")의 접두사. 목록에 문구 전체를 넣지 않은 이유는
+     * 사용자가 예시를 지우지 않고 그 아래에 이어서 적는 경우가 흔한데, 그러면 뒤 문구가
+     * 조금만 달라져도 목록 방식은 걸러내지 못하기 때문이다.
+     */
+    private static final String EXAMPLE_LINE_PREFIX = "(예시)";
 
     private static Pattern compile(String heading) {
         return Pattern.compile(
@@ -124,6 +135,9 @@ public final class MeetingTemplateParser {
     private static boolean isBoilerplate(String line) {
         String trimmed = line.trim();
         if (BOILERPLATE_LINES.contains(trimmed)) {
+            return true;
+        }
+        if (trimmed.startsWith(EXAMPLE_LINE_PREFIX)) {
             return true;
         }
         return BOILERPLATE_PREFIXES.stream().anyMatch(trimmed::startsWith);

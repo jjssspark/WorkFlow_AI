@@ -23,6 +23,14 @@ vi.mock("react-router", async () => {
   return { ...actual, useNavigate: () => mockNavigate };
 });
 
+const renderScreen = () => {
+  return render(
+    <MemoryRouter initialEntries={["/login"]}>
+      <LoginScreen />
+    </MemoryRouter>
+  );
+};
+
 describe("LoginScreen", () => {
   beforeEach(() => {
     vi.mocked(apiFetch).mockReset();
@@ -56,5 +64,19 @@ describe("LoginScreen", () => {
     // 로그인 화면으로 못 돌아가고 다음 화면이 다시 뜬다 - 뒤로가기가 로그인 화면으로 돌아가야 하므로
     // 히스토리를 보존하는 일반 navigate여야 한다.
     expect(mockNavigate).toHaveBeenCalledWith("/projects");
+  });
+
+  it("비밀번호 찾기 링크가 /password-reset을 가리킨다", () => {
+    renderScreen();
+
+    expect(screen.getByRole("link", { name: "비밀번호 찾기" }))
+      .toHaveAttribute("href", "/password-reset");
+  });
+
+  it("아이디 찾기 링크가 /find-email을 가리킨다", () => {
+    renderScreen();
+
+    expect(screen.getByRole("link", { name: "아이디 찾기" }))
+      .toHaveAttribute("href", "/find-email");
   });
 });

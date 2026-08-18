@@ -68,6 +68,10 @@ public class User {
     @Column(name = "privacy_agreed_at")
     private LocalDateTime privacyAgreedAt;
 
+    /** 비밀번호를 실제로 바꾼 시각. updatedAt과 달리 명시적으로만 세팅되며, 리프레시 토큰 무효화 판단에 쓴다. */
+    @Column(name = "password_changed_at")
+    private LocalDateTime passwordChangedAt;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -128,6 +132,10 @@ public class User {
 
     public String getPasswordHash() {
         return passwordHash;
+    }
+
+    public void setPasswordHash(String passwordHash) {
+        this.passwordHash = passwordHash;
     }
 
     public ReviewerStatus getReviewerStatus() {
@@ -208,6 +216,14 @@ public class User {
 
     public void setPrivacyAgreedAt(LocalDateTime privacyAgreedAt) {
         this.privacyAgreedAt = privacyAgreedAt;
+    }
+
+    public LocalDateTime getPasswordChangedAt() {
+        return passwordChangedAt;
+    }
+
+    public void setPasswordChangedAt(LocalDateTime passwordChangedAt) {
+        this.passwordChangedAt = passwordChangedAt;
     }
 
     public LocalDateTime getCreatedAt() {

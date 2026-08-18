@@ -12,6 +12,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Duration;
+import java.util.Locale;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,11 +37,23 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
     private static final Logger log = LoggerFactory.getLogger(AuthController.class);
     private static final String STATE_COOKIE = "oauth_state";
+    private static final int EMAIL_RESET_LIMIT = 3;
+    private static final Duration EMAIL_RESET_WINDOW = Duration.ofMinutes(5);
+    private static final int IP_RECOVERY_LIMIT = 10;
+    private static final Duration IP_RECOVERY_WINDOW = Duration.ofMinutes(15);
+    // 재발급과 재설정 확인은 사용자 행에 잠금을 잡는다. 상한이 없으면 잠금을 기다리는 요청이
+    // 커넥션을 붙든 채 쌓여, 풀이 작아서(4) 무관한 사용자까지 커넥션을 못 받는다.
+    // 정상 사용자는 액세스 토큰 만료(30분)마다 한 번 재발급하므로 이 한도에 닿지 않는다.
+    private static final int REFRESH_LIMIT = 60;
+    private static final Duration REFRESH_WINDOW = Duration.ofMinutes(1);
 
     private final GoogleOAuthService googleOAuthService;
     private final AuthService authService;
     private final TestLoginService testLoginService;
     private final PresenceService presenceService;
+    private final AccountRecoveryService accountRecoveryService;
+    private final PasswordResetService passwordResetService;
+    private final AccountRecoveryRateLimiter rateLimiter;
     private final String frontendBaseUrl;
     private final boolean forceSecureCookies;
     private final boolean devLoginEnabled;
@@ -50,6 +63,9 @@ public class AuthController {
         AuthService authService,
         TestLoginService testLoginService,
         PresenceService presenceService,
+        AccountRecoveryService accountRecoveryService,
+        PasswordResetService passwordResetService,
+        AccountRecoveryRateLimiter rateLimiter,
         @Value("${workflow.frontend.base-url}") String frontendBaseUrl,
         @Value("${workflow.security.force-secure-cookies:false}") boolean forceSecureCookies,
         @Value("${workflow.demo.dev-login-enabled:false}") boolean devLoginEnabled
@@ -58,6 +74,9 @@ public class AuthController {
         this.authService = authService;
         this.testLoginService = testLoginService;
         this.presenceService = presenceService;
+        this.accountRecoveryService = accountRecoveryService;
+        this.passwordResetService = passwordResetService;
+        this.rateLimiter = rateLimiter;
         this.frontendBaseUrl = frontendBaseUrl;
         this.forceSecureCookies = forceSecureCookies;
         this.devLoginEnabled = devLoginEnabled;
@@ -288,8 +307,13 @@ public class AuthController {
 
     @Operation(summary = "Refresh Token으로 Access Token 재발급")
     @PostMapping("/refresh")
-    public ApiResponse<AuthTokenResponse> refresh(@Valid @RequestBody RefreshRequest request) {
-        return ApiResponse.ok(authService.refresh(request.refreshToken()));
+    public ResponseEntity<ApiResponse<AuthTokenResponse>> refresh(
+        @Valid @RequestBody RefreshRequest request, HttpServletRequest httpRequest
+    ) {
+        if (!rateLimiter.tryAcquire("refresh-ip", httpRequest.getRemoteAddr(), REFRESH_LIMIT, REFRESH_WINDOW)) {
+            return rateLimited();
+        }
+        return ResponseEntity.ok(ApiResponse.ok(authService.refresh(request.refreshToken())));
     }
 
     @Operation(
@@ -300,6 +324,79 @@ public class AuthController {
     @PostMapping("/logout")
     public ApiResponse<Void> logout() {
         return ApiResponse.ok(null);
+    }
+
+    @Operation(
+        summary = "아이디(이메일) 찾기",
+        description = "이름과 소속이 모두 일치하는 계정의 이메일을 마스킹해서 반환한다. "
+            + "일치 항목이 없어도 200과 빈 배열을 반환한다 — 계정 존재 여부를 알려주지 않는다."
+    )
+    @PostMapping("/find-email")
+    public ResponseEntity<ApiResponse<FindEmailResponse>> findEmail(
+        @Valid @RequestBody FindEmailRequest request,
+        HttpServletRequest httpRequest
+    ) {
+        if (!rateLimiter.tryAcquire("find-email-ip", httpRequest.getRemoteAddr(),
+                IP_RECOVERY_LIMIT, IP_RECOVERY_WINDOW)) {
+            return rateLimited();
+        }
+        return ResponseEntity.ok(ApiResponse.ok(new FindEmailResponse(
+            accountRecoveryService.findMaskedEmails(request.name(), request.affiliation())
+        )));
+    }
+
+    @Operation(
+        summary = "비밀번호 재설정 요청",
+        description = "계정 존재 여부와 무관하게 항상 200과 같은 문구를 반환한다. 이메일을 넣어보며 "
+            + "가입 여부를 알아내는 것을 막기 위해서다. 실제 분기는 발송되는 메일 내용에서만 일어난다."
+    )
+    @PostMapping("/password-reset/request")
+    public ResponseEntity<ApiResponse<Void>> requestPasswordReset(
+        @Valid @RequestBody PasswordResetRequestDto request,
+        HttpServletRequest httpRequest
+    ) {
+        String normalizedEmail = request.email().trim().toLowerCase(Locale.ROOT);
+        boolean allowed =
+            rateLimiter.tryAcquire("reset-email", normalizedEmail, EMAIL_RESET_LIMIT, EMAIL_RESET_WINDOW)
+                && rateLimiter.tryAcquire("reset-ip", httpRequest.getRemoteAddr(),
+                    IP_RECOVERY_LIMIT, IP_RECOVERY_WINDOW);
+        if (!allowed) {
+            return rateLimited();
+        }
+        passwordResetService.requestReset(request.email(), httpRequest.getRemoteAddr());
+        return ResponseEntity.ok(ApiResponse.ok(null));
+    }
+
+    @Operation(
+        summary = "비밀번호 재설정 확인",
+        description = "메일 링크의 토큰으로 새 비밀번호를 설정한다. 이 단계는 이미 메일 수신자로 "
+            + "확인된 사용자만 도달하므로 실패 사유를 그대로 알려준다."
+    )
+    @PostMapping("/password-reset/confirm")
+    public ResponseEntity<ApiResponse<Void>> confirmPasswordReset(
+        @Valid @RequestBody PasswordResetConfirmDto request, HttpServletRequest httpRequest
+    ) {
+        // 요청 단계에만 상한이 있었다. 이 단계도 사용자 행에 배타 잠금을 잡으므로 상한이 필요하다.
+        if (!rateLimiter.tryAcquire("reset-confirm-ip", httpRequest.getRemoteAddr(),
+                IP_RECOVERY_LIMIT, IP_RECOVERY_WINDOW)) {
+            return rateLimited();
+        }
+        try {
+            passwordResetService.confirmReset(request.token(), request.newPassword());
+            return ResponseEntity.ok(ApiResponse.ok(null));
+        } catch (InvalidResetTokenException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.fail("INVALID_RESET_TOKEN", e.getMessage()));
+        } catch (InvalidSignupInputException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.fail("INVALID_SIGNUP_INPUT", e.getMessage()));
+        }
+    }
+
+    // 429는 계정 존재 여부와 무관하게 나가므로 계정 열거에 쓰이지 않는다.
+    private <T> ResponseEntity<ApiResponse<T>> rateLimited() {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+            .body(ApiResponse.fail("RATE_LIMITED", "요청이 너무 잦습니다. 잠시 후 다시 시도해주세요."));
     }
 
     private ResponseEntity<Void> redirectToFrontend(String path, ResponseCookie cookie) {

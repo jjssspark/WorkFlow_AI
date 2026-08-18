@@ -1,0 +1,47 @@
+{
+  "case_id": "doc-bullet-01",
+  "scenario": "문서형: 개조식",
+  "input": {
+    "title": "검색 색인 중복 점검",
+    "meeting_date": "2026-08-14",
+    "meeting_kind": "개발회의",
+    "source_type": "document",
+    "participants": [
+      "박지수",
+      "유소은"
+    ],
+    "text": "회의내용\n- 검색 결과에 동일 문서가 중복 노출되는 현상 공유\n- 색인 파이프라인에서 중복 삽입이 발생하는 것으로 추정\n- 원인 파악 후 중복 제거 로직 적용하는 방향으로 정리\n결정사항\n- 색인 중복 원인 파악: 박지수, 8/20까지\n- 중복 제거 로직 적용: 유소은, 8/22까지\n실행항목\n비고",
+    "sections": {
+      "discussion": "- 검색 결과에 동일 문서가 중복 노출되는 현상 공유\n- 색인 파이프라인에서 중복 삽입이 발생하는 것으로 추정\n- 원인 파악 후 중복 제거 로직 적용하는 방향으로 정리",
+      "decisions": "- 색인 중복 원인 파악: 박지수, 8/20까지\n- 중복 제거 로직 적용: 유소은, 8/22까지",
+      "todos": "",
+      "issues": ""
+    }
+  },
+  "golden": {
+    "todos": [
+      {
+        "evidence_id": "T1",
+        "title": "색인 중복 원인 파악",
+        "assignee": "박지수",
+        "due_date": "2026-08-20",
+        "priority": "MEDIUM",
+        "evidence_snippet": "색인 중복 원인 파악: 박지수, 8/20까지"
+      },
+      {
+        "evidence_id": "T2",
+        "title": "중복 제거 로직 적용",
+        "assignee": "유소은",
+        "due_date": "2026-08-22",
+        "priority": "MEDIUM",
+        "evidence_snippet": "중복 제거 로직 적용: 유소은, 8/22까지"
+      }
+    ],
+    "summary_checklist": [
+      {
+        "item": "색인 중복 원인 파악과 중복 제거 로직 적용이 요약에 담겼는가",
+        "kind": "coverage"
+      }
+    ]
+  }
+}

@@ -4,6 +4,7 @@ import json
 import logging
 from unittest.mock import patch
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -17,8 +18,13 @@ from app.main import (
     analyze_meeting_with_ollama,
     app,
     build_ollama_prompt,
+    build_todos,
     clean_todo_title,
+    extract_speaker_task_candidates,
+    MeetingTodo,
+    normalize_text,
     parse_ollama_analysis_response,
+    repair_ollama_todos,
 )
 from core.security import verify_internal_api_key
 
@@ -149,13 +155,13 @@ def test_analyze_json_cache_key_sorts_participant_copy_without_mutating_request(
         ("MEETING_ANALYSIS_MODEL", "model-a", "model-b"),
         ("MEETING_ANALYSIS_TIMEOUT_SECONDS", "20", "21"),
         ("MEETING_ANALYSIS_MAX_CHARS", "6000", "5000"),
-        ("MEETING_ANALYSIS_NUM_PREDICT", "650", "700"),
+        ("MEETING_ANALYSIS_NUM_PREDICT", "2048", "2049"),
         ("MEETING_ANALYSIS_KEEP_ALIVE", "5m", "10m"),
         ("OLLAMA_ANALYSIS_TEMPERATURE", "0.1", "0.2"),
         ("HF_MEETING_ANALYSIS_ENDPOINT", "https://hf-a.example/v1", "https://hf-b.example/v1"),
         ("HF_MEETING_ANALYSIS_MODEL", "hf-model-a", "hf-model-b"),
         ("HF_MEETING_ANALYSIS_TIMEOUT_SECONDS", "35", "36"),
-        ("HF_MEETING_ANALYSIS_MAX_TOKENS", "900", "901"),
+        ("HF_MEETING_ANALYSIS_MAX_TOKENS", "2048", "2049"),
         ("HF_MEETING_ANALYSIS_TEMPERATURE", "0.1", "0.2"),
         ("HF_TOKEN", "", "configured-test-token"),
     ],
@@ -590,6 +596,27 @@ def test_build_ollama_prompt_includes_assignee_rules_and_participants():
     assert "몰아서 배정" in prompt
 
 
+def test_build_ollama_prompt_keeps_tasks_without_owner_or_deadline():
+    """담당자·기한이 없다는 이유로 할 일을 빠뜨리던 문제의 회귀 방어.
+
+    문서형 회의록에서 모델이 `todos: []` 를 내던 원인이 이 지시의 부재였다.
+    반대로 없는 할 일을 지어내지 않도록 제외 조건도 함께 남아 있어야 한다.
+    """
+    request = AnalyzeRequest(
+        title="정기회의",
+        meeting_date="2026-07-15",
+        text="배포 스크립트 점검은 진행하되 담당자는 다음 회의에서 정한다.",
+        participants=["박지수"],
+    )
+
+    prompt = build_ollama_prompt(request)
+
+    assert "담당자나 기한이 없다는 이유로 업무를 빠뜨리지 않는다" in prompt
+    assert "남은 작업이 있고 계속하기로 했으면" in prompt
+    assert "하지 않기로 했거나 보류한 일" in prompt
+    assert "빈 배열([])" in prompt
+
+
 def test_analyze_json_falls_back_to_rule_based_when_ollama_fails(monkeypatch):
     monkeypatch.setenv("MEETING_ANALYSIS_PROVIDER", "ollama")
     client = TestClient(app)
@@ -768,6 +795,39 @@ def test_analyze_json_fallback_warnings_do_not_expose_exception_details(monkeypa
     assert "민감한 회의 원문" not in caplog.text
 
 
+def test_analyze_json_fallback_warning_logs_http_status_code(monkeypatch, caplog):
+    # errorType 만으로는 401(토큰/권한)과 404(모델), 429(레이트리밋), 5xx(서버)를 구분할 수
+    # 없어, HF 티어가 상시로 0점을 내도 운영에서 원인을 알 방법이 없었다. 상태 코드가
+    # 로그에 남는지 검증한다. 본문은 토큰을 에코할 수 있으므로 로그에 남으면 안 된다.
+    monkeypatch.setenv("MEETING_ANALYSIS_PROVIDER", "huggingface")
+    monkeypatch.setenv("HF_TOKEN", "configured-test-token")
+    request = AnalyzeRequest(
+        title="정기회의",
+        meeting_date="2026-07-23",
+        text="회의 내용",
+        participants=["김민준"],
+    )
+    fake_request = httpx.Request("POST", "https://router.huggingface.co/v1/chat/completions")
+    fake_response = httpx.Response(
+        401,
+        request=fake_request,
+        text="BODY-MUST-NOT-BE-LOGGED",
+    )
+    http_error = httpx.HTTPStatusError("401 Unauthorized", request=fake_request, response=fake_response)
+
+    with (
+        patch("app.main.analyze_meeting_with_huggingface", side_effect=http_error),
+        patch("app.main.analyze_meeting_with_ollama", return_value=analyze_meeting(request)),
+        caplog.at_level(logging.WARNING),
+    ):
+        result = _analyze_json_uncached(request)
+
+    assert result.summary
+    assert "errorType=HTTPStatusError" in caplog.text
+    assert "httpStatus=401" in caplog.text
+    assert "BODY-MUST-NOT-BE-LOGGED" not in caplog.text
+
+
 def test_analyze_meeting_with_ollama_uses_fast_default_model_and_bounded_options(monkeypatch):
     monkeypatch.delenv("MEETING_ANALYSIS_MODEL", raising=False)
     monkeypatch.delenv("MEETING_ANALYSIS_TIMEOUT_SECONDS", raising=False)
@@ -807,7 +867,7 @@ def test_analyze_meeting_with_ollama_uses_fast_default_model_and_bounded_options
     assert result.summary == "요약"
     assert fake_client.timeout == 20.0
     assert fake_client.chat_kwargs["model"] == "qwen2.5:1.5b"
-    assert fake_client.chat_kwargs["options"]["num_predict"] == 650
+    assert fake_client.chat_kwargs["options"]["num_predict"] == 2048
     assert fake_client.chat_kwargs["keep_alive"] == "5m"
 
 
@@ -883,9 +943,154 @@ def test_analyze_meeting_with_huggingface_uses_openai_compatible_router(monkeypa
     assert captured["endpoint"] == "https://router.huggingface.co/v1/chat/completions"
     assert captured["headers"]["Authorization"] == "Bearer hf_test_token"
     assert captured["json"]["model"] == "Qwen/Qwen3-4B-Instruct-2507"
-    assert captured["json"]["max_tokens"] == 900
+    assert captured["json"]["max_tokens"] == 2048
     assert captured["json"]["stream"] is False
     assert captured["timeout"] == 35.0
+
+
+def test_acknowledgement_is_not_treated_as_a_task():
+    """'알겠습니다'는 대화 응답이지 업무가 아니다.
+
+    화자 발언 추출이 "겠습니다"가 들어가면 무조건 업무 선언으로 봐서, 제안이 기각된
+    회의에서 '알'(= '알겠습니다'를 제목으로 다듬다 잘린 것)이 To-Do로 나갔다.
+    """
+    text = (
+        "유소은: 회의록에 자동 번역을 붙이면 어떨까요?\n"
+        "박상준: 이번 분기에는 안 하는 걸로 하시죠.\n"
+        "유소은: 알겠습니다. 나중에 다시 이야기하겠습니다."
+    )
+
+    assert extract_speaker_task_candidates(text) == []
+
+
+def test_meeting_closing_remark_is_not_treated_as_a_task():
+    text = (
+        "허영주: 폴백 로직은 8월 12일에 배포 완료했습니다.\n"
+        "이은주: 좋습니다. 이 건은 종료하겠습니다."
+    )
+
+    assert extract_speaker_task_candidates(text) == []
+
+
+def test_meeting_without_action_items_produces_no_todos():
+    """할 일이 없는 회의에는 아무것도 만들지 않는다.
+
+    예전에는 업무 문장을 못 찾으면 이 서비스 자체의 기능 3개를 하드코딩으로 채워
+    사용자 회의록에서 뽑은 것처럼 내보냈다.
+    """
+    text = (
+        "이은주: 이번 스프린트 지표 공유드립니다. 배포 성공률 98%입니다.\n"
+        "박지수: 확인했습니다."
+    )
+
+    assert build_todos(text, normalize_text(text), "2026-08-14", ["이은주", "박지수"]) == []
+
+
+def test_empty_model_result_is_respected_when_there_is_no_task_evidence():
+    """모델이 '할 일 없음'이라고 옳게 답하면 그 결과를 존중한다.
+
+    예전에는 빈 결과를 규칙 기반 추출로 덮어써, 정답을 낸 모델 출력을 코드가 지웠다.
+    """
+    request = AnalyzeRequest(
+        title="스프린트 지표 공유",
+        meeting_date="2026-08-14",
+        text="이은주: 이번 스프린트 지표 공유드립니다.\n박지수: 확인했습니다.",
+        participants=["이은주", "박지수"],
+    )
+
+    assert repair_ollama_todos([], request) == []
+
+
+def test_model_todos_survive_when_fewer_than_declaration_sentences():
+    """선언 문장 수보다 To-Do가 적다는 이유로 모델 결과를 통째로 버리지 않는다.
+
+    정규식이 세는 '업무 선언 문장' 수는 실제 할 일 개수와 다르다. 문제 보고나 요청 발언이
+    함께 세어져, 정확히 뽑아낸 결과가 제목이 잘린 규칙 기반 결과("8/19까지 확인")로
+    교체됐다. 평가셋에서 이 분기가 걸린 4건은 전부 손해만 봤고 이득 본 건은 없었다.
+    """
+    request = AnalyzeRequest(
+        title="결제 연동 점검",
+        meeting_date="2026-08-14",
+        text=(
+            "김도현: 결제 연동 문서에서 테스트 키 발급 절차가 빠져 있습니다.\n"
+            "이은주: 제가 결제사에 문의해서 절차를 확인하고 8/20까지 공유하겠습니다."
+        ),
+        participants=["김도현", "이은주"],
+    )
+    todos = [
+        MeetingTodo(
+            title="테스트 키 발급 절차 확인",
+            description="결제사에 문의해 절차를 확인하고 공유한다.",
+            assignee_candidate="이은주",
+            due_date="2026-08-20",
+            priority="MEDIUM",
+            category="BACKEND",
+            evidence_text="이은주: 제가 결제사에 문의해서 절차를 확인하고 8/20까지 공유하겠습니다.",
+        )
+    ]
+
+    repaired = repair_ollama_todos(todos, request)
+
+    assert [todo.title for todo in repaired] == ["테스트 키 발급 절차 확인"]
+
+
+def test_analyze_meeting_with_huggingface_warns_when_output_is_truncated(monkeypatch, caplog):
+    """상한에 걸려 잘린 응답은 JSON 파싱에서 죽는데, 그 예외만으로는 원인을 알 수 없다.
+
+    실제로 To-Do 6건짜리 회의가 완성에 924토큰을 써서 상한 900을 넘겼고, 남은 단서는
+    'Unterminated string' 뿐이라 상한 문제인지 모델이 망가진 것인지 구분되지 않았다.
+    """
+    monkeypatch.setenv("HF_TOKEN", "hf_test_token")
+    request = AnalyzeRequest(title="정기회의", meeting_date="2026-07-20", text="내용", participants=[])
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"choices": [{"message": {"content": '{"summary": "잘린'}, "finish_reason": "length"}]}
+
+    class FakeClient:
+        def __init__(self, timeout: float):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        def post(self, endpoint: str, headers: dict, json: dict):
+            return FakeResponse()
+
+    with caplog.at_level(logging.WARNING, logger="app.main"):
+        with patch("app.main.httpx.Client", FakeClient):
+            with pytest.raises(Exception):
+                analyze_meeting_with_huggingface(request)
+
+    assert any("응답이 잘렸습니다" in record.message for record in caplog.records)
+
+
+def test_analyze_meeting_with_ollama_warns_when_output_is_truncated(monkeypatch, caplog):
+    monkeypatch.setenv("MEETING_ANALYSIS_MODEL", "qwen2.5:1.5b")
+    request = AnalyzeRequest(title="정기회의", meeting_date="2026-07-20", text="내용", participants=[])
+
+    class FakeClient:
+        def __init__(self, host: str, timeout: float):
+            pass
+
+        def list(self):
+            return {"models": [{"name": "qwen2.5:1.5b"}]}
+
+        def chat(self, **kwargs):
+            return {"message": {"content": '{"summary": "잘린'}, "done_reason": "length"}
+
+    with caplog.at_level(logging.WARNING, logger="app.main"):
+        with patch("app.main.ollama.Client", return_value=FakeClient("http://localhost:11434", 20)):
+            with pytest.raises(Exception):
+                analyze_meeting_with_ollama(request)
+
+    assert any("응답이 잘렸습니다" in record.message for record in caplog.records)
 
 
 def test_analyze_meeting_with_huggingface_requires_token(monkeypatch):
@@ -1230,3 +1435,71 @@ def test_rule_based_analysis_extracts_formal_followup_tasks_from_meeting_minutes
     assert "업무 후보 등록 후 업무보드 반영 흐름 확인" in titles
     assert any(title.startswith("심사자 기여도 분석 화면에서 근거 문장 표시") for title in titles)
     assert all(todo.evidence_text for todo in result.todos)
+
+
+def test_analysis_provider_reports_the_tier_that_actually_answered(monkeypatch):
+    # 폴백은 로그에만 남아서, 운영에서 사용자가 받은 요약이 HF 것인지 규칙 기반 것인지
+    # 응답만 보고는 알 수 없었다. 평가에서 "유령 0점"을 만든 것도 이 미관측 강등이다.
+    monkeypatch.setenv("MEETING_ANALYSIS_PROVIDER", "auto")
+    monkeypatch.setenv("HF_TOKEN", "configured-test-token")
+    request = AnalyzeRequest(
+        title="정기회의",
+        meeting_date="2026-07-23",
+        text="회의 내용",
+        participants=["김민준"],
+    )
+    baseline = analyze_meeting(request)
+
+    with patch("app.main.analyze_meeting_with_huggingface", return_value=baseline):
+        assert _analyze_json_uncached(request).analysis_provider == "huggingface"
+
+    with (
+        patch("app.main.analyze_meeting_with_huggingface", side_effect=RuntimeError("boom")),
+        patch("app.main.analyze_meeting_with_ollama", return_value=baseline),
+    ):
+        assert _analyze_json_uncached(request).analysis_provider == "ollama"
+
+    with (
+        patch("app.main.analyze_meeting_with_huggingface", side_effect=RuntimeError("boom")),
+        patch("app.main.analyze_meeting_with_ollama", side_effect=RuntimeError("boom")),
+    ):
+        assert _analyze_json_uncached(request).analysis_provider == "rule_based"
+
+
+def test_analysis_provider_is_returned_over_http(monkeypatch):
+    monkeypatch.setenv("MEETING_ANALYSIS_PROVIDER", "rule")
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    client = TestClient(app)
+    response = client.post(
+        "/api/v1/meetings/analyze-json",
+        json={
+            "title": "정기회의",
+            "meeting_date": "2026-07-23",
+            "text": "회의 내용",
+            "participants": ["김민준"],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["analysis_provider"] == "rule_based"
+
+
+def test_build_ollama_prompt_tells_the_model_what_a_summary_must_contain():
+    """summary 만 규칙 블록이 없어 '한두 문장'이라는 길이 제약뿐이었다.
+
+    그 결과 요약이 케이스마다 담아야 할 사실 3~7개 중 절반만 담아 충실도가
+    0.526 에 머물렀다. todos·담당자·title 처럼 무엇을 담을지 명시한다.
+    """
+    prompt = build_ollama_prompt(
+        AnalyzeRequest(
+            title="정기회의",
+            meeting_date="2026-08-18",
+            text="회의 내용",
+            participants=["김민준"],
+        )
+    )
+
+    assert "summary 규칙" in prompt
+    assert "결정된 것" in prompt
+    assert "하기로 한 일" in prompt
+    assert "배경" in prompt
