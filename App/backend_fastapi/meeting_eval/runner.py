@@ -25,6 +25,9 @@ class CaseResult:
     scenario: str
     todo: TodoScore
     summary: SummaryScore
+    # 설정한 provider 가 아니라 실제로 답한 티어. 폴백은 로그에만 남아서, ollama 로
+    # 돌린 12건 중 4건이 규칙 기반에 넘어간 것을 모르고 두 티어의 평균을 읽고 있었다.
+    analysis_provider: str = "unknown"
 
 
 @dataclass(frozen=True)
@@ -35,6 +38,11 @@ class EvalReport:
     @property
     def mean_f1(self) -> float:
         return _mean([result.todo.f1 for result in self.results])
+
+    @property
+    def fallback_count(self) -> int:
+        """설정과 다른 티어가 답한 건수. 0 이 아니면 이 리포트의 평균은 섞인 값이다."""
+        return sum(1 for result in self.results if not _is_requested_tier(result, self.provider))
 
     @property
     def mean_summary_score(self) -> float:
@@ -56,6 +64,7 @@ class EvalReport:
                 "case_id": result.case_id,
                 "scenario": result.scenario,
                 "provider": self.provider,
+                "analysis_provider": result.analysis_provider,
                 "precision": result.todo.precision,
                 "recall": result.todo.recall,
                 "f1": result.todo.f1,
@@ -93,7 +102,7 @@ def _run_case(case: EvalCase, analyze, judge_ask) -> CaseResult:
         result = analyze(case.request)
     except Exception:
         logger.warning("분석 실패로 0점 처리. case_id=%s", case.case_id, exc_info=True)
-        return CaseResult(case.case_id, case.scenario, _ZERO_TODO, _ZERO_SUMMARY)
+        return CaseResult(case.case_id, case.scenario, _ZERO_TODO, _ZERO_SUMMARY, "failed")
 
     try:
         summary = judge_summary(
@@ -108,8 +117,25 @@ def _run_case(case: EvalCase, analyze, judge_ask) -> CaseResult:
         summary = _ZERO_SUMMARY
 
     return CaseResult(
-        case.case_id, case.scenario, score_todos(result.todos, case.golden.todos), summary
+        case.case_id,
+        case.scenario,
+        score_todos(result.todos, case.golden.todos),
+        summary,
+        result.analysis_provider,
     )
+
+
+# 설정값과 라벨의 표기가 달라 문자열 비교만으로는 폴백을 가려낼 수 없다.
+_TIER_ALIASES = {
+    "hf": "huggingface",
+    "rule": "rule_based",
+    "auto": "huggingface",
+}
+
+
+def _is_requested_tier(result: CaseResult, provider: str) -> bool:
+    requested = _TIER_ALIASES.get(provider, provider)
+    return result.analysis_provider == requested
 
 
 def _source_text_of(request: AnalyzeRequest) -> str:

@@ -49,3 +49,24 @@ def test_rows_are_flat_for_dataframe():
     assert set(rows[0]) >= {"case_id", "scenario", "provider", "f1", "precision", "recall",
                             "assignee_accuracy", "due_date_accuracy", "priority_accuracy",
                             "summary_score"}
+
+
+def test_report_records_the_tier_that_actually_answered():
+    """설정한 provider 와 실제로 답한 티어는 다를 수 있다.
+
+    ollama 로 12건을 돌렸을 때 4건이 ReadTimeout 으로 규칙 기반에 넘어갔는데,
+    리포트에는 전부 'ollama' 로만 적혀 두 티어가 섞인 평균이 그대로 나갔다.
+    """
+    cases = load_cases(FIXTURES)
+
+    def fell_back(request):
+        result = _empty_result(request)
+        provider = "rule_based" if request.title == cases[0].request.title else "ollama"
+        return result.model_copy(update={"analysis_provider": provider})
+
+    report = run_eval(cases, analyze=fell_back, judge_ask=lambda p: "아니오", provider="ollama")
+
+    rows = report.to_rows()
+    assert rows[0]["analysis_provider"] == "rule_based"
+    assert rows[1]["analysis_provider"] == "ollama"
+    assert report.fallback_count == 1
