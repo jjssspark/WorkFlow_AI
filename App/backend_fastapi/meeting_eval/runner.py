@@ -25,6 +25,9 @@ class CaseResult:
     scenario: str
     todo: TodoScore
     summary: SummaryScore
+    # 설정한 provider 가 아니라 실제로 답한 티어. 폴백은 로그에만 남아서, ollama 로
+    # 돌린 12건 중 4건이 규칙 기반에 넘어간 것을 모르고 두 티어의 평균을 읽고 있었다.
+    analysis_provider: str = "unknown"
 
 
 @dataclass(frozen=True)
@@ -35,6 +38,11 @@ class EvalReport:
     @property
     def mean_f1(self) -> float:
         return _mean([result.todo.f1 for result in self.results])
+
+    @property
+    def fallback_count(self) -> int:
+        """설정과 다른 티어가 답한 건수. 0 이 아니면 이 리포트의 평균은 섞인 값이다."""
+        return sum(1 for result in self.results if not _is_requested_tier(result, self.provider))
 
     @property
     def mean_summary_score(self) -> float:
@@ -50,12 +58,22 @@ class EvalReport:
         """지어내지 않았는가. 아무 말도 안 하면 만점이라 단독으로 읽으면 안 된다."""
         return _mean([result.summary.safety for result in self.results])
 
+    @property
+    def dated_summary_count(self) -> int:
+        """요약이 날짜를 한 번이라도 쓴 케이스 수. 안전성 평균과 반드시 같이 읽어야 한다.
+
+        이 값이 0 이면 안전성 1.000 은 '안 지어냈다'가 아니라 '검사할 것이 없었다'는
+        뜻이다. 36건을 재보니 요약이 날짜를 쓴 것은 2건뿐이었다.
+        """
+        return sum(1 for result in self.results if result.summary.dated)
+
     def to_rows(self) -> List[dict]:
         return [
             {
                 "case_id": result.case_id,
                 "scenario": result.scenario,
                 "provider": self.provider,
+                "analysis_provider": result.analysis_provider,
                 "precision": result.todo.precision,
                 "recall": result.todo.recall,
                 "f1": result.todo.f1,
@@ -66,6 +84,7 @@ class EvalReport:
                 "summary_score": result.summary.score,
                 "summary_coverage": result.summary.coverage,
                 "summary_safety": result.summary.safety,
+                "summary_has_date": int(result.summary.dated),
                 # 안전성이 0인 이유를 CSV만 보고 알 수 있어야 한다. 없으면 매번 케이스를
                 # 다시 돌려 요약을 눈으로 확인하게 된다.
                 "invented_dates": " ".join(result.summary.invented_dates),
@@ -93,7 +112,7 @@ def _run_case(case: EvalCase, analyze, judge_ask) -> CaseResult:
         result = analyze(case.request)
     except Exception:
         logger.warning("분석 실패로 0점 처리. case_id=%s", case.case_id, exc_info=True)
-        return CaseResult(case.case_id, case.scenario, _ZERO_TODO, _ZERO_SUMMARY)
+        return CaseResult(case.case_id, case.scenario, _ZERO_TODO, _ZERO_SUMMARY, "failed")
 
     try:
         summary = judge_summary(
@@ -108,8 +127,25 @@ def _run_case(case: EvalCase, analyze, judge_ask) -> CaseResult:
         summary = _ZERO_SUMMARY
 
     return CaseResult(
-        case.case_id, case.scenario, score_todos(result.todos, case.golden.todos), summary
+        case.case_id,
+        case.scenario,
+        score_todos(result.todos, case.golden.todos),
+        summary,
+        result.analysis_provider,
     )
+
+
+# 설정값과 라벨의 표기가 달라 문자열 비교만으로는 폴백을 가려낼 수 없다.
+_TIER_ALIASES = {
+    "hf": "huggingface",
+    "rule": "rule_based",
+    "auto": "huggingface",
+}
+
+
+def _is_requested_tier(result: CaseResult, provider: str) -> bool:
+    requested = _TIER_ALIASES.get(provider, provider)
+    return result.analysis_provider == requested
 
 
 def _source_text_of(request: AnalyzeRequest) -> str:

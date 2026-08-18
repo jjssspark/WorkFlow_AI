@@ -32,6 +32,10 @@ public class MeetingAnalysis {
     @Column(name = "analysis_engine")
     private String analysisEngine;
 
+    /** FastAPI 안에서 실제로 답한 티어. 이 컬럼이 생기기 전에 저장된 행은 null 이다. */
+    @Column(name = "analysis_provider")
+    private String analysisProvider;
+
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
@@ -44,7 +48,8 @@ public class MeetingAnalysis {
         List<String> decisions,
         List<String> risks,
         List<String> keywords,
-        String analysisEngine
+        String analysisEngine,
+        String analysisProvider
     ) {
         this.meetingId = meetingId;
         this.summary = summary;
@@ -52,6 +57,7 @@ public class MeetingAnalysis {
         this.risks = risks;
         this.keywords = keywords;
         this.analysisEngine = analysisEngine;
+        this.analysisProvider = analysisProvider;
         this.createdAt = LocalDateTime.now();
     }
 
@@ -77,5 +83,9 @@ public class MeetingAnalysis {
 
     public String getAnalysisEngine() {
         return analysisEngine;
+    }
+
+    public String getAnalysisProvider() {
+        return analysisProvider;
     }
 }

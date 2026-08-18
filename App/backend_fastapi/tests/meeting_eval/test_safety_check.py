@@ -60,3 +60,17 @@ def test_score_is_all_or_nothing():
 
     assert result.score == 0.0
     assert result.invented_dates == ["8월 30일", "9월 2일"]
+
+
+def test_result_reports_whether_the_summary_had_any_date():
+    """안전성 1.000 이 '안 지어냈다' 인지 '날짜를 안 썼다' 인지 구분할 수 있어야 한다.
+
+    36건을 재보니 요약이 날짜를 쓴 것은 2건뿐이었다. 나머지 34건의 만점은 검사가
+    통과한 것이 아니라 검사할 것이 없었던 것이다. 점수만 싣고 이 사실을 안 싣면
+    변별력 없는 1.000 을 계속 성과로 읽게 된다.
+    """
+    silent = check_invented_dates("날짜를 쓰지 않은 요약", "8월 10일까지 끝낸다")
+    spoke = check_invented_dates("8월 10일까지 끝낸다", "8월 10일까지 끝낸다")
+
+    assert silent.score == 1.0 and not silent.dated
+    assert spoke.score == 1.0 and spoke.dated

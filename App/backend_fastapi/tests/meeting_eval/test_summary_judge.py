@@ -77,18 +77,48 @@ def test_unparseable_answer_counts_as_fail():
     assert score.score == 0.0
 
 
-def test_prompt_carries_summary_decisions_and_item():
+def test_coverage_is_judged_on_the_summary_alone():
+    """충실도 문항에는 결정사항을 넘기지 않는다.
+
+    양식 문서의 결정사항 칸은 규칙 기반이 그대로 복사하기 때문에 항상 채워져 있다.
+    같이 넘기면 "회의 내용을 분석해 결정사항 1건, 업무 후보 2건을 추출했습니다" 같은
+    빈 요약도 결정사항 블록을 근거로 통과한다. 실제로 nosep-02 에서 세 티어 모두
+    그렇게 통과했다. 문항 문면이 "요약에 담겼는가"이므로 요약문만 보고 판정한다.
+    """
     seen = []
 
     def fake_ask(prompt):
         seen.append(prompt)
         return "예"
 
-    judge_summary("요약본", ["결정A"], ["항목1"], ask=fake_ask)
+    judge_summary(
+        "요약본",
+        ["결정A"],
+        [ChecklistItem("항목1", COVERAGE)],
+        ask=fake_ask,
+        source_text="원문에만 있는 사실",
+    )
 
     assert "요약본" in seen[0]
-    assert "결정A" in seen[0]
     assert "항목1" in seen[0]
+    assert "결정A" not in seen[0]
+    # 원문도 넘기면 안 된다. 결정사항만 뺐을 때 규칙 기반 many-01 이 0.29 -> 0.86 으로
+    # 뛰었는데 요약은 그대로 기계 문구였다. 심사기가 요약 대신 원문을 읽고 답한 것이다.
+    assert "원문에만 있는 사실" not in seen[0]
+
+
+def test_safety_still_sees_the_decisions():
+    """안전성은 지어내지 않았는가를 묻는다. 결정사항에 지어낸 날짜가 섞이면
+    그것도 사용자에게 나가므로 심사 대상에서 빼면 안 된다."""
+    seen = []
+
+    def fake_ask(prompt):
+        seen.append(prompt)
+        return "예"
+
+    judge_summary("요약본", ["결정A"], [ChecklistItem("항목1", SAFETY)], ask=fake_ask)
+
+    assert "결정A" in seen[0]
 
 
 def test_prompt_carries_source_text_when_given():
@@ -103,7 +133,13 @@ def test_prompt_carries_source_text_when_given():
         seen.append(prompt)
         return "예"
 
-    judge_summary("요약본", ["결정A"], ["항목1"], ask=fake_ask, source_text="박지수: 8월 10일까지 끝냅니다.")
+    judge_summary(
+        "요약본",
+        ["결정A"],
+        [ChecklistItem("항목1", SAFETY)],
+        ask=fake_ask,
+        source_text="박지수: 8월 10일까지 끝냅니다.",
+    )
 
     assert "박지수: 8월 10일까지 끝냅니다." in seen[0]
 

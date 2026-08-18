@@ -52,6 +52,8 @@ class SummaryScore:
     coverage: float = 0.0
     safety: float = 1.0
     invented_dates: List[str] = field(default_factory=list)
+    # 요약이 날짜를 한 번이라도 썼는가. safety 가 1.0 인 이유를 가르는 값이다.
+    dated: bool = False
 
 
 def judge_summary(
@@ -68,7 +70,9 @@ def judge_summary(
     verdicts = [
         JudgeVerdict(
             checklist_item=item.text,
-            passed=_is_affirmative(ask(_build_prompt(summary, decisions, item.text, source_text))),
+            passed=_is_affirmative(
+                ask(_build_prompt(summary, decisions, item, source_text))
+            ),
             kind=item.kind,
         )
         for item in items
@@ -91,6 +95,7 @@ def judge_summary(
         coverage=coverage,
         safety=safety,
         invented_dates=invented.invented_dates,
+        dated=invented.dated,
     )
 
 
@@ -101,21 +106,37 @@ def _ratio(verdicts: Sequence[JudgeVerdict], kind: str, default: float) -> float
     return sum(1 for verdict in selected if verdict.passed) / len(selected)
 
 
-def _build_prompt(summary: str, decisions: Sequence[str], item: str, source_text: str = "") -> str:
-    """원문이 있으면 함께 넘긴다.
+def _build_prompt(
+    summary: str, decisions: Sequence[str], item: ChecklistItem, source_text: str = ""
+) -> str:
+    """축마다 심사기에게 보여주는 것이 다르다.
 
-    안전성 문항은 "요약에 적힌 날짜가 모두 원문에 나오는가" 형태라 원문 없이는 심사기가
-    대조할 대상이 없어 원리상 답할 수 없다. 원문 없이 측정했을 때 1.5B와 4B 모델이
-    정확히 이 문항에서만 반복해서 틀린 것이 그 증거다.
+    충실도 문항에는 요약문만 넘긴다. 원문과 결정사항은 요약이 비어 있어도 늘 채워져
+    있어서, 같이 넘기면 심사기가 요약 대신 그쪽을 읽고 답한다. 결정사항만 뺐을 때
+    규칙 기반 many-01 이 0.29 -> 0.86 으로 뛰었는데 요약은 그대로 기계 문구였다.
+    문항이 "무엇이 담겼어야 하는지"를 문면에 적고 있으므로 원문 없이 답할 수 있다.
+
+    안전성 문항에는 원문과 결정사항을 함께 넘긴다. "요약에 적힌 날짜가 모두 원문에
+    나오는가" 형태라 원문 없이는 대조할 대상이 없어 원리상 답할 수 없다. 원문 없이
+    측정했을 때 1.5B와 4B 모델이 정확히 이 문항에서만 반복해서 틀린 것이 그 증거다.
+    결정사항에 섞인 지어낸 날짜도 사용자에게 나가므로 심사 대상에서 빼면 안 된다.
     """
-    decision_lines = "\n".join(f"- {decision}" for decision in decisions) or "(없음)"
+    if item.kind != SAFETY:
+        return (
+            "아래 회의 요약을 읽고 질문에 '예' 또는 '아니오' 한 단어로만 답하세요.\n"
+            "요약에 적힌 내용만 근거로 삼고, 요약에 없으면 '아니오'라고 답하세요.\n\n"
+            f"[요약]\n{summary}\n\n"
+            f"[질문]\n{item.text}"
+        )
+
     source_block = f"[회의록 원문]\n{source_text}\n\n" if source_text.strip() else ""
+    decision_lines = "\n".join(f"- {decision}" for decision in decisions) or "(없음)"
     return (
         "아래 회의록 원문과 요약, 결정사항을 읽고 질문에 '예' 또는 '아니오' 한 단어로만 답하세요.\n\n"
         f"{source_block}"
         f"[요약]\n{summary}\n\n"
         f"[결정사항]\n{decision_lines}\n\n"
-        f"[질문]\n{item}"
+        f"[질문]\n{item.text}"
     )
 
 

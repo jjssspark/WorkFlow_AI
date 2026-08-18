@@ -19,7 +19,9 @@ def test_loads_case_with_sections_and_golden():
     assert case.golden.todos[0].due_date == "2026-08-14"
     assert case.golden.todos[0].priority == "HIGH"
     assert [(item.text, item.kind) for item in case.golden.summary_checklist] == [
-        ("임베딩 모델 교체와 재색인 결정이 요약에 담겼는가", "coverage")
+        ("임베딩 모델을 교체하기로 한 결정이 요약에 담겼는가", "coverage"),
+        ("전체 문서를 재색인하기로 한 결정이 요약에 담겼는가", "coverage"),
+        ("임베딩 모델 교체 뒤 검색 정확도가 떨어졌다는 배경이 요약에 담겼는가", "coverage"),
     ]
 
 

@@ -38,7 +38,15 @@
     ],
     "summary_checklist": [
       {
-        "item": "배포 파이프라인 자동화 결정이 요약에 담겼는가",
+        "item": "배포 파이프라인을 GitHub Actions 기반으로 자동화하기로 한 결정이 요약에 담겼는가",
+        "kind": "coverage"
+      },
+      {
+        "item": "배포 문서 정리도 함께 하기로 한 것이 요약에 담겼는가",
+        "kind": "coverage"
+      },
+      {
+        "item": "현재 배포가 수동 스크립트로 진행되고 있다는 배경이 요약에 담겼는가",
         "kind": "coverage"
       }
     ]

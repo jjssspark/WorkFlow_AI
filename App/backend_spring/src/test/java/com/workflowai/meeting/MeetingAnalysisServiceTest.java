@@ -887,7 +887,7 @@ class MeetingAnalysisServiceTest {
 
         meeting.setAnalysisStatus("completed");
         when(meetingAnalysisRepository.findById(5L)).thenReturn(Optional.of(new MeetingAnalysis(
-            5L, "요약", List.of("결정"), List.of("위험"), List.of("키워드"), "FASTAPI"
+            5L, "요약", List.of("결정"), List.of("위험"), List.of("키워드"), "FASTAPI", "huggingface"
         )));
         when(meetingActionItemRepository.findByMeetingId(5L)).thenReturn(List.of());
 
@@ -896,6 +896,28 @@ class MeetingAnalysisServiceTest {
         assertThat(completed.projectId()).isEqualTo("demo-project");
         assertThat(completed.sourceType()).isEqualTo("audio");
         assertThat(completed.status()).isEqualTo("COMPLETED");
+    }
+
+    @Test
+    void findCarriesTheStoredAnalysisTierAndFallsBackToUnknown() {
+        // 저장된 분석을 다시 열면 analysis_provider 가 늘 unknown 이라, 사용자가 받은
+        // 요약이 huggingface 것인지 규칙 기반 것인지 나중에는 알 수 없었다.
+        mockMember(1L);
+        Meeting meeting = new Meeting(1L, "정기회의", "document", "/tmp/x.txt", "completed", LocalDate.now(), "정기회의", "x.txt", null, 5L);
+        when(meetingRepository.findByIdAndProjectId(9L, 1L)).thenReturn(Optional.of(meeting));
+        when(meetingActionItemRepository.findByMeetingId(9L)).thenReturn(List.of());
+        MeetingAnalysisService service = newService();
+
+        when(meetingAnalysisRepository.findById(9L)).thenReturn(Optional.of(new MeetingAnalysis(
+            9L, "요약", List.of("결정"), List.of("위험"), List.of("키워드"), "FASTAPI", "rule_based"
+        )));
+        assertThat(service.find("demo-project", "9").analysis().analysis_provider()).isEqualTo("rule_based");
+
+        // 컬럼이 생기기 전에 저장된 행. 티어를 모르는 것과 규칙 기반인 것은 다르다.
+        when(meetingAnalysisRepository.findById(9L)).thenReturn(Optional.of(new MeetingAnalysis(
+            9L, "요약", List.of("결정"), List.of("위험"), List.of("키워드"), "FASTAPI", null
+        )));
+        assertThat(service.find("demo-project", "9").analysis().analysis_provider()).isEqualTo("unknown");
     }
 
     @Test
@@ -911,7 +933,7 @@ class MeetingAnalysisServiceTest {
 
         meeting.setAnalysisStatus("completed");
         when(meetingAnalysisRepository.findById(7L)).thenReturn(Optional.of(new MeetingAnalysis(
-            7L, "요약", List.of("결정"), List.of("위험"), List.of("키워드"), "FASTAPI"
+            7L, "요약", List.of("결정"), List.of("위험"), List.of("키워드"), "FASTAPI", "huggingface"
         )));
         when(meetingActionItemRepository.findByMeetingId(7L)).thenReturn(List.of());
 

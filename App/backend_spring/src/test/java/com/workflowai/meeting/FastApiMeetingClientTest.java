@@ -45,6 +45,39 @@ class FastApiMeetingClientTest {
     }
 
     @Test
+    void analyzeCarriesTheFastApiAnalysisProviderThrough() throws Exception {
+        // FastAPI 안에서 hf→ollama→규칙 기반으로 강등돼도 Spring 이 필드를 흘려버리면
+        // 운영에서는 사용자가 받은 요약의 출처를 여전히 알 수 없다.
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/api/v1/meetings/analyze-json", exchange -> {
+            byte[] body = ("{\"summary\":\"요약\",\"decisions\":[],\"todos\":[],\"risks\":[],"
+                + "\"keywords\":[],\"meeting_meta\":{\"title\":\"정기회의\",\"meeting_date\":\"2026-08-18\","
+                + "\"participants\":[]},\"analysis_provider\":\"ollama\"}").getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, body.length);
+            try (var os = exchange.getResponseBody()) {
+                os.write(body);
+            }
+        });
+        server.start();
+
+        try {
+            FastApiMeetingClient client = new FastApiMeetingClient(
+                "http://127.0.0.1:" + server.getAddress().getPort(),
+                INTERNAL_KEY,
+                Duration.ofSeconds(2),
+                Duration.ofSeconds(2)
+            );
+
+            MeetingAnalysisResult result = client.analyze(request());
+
+            assertThat(result.analysis_provider()).isEqualTo("ollama");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
     void analyzeStopsWhenReadTimeoutExpires() throws Exception {
         HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
         server.createContext("/api/v1/meetings/analyze-json", exchange -> {

@@ -1435,3 +1435,50 @@ def test_rule_based_analysis_extracts_formal_followup_tasks_from_meeting_minutes
     assert "업무 후보 등록 후 업무보드 반영 흐름 확인" in titles
     assert any(title.startswith("심사자 기여도 분석 화면에서 근거 문장 표시") for title in titles)
     assert all(todo.evidence_text for todo in result.todos)
+
+
+def test_analysis_provider_reports_the_tier_that_actually_answered(monkeypatch):
+    # 폴백은 로그에만 남아서, 운영에서 사용자가 받은 요약이 HF 것인지 규칙 기반 것인지
+    # 응답만 보고는 알 수 없었다. 평가에서 "유령 0점"을 만든 것도 이 미관측 강등이다.
+    monkeypatch.setenv("MEETING_ANALYSIS_PROVIDER", "auto")
+    monkeypatch.setenv("HF_TOKEN", "configured-test-token")
+    request = AnalyzeRequest(
+        title="정기회의",
+        meeting_date="2026-07-23",
+        text="회의 내용",
+        participants=["김민준"],
+    )
+    baseline = analyze_meeting(request)
+
+    with patch("app.main.analyze_meeting_with_huggingface", return_value=baseline):
+        assert _analyze_json_uncached(request).analysis_provider == "huggingface"
+
+    with (
+        patch("app.main.analyze_meeting_with_huggingface", side_effect=RuntimeError("boom")),
+        patch("app.main.analyze_meeting_with_ollama", return_value=baseline),
+    ):
+        assert _analyze_json_uncached(request).analysis_provider == "ollama"
+
+    with (
+        patch("app.main.analyze_meeting_with_huggingface", side_effect=RuntimeError("boom")),
+        patch("app.main.analyze_meeting_with_ollama", side_effect=RuntimeError("boom")),
+    ):
+        assert _analyze_json_uncached(request).analysis_provider == "rule_based"
+
+
+def test_analysis_provider_is_returned_over_http(monkeypatch):
+    monkeypatch.setenv("MEETING_ANALYSIS_PROVIDER", "rule")
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    client = TestClient(app)
+    response = client.post(
+        "/api/v1/meetings/analyze-json",
+        json={
+            "title": "정기회의",
+            "meeting_date": "2026-07-23",
+            "text": "회의 내용",
+            "participants": ["김민준"],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["analysis_provider"] == "rule_based"

@@ -39,6 +39,25 @@ def test_every_case_measures_coverage(fixture_set):
         assert COVERAGE in kinds, f"{fixture_set}/{case.case_id}: 충실도 문항이 없어 항상 0점이다"
 
 
+# 요약 품질을 비교하려고 만든 두 셋. meeting_eval_extraction 은 To-Do 추출을 재는
+# 셋이라 요약 문항이 얕고, 여기서 요구하지 않는다.
+SUMMARY_SETS = ["meeting_eval", "meeting_eval_v2"]
+
+
+@pytest.mark.parametrize("fixture_set", SUMMARY_SETS)
+def test_coverage_is_asked_more_than_once_per_case(fixture_set):
+    """문항이 하나뿐이면 그 하나만 통과해도 충실도가 만점이다.
+
+    실제로 12건 중 9건이 문항 1개였고, "OCI 배포 스크립트 점검 회의" 처럼 제목만
+    되풀이한 요약이 충실도 1.00 을 받았다. 담아야 할 사실을 끊어 물어야 갈린다.
+    """
+    for case in load_cases(FIXTURES / fixture_set):
+        coverage_items = [item for item in case.golden.summary_checklist if item.kind == COVERAGE]
+        assert len(coverage_items) >= 2, (
+            f"{fixture_set}/{case.case_id}: 충실도 문항이 {len(coverage_items)}개뿐이라 변별하지 못한다"
+        )
+
+
 @pytest.mark.parametrize("fixture_set", SETS)
 def test_retired_items_stay_retired(fixture_set):
     for case in load_cases(FIXTURES / fixture_set):
