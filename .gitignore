@@ -306,3 +306,7 @@ App/backend_fastapi/ml_delay_risk/models/*.pkl
 App/backend_fastapi/mlruns/
 # CatBoost가 fit() 실행 시 자동 생성하는 학습 로그(TensorBoard 이벤트 등) — 노트북 재실행마다 새로 생김.
 App/backend_fastapi/ml_delay_risk/models/catboost_info/
+
+# 개인 작업 문서 폴더(document_<이름>/)는 공유 레포에 올리지 않는다.
+# 각자 로컬에서만 유지하며, 팀이 공유해야 할 결론은 docs/ 아래로 옮긴다.
+document_*/
