@@ -34,11 +34,11 @@
 
 | 이름 | 담당 |
 | --- | --- |
-| **고무서 (PM)** | AI 어시스턴트·RAG — LangGraph 분기 그래프, pgvector 검색 / 심사자 기여도 분석 / 권한 QA |
-| **박지수 (PL)** | 회의록 AI 분석 — Redis 큐 기반 비동기 처리, LLM 요약 / To-Do 자동 생성 |
-| 박상준 | 인증·RBAC — Spring Security + JWT / 프로젝트 관리 / 팀원 초대 |
+| **고무서 (PM)** | AI 어시스턴트·RAG — LangGraph 분기 그래프, pgvector 검색 / 배포 |
+| **박지수 (PL)** | 회의록 AI 분석 — Redis 큐 기반 비동기 처리, LLM 요약 / To-Do 자동 생성 / 인증·RBAC — Spring Security + JWT |
+| 박상준 | 팀원 초대 |
 | 유소은 | 대시보드 / 지연 위험도 예측 — LightGBM |
-| 이은주 | ML 모델링 — 업무 편중 점수(scikit-learn), 임베딩 파이프라인 |
+| 이은주 | ML 모델링 — 업무 편중 점수(scikit-learn), 임베딩 파이프라인 / 심사자 기여도 분석 |
 | 허영주 | 업무 보드(칸반) |
 
 ## 시스템 아키텍처
