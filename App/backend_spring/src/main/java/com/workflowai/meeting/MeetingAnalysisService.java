@@ -265,7 +265,9 @@ public class MeetingAnalysisService {
                 meeting.getTitle(),
                 meeting.getMeetingDate() == null ? null : meeting.getMeetingDate().toString(),
                 List.of()
-            )
+            ),
+            // 컬럼이 생기기 전에 저장된 행은 null 이다. 티어를 모르는 것과 규칙 기반인 것은 다르다.
+            analysis.getAnalysisProvider() == null ? "unknown" : analysis.getAnalysisProvider()
         );
         return new MeetingAnalysisResponse(
             meetingId,

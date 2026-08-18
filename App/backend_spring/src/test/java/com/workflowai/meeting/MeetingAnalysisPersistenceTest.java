@@ -70,6 +70,33 @@ class MeetingAnalysisPersistenceTest {
     }
 
     @Test
+    void saveAnalysisSuccessStoresTheTierThatAnsweredNotJustTheServer() {
+        // analysis_engine 은 FASTAPI / SPRING_FALLBACK 만 구분한다. FastAPI 안에서
+        // huggingface -> ollama -> 규칙 기반으로 강등된 것은 이 값으로만 남는다.
+        MeetingAnalysisPersistence persistence = newPersistence();
+        when(meetingRepository.findByIdForUpdate(5L)).thenReturn(Optional.of(newMeeting()));
+        when(meetingAttendeeRepository.findByMeetingId(5L)).thenReturn(List.of());
+        stubSaves();
+
+        MeetingAnalysisResult result = new MeetingAnalysisResult(
+            "요약",
+            List.of("결정1"),
+            List.of(new MeetingTodo("업무1", "설명", "김민준", null, "2026-07-20", "HIGH", "ETC", true)),
+            List.of("위험1"),
+            List.of("키워드1"),
+            new MeetingMeta("정기회의", "2026-07-15", List.of("김민준")),
+            "rule_based"
+        );
+
+        persistence.saveAnalysisSuccess(5L, result, "FASTAPI");
+
+        ArgumentCaptor<MeetingAnalysis> analysisCaptor = ArgumentCaptor.forClass(MeetingAnalysis.class);
+        verify(meetingAnalysisRepository).save(analysisCaptor.capture());
+        assertThat(analysisCaptor.getValue().getAnalysisEngine()).isEqualTo("FASTAPI");
+        assertThat(analysisCaptor.getValue().getAnalysisProvider()).isEqualTo("rule_based");
+    }
+
+    @Test
     void saveAnalysisSuccessMarksMeetingCompletedAndStoresTodos() {
         MeetingAnalysisPersistence persistence = newPersistence();
         Meeting meeting = newMeeting();

@@ -115,7 +115,8 @@ public class MeetingAnalysisPersistence {
         }
 
         MeetingAnalysis analysis = meetingAnalysisRepository.save(new MeetingAnalysis(
-            meetingId, result.summary(), result.decisions(), result.risks(), result.keywords(), analysisSource
+            meetingId, result.summary(), result.decisions(), result.risks(), result.keywords(),
+            analysisSource, result.analysis_provider()
         ));
         String meetingRagContent = buildMeetingIngestContent(result);
         ragIngestService.recordIngestIntent(
