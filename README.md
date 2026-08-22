@@ -1,17 +1,31 @@
+<div align="center">
+
 # WorkFlow AI
 
-<p>
-<a href="https://t3-workflow-ai.site"><img src="https://img.shields.io/badge/배포-t3--workflow--ai.site-2ea44f?style=for-the-badge" alt="배포"></a>
-<a href="https://youtu.be/D5jy2qbKh7g"><img src="https://img.shields.io/badge/시연_영상-YouTube-FF0000?style=for-the-badge&logo=youtube&logoColor=white" alt="시연 영상"></a>
-<img src="https://img.shields.io/badge/테스트-2%2C241건-4c1?style=for-the-badge" alt="테스트">
-<img src="https://img.shields.io/badge/기간-2026.07.06_~_08.18-555?style=for-the-badge" alt="기간">
-</p>
+**팀 프로젝트의 회의 · 업무 · 진행 상황 · 평가 근거를 AI가 하나의 흐름으로 연결하는 협업 플랫폼**
 
-> **이 저장소는 팀 저장소 [rhantj/work-flow](https://github.com/rhantj/work-flow)의 포크입니다.**
-> 6인 팀 프로젝트이고 저는 부팀장으로 참여한 **박지수**입니다. 코드 전체가 제 작업물이 아니며,
+[![배포](https://img.shields.io/badge/배포-t3--workflow--ai.site-2ea44f?style=for-the-badge)](https://t3-workflow-ai.site)
+[![시연 영상](https://img.shields.io/badge/시연_영상-YouTube-FF0000?style=for-the-badge&logo=youtube&logoColor=white)](https://youtu.be/D5jy2qbKh7g)
+![테스트](https://img.shields.io/badge/테스트-2%2C225건-4c1?style=for-the-badge)
+![기간](https://img.shields.io/badge/기간-2026.07.06_~_08.18-555?style=for-the-badge)
+
+![React](https://img.shields.io/badge/React_19-61DAFB?style=flat-square&logo=react&logoColor=black)
+![TypeScript](https://img.shields.io/badge/TypeScript_5.9-3178C6?style=flat-square&logo=typescript&logoColor=white)
+![Spring Boot](https://img.shields.io/badge/Spring_Boot_3.5-6DB33F?style=flat-square&logo=springboot&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL_17_+_pgvector-4169E1?style=flat-square&logo=postgresql&logoColor=white)
+![Redis](https://img.shields.io/badge/Redis_Stream-FF4438?style=flat-square&logo=redis&logoColor=white)
+![LangGraph](https://img.shields.io/badge/LangGraph-1C3C3C?style=flat-square&logo=langgraph&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker_Compose-2496ED?style=flat-square&logo=docker&logoColor=white)
+
+[**데모 보기**](https://t3-workflow-ai.site) · [**시연 영상**](https://youtu.be/D5jy2qbKh7g) · [**내 기여 범위**](#내-기여-범위) · [**회고 · ADR · 트러블슈팅**](#기록한-문서)
+
+</div>
+
+> [!NOTE]
+> 이 저장소는 팀 저장소 [rhantj/work-flow](https://github.com/rhantj/work-flow)의 포크입니다.
+> 6인 팀 프로젝트이고 저는 부팀장으로 참여한 박지수입니다. **코드 전체가 제 작업물이 아닙니다.**
 > 제가 맡은 범위는 [내 기여 범위](#내-기여-범위)에 적어 두었습니다.
-
-> 팀 프로젝트의 회의, 업무, 진행 상황, 평가 근거를 AI가 하나의 흐름으로 연결하는 협업·평가 보조 웹 플랫폼
 
 대학생 팀프로젝트, 캡스톤디자인, 해커톤, AI 경진대회, 공모전 팀을 위한 서비스입니다.
 회의록을 올리면 요약·결정사항·To-Do가 자동으로 만들어져 업무 보드와 대시보드에 반영되고,
@@ -19,33 +33,40 @@
 
 [![WorkFlow AI 시연 영상](https://img.youtube.com/vi/D5jy2qbKh7g/maxresdefault.jpg)](https://youtu.be/D5jy2qbKh7g)
 
-**🌐 배포: https://t3-workflow-ai.site**
-데모 계정: `1234@naver.com` / `park!6443` — 로그인하면 시딩된 팀 프로젝트를 바로 볼 수 있습니다.
+| | |
+| --- | --- |
+| 🌐 **배포 주소** | https://t3-workflow-ai.site |
+| 🔑 **데모 계정** | `1234@naver.com` / `park!6443` — 로그인하면 시딩된 팀 프로젝트를 바로 볼 수 있습니다 |
+| 🎬 **시연 영상** | https://youtu.be/D5jy2qbKh7g |
 
+> [!IMPORTANT]
 > GitHub 연동은 최종 범위에서 빠졌습니다.
 > 어디까지가 실제 동작인지는 [미구현 · 임시처리 현황](#미구현--임시처리-현황)에 정리해 두었습니다.
 
 ---
 
+## 기록한 문서
+
+만든 것보다 **왜 그렇게 만들었고 어디서 틀렸는지**를 남기는 데 힘을 썼습니다.
+되돌린 결정과 실패한 시도를 그대로 적어 두었습니다.
+
+| 문서 | 내용 |
+| --- | --- |
+| 🪞 [회고](document_박지수/회고.md) | 다시 만든다면 다르게 할 것, 알면서 남긴 기술 부채, 가장 오래 붙잡은 문제 |
+| 🧭 [설계 결정 (ADR)](document_박지수/ADR.md) | 되돌린 결정과 이득이 없던 결정을 포함한 10건 |
+| 🔧 [트러블슈팅](document_박지수/트러블슈팅.md) | 증상 · 원인 · 실패한 시도 · 해결까지 15건 |
+| 📊 [분석 품질 개선 기록](document_박지수/회의록_분석_품질_개선.md) | 평가셋 설계부터 채점기 교정까지 측정 과정 전부 |
+
+---
+
 ## 목차
 
-1. [주요 기능](#주요-기능)
-2. [미구현 · 임시처리 현황](#미구현--임시처리-현황)
-3. [AI 분석 품질을 숫자로 관리합니다](#ai-분석-품질을-숫자로-관리합니다)
-4. [기술 스택 — 왜 이걸 골랐나](#기술-스택--왜-이걸-골랐나)
-5. [시스템 아키텍처](#시스템-아키텍처)
-6. [로컬 실행](#로컬-실행)
-7. [테스트](#테스트)
-8. [트러블슈팅 하이라이트](#트러블슈팅-하이라이트)
-9. [왜 만들었나](#왜-만들었나)
-10. [팀](#팀)
-11. [내 기여 범위](#내-기여-범위)
-12. [사용자 권한](#사용자-권한)
-13. [CI/CD](#cicd)
-14. [회의록 AI 분석 제공자](#회의록-ai-분석-제공자)
-15. [DB 마이그레이션](#db-마이그레이션)
-16. [문서](#문서)
-17. [라이선스](#라이선스)
+| | |
+| --- | --- |
+| **서비스** | [주요 기능](#주요-기능) · [미구현 · 임시처리 현황](#미구현--임시처리-현황) · [왜 만들었나](#왜-만들었나) · [사용자 권한](#사용자-권한) |
+| **기술** | [AI 분석 품질 관리](#ai-분석-품질을-숫자로-관리합니다) · [기술 스택](#기술-스택--왜-이걸-골랐나) · [시스템 아키텍처](#시스템-아키텍처) · [테스트](#테스트) · [CI/CD](#cicd) · [DB 마이그레이션](#db-마이그레이션) |
+| **실행·기록** | [로컬 실행](#로컬-실행) · [트러블슈팅 하이라이트](#트러블슈팅-하이라이트) · [회의록 AI 분석 제공자](#회의록-ai-분석-제공자) · [문서](#문서) |
+| **사람** | [팀](#팀) · [내 기여 범위](#내-기여-범위) |
 
 ---
 
@@ -256,7 +277,7 @@ Docker Desktop만 있으면 됩니다. (FastAPI 이미지에 ML 라이브러리�
 
 ```bash
 git clone https://github.com/jjssspark/WorkFlow_AI.git
-cd work-flow/App
+cd WorkFlow_AI/App
 
 # 1) 환경변수 준비 — 필수값 2개만 채우면 뜬다
 cp .env.example .env
@@ -279,7 +300,7 @@ docker compose up -d
 | AI FastAPI 헬스 | http://localhost:8000/api/v1/health |
 
 > 이 절차는 2026-08-13에 빈 폴더 클론 → 빈 볼륨 상태에서 실제로 검증했습니다.
-> Flyway 마이그레이션 37개가 전부 적용되고(최신 `20260801.1`), 테이블 30개와 pgvector 확장이 생성되며,
+> 그 시점 Flyway 마이그레이션 37개가 전부 적용되고 테이블 30개와 pgvector 확장이 생성되며,
 > Spring 헬스가 `{"status":"UP"}`, 프론트엔드가 200을 반환하는 것까지 확인했습니다.
 
 **알아둘 것**
@@ -304,12 +325,12 @@ docker compose up -d
 
 | 계층 | 테스트 | 실행 |
 | --- | --- | --- |
-| Spring | **890건** (파일 138개) | `cd App/backend_spring && ./gradlew test` |
+| Spring | **874건** (파일 138개) | `cd App/backend_spring && ./gradlew test` |
 | FastAPI | **762건** (CI가 강제하는 하한) | `cd App/backend_fastapi && python -m pytest tests -q` |
 | Frontend | **634건** (파일 83개) | `cd App/frontend && pnpm test` |
 
-> Spring·Frontend 수치는 소스에서 `@Test`/`it()`을 센 값이고, FastAPI 수치는 CI가 실제 실행
-> 건수로 검증하는 하한입니다.
+> Spring 수치는 `@Test`·`@ParameterizedTest`, Frontend는 `it()`/`test()`를 소스에서 센 값이고,
+> FastAPI 수치는 CI가 실제 실행 건수로 검증하는 하한입니다.
 
 ### 테스트 개수를 CI가 검사합니다
 
@@ -378,7 +399,7 @@ Docker가 없어 pgvector 통합 테스트 5건이 스킵돼도 그대로 통과
 심사자 기여도 평가, 마이페이지, CI/CD 배포 게이트입니다. dev 브랜치에서 머지 커밋을 뺀 개인 커밋은 342개이고, 기간은
 2026-07-06부터 2026-08-18까지입니다.
 
-대표적인 작업 몇 가지입니다. 자세한 경위는 아래 문서에 있습니다.
+대표적인 작업 몇 가지입니다.
 
 | 작업 | 커밋 |
 | --- | --- |
@@ -389,12 +410,7 @@ Docker가 없어 pgvector 통합 테스트 5건이 스킵돼도 그대로 통과
 | 회의록 분석 품질 평가 체계 구축 — 정답 평가셋 30건과 채점기, 채점기 결함 5건 교정 | [`41858867`](https://github.com/jjssspark/WorkFlow_AI/commit/41858867) → [`5a6add63`](https://github.com/jjssspark/WorkFlow_AI/commit/5a6add63) → [`90fb6cb0`](https://github.com/jjssspark/WorkFlow_AI/commit/90fb6cb0) |
 | 녹음 복구 경로가 실제 브라우저에서는 한 번도 동작하지 않던 문제 — MediaRecorder timeslice | [`173a90a0`](https://github.com/jjssspark/WorkFlow_AI/commit/173a90a0) |
 
-| 문서 | 내용 |
-| --- | --- |
-| [회고](document_박지수/회고.md) | 다시 만든다면 다르게 할 것, 알면서 남긴 기술 부채, 가장 오래 붙잡은 문제 |
-| [ADR](document_박지수/ADR.md) | 되돌린 결정과 이득이 없던 결정을 포함한 설계 결정 10건 |
-| [트러블슈팅](document_박지수/트러블슈팅.md) | 증상·원인·실패한 시도·해결까지 15건 |
-| [분석 품질 개선 기록](document_박지수/회의록_분석_품질_개선.md) | 평가셋 설계부터 채점기 교정까지 측정 과정 전부 |
+각 작업의 경위 — 무엇을 시도했다 실패했고 왜 그렇게 결정했는지 — 는 [기록한 문서](#기록한-문서)의 네 건에 적어 두었습니다.
 
 ---
 
@@ -472,7 +488,7 @@ Docker가 없어 pgvector 통합 테스트 5건이 스킵돼도 그대로 통과
 | [PRD](docs/projects/WorkFlow_AI_PRD.md) | 기능 범위, 요구사항, 권한, AI 적용 범위 |
 | [최종 기능정리](docs/projects/WorkFlow_AI_최종_기능정리.md) | 화면·기능별 최종 정의와 차별점 |
 | [API 명세서](docs/projects/WorkFlow_AI_API_명세서.md) | REST 경로, 응답 형식, 권한, AI 백엔드 계약 |
-| [DB 스키마](docs/DB_스키마.md) | 테이블 29개, 관계·삭제 정책, 인덱스 판단 근거. DDL 원문은 [`docs/db/schema.sql`](docs/db/schema.sql) |
+| [DB 스키마](docs/DB_스키마.md) | 테이블 30개, 관계·삭제 정책, 인덱스 판단 근거. DDL 원문은 [`docs/db/schema.sql`](docs/db/schema.sql) |
 | [성능 · 품질 지표](docs/성능_지표.md) | 번들 크기, 전송량, 응답 시간, 타임아웃 값의 실측 근거. 재지 못한 것도 함께 적음 |
 | [어시스턴트 RAG 구조](docs/projects/WorkFlow_AI_어시스턴트_RAG_구조.md) | 임베딩·검색·생성 파이프라인 |
 | [인증/RBAC 구현](docs/projects/WorkFlow_AI_인증_RBAC_구현_파일.md) | 로그인·권한 처리 파일 맵 |
